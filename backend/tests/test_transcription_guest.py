@@ -5,6 +5,7 @@ Transcricao CUSTA (AssemblyAI): disparar exige dono|editor — viewer nao gasta 
 saldo do dono. Ler o estado e leitura: viewer passa. O pipeline inteiro roda no
 silo do DONO pela convencao `user_jwt=None => service role`.
 """
+import json
 import unittest
 from unittest import mock
 
@@ -132,6 +133,58 @@ class TestTranscriptionProgressSilo(unittest.TestCase):
             self._poll(actor="guest-9", job_rows=[{"user_id": "owner-1", "payload": {"type": "transcription"}}])
         self.assertEqual(ctx.exception.status_code, 404)
 
+
+class TestPackTranscribeAdNamesFilter(unittest.TestCase):
+    """O filtro `ad_names` vale mesmo quando nao casa nada.
+
+    Antes havia um `if filtered:` na rota: uma lista de nomes que nao batesse com
+    nenhum anuncio do pack fazia o pedido "transcreva estes 3" virar "transcreva o
+    pack inteiro" -- e transcricao gasta o saldo de AssemblyAI DO DONO. Basta um
+    chamador com o pack errado, ou um ad renomeado entre a leitura da tela e o
+    clique, para a conta chegar.
+
+    SABOTAGEM (rodada em 2026-09-05): repor o `if filtered:` na rota faz
+    `test_nomes_sem_correspondencia_nao_transcrevem_nada` falhar.
+    """
+
+    ADS = [
+        {"ad_name": "A", "creative": {}},
+        {"ad_name": "B", "creative": {}},
+        {"ad_name": "C", "creative": {}},
+    ]
+
+    def _call(self, ad_names):
+        from app.routes import facebook as FB
+
+        sb = _FakeSb({"packs": lambda: _Resp([{"id": "pack-1", "name": "P"}])})
+        body = FB.TranscribePackRequest(ad_names=ad_names) if ad_names is not None else None
+        # Espelha a realidade: o worker so tem o que sobrou do filtro para contar.
+        pending = mock.Mock(side_effect=lambda **kw: len(kw["formatted_ads"]))
+
+        with mock.patch.object(FB, "assert_pack_role",
+                               return_value=PackAccess(role="dono", owner_id="owner-1")),              mock.patch.object(FB, "_sb_for", return_value=sb),              mock.patch.object(FB, "get_facebook_token_for_user", return_value="tok"),              mock.patch.object(FB, "GraphAPI", lambda tok, user_id=None: mock.Mock(access_token=tok)),              mock.patch.object(FB, "get_job_tracker", return_value=mock.Mock()),              mock.patch.object(FB.supabase_repo, "get_ads_for_pack", return_value=list(self.ADS)),              mock.patch("app.services.transcription_worker.count_pending_transcriptions", pending),              mock.patch("app.services.transcription_worker.run_transcription_batch"),              mock.patch.object(FB.threading, "Thread"),              mock.patch.object(FB.pack_action_log, "log_pack_action"):
+            resp = FB.start_pack_transcription("pack-1", body, user={"token": "jwt", "user_id": "owner-1"})
+        enviados = ([a["ad_name"] for a in pending.call_args.kwargs["formatted_ads"]]
+                    if pending.call_args else [])
+        return resp, enviados
+
+    def test_sem_body_transcreve_o_pack_inteiro(self):
+        resp, enviados = self._call(None)
+        self.assertEqual(enviados, ["A", "B", "C"])
+        self.assertIsNotNone(json.loads(resp.body)["transcription_job_id"])
+
+    def test_subconjunto_vai_so_com_os_pedidos(self):
+        resp, enviados = self._call(["B"])
+        self.assertEqual(enviados, ["B"])
+        self.assertIsNotNone(json.loads(resp.body)["transcription_job_id"])
+
+    def test_nomes_sem_correspondencia_nao_transcrevem_nada(self):
+        """O caso que o `if filtered:` transformava em transcricao do pack inteiro."""
+        resp, enviados = self._call(["nao-existe-neste-pack"])
+        self.assertEqual(enviados, [])
+        payload = json.loads(resp.body)
+        self.assertIsNone(payload["transcription_job_id"])
+        self.assertEqual(payload["message"], "Nenhuma transcricao pendente".replace("transcricao", "transcrição"))
 
 if __name__ == "__main__":
     unittest.main()

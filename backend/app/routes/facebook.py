@@ -5020,12 +5020,18 @@ def start_pack_transcription(
                 a["creative"] = {}
             formatted_ads.append(a)
 
-        # Filtrar por ad_names específicos se fornecido no body
+        # Filtrar por ad_names específicos se fornecido no body.
+        #
+        # O filtro vale MESMO quando não casa nada. Antes havia um `if filtered:` aqui:
+        # uma lista de nomes que não batesse com nenhum anúncio do pack fazia o pedido
+        # "transcreva estes 3" virar "transcreva o pack inteiro" — e transcrição gasta
+        # o saldo de AssemblyAI DO DONO. Basta um chamador com o pack errado, ou um ad
+        # renomeado entre a leitura da tela e o clique, para a conta chegar. Zero
+        # correspondência agora cai no `pending <= 0` logo abaixo e responde
+        # "Nenhuma transcrição pendente", que é a resposta honesta.
         if body and body.ad_names:
             name_set = set(body.ad_names)
-            filtered = [a for a in formatted_ads if a.get("ad_name") in name_set]
-            if filtered:
-                formatted_ads = filtered
+            formatted_ads = [a for a in formatted_ads if a.get("ad_name") in name_set]
 
         force_no_audio = bool(body and body.force_no_audio)
         pending = count_pending_transcriptions(
