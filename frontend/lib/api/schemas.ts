@@ -674,6 +674,10 @@ export const RankingsItemSchema = z.object({
   // declarada aqui é silenciosamente removida no parse.
   tags: z.array(RankingsRowTagSchema).optional(),
   has_transcription: z.boolean().optional(),
+  // 142: por que este vídeo NÃO tem transcrição. `false` em has_transcription juntava
+  // "ainda não transcrito" (acionável) com "sem áudio detectável" (falha permanente) —
+  // e a UI acabava oferecendo uma transcrição que o backend sempre recusaria.
+  transcription_no_audio: z.boolean().optional(),
   media_type: z.enum(["video", "image", "unknown"]).nullable().optional(),
   series: z
     .lazy(() => RankingsSeriesSchema)
