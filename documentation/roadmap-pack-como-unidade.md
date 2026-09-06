@@ -23,6 +23,11 @@
 >
 > Nenhuma decisão em aberto bloqueia o P3 — as pendências são todas do P1, adiado.
 
+> **Capítulo irmão:** [roadmap-pastas-de-packs.md](roadmap-pastas-de-packs.md) —
+> pastas, seleção em massa e ações em lote. Este documento trata do pack como
+> unidade de *configuração e colaboração*; aquele trata de *organizar e operar 30
+> deles*. Eixos diferentes, sem dependência entre si.
+
 ---
 
 ## Tese
