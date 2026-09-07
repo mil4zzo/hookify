@@ -205,12 +205,6 @@ export default function PacksPage() {
    */
   const [removeIntegrationPreview, setRemoveIntegrationPreview] = useState<ClearEnrichmentResult | null>(null);
   const [isLoadingRemovePreview, setIsLoadingRemovePreview] = useState(false);
-  /**
-   * Invariante do produto: tem planilha conectada, tem leadscore; não tem
-   * planilha, não tem leadscore. Desmarcar é a exceção (quero soltar a planilha
-   * mas guardar os números que já entraram), não a regra.
-   */
-  const [alsoClearEnrichment, setAlsoClearEnrichment] = useState(true);
   const [isRemovingIntegration, setIsRemovingIntegration] = useState(false);
   const [judgmentPack, setJudgmentPack] = useState<AdsPack | null>(null);
 
@@ -734,7 +728,6 @@ export default function PacksPage() {
     const integrationId = pack.sheet_integration?.id;
     if (!integrationId) return;
     setPackToRemoveIntegration(pack);
-    setAlsoClearEnrichment(true);
     setRemoveIntegrationPreview(null);
     setIsLoadingRemovePreview(true);
     try {
@@ -758,9 +751,7 @@ export default function PacksPage() {
     try {
       // Ordem obrigatória: a limpeza descobre o pack A PARTIR da integração.
       // Deletar primeiro perderia o vínculo e deixaria o leadscore órfão.
-      if (alsoClearEnrichment) {
-        cleared = (await api.integrations.google.clearSheetEnrichment(integrationId, false)).rows_cleared;
-      }
+      cleared = (await api.integrations.google.clearSheetEnrichment(integrationId, false)).rows_cleared;
       await api.integrations.google.deleteSheetIntegration(integrationId);
       updatePack(pack.id, { sheet_integration: undefined });
       setPackToRemoveIntegration(null);
@@ -1268,10 +1259,10 @@ export default function PacksPage() {
         isOpen={!!packToRemoveIntegration}
         onClose={() => !isRemovingIntegration && setPackToRemoveIntegration(null)}
         title="Desconectar planilha"
-        message={`O pack "${packToRemoveIntegration?.name}" continua existindo, e a planilha no Google não é alterada.`}
+        message={`O pack "${packToRemoveIntegration?.name}" continua existindo, e a planilha no Google não é alterada. O leadscore que veio dela é apagado: sem planilha conectada, o pack não guarda dados enriquecidos.`}
         onConfirm={confirmRemoveSheetIntegration}
         variant="destructive"
-        confirmText={alsoClearEnrichment ? "Desconectar e apagar" : "Desconectar"}
+        confirmText="Desconectar e apagar"
         isLoading={isRemovingIntegration}
         loadingText="Desconectando..."
         layout="left-aligned"
@@ -1286,36 +1277,30 @@ export default function PacksPage() {
               </div>
             ) : removeIntegrationPreview && removeIntegrationPreview.rows_matched > 0 ? (
               <>
-                <label className="flex items-start gap-2.5 cursor-pointer rounded-md bg-border p-3">
-                  <Checkbox
-                    checked={alsoClearEnrichment}
-                    onCheckedChange={(v) => setAlsoClearEnrichment(v === true)}
-                    className="mt-0.5"
-                  />
-                  <span className="text-sm">
-                    Apagar também o leadscore já importado
-                    <span className="block text-2xs text-muted-foreground mt-0.5">
-                      {removeIntegrationPreview.rows_with_leadscore.toLocaleString()} dias com leadscore
-                      {removeIntegrationPreview.rows_with_custom > 0 &&
-                        ` · ${removeIntegrationPreview.rows_with_custom.toLocaleString()} com colunas adicionais`}
-                      . Não há como desfazer.
-                    </span>
-                  </span>
-                </label>
+                <div className="bg-border p-4 rounded-lg">
+                  <p className="text-sm text-muted-foreground mb-2">O leadscore importado sai junto:</p>
+                  <ul className="text-sm space-y-1">
+                    <li>
+                      • <strong>{removeIntegrationPreview.rows_with_leadscore.toLocaleString()}</strong> dias com leadscore
+                    </li>
+                    {removeIntegrationPreview.rows_with_custom > 0 && (
+                      <li>
+                        • <strong>{removeIntegrationPreview.rows_with_custom.toLocaleString()}</strong> dias com colunas adicionais
+                      </li>
+                    )}
+                  </ul>
+                </div>
                 {/* Leadscore é do anúncio-dia, não do pack: dia compartilhado sai dos dois. */}
-                {alsoClearEnrichment && removeIntegrationPreview.rows_shared_with_other_packs > 0 && (
+                {removeIntegrationPreview.rows_shared_with_other_packs > 0 && (
                   <InlineNotice tone="warning">
                     <strong>{removeIntegrationPreview.rows_shared_with_other_packs.toLocaleString()}</strong> desses dias também
                     estão em {removeIntegrationPreview.other_packs_affected === 1 ? "outro pack" : `outros ${removeIntegrationPreview.other_packs_affected} packs`},
                     que vão perder esse leadscore junto.
                   </InlineNotice>
                 )}
-                {!alsoClearEnrichment && (
-                  <InlineNotice tone="info">
-                    O leadscore já importado continua no pack, mas sem planilha conectada não haverá
-                    mais como apagá-lo depois.
-                  </InlineNotice>
-                )}
+                <p className="text-2xs text-muted-foreground">
+                  Não há como desfazer. Conectar a planilha de novo repovoa os dias que ela cobrir.
+                </p>
               </>
             ) : (
               <p className="text-sm text-muted-foreground">Nenhum leadscore foi importado por esta planilha.</p>
