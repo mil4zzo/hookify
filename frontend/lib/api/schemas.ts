@@ -425,6 +425,26 @@ export const DateColumnProbeSchema = z.object({
 })
 export type DateColumnProbe = z.infer<typeof DateColumnProbeSchema>
 
+/**
+ * Resultado de limpar o leadscore importado de um pack. `dry_run` é a prévia:
+ * conta com EXATAMENTE o mesmo predicado que a execução usa.
+ *
+ * `rows_shared_with_other_packs` é o número que precisa ser lido antes de
+ * confirmar: leadscore mora na linha do anúncio-dia, não no par (pack, linha),
+ * então um dia que também pertence a outro pack perde o leadscore lá também.
+ */
+export const ClearEnrichmentResultSchema = z.object({
+  status: z.string(),
+  dry_run: z.boolean(),
+  rows_matched: z.number(),
+  rows_with_leadscore: z.number(),
+  rows_with_custom: z.number(),
+  rows_cleared: z.number(),
+  rows_shared_with_other_packs: z.number().optional().default(0),
+  other_packs_affected: z.number().optional().default(0),
+})
+export type ClearEnrichmentResult = z.infer<typeof ClearEnrichmentResultSchema>
+
 export const SaveSheetIntegrationResponseSchema = z.object({
   integration: SheetIntegrationSchema,
 })

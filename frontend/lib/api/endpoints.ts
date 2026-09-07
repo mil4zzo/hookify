@@ -26,6 +26,7 @@ import {
   ListGoogleConnectionsResponse,
   SheetColumnsResponse,
   DateColumnProbe,
+  ClearEnrichmentResult,
   SheetIntegrationRequest,
   SaveSheetIntegrationResponse,
   SheetSyncJobProgress,
@@ -706,6 +707,20 @@ export const api = {
 
       listSheetIntegrations: (packId?: string): Promise<{ integrations: any[] }> =>
         apiClient.get('/integrations/google/ad-sheet-integrations', { params: packId ? { pack_id: packId } : {} }),
+
+      /**
+       * Apaga o leadscore importado da planilha nas linhas do pack.
+       * `dryRun` (padrão) só conta — é a prévia que o diálogo mostra antes de agir.
+       */
+      clearSheetEnrichment: (
+        integrationId: string,
+        dryRun: boolean,
+      ): Promise<ClearEnrichmentResult> =>
+        apiClient.post(
+          `/integrations/google/ad-sheet-integrations/${encodeURIComponent(integrationId)}/clear-enrichment`,
+          undefined,
+          { params: { dry_run: dryRun } },
+        ),
 
       deleteSheetIntegration: (integrationId: string): Promise<{ success: boolean }> =>
         apiClient.delete(`/integrations/google/ad-sheet-integrations/${encodeURIComponent(integrationId)}`),

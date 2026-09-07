@@ -1222,6 +1222,80 @@ def delete_sheet_column_mapping(
     return {"success": True, "mapping_id": mapping_id}
 
 
+@router.post("/ad-sheet-integrations/{integration_id}/clear-enrichment")
+def clear_ad_sheet_enrichment(
+    integration_id: str,
+    dry_run: bool = Query(True, description="true = so conta; false = apaga"),
+    user=Depends(get_current_user),
+):
+    """Apaga o leadscore importado da planilha nas linhas do pack desta integracao.
+
+    POR QUE ISTO PRECISA EXISTIR
+    ----------------------------
+    O sync e um UPDATE que nunca apaga: linhas que existiam na planilha antiga e
+    nao existem na nova ficam para sempre, misturadas com as novas e
+    indistinguiveis delas. Trocar a planilha de origem deixava o pack num estado
+    do qual nao havia como voltar.
+
+    SO O DONO. Escopo por owner_id, igual ao DELETE da integracao: e uma acao
+    destrutiva sem desfazer, e a credencial/integracao vive no silo do dono
+    mesmo em pack compartilhado.
+    """
+    sb = get_supabase_for_user(user["token"])
+
+    res = (
+        sb.table("ad_sheet_integrations")
+        .select("id, pack_id, spreadsheet_name")
+        .eq("id", integration_id)
+        .eq("owner_id", user["user_id"])
+        .limit(1)
+        .execute()
+    )
+    if not res.data:
+        raise HTTPException(status_code=404, detail="Integração não encontrada")
+
+    pack_id = res.data[0].get("pack_id")
+    if not pack_id:
+        # Sem pack nao ha escopo: limpar "tudo" apagaria o silo inteiro.
+        raise HTTPException(
+            status_code=400,
+            detail="Esta integração não está vinculada a um pack, então não há o que limpar com segurança.",
+        )
+
+    try:
+        rpc = sb.rpc(
+            "clear_ad_metrics_enrichment",
+            {"p_user_id": user["user_id"], "p_pack_id": str(pack_id), "p_dry_run": bool(dry_run)},
+        ).execute()
+    except Exception:
+        logger.exception("[CLEAR_ENRICHMENT] Falha na RPC (integracao %s)", integration_id)
+        raise HTTPException(status_code=500, detail="Erro ao limpar o leadscore importado.")
+
+    result = rpc.data or {}
+
+    if not dry_run and int(result.get("rows_cleared") or 0) > 0:
+        # `packs.updated_at` e metade do carimbo de frescor que o front usa para
+        # decidir se o cache de MQL/CPMQL precisa ser refeito (packsFreshness.ts).
+        # Apagamos leadscore sem tocar em `packs`: sem este toque, outro aparelho
+        # continuaria servindo MQL calculado com o dado que acabou de sair.
+        try:
+            from datetime import datetime as dt, timezone as tz
+
+            sb.table("packs").update({"updated_at": dt.now(tz.utc).isoformat(timespec="seconds")}).eq(
+                "id", str(pack_id)
+            ).eq("user_id", user["user_id"]).execute()
+        except Exception as e:
+            logger.warning("[CLEAR_ENRICHMENT] Falha ao carimbar o pack %s: %s", pack_id, e)
+
+        logger.info(
+            "[CLEAR_ENRICHMENT] Pack %s: %s linhas limpas (%s compartilhadas com outros %s pack(s))",
+            pack_id, result.get("rows_cleared"),
+            result.get("rows_shared_with_other_packs"), result.get("other_packs_affected"),
+        )
+
+    return result
+
+
 @router.delete("/ad-sheet-integrations/{integration_id}")
 def delete_ad_sheet_integration(
     integration_id: str,

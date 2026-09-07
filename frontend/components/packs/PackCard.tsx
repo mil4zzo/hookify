@@ -7,7 +7,7 @@ import { ToggleSwitch } from "@/components/common/ToggleSwitch";
 import { PackActivityDialog } from "@/components/packs/PackActivityDialog";
 import { PackShareDialog } from "@/components/packs/PackShareDialog";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { IconLogout, IconUsers, IconFilter, IconTrash, IconLoader2, IconRotateClockwise, IconPencil, IconTableExport, IconAlertTriangle, IconAlertCircle, IconMicrophone, IconTargetArrow, IconHistory } from "@tabler/icons-react";
+import { IconLogout, IconUsers, IconFilter, IconTrash, IconLoader2, IconRotateClockwise, IconPencil, IconTableExport, IconAlertTriangle, IconAlertCircle, IconMicrophone, IconTargetArrow, IconHistory, IconEraser } from "@tabler/icons-react";
 import { MetaIcon, GoogleSheetsIcon } from "@/components/icons";
 import { FilterRule } from "@/lib/api/schemas";
 import { AdsPack } from "@/lib/types";
@@ -44,6 +44,9 @@ export interface PackCardProps {
   onSetSheetIntegration: (pack: AdsPack) => void;
   onEditSheetIntegration?: (pack: AdsPack) => void;
   onDeleteSheetIntegration?: (pack: AdsPack) => void;
+  onClearSheetEnrichment?: (pack: AdsPack) => void;
+  /** Prévia da limpeza em voo: o item espera o servidor contar antes de abrir o diálogo. */
+  isLoadingClearPreview?: boolean;
   /** Abre a configuração de critérios de julgamento (MQL, CPR alvo, métrica de custo) do pack. */
   onEditJudgment?: (pack: AdsPack) => void;
   /** Inicia apenas a transcrição dos vídeos do pack (sem refresh). Útil para testes. */
@@ -68,7 +71,7 @@ export interface PackCardProps {
  * - Métricas: Campanhas, Adsets, Anúncios (grid de 3 colunas)
  * - Footer: Última atualização (esquerda) + Atualização automática (direita)
  */
-export function PackCard({ pack, adAccountName, formatCurrency, formatDate, onRefresh, onRemove, onToggleAutoRefresh, onSetSheetIntegration, onEditSheetIntegration, onDeleteSheetIntegration, onEditJudgment, onTranscribeAds, isSelected = false, isUpdating, updatingByName, isTogglingAutoRefresh, packToDisableAutoRefresh }: PackCardProps) {
+export function PackCard({ pack, adAccountName, formatCurrency, formatDate, onRefresh, onRemove, onToggleAutoRefresh, onSetSheetIntegration, onEditSheetIntegration, onDeleteSheetIntegration, onClearSheetEnrichment, isLoadingClearPreview, onEditJudgment, onTranscribeAds, isSelected = false, isUpdating, updatingByName, isTogglingAutoRefresh, packToDisableAutoRefresh }: PackCardProps) {
   const stats = pack.stats;
   // Conta de anúncio de origem: prefere o nome resolvido; cai para o id cru (act_...) se ainda não carregou/não resolveu.
   const adAccountLabel = adAccountName || pack.adaccount_id;
@@ -631,6 +634,25 @@ export function PackCard({ pack, adAccountName, formatCurrency, formatDate, onRe
                 <DropdownMenuItem onClick={() => onEditSheetIntegration(pack)}>
                   <IconPencil className="w-4 h-4 mr-2" />
                   Editar integração
+                </DropdownMenuItem>
+              )}
+              {onClearSheetEnrichment && !isSharedGuest && (
+                <DropdownMenuItem
+                  onClick={(e) => {
+                    // A prévia é uma ida ao servidor: manter o menu aberto evita
+                    // o clique parecer morto enquanto ela não volta.
+                    e.preventDefault();
+                    onClearSheetEnrichment(pack);
+                  }}
+                  disabled={isLoadingClearPreview}
+                  className="text-destructive focus:text-destructive focus:bg-destructive-10"
+                >
+                  {isLoadingClearPreview ? (
+                    <IconLoader2 className="w-4 h-4 mr-2 animate-spin" />
+                  ) : (
+                    <IconEraser className="w-4 h-4 mr-2" />
+                  )}
+                  Limpar leadscore importado
                 </DropdownMenuItem>
               )}
               {onDeleteSheetIntegration && !isSharedGuest && (
