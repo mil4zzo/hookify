@@ -137,6 +137,9 @@ def process_sync_job(
             "sync_outcome": stats.get("sync_outcome"),
             "outcome_reason": stats.get("outcome_reason"),
             "outcome_message": stats.get("outcome_message"),
+            # Nome atual + nome anterior quando a planilha foi renomeada na origem.
+            "spreadsheet_name": stats.get("spreadsheet_name"),
+            "spreadsheet_renamed_from": stats.get("spreadsheet_renamed_from"),
             "sheet_date_min": stats.get("sheet_date_min"),
             "sheet_date_max": stats.get("sheet_date_max"),
             "pack_date_start": stats.get("pack_date_start"),

@@ -49,6 +49,16 @@ export function SummaryStep({ stats, isImporting, onSyncAgain, onClose }: Summar
             : "Nenhuma linha foi aplicada"}
       </h3>
       <div className="space-y-4">
+        {/* Renomeacao na origem: informa sempre, inclusive num sync que deu certo —
+            trocar o nome costuma acompanhar trocar o conteudo. */}
+        {stats.spreadsheet_renamed_from && (
+          <InlineNotice tone="info">
+            A planilha foi renomeada desde a última sincronização:{" "}
+            <span className="line-through">{stats.spreadsheet_renamed_from}</span> →{" "}
+            <span className="font-medium">{stats.spreadsheet_name}</span>. Confira se o conteúdo
+            dela ainda é o mesmo que você vinculou.
+          </InlineNotice>
+        )}
         {/* O motivo vem pronto do backend: ele é quem sabe comparar a janela da
             planilha com a do pack. Aqui só exibe. */}
         {!isSuccess && stats.outcome_message && (

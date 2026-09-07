@@ -62,6 +62,9 @@ export type SheetSyncJobStats = {
   sheet_date_max?: string | null;
   pack_date_start?: string | null;
   pack_date_stop?: string | null;
+  /** Nome atual; e o anterior quando a planilha foi renomeada na origem. */
+  spreadsheet_name?: string | null;
+  spreadsheet_renamed_from?: string | null;
 };
 import { GoogleSheetsIcon } from "@/components/icons/GoogleSheetsIcon";
 
@@ -234,11 +237,17 @@ export async function pollSheetsSyncJob(config: PollSheetsSyncJobConfig): Promis
           stats.sync_outcome ?? (updatedRows > 0 ? "success" : "no_match");
 
         if (outcome === "success") {
+          // Renomeação na origem costuma acompanhar troca de conteúdo. Num sync que
+          // deu certo isso não é alarme, mas precisa ser dito: é o sinal de que o
+          // arquivo pode não ser mais o mesmo que foi vinculado.
+          const renameNote = stats.spreadsheet_renamed_from
+            ? ` A planilha foi renomeada para "${stats.spreadsheet_name}".`
+            : "";
           finishProgressToast(
             toastId,
             true,
-            `Planilha importada com sucesso! ${updatedRows} registros atualizados.`,
-            { durationSeconds: 5, context: "sheets", packName }
+            `Planilha importada com sucesso! ${updatedRows} registros atualizados.${renameNote}`,
+            { durationSeconds: renameNote ? 9 : 5, context: "sheets", packName }
           );
         } else {
           // Rodou inteiro e não aplicou nada. Sai da pilha de progresso e vira aviso:

@@ -128,3 +128,118 @@ def test_pack_sem_janela_legivel_ainda_avisa():
 def test_br_formata_e_nao_quebra():
     assert _br("2026-08-25") == "25/08/2026"
     assert _br(None) == "None"
+
+
+# --------------------------------------------------------------------------
+# Renomeacao da planilha na origem
+# --------------------------------------------------------------------------
+
+class _FakeIntegrationsTable:
+    def __init__(self, sink):
+        self._sink = sink
+
+    def update(self, payload):
+        self._sink["payload"] = payload
+        return self
+
+    def eq(self, *_a, **_k):
+        return self
+
+    def execute(self):
+        self._sink["writes"] = self._sink.get("writes", 0) + 1
+        if self._sink.get("raise_on_write"):
+            raise RuntimeError("banco fora do ar")
+
+        class _Res:
+            data = []
+
+        return _Res()
+
+
+class _FakeSBIntegrations:
+    def __init__(self):
+        self.sink = {}
+
+    def table(self, name):
+        assert name == "ad_sheet_integrations"
+        return _FakeIntegrationsTable(self.sink)
+
+
+def _cfg(name="Planilha antiga"):
+    return {
+        "spreadsheet_id": "sheet-1",
+        "spreadsheet_name": name,
+        "connection_id": "conn-1",
+    }
+
+
+def _run_rename(monkeypatch, current_name, cfg=None, boom=False):
+    import app.services.ad_metrics_sheet_importer as mod
+
+    def fake_get_name(**_kw):
+        if boom:
+            raise RuntimeError("Drive fora do ar")
+        return current_name
+
+    monkeypatch.setattr(mod, "get_spreadsheet_name", fake_get_name)
+    sb = _FakeSBIntegrations()
+    cfg = cfg if cfg is not None else _cfg()
+    old = mod._refresh_spreadsheet_name(sb, "jwt", "user-1", "integ-1", cfg)
+    return old, sb, cfg
+
+
+def test_renomeada_devolve_o_nome_antigo_e_grava_o_novo(monkeypatch):
+    old, sb, cfg = _run_rename(monkeypatch, "Planilha NOVA")
+    assert old == "Planilha antiga"
+    assert sb.sink["payload"] == {"spreadsheet_name": "Planilha NOVA"}
+    # A config em memória segue para o resto do sync já com o nome certo.
+    assert cfg["spreadsheet_name"] == "Planilha NOVA"
+
+
+def test_mesmo_nome_nao_escreve_no_banco(monkeypatch):
+    """O caso comum. Escrever aqui seria tocar o banco sem nada ter mudado."""
+    old, sb, _ = _run_rename(monkeypatch, "Planilha antiga")
+    assert old is None
+    assert sb.sink.get("writes") is None
+
+
+def test_nome_ausente_nao_apaga_o_guardado(monkeypatch):
+    """404/sem acesso devolve None: o nome guardado ainda é a melhor informação."""
+    old, sb, cfg = _run_rename(monkeypatch, None)
+    assert old is None
+    assert sb.sink.get("writes") is None
+    assert cfg["spreadsheet_name"] == "Planilha antiga"
+
+
+def test_falha_no_drive_nunca_derruba_o_sync(monkeypatch):
+    old, sb, _ = _run_rename(monkeypatch, None, boom=True)
+    assert old is None
+    assert sb.sink.get("writes") is None
+
+
+def test_falha_ao_gravar_ainda_reporta_a_renomeacao(monkeypatch):
+    """Detectou mas não conseguiu persistir: o usuário precisa saber mesmo assim."""
+    import app.services.ad_metrics_sheet_importer as mod
+
+    monkeypatch.setattr(mod, "get_spreadsheet_name", lambda **_k: "Planilha NOVA")
+    sb = _FakeSBIntegrations()
+    sb.sink["raise_on_write"] = True
+    cfg = _cfg()
+    old = mod._refresh_spreadsheet_name(sb, "jwt", "user-1", "integ-1", cfg)
+    assert old == "Planilha antiga"
+    # Não mentir: a gravação falhou, então a config em memória não avança.
+    assert cfg["spreadsheet_name"] == "Planilha antiga"
+
+
+def test_sem_spreadsheet_id_nao_chama_o_drive(monkeypatch):
+    import app.services.ad_metrics_sheet_importer as mod
+
+    called = {"n": 0}
+
+    def _spy(**_k):
+        called["n"] += 1
+        return "x"
+
+    monkeypatch.setattr(mod, "get_spreadsheet_name", _spy)
+    assert mod._refresh_spreadsheet_name(_FakeSBIntegrations(), "jwt", "u", "i", {}) is None
+    assert called["n"] == 0

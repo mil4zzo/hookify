@@ -194,6 +194,8 @@ export function useGoogleSyncJob() {
               sheet_date_max: stats.sheet_date_max,
               pack_date_start: stats.pack_date_start,
               pack_date_stop: stats.pack_date_stop,
+              spreadsheet_name: stats.spreadsheet_name,
+              spreadsheet_renamed_from: stats.spreadsheet_renamed_from,
             });
           },
           onSuccessInvalidate: async (_pId) => {

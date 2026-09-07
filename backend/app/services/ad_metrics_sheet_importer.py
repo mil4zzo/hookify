@@ -10,7 +10,7 @@ from typing import Any, Callable, Dict, List, Optional
 from app.core.supabase_client import get_supabase_for_user, get_supabase_service
 from app.core.supabase_retry import with_postgrest_retry
 from app.services import sheet_column_mappings
-from app.services.google_sheets_service import fetch_all_rows, GoogleSheetsError
+from app.services.google_sheets_service import fetch_all_rows, get_spreadsheet_name, GoogleSheetsError
 from app.services.google_errors import (
     GOOGLE_TOKEN_EXPIRED,
     GOOGLE_SHEETS_ERROR,
@@ -451,6 +451,62 @@ def _execute_batch_update(
 
     return aggregated
 
+def _refresh_spreadsheet_name(sb, user_jwt, user_id, integration_id, cfg):
+    """Reconfere o nome da planilha na origem. Devolve o nome ANTIGO se mudou.
+
+    POR QUE IMPORTA
+    ---------------
+    O nome era gravado uma vez, na criacao do vinculo, e nunca mais. Renomear a
+    planilha no Drive nao chegava aqui — o app seguia mostrando o nome velho.
+    Isso e pior do que parece: renomear costuma acompanhar uma TROCA de natureza
+    da planilha (o conteudo antigo e apagado e outro entra no lugar). Quem
+    esquece que aquele arquivo ainda esta ligado a um pack antigo sincroniza e
+    leva dados de outro funil para dentro dele.
+
+    Nao bloqueia nada e nao e alarme sozinho: renomear planilha e rotina. O que
+    o sync faz e (a) passar a mostrar o nome certo no card do pack e (b) juntar
+    a renomeacao ao diagnostico quando o sync tambem nao casou nada — aí os dois
+    sinais juntos contam a historia toda.
+
+    Best-effort de proposito: falha aqui nunca derruba o sync. Se o Drive nao
+    responder, o nome fica como estava e a importacao segue.
+    """
+    stored = cfg.get("spreadsheet_name")
+    spreadsheet_id = cfg.get("spreadsheet_id")
+    if not spreadsheet_id:
+        return None
+    try:
+        current = get_spreadsheet_name(
+            user_jwt=user_jwt,
+            user_id=user_id,
+            spreadsheet_id=spreadsheet_id,
+            connection_id=cfg.get("connection_id"),
+        )
+    except Exception as e:
+        logger.warning("[AD_METRICS_IMPORT] Nao foi possivel reconferir o nome da planilha: %s", e)
+        return None
+
+    # None = 404/sem acesso. Nao sobrescrever com vazio: o nome guardado ainda e
+    # a melhor informacao que temos, e a leitura da planilha falharia adiante.
+    if not current or current == stored:
+        return None
+
+    logger.info(
+        "[AD_METRICS_IMPORT] Planilha renomeada na origem: '%s' -> '%s' (integracao %s)",
+        stored, current, integration_id,
+    )
+    try:
+        sb.table("ad_sheet_integrations").update({"spreadsheet_name": current}).eq(
+            "id", integration_id
+        ).eq("owner_id", user_id).execute()
+    except Exception as e:
+        logger.warning("[AD_METRICS_IMPORT] Falha ao gravar o novo nome da planilha: %s", e)
+        return stored
+
+    cfg["spreadsheet_name"] = current
+    return stored
+
+
 def _persist_integration_status(sb, integration_id, user_id, stats):
     """Carimba o resultado do sync na integracao. Falha aqui e critica.
 
@@ -669,6 +725,9 @@ def run_ad_metrics_sheet_import(
     if not spreadsheet_id or not worksheet_title:
         raise AdMetricsImportError("Configuração de planilha inválida.")
 
+    # Antes de ler: o arquivo ainda se chama o que a gente acha que ele se chama?
+    renamed_from = _refresh_spreadsheet_name(sb, user_jwt, user_id, integration_id, cfg)
+
     if on_stage_change:
         on_stage_change("lendo_planilha")
     try:
@@ -737,6 +796,8 @@ def run_ad_metrics_sheet_import(
             "skipped_no_match": 0,
             "skipped_invalid": skipped_invalid,
         }
+        empty_stats["spreadsheet_renamed_from"] = renamed_from
+        empty_stats["spreadsheet_name"] = cfg.get("spreadsheet_name")
         empty_stats.update(
             _classify_sync_outcome(
                 sb, user_id, pack_id,
@@ -813,6 +874,9 @@ def run_ad_metrics_sheet_import(
 
     # Sucesso / aviso / planilha vazia. Zero linha aplicada nao e "nada a fazer":
     # e o sintoma mais comum de planilha vinculada ao pack errado.
+    stats["spreadsheet_renamed_from"] = renamed_from
+    stats["spreadsheet_name"] = cfg.get("spreadsheet_name")
+
     sheet_date_min = min(unique_dates_set) if unique_dates_set else None
     sheet_date_max = max(unique_dates_set) if unique_dates_set else None
     stats.update(
@@ -826,6 +890,15 @@ def run_ad_metrics_sheet_import(
             ids_out_of_pack_count=ids_out_of_pack_count,
         )
     )
+    # Renomeacao + sync que nao casou nada e a combinacao que conta a historia do
+    # arquivo trocado: junte os dois sinais na mesma frase, nao em dois avisos soltos.
+    if renamed_from and stats.get("sync_outcome") == "no_match" and stats.get("outcome_message"):
+        stats["outcome_message"] += (
+            f" A planilha tambem foi renomeada desde a ultima sincronizacao "
+            f"(\"{renamed_from}\" -> \"{cfg.get('spreadsheet_name')}\") — confira se o "
+            f"conteudo dela ainda e o mesmo."
+        )
+
     if stats.get("sync_outcome") != "success":
         logger.warning(
             "[AD_METRICS_IMPORT] Sync sem efeito (%s): %s",

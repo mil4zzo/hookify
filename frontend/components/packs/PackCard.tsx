@@ -258,6 +258,7 @@ export function PackCard({ pack, adAccountName, formatCurrency, formatDate, onRe
   // e sem este estado a integração dizia "success" e o problema sumia.
   const leadscoreSyncEmpty = pack.sheet_integration?.last_sync_status === "warning";
   const leadscoreSyncNotOk = leadscoreSyncFailed || leadscoreSyncEmpty;
+  const leadscoreTitle = pack.sheet_integration?.spreadsheet_name || "Leadscore";
   const hasAnyLeadscoreSyncInfo = !!(lastSuccessfulSyncAt || lastSyncAttemptAt);
   // Nos dois estados ruins o tempo mostrado é o do último SUCESSO: exibir o da
   // tentativa leria como "atualizado agora" logo depois de não atualizar nada.
@@ -530,9 +531,17 @@ export function PackCard({ pack, adAccountName, formatCurrency, formatDate, onRe
                       <div className="flex items-center gap-2">
                         <GoogleSheetsIcon className="w-3.5 h-3.5 flex-shrink-0" />
                       </div>
-                      <div className="flex flex-col">
-                        <label htmlFor={`leadscore-${pack.id}`} className="font-medium text-sm text-foreground cursor-pointer">
-                          Leadscore
+                      <div className="flex flex-col min-w-0">
+                        {/* Conectado, o titulo passa a ser a PLANILHA: e a informacao que
+                            falta quando alguem esquece qual arquivo alimenta este pack —
+                            justamente o esquecimento que faz uma planilha trocada entrar
+                            sem ninguem notar. Sem integracao, volta a ser o rotulo. */}
+                        <label
+                          htmlFor={`leadscore-${pack.id}`}
+                          title={leadscoreTitle}
+                          className="font-medium text-sm text-foreground cursor-pointer truncate max-w-[13rem]"
+                        >
+                          {leadscoreTitle}
                         </label>
                         {!pack.sheet_integration ? (
                           <span className="text-2xs text-muted-foreground">Não conectado</span>

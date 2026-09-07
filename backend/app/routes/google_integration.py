@@ -980,6 +980,8 @@ def get_sync_job_progress(
                         "sync_outcome": details.get("sync_outcome"),
                         "outcome_reason": details.get("outcome_reason"),
                         "outcome_message": details.get("outcome_message"),
+                        "spreadsheet_name": details.get("spreadsheet_name"),
+                        "spreadsheet_renamed_from": details.get("spreadsheet_renamed_from"),
                         "sheet_date_min": details.get("sheet_date_min"),
                         "sheet_date_max": details.get("sheet_date_max"),
                         "pack_date_start": details.get("pack_date_start"),

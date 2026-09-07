@@ -461,6 +461,9 @@ export const SheetSyncStatsSchema = z.object({
   sheet_date_max: z.string().nullable().optional(),
   pack_date_start: z.string().nullable().optional(),
   pack_date_stop: z.string().nullable().optional(),
+  /** Nome atual e, quando renomeada na origem desde o último sync, o nome anterior. */
+  spreadsheet_name: z.string().nullable().optional(),
+  spreadsheet_renamed_from: z.string().nullable().optional(),
   // 140: relatório por coluna vinculada
   custom_columns: z.record(z.string(), SheetSyncCustomColumnReportSchema).optional(),
 })
@@ -490,6 +493,8 @@ export const SheetSyncJobProgressSchema = z.object({
     sheet_date_max: z.string().nullable().optional(),
     pack_date_start: z.string().nullable().optional(),
     pack_date_stop: z.string().nullable().optional(),
+    spreadsheet_name: z.string().nullable().optional(),
+    spreadsheet_renamed_from: z.string().nullable().optional(),
   }).optional(),
   result_count: z.number().optional(),
 })
