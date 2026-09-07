@@ -29,6 +29,11 @@ PAGE_DELAY_S = 1
 _RETRYABLE_STATUS_CODES = {429, 500, 502, 503}
 
 
+def _fmt_int(n: int) -> str:
+    """50000 -> '50.000' (separador pt-BR) para a mensagem que o usuário lê."""
+    return f"{int(n):,}".replace(",", ".")
+
+
 def _is_retryable(exc: Exception) -> bool:
     """Verifica se a excecao justifica retry."""
     if isinstance(exc, requests.exceptions.Timeout):
@@ -129,8 +134,29 @@ class InsightsCollector:
                     }
 
                 if page_count >= MAX_PAGES:
-                    logger.warning("[InsightsCollector] Limite de paginas atingido (%d)", MAX_PAGES)
-                    break
+                    # Teto com paginas SOBRANDO = coleta incompleta. Isto NUNCA pode
+                    # virar sucesso: a sintese de linhas-zero do inventario trata
+                    # "ausente do insights" como "entregou 0" e gravaria zero por
+                    # cima de gasto real dos anuncios que ficaram nas paginas nao
+                    # lidas. Aconteceu em 2026-09-07 (6 packs, R$ 12 mil zerados
+                    # num deles). Falhar alto e devolver nada e o unico caminho seguro.
+                    logger.error(
+                        "[InsightsCollector] Relatorio %s passou do teto de %d paginas (%d linhas) e ainda "
+                        "tinha paginas: coleta INCOMPLETA, abortando sem gravar",
+                        report_run_id, MAX_PAGES, total_collected,
+                    )
+                    return {
+                        "success": False,
+                        "complete": False,
+                        "data": [],
+                        "page_count": page_count,
+                        "total_collected": total_collected,
+                        "error": (
+                            f"Relatório maior que o limite de {_fmt_int(MAX_PAGES * PAGE_LIMIT)} linhas "
+                            f"({_fmt_int(total_collected)} lidas e ainda havia mais). Reduza o período do pack "
+                            f"ou o filtro; nada foi gravado para não corromper os dados."
+                        ),
+                    }
 
                 # Delay entre paginas para evitar rate limit
                 time.sleep(PAGE_DELAY_S)
@@ -154,6 +180,7 @@ class InsightsCollector:
 
             return {
                 "success": True,
+                "complete": True,
                 "data": data,
                 "page_count": page_count,
                 "total_collected": total_collected
@@ -186,6 +213,19 @@ class InsightsCollector:
                 "total_collected": 0,
                 "error": str(e)
             }
+
+
+def collection_is_complete(result: Optional[Dict[str, Any]]) -> bool:
+    """A coleta trouxe o relatorio INTEIRO?
+
+    So um resultado `success=True` e `complete=True` autoriza o pipeline a tratar
+    "anuncio ausente do insights" como "entregou 0" (sintese de linhas-zero).
+    Qualquer outra coisa — teto de paginas, cancelamento, erro de rede — e um
+    recorte, e um recorte nunca pode ser interpretado como ausencia.
+    """
+    if not isinstance(result, dict):
+        return False
+    return bool(result.get("success")) and result.get("complete") is True
 
 
 def get_insights_collector(

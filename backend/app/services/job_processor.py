@@ -26,11 +26,11 @@ from app.services.job_tracker import (
     STAGE_FORMATTING,
     STAGE_PERSISTENCE,
 )
-from app.services.insights_collector import get_insights_collector
+from app.services.insights_collector import collection_is_complete, get_insights_collector
+from app.services.graph_api import GraphAPI
 from app.services.ad_inventory import count_ads_by_adset, select_zero_delivery_ads, synthesize_zero_raw_rows
 from app.services.ads_enricher import get_ads_enricher
 from app.services.dataformatter import format_ads_for_api
-from app.services.attribution_window import max_attribution_window
 from app.core.supabase_client import get_supabase_service
 from app.services import supabase_repo
 from app.services.background_tasks import spawn_pack_background_tasks
@@ -258,6 +258,21 @@ class JobProcessor:
         )
         return groups
 
+    def _release_pack_after_failure(self, payload: Optional[Dict[str, Any]], pack_id: Optional[str], is_refresh: bool) -> None:
+        """Refresh que morreu na coleta deixa o pack 'failed', não 'running' até o lock vencer."""
+        if not is_refresh or not pack_id:
+            return
+        try:
+            supabase_repo.update_pack_refresh_status(
+                self.user_jwt,
+                str(pack_id),
+                user_id=self.user_id,
+                refresh_status="failed",
+                sb_client=self._sb,
+            )
+        except Exception as e:
+            logger.warning(f"[JobProcessor] Não liberei o pack {pack_id} após falha na coleta (best-effort): {e}")
+
     def process(self, job_id: str) -> Dict[str, Any]:
         """
         Processa um job completo.
@@ -316,15 +331,32 @@ class JobProcessor:
             # abre relatório novo e deixa o id atual no payload (ver gk_retry).
             report_run_id = str(payload.get("meta_report_run_id") or job_id)
             collect_result = collector.collect(report_run_id)
-            
-            if not collect_result.get("success"):
-                self.tracker.mark_failed(job_id, collect_result.get("error", "Erro ao coletar insights"))
-                return {"success": False, "error": collect_result.get("error")}
-            
+
+            # Só um relatório INTEIRO segue. Recorte (teto de páginas, rede,
+            # cancelamento) falha aqui e não grava nada: mais abaixo a síntese de
+            # linhas-zero trataria anúncio ausente como "entregou 0" e apagaria
+            # gasto real — foi o que zerou R$ 12 mil do EI.30 - CA4 Cap em 2026-09-07.
+            if not collection_is_complete(collect_result):
+                error_msg = collect_result.get("error", "Erro ao coletar insights")
+                self.tracker.mark_failed(job_id, error_msg)
+                self._release_pack_after_failure(payload, pack_id_from_payload, is_refresh)
+                return {"success": False, "error": error_msg}
+
             raw_data = collect_result.get("data", [])
-            # Janela de atribuição vista nas linhas reais (antes das linhas-zero,
-            # que não trazem o campo). Vira o recuo do próximo refresh (migration 143).
-            attribution_window = max_attribution_window(raw_data)
+            # Janela de atribuição (migration 143): consulta SEPARADA no nível de
+            # conjunto. NUNCA pedir attribution_setting no relatório de anúncios —
+            # incha o relatório 3–4× e estoura o teto de páginas (ver
+            # GraphAPI.fetch_attribution_window). Fail-open: (None, None) mantém
+            # o valor já gravado no pack.
+            attribution_window = (None, None)
+            try:
+                attribution_window = GraphAPI(self.access_token, user_id=self.user_id).fetch_attribution_window(
+                    act_id,
+                    {"since": str(payload.get("date_start") or ""), "until": str(payload.get("date_stop") or "")},
+                    meta_filters,
+                )
+            except Exception as attr_exc:
+                logger.warning(f"[JobProcessor] fetch_attribution_window falhou (fail-open): {attr_exc}")
             page_count = collect_result.get("page_count", 0)
             total_collected = collect_result.get("total_collected", 0)
             
@@ -367,7 +399,9 @@ class JobProcessor:
                 )
                 inventory_rows = None
 
-            if inventory_rows:
+            # Trava explícita, independente do `return` acima: linha-zero só existe
+            # se o relatório veio inteiro. Ausência num recorte não é ausência.
+            if inventory_rows and collection_is_complete(collect_result):
                 known_ad_ids = {
                     str(ad.get("ad_id") or "").strip()
                     for ad in raw_data

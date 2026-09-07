@@ -2,7 +2,7 @@ import json
 import time
 import urllib.parse
 import logging
-from typing import Any, BinaryIO, Callable, Dict, List, Optional, Union
+from typing import Any, BinaryIO, Callable, Dict, List, Optional, Tuple, Union
 import requests
 from app.core.config import META_GRAPH_BASE_URL
 from app.services.facebook_page_token_service import get_page_access_token_for_page_id
@@ -237,7 +237,7 @@ class GraphAPI:
         json_filters = [json.dumps(f) for f in filters] if filters else []
 
         payload = {
-            'fields': 'actions,ad_id,ad_name,adset_id,adset_name,campaign_id,campaign_name,clicks,conversions,cost_per_conversion,cpm,ctr,frequency,impressions,inline_link_clicks,reach,spend,video_play_actions,video_thruplay_watched_actions,video_play_curve_actions,video_p50_watched_actions,video_p75_watched_actions,website_ctr,attribution_setting',
+            'fields': 'actions,ad_id,ad_name,adset_id,adset_name,campaign_id,campaign_name,clicks,conversions,cost_per_conversion,cpm,ctr,frequency,impressions,inline_link_clicks,reach,spend,video_play_actions,video_thruplay_watched_actions,video_play_curve_actions,video_p50_watched_actions,video_p75_watched_actions,website_ctr',
             'limit': self.limit,
             'level': self.level,
             'action_attribution_windows': self.action_attribution_windows,
@@ -281,6 +281,58 @@ class GraphAPI:
         except Exception as err:
             logger.exception("start_ads_job error: %s", err)
             raise GraphAPIError("error", str(err)) from err
+
+    def fetch_attribution_window(
+        self,
+        act_id: str,
+        time_range: Dict[str, str],
+        filters: Optional[List[Dict[str, Any]]] = None,
+        *,
+        max_pages: int = 20,
+    ) -> Tuple[Optional[int], Optional[str]]:
+        """Janela de atribuição dos conjuntos do pack — consulta SEPARADA e pequena.
+
+        Por que separada: pedir `attribution_setting` no relatório de anúncios faz a
+        Meta devolver linha para (quase) todo par (anúncio, dia) do período, com ou
+        sem entrega — o relatório incha 3–4× e um pack grande estoura o teto de
+        páginas do coletor. Em 2.380 jobs o máximo tinha sido 33 páginas; com o
+        campo, 6 packs bateram em 100 no primeiro dia (2026-09-07). Aqui é
+        `level=adset`, sem série diária: ~1 linha por conjunto.
+
+        Devolve (dias, setting) ou (None, None) — nunca levanta: quem chama cai no
+        valor gravado no pack ou no default (ver attribution_window.py).
+        """
+        from app.services.attribution_window import max_attribution_window
+
+        url = self.base_url + act_id + '/insights' + self.user_token
+        params: Dict[str, Any] = {
+            'fields': 'adset_id,attribution_setting',
+            'level': 'adset',
+            'time_range': json.dumps(time_range),
+            'limit': 500,
+        }
+        if filters:
+            params['filtering'] = json.dumps(list(filters))
+        rows: List[Dict[str, Any]] = []
+        try:
+            resp = requests.get(url, params=params, timeout=60)
+            resp.raise_for_status()
+            log_meta_usage(resp, "GraphAPI.fetch_attribution_window")
+            node = resp.json()
+            pages = 1
+            rows.extend(node.get('data', []))
+            while isinstance(node, dict) and node.get('paging', {}).get('next') and pages < max_pages:
+                next_resp = requests.get(node['paging']['next'], timeout=60)
+                next_resp.raise_for_status()
+                node = next_resp.json()
+                rows.extend(node.get('data', []))
+                pages += 1
+        except Exception as err:
+            logger.warning("fetch_attribution_window(%s) falhou (fail-open, janela fica como está): %s", act_id, err)
+            return None, None
+        days, setting = max_attribution_window(rows)
+        logger.info("fetch_attribution_window(%s): %d conjuntos, janela=%s (%s)", act_id, len(rows), days, setting)
+        return days, setting
 
     ## GET MEDIA SOURCE URLS
 
