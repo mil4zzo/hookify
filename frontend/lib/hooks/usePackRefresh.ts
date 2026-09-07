@@ -28,7 +28,7 @@ import {
   finishProgressToast,
   showCancellingToast,
   dismissToast,
-  errorToastIdFor,
+  dismissErrorCard,
   showInfo,
   showWarning,
   showProcessCancelledWarning,
@@ -1388,9 +1388,9 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
       // (RefreshQueueBar) e o toast só nasce quando o pack de fato começa.
       useRefreshQueueStore.getState().enqueue(packId, packName);
 
-      // Tentativa nova limpa o card de erro da tentativa anterior deste mesmo pack,
-      // que é persistente e vive em outro canto da tela.
-      dismissToast(errorToastIdFor(toastId));
+      // Tentativa nova limpa o card de erro da tentativa anterior deste mesmo pack:
+      // ele é persistente e vive fora da pilha, então não sai sozinho.
+      dismissErrorCard(toastId);
 
       // Resultado do Meta para o placar. Reattach e refresh sem Meta contam como ok:
       // não houve falha, só não houve trabalho aqui.

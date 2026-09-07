@@ -6,13 +6,7 @@ import { useRefreshQueueStore, selectQueuedCount } from "@/lib/store/refreshQueu
 import { cancelQueuedPackRefreshes } from "@/lib/hooks/usePackRefresh";
 
 /**
- * Altura da barra + folga até a pilha de toasts. O Toaster recebe este valor como offset
- * enquanto a barra está visível — ver AppToaster.
- */
-export const REFRESH_QUEUE_BAR_SPACE = 48; // h-control-default (40px) + 8px de folga
-
-/**
- * Placar do lote de atualizações — a faixa fina que fica embaixo da pilha de toasts.
+ * Placar do lote de atualizações — a faixa fina no pé da coluna do canto (ver AppToaster).
  *
  * Existe porque quem está na fila deixou de emitir toast: este é o ÚNICO lugar da interface
  * onde os packs que ainda esperam a vez aparecem, e o único de onde dá para pará-los.
@@ -27,42 +21,36 @@ export function RefreshQueueBar() {
   if (queuedCount === 0) return null;
 
   return (
-    <div className="pointer-events-none fixed bottom-8 right-8 z-toast flex justify-end">
-      <div
-        role="status"
-        aria-live="polite"
-        className="pointer-events-auto flex h-control-default w-[22rem] animate-in fade-in slide-in-from-bottom-2 max-w-[min(22rem,calc(100vw-1rem))] items-center gap-2 rounded-lg border border-border bg-card px-3 shadow-elevation-overlay"
+    <div
+      role="status"
+      aria-live="polite"
+      className="pointer-events-auto flex h-control-default w-[22rem] animate-in fade-in slide-in-from-bottom-2 max-w-[min(22rem,calc(100vw-1rem))] items-center gap-2 rounded-lg border border-border bg-card px-3 shadow-elevation-overlay"
+    >
+      <span className="relative flex h-2 w-2 flex-none" aria-hidden="true">
+        <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary opacity-60 motion-reduce:hidden" />
+        <span className="relative inline-flex h-2 w-2 rounded-full bg-primary" />
+      </span>
+
+      <span className="whitespace-nowrap text-xs font-medium text-foreground">{queuedCount} na fila</span>
+
+      {(doneCount > 0 || failedCount > 0) && <div className="h-4 w-px flex-none bg-border" />}
+      {doneCount > 0 && <span className="whitespace-nowrap text-xs text-muted-foreground">{doneCount} ok</span>}
+      {failedCount > 0 && (
+        <span className="whitespace-nowrap text-xs text-destructive">
+          {failedCount} {failedCount === 1 ? "falhou" : "falharam"}
+        </span>
+      )}
+
+      <div className="flex-1" />
+
+      <Button
+        variant="ghost"
+        size="sm"
+        className="px-2 text-xs text-muted-foreground hover:text-destructive"
+        onClick={() => cancelQueuedPackRefreshes()}
       >
-        <span className="relative flex h-2 w-2 flex-none" aria-hidden="true">
-          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary opacity-60 motion-reduce:hidden" />
-          <span className="relative inline-flex h-2 w-2 rounded-full bg-primary" />
-        </span>
-
-        <span className="whitespace-nowrap text-xs font-medium text-foreground">
-          {queuedCount} na fila
-        </span>
-
-        {(doneCount > 0 || failedCount > 0) && <div className="h-4 w-px flex-none bg-border" />}
-        {doneCount > 0 && (
-          <span className="whitespace-nowrap text-xs text-muted-foreground">{doneCount} ok</span>
-        )}
-        {failedCount > 0 && (
-          <span className="whitespace-nowrap text-xs text-destructive">
-            {failedCount} {failedCount === 1 ? "falhou" : "falharam"}
-          </span>
-        )}
-
-        <div className="flex-1" />
-
-        <Button
-          variant="ghost"
-          size="sm"
-          className="px-2 text-xs text-muted-foreground hover:text-destructive"
-          onClick={() => cancelQueuedPackRefreshes()}
-        >
-          Cancelar fila
-        </Button>
-      </div>
+        Cancelar fila
+      </Button>
     </div>
   );
 }

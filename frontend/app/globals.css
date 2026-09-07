@@ -214,8 +214,8 @@ html body[data-scroll-locked] {
 }
 
 
-/* A pilha sobe quando o placar do lote aparece embaixo (AppToaster ajusta o offset).
-   Sem transição, os toasts dão um salto de 48px ao abrir/fechar a fila. */
+/* A pilha sobe quando a coluna do canto cresce — placar da fila e cards de erro
+   (AppToaster mede e ajusta o offset). Sem transição, os toasts dão um salto. */
 [data-sonner-toaster][data-y-position="bottom"] {
   transition: bottom 260ms cubic-bezier(0.22, 1, 0.36, 1);
 }

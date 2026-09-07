@@ -6,6 +6,7 @@ import React, { type ReactNode } from "react";
 import { PausedToastCard, ProgressToastCard, StatusToastCard } from "@/components/common/ProgressToastCard";
 import { MetaIcon } from "@/components/icons/MetaIcon";
 import { GoogleSheetsIcon } from "@/components/icons/GoogleSheetsIcon";
+import { useErrorCardsStore } from "@/lib/store/errorCards";
 
 /** Duração dos toasts efêmeros. Alimenta o timer do sonner E a barra de contagem — uma fonte só, para não dessincronizar. */
 const STATUS_TOAST_DURATION_MS: Record<"success" | "info" | "warning", number> = {
@@ -505,10 +506,16 @@ function getToastCardOptions(toastId: string, duration: number = Infinity, dismi
  *
  * O erro NÃO reusa o id do progresso: com a pilha fechada (expand={false}), o card terminal
  * herdaria a posição do progresso e ficaria soterrado atrás dos toasts mais novos — persistente,
- * exigindo ação e invisível. Por isso ele vira um toast próprio, no canto de cima.
+ * exigindo ação e invisível. Por isso ele sai do sonner e vira card em região própria
+ * (ErrorCardStack), no mesmo canto e logo abaixo da pilha. Este id é a chave lá.
  */
 export function errorToastIdFor(toastId: string): string {
   return `${toastId}--error`;
+}
+
+/** Fecha o card de erro derivado deste toast de progresso, se existir. */
+export function dismissErrorCard(toastId: string) {
+  useErrorCardsStore.getState().dismiss(errorToastIdFor(toastId));
 }
 
 /**
@@ -557,7 +564,7 @@ const META_TOAST_ICON = <MetaIcon className="h-5 w-5 flex-shrink-0" />;
 const SHEETS_TOAST_ICON = <GoogleSheetsIcon className="h-5 w-5 flex-shrink-0" />;
 const TRANSCRIPTION_TOAST_ICON = <IconMicrophone className="h-5 w-5 flex-shrink-0 text-primary-foreground" />;
 
-function getTerminalContextMeta(context?: "meta" | "sheets" | "transcription"): { stageContext?: string; icon?: ReactNode } {
+export function getTerminalContextMeta(context?: "meta" | "sheets" | "transcription"): { stageContext?: string; icon?: ReactNode } {
   if (context === "meta") return { stageContext: "Meta", icon: META_TOAST_ICON };
   if (context === "sheets") return { stageContext: "Leadscore", icon: SHEETS_TOAST_ICON };
   if (context === "transcription") return { stageContext: "Transcrição", icon: TRANSCRIPTION_TOAST_ICON };
@@ -579,48 +586,51 @@ export function finishProgressToast(
   const { stageContext, icon } = getTerminalContextMeta(options?.context);
   const packName = options?.packName ?? "";
 
+  if (!success) {
+    // Erro sai da pilha e vai para a região própria, logo abaixo dela: dentro do baralho
+    // fechado ele seria soterrado pelas atualizações seguintes do lote — persistente,
+    // exigindo ação e invisível. Ver lib/store/errorCards.
+    toast.dismiss(toastId);
+    useErrorCardsStore.getState().push({
+      id: errorToastIdFor(toastId),
+      packName,
+      message,
+      context: options?.context,
+      diagnosticLine: options?.diagnosticLine,
+    });
+    return;
+  }
+
   const stagedContent: ProgressToastContent = {
-    stageLabel: success ? "Concluído" : "Falhou",
-    stageTitle: success ? "Concluído" : "Erro",
+    stageLabel: "Concluído",
+    stageTitle: "Concluído",
     dynamicLine: message,
     stageContext,
-    diagnosticLine: success ? undefined : options?.diagnosticLine,
   };
 
   const seconds = options?.durationSeconds;
   const successDuration = seconds != null && seconds > 0 ? seconds * 1000 : 5000;
 
-  const errorToastId = errorToastIdFor(toastId);
-
   const card = (
     // packName vazio é tratado pelo card (cabeçalho sem o nome). Nunca cair para
     // `message` aqui: a mensagem já é a linha principal e apareceria duplicada
-    // no cabeçalho ("Atualizando <mensagem inteira> — Falhou").
+    // no cabeçalho ("Atualizando <mensagem inteira> — Concluído").
     <ProgressToastCard
       packName={packName}
-      progress={success ? 100 : 0}
+      progress={100}
       currentStep={1}
       totalSteps={1}
       stagedContent={stagedContent}
       icon={icon}
-      inlineError={!success}
       terminal
       animated={false}
-      countdownMs={success ? successDuration : undefined}
-      onCancel={success ? undefined : () => toast.dismiss(errorToastId)}
+      countdownMs={successDuration}
     />
   );
 
-  if (success) {
-    // Sucesso fica no lugar do progresso: o toast do próximo pack nasce depois e o sonner
-    // põe o mais novo na frente, então o verde encolhe para trás e some sozinho.
-    toast.success(card, getToastCardOptions(toastId, successDuration));
-  } else {
-    // Erro sai da pilha (dismiss) e renasce no topo, em lista própria: persistente até o X,
-    // sem competir com o progresso pelo lugar da frente. Ver errorToastIdFor.
-    toast.dismiss(toastId);
-    toast.error(card, { ...getToastCardOptions(errorToastId, Infinity, true), position: "top-right" });
-  }
+  // Sucesso fica no lugar do progresso: o toast do próximo pack nasce depois e o sonner
+  // põe o mais novo na frente, então o verde encolhe para trás e some sozinho.
+  toast.success(card, getToastCardOptions(toastId, successDuration));
 }
 
 /**
