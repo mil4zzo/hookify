@@ -214,6 +214,27 @@ html body[data-scroll-locked] {
 }
 
 
+/* A pilha sobe quando o placar do lote aparece embaixo (AppToaster ajusta o offset).
+   Sem transição, os toasts dão um salto de 48px ao abrir/fechar a fila. */
+[data-sonner-toaster][data-y-position="bottom"] {
+  transition: bottom 260ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-sonner-toaster][data-y-position="bottom"] {
+    transition: none;
+  }
+}
+
+/* Baralho fechado: o card de trás aparece só como uma fatia no topo. Nossos cards são
+   unstyled, então o sonner não apaga o conteúdo deles (a regra dele exige data-styled=true)
+   e a fatia vinha com o mesmo brilho do card da frente — lia como borda, não como outro card.
+   O leve escurecimento dá profundidade; some sozinho no hover, quando a pilha abre. */
+[data-sonner-toast][data-expanded="false"][data-front="false"] {
+  filter: brightness(0.82) saturate(0.9);
+  transition: filter 200ms ease;
+}
+
 /* Customização do toast - background card ao invés de background */
 [data-sonner-toast] {
   background-color: var(--card) !important;

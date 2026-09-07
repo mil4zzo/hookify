@@ -501,6 +501,17 @@ function getToastCardOptions(toastId: string, duration: number = Infinity, dismi
 }
 
 /**
+ * Id do toast de erro derivado do toast de progresso.
+ *
+ * O erro NÃO reusa o id do progresso: com a pilha fechada (expand={false}), o card terminal
+ * herdaria a posição do progresso e ficaria soterrado atrás dos toasts mais novos — persistente,
+ * exigindo ação e invisível. Por isso ele vira um toast próprio, no canto de cima.
+ */
+export function errorToastIdFor(toastId: string): string {
+  return `${toastId}--error`;
+}
+
+/**
  * Mostra toast de progresso para atualização de pack.
  * stagedContent: layout em 3 linhas (Etapa X de Y; título; linha dinâmica). Sem ele, usa fallback "etapa X/Y".
  * progressPercent: 0–100 para a barra; se omitido, usa currentStep/totalSteps.
@@ -579,6 +590,8 @@ export function finishProgressToast(
   const seconds = options?.durationSeconds;
   const successDuration = seconds != null && seconds > 0 ? seconds * 1000 : 5000;
 
+  const errorToastId = errorToastIdFor(toastId);
+
   const card = (
     // packName vazio é tratado pelo card (cabeçalho sem o nome). Nunca cair para
     // `message` aqui: a mensagem já é a linha principal e apareceria duplicada
@@ -594,15 +607,19 @@ export function finishProgressToast(
       terminal
       animated={false}
       countdownMs={success ? successDuration : undefined}
-      onCancel={success ? undefined : () => toast.dismiss(toastId)}
+      onCancel={success ? undefined : () => toast.dismiss(errorToastId)}
     />
   );
 
   if (success) {
+    // Sucesso fica no lugar do progresso: o toast do próximo pack nasce depois e o sonner
+    // põe o mais novo na frente, então o verde encolhe para trás e some sozinho.
     toast.success(card, getToastCardOptions(toastId, successDuration));
   } else {
-    // Erro sempre persistente até usuário fechar (botão X).
-    toast.error(card, getToastCardOptions(toastId, Infinity, true));
+    // Erro sai da pilha (dismiss) e renasce no topo, em lista própria: persistente até o X,
+    // sem competir com o progresso pelo lugar da frente. Ver errorToastIdFor.
+    toast.dismiss(toastId);
+    toast.error(card, { ...getToastCardOptions(errorToastId, Infinity, true), position: "top-right" });
   }
 }
 

@@ -16,6 +16,7 @@ import { api } from "@/lib/api/endpoints";
 import { useClientPacks, useClientAuth } from "@/lib/hooks/useClientSession";
 import { useInvalidatePackAds } from "@/lib/api/hooks";
 import { useUpdatingPacksStore } from "@/lib/store/updatingPacks";
+import { useRefreshQueueStore } from "@/lib/store/refreshQueue";
 import { useActiveJobsStore } from "@/lib/store/activeJobs";
 import { usePausedSheetJobsStore } from "@/lib/store/pausedSheetJobs";
 import { useGoogleOAuthConnect } from "@/lib/hooks/useGoogleOAuthConnect";
@@ -27,7 +28,9 @@ import {
   finishProgressToast,
   showCancellingToast,
   dismissToast,
+  errorToastIdFor,
   showInfo,
+  showWarning,
   showProcessCancelledWarning,
   buildSheetsToastContent,
   SHEETS_TOAST_TOTAL_STEPS,
@@ -150,6 +153,8 @@ interface ActiveRefresh {
   transcriptionCancelled: boolean;
   pendingCancellation: boolean;
   isCancelling: boolean;
+  /** Cancelado enquanto ainda esperava na fila: a task enfileirada nem chega a tocar a Meta. */
+  cancelledBeforeStart: boolean;
   toggles: RefreshToggles;
   /** true ⇒ o backend orquestra o sync do Leadscore após o Meta (response server_chain). */
   serverChain: boolean;
@@ -171,6 +176,45 @@ let jobReattachAttempted = false;
 function updateActiveRefresh(packId: string, updates: Partial<ActiveRefresh>) {
   const ar = activeRefreshes.get(packId);
   if (ar) Object.assign(ar, updates);
+}
+
+/**
+ * Cancela todos os packs que ainda ESPERAM na fila (não toca no que já está rodando).
+ *
+ * Module-level de propósito: quem chama é o placar (RefreshQueueBar), que vive no layout raiz
+ * e não monta o hook. Até aqui `cancelRefresh` existia mas não estava ligado a nenhum botão —
+ * disparar 12 packs e se arrepender significava esperar cada um virar o ativo para cancelar.
+ *
+ * Não usa `cancelRefresh` (que é por pack): ele emitiria um "Cancelando…" e um aviso de
+ * cancelamento POR pack — 8 toasts para desfazer o problema dos 8 toasts. Aqui sai um só.
+ */
+export function cancelQueuedPackRefreshes(): number {
+  const dropped = useRefreshQueueStore.getState().dropQueued();
+  if (dropped.length === 0) return 0;
+
+  for (const item of dropped) {
+    const ar = activeRefreshes.get(item.packId);
+    if (ar) {
+      // A task enfileirada guarda ESTE objeto na closure: mutar aqui é o que o guard lê
+      // lá na frente, mesmo já tendo saído do mapa.
+      Object.assign(ar, {
+        cancelledBeforeStart: true,
+        isCancelling: true,
+        metaCancelled: true,
+        sheetsCancelled: true,
+        transcriptionCancelled: true,
+      });
+      activeRefreshes.delete(item.packId);
+    }
+    useUpdatingPacksStore.getState().removeUpdatingPack(item.packId);
+  }
+
+  showWarning(
+    dropped.length === 1
+      ? `Atualização de "${dropped[0].packName}" cancelada antes de começar.`
+      : `${dropped.length} atualizações canceladas antes de começar.`
+  );
+  return dropped.length;
 }
 
 // ============================================================================
@@ -212,11 +256,6 @@ function enqueueRefresh<T>(task: () => Promise<T>): Promise<T> {
     });
     pumpRefreshQueue();
   });
-}
-
-/** Este novo refresh vai ter que esperar (algo já processando ou na frente na fila)? */
-function refreshWillQueue(): boolean {
-  return refreshActiveCount >= REFRESH_MAX_CONCURRENCY || refreshQueue.length > 0;
 }
 
 // ============================================================================
@@ -1331,6 +1370,7 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
         transcriptionCancelled: false,
         pendingCancellation: false,
         isCancelling: false,
+        cancelledBeforeStart: false,
         toggles,
         serverChain: false,
         cancelTimeoutId: null,
@@ -1342,21 +1382,37 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
       let leadscoreStarted = false;
       let leadscoreResult: { success: boolean; paused?: boolean; error?: string } = { success: false, error: "Leadscore não executado" };
 
-      // Sinaliza "na fila" quando já há refresh processando/aguardando. Mesmo toastId →
-      // sobrescrito pelo toast real do Meta assim que este pack de fato começar.
-      if (toggles.meta && refreshWillQueue()) {
-        showProgressToast(
-          toastId, packName, 0, 5,
-          undefined, undefined, metaToastIcon,
-          { stageLabel: "Na fila", stageTitle: "Aguardando outras atualizações", dynamicLine: "Começa assim que a anterior terminar…", stageContext: "Meta" },
-          0,
-        );
-      }
+      // Quem espera na fila NÃO emite toast: N cards repetindo "Aguardando outras
+      // atualizações · 0%" enchiam a tela sem informar nada, e com a pilha fechada
+      // (expand={false}) só o da frente é legível. A fila vira número no placar
+      // (RefreshQueueBar) e o toast só nasce quando o pack de fato começa.
+      useRefreshQueueStore.getState().enqueue(packId, packName);
+
+      // Tentativa nova limpa o card de erro da tentativa anterior deste mesmo pack,
+      // que é persistente e vive em outro canto da tela.
+      dismissToast(errorToastIdFor(toastId));
+
+      // Resultado do Meta para o placar. Reattach e refresh sem Meta contam como ok:
+      // não houve falha, só não houve trabalho aqui.
+      let metaOutcomeOk = true;
 
       // Enfileira o trabalho pesado (Meta + persistência): só REFRESH_MAX_CONCURRENCY
       // roda de fato ao mesmo tempo — evita saturar banco/sockets. A marcação de
       // "updating" (acima) já aconteceu, então o card reflete o estado imediatamente.
       await enqueueRefresh(async () => {
+      // Cancelado enquanto esperava a vez: sai antes de tocar a Meta. Sem isto o
+      // "Cancelar fila" ainda dispararia o job no servidor só para cancelá-lo em seguida.
+      //
+      // Fora do try de propósito: o cancelamento JÁ fez toda a limpeza deste pack. Se
+      // caísse no finally, esta task fantasma apagaria o estado de um disparo NOVO do
+      // mesmo pack (o usuário cancela a fila e reatualiza antes de a fila drenar) —
+      // cleanupRefreshState e finish são por packId, não por execução.
+      if (activeRefresh.cancelledBeforeStart) {
+        logger.debug(`[PACK_REFRESH] Pack ${packId} cancelado na fila, nem chegou a começar`);
+        return;
+      }
+      useRefreshQueueStore.getState().start(packId);
+
       try {
         // Meta → (Leadscore ∥ Transcrição): dependentes esperam Meta concluir.
         // Leadscore atualiza ad_metrics; Transcrição processa ads novos. Meta é quem
@@ -1378,9 +1434,11 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
               // completed && !cancelled — Meta falhado também aborta dependentes
               // (comentário acima: dados ficariam imprecisos).
               metaSucceeded = metaResult.completed && !activeRefresh.metaCancelled;
+              metaOutcomeOk = metaSucceeded;
               chainedSyncJobId = metaResult.chainedSyncJobId;
             } catch (error) {
               metaSucceeded = false;
+              metaOutcomeOk = false;
               if (!activeRefresh.metaCancelled) {
                 logger.error(`Erro ao atualizar pack ${packId} (Meta):`, error);
                 finishProgressToast(
@@ -1485,6 +1543,7 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
         }
       } finally {
         logger.debug(`[PACK_REFRESH] Finalizando refresh do pack ${packId}`);
+        useRefreshQueueStore.getState().finish(packId, metaOutcomeOk);
         const ar = activeRefreshes.get(packId);
         cleanupRefreshState(packId, ar?.metaJobId);
       }
