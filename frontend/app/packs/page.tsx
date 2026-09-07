@@ -18,9 +18,9 @@ import { useAdAccountsDb, useInvalidatePackAds } from "@/lib/api/hooks";
 import { GoogleSheetIntegrationDialog } from "@/components/ads/GoogleSheetIntegrationDialog";
 import { useClientAuth, useClientPacks } from "@/lib/hooks/useClientSession";
 import { useOnboardingGate } from "@/lib/hooks/useOnboardingGate";
-import { showSuccess, showError, showInfo } from "@/lib/utils/toast";
+import { showSuccess, showError } from "@/lib/utils/toast";
 import { api } from "@/lib/api/endpoints";
-import { IconFilter, IconPlus, IconTrash, IconChartBar, IconLoader2, IconCircleCheck, IconCircleX, IconCircleDot, IconInfoCircle, IconArrowsSort, IconRefresh, IconChevronUp, IconChevronDown, IconEraser } from "@tabler/icons-react";
+import { IconFilter, IconPlus, IconTrash, IconChartBar, IconLoader2, IconCircleCheck, IconCircleX, IconCircleDot, IconInfoCircle, IconArrowsSort, IconRefresh, IconChevronUp, IconChevronDown } from "@tabler/icons-react";
 
 import { FilterRule, ClearEnrichmentResult } from "@/lib/api/schemas";
 import { AdsPack } from "@/lib/types";
@@ -198,10 +198,20 @@ export default function PacksPage() {
   });
   const [sheetIntegrationPack, setSheetIntegrationPack] = useState<any | null>(null);
   const [packToRemoveIntegration, setPackToRemoveIntegration] = useState<AdsPack | null>(null);
-  /** Alvo da limpeza + a previa que o servidor devolveu para ele. */
-  const [packToClearEnrichment, setPackToClearEnrichment] = useState<{ pack: AdsPack; preview: ClearEnrichmentResult } | null>(null);
-  const [clearPreviewLoading, setClearPreviewLoading] = useState<string | null>(null);
-  const [isClearingEnrichment, setIsClearingEnrichment] = useState(false);
+  /**
+   * Prévia do leadscore que será apagado junto com a integração. Buscada ao
+   * abrir o diálogo: desconectar e apagar viraram UMA ação, e o número precisa
+   * estar na tela antes de confirmar.
+   */
+  const [removeIntegrationPreview, setRemoveIntegrationPreview] = useState<ClearEnrichmentResult | null>(null);
+  const [isLoadingRemovePreview, setIsLoadingRemovePreview] = useState(false);
+  /**
+   * Invariante do produto: tem planilha conectada, tem leadscore; não tem
+   * planilha, não tem leadscore. Desmarcar é a exceção (quero soltar a planilha
+   * mas guardar os números que já entraram), não a regra.
+   */
+  const [alsoClearEnrichment, setAlsoClearEnrichment] = useState(true);
+  const [isRemovingIntegration, setIsRemovingIntegration] = useState(false);
   const [judgmentPack, setJudgmentPack] = useState<AdsPack | null>(null);
 
   // Função auxiliar para obter "hoje - 2 dias" no formato YYYY-MM-DD
@@ -304,15 +314,22 @@ export default function PacksPage() {
 
   const selectedPacksWithSheets = useMemo(() => selectedPacksList.filter((p) => !!p.sheet_integration?.id), [selectedPacksList]);
 
-  /** Remove só a integração de planilha, um pack de cada vez. O pack em si fica intacto. */
+  /**
+   * Desconecta a planilha de vários packs, um de cada vez. O pack em si fica
+   * intacto — mas o leadscore importado sai junto, como na ação individual.
+   * Limpar ANTES de deletar: a limpeza descobre o pack a partir da integração.
+   */
   const handleBulkRemoveSheetIntegration = async () => {
     const targets = selectedPacksWithSheets;
     if (targets.length === 0) return;
 
     const failed: string[] = [];
+    let totalCleared = 0;
     for (const pack of targets) {
       try {
-        await api.integrations.google.deleteSheetIntegration(pack.sheet_integration!.id);
+        const integrationId = pack.sheet_integration!.id;
+        totalCleared += (await api.integrations.google.clearSheetEnrichment(integrationId, false)).rows_cleared;
+        await api.integrations.google.deleteSheetIntegration(integrationId);
         updatePack(pack.id, { sheet_integration: undefined });
       } catch (error) {
         logger.error(`Erro ao remover integração do pack ${pack.id}:`, error);
@@ -321,8 +338,18 @@ export default function PacksPage() {
     }
 
     clearPackSelection();
-    if (failed.length === 0) showSuccess(`Integração removida de ${targets.length} ${targets.length === 1 ? "pack" : "packs"}.`);
-    else showError({ message: `Falha ao remover a integração de: ${failed.join(", ")}.` });
+    if (totalCleared > 0) {
+      invalidateAdPerformance();
+      await Promise.all(targets.map((p) => invalidatePackAds(p.id).catch(() => {})));
+    }
+    if (failed.length === 0) {
+      showSuccess(
+        `Planilha desconectada de ${targets.length} ${targets.length === 1 ? "pack" : "packs"}` +
+          (totalCleared > 0 ? `, com o leadscore apagado de ${totalCleared.toLocaleString()} dias.` : "."),
+      );
+    } else {
+      showError({ message: `Falha ao desconectar a planilha de: ${failed.join(", ")}.` });
+    }
   };
 
   const handleBulkDeletePacks = async () => {
@@ -347,13 +374,15 @@ export default function PacksPage() {
     },
     {
       id: "remove-sheets",
-      label: "Remover planilha",
+      label: "Desconectar planilha",
       icon: <GoogleSheetsIcon className="h-3.5 w-3.5" />,
       disabled: selectedPacksWithSheets.length === 0,
       confirm: {
-        title: () => `Remover integração de ${selectedPacksWithSheets.length} ${selectedPacksWithSheets.length === 1 ? "pack" : "packs"}?`,
-        message: () => "Os packs continuam existindo — só o vínculo com a planilha é desfeito, e apenas nos packs selecionados que têm integração. A planilha no Google não é alterada.",
-        confirmText: "Remover integração",
+        title: () => `Desconectar a planilha de ${selectedPacksWithSheets.length} ${selectedPacksWithSheets.length === 1 ? "pack" : "packs"}?`,
+        // Em massa não há prévia por pack (seriam N idas ao servidor antes de
+        // abrir o diálogo): o texto diz o que vai acontecer e o total sai depois.
+        message: () => "Os packs continuam existindo e a planilha no Google não é alterada. O leadscore já importado por essas planilhas é apagado junto, e não há como desfazer.",
+        confirmText: "Desconectar e apagar",
         variant: "destructive",
         icon: <GoogleSheetsIcon className="h-5 w-5" />,
       },
@@ -695,69 +724,59 @@ export default function PacksPage() {
     setSheetIntegrationPack(pack);
   };
 
-  const handleDeleteSheetIntegration = (pack: AdsPack) => {
-    if (!pack.sheet_integration?.id) return;
-    setPackToRemoveIntegration(pack);
-  };
-
   /**
-   * Limpar leadscore importado. Duas etapas de proposito: a previa roda no
-   * servidor com o MESMO predicado do UPDATE e o dialogo so abre com o numero
-   * em maos — inclusive o de dias que outros packs tambem perderao, que e o
-   * efeito que ninguem espera (leadscore mora na linha do anuncio-dia, nao no
-   * par pack-linha).
+   * Desconectar a planilha. Abre o diálogo já com a prévia do que será apagado:
+   * a limpeza do leadscore deixou de ser uma ação separada porque, uma vez
+   * desconectada a planilha, não haveria mais nenhuma porta para limpar o que
+   * ficou órfão — o item de menu vivia na integração que acabou de sumir.
    */
-  const handleClearSheetEnrichment = async (pack: AdsPack) => {
+  const handleDeleteSheetIntegration = async (pack: AdsPack) => {
     const integrationId = pack.sheet_integration?.id;
     if (!integrationId) return;
-    setClearPreviewLoading(pack.id);
+    setPackToRemoveIntegration(pack);
+    setAlsoClearEnrichment(true);
+    setRemoveIntegrationPreview(null);
+    setIsLoadingRemovePreview(true);
     try {
-      const preview = await api.integrations.google.clearSheetEnrichment(integrationId, true);
-      if (preview.rows_matched === 0) {
-        showInfo("Este pack não tem nenhum leadscore importado da planilha.");
-        return;
-      }
-      setPackToClearEnrichment({ pack, preview });
+      setRemoveIntegrationPreview(await api.integrations.google.clearSheetEnrichment(integrationId, true));
     } catch (error) {
-      showError(error instanceof Error ? error : new Error("Não foi possível conferir o que seria limpo."));
+      // A prévia é informativa: sem ela o diálogo ainda funciona, só não mostra
+      // os números. Não vale bloquear a desconexão por causa disso.
+      logger.warn("Não foi possível prever o leadscore a apagar:", error);
     } finally {
-      setClearPreviewLoading(null);
-    }
-  };
-
-  const confirmClearSheetEnrichment = async () => {
-    const target = packToClearEnrichment;
-    const integrationId = target?.pack.sheet_integration?.id;
-    if (!integrationId) return;
-    setIsClearingEnrichment(true);
-    try {
-      const result = await api.integrations.google.clearSheetEnrichment(integrationId, false);
-      setPackToClearEnrichment(null);
-      // O leadscore saiu do banco; sem invalidar, Manager e Insights seguem
-      // servindo MQL/CPMQL calculados com o dado que acabou de ser apagado.
-      invalidateAdPerformance();
-      await invalidatePackAds(target.pack.id);
-      showSuccess(
-        `Leadscore importado removido de ${result.rows_cleared.toLocaleString()} ${result.rows_cleared === 1 ? "dia" : "dias"}. Sincronize a planilha para repovoar.`,
-      );
-    } catch (error) {
-      showError(error instanceof Error ? error : new Error("Erro ao limpar o leadscore importado"));
-    } finally {
-      setIsClearingEnrichment(false);
+      setIsLoadingRemovePreview(false);
     }
   };
 
   const confirmRemoveSheetIntegration = async () => {
     const pack = packToRemoveIntegration;
-    if (!pack?.sheet_integration?.id) return;
+    const integrationId = pack?.sheet_integration?.id;
+    if (!pack || !integrationId) return;
 
-    setPackToRemoveIntegration(null);
+    setIsRemovingIntegration(true);
+    let cleared = 0;
     try {
-      await api.integrations.google.deleteSheetIntegration(pack.sheet_integration.id);
+      // Ordem obrigatória: a limpeza descobre o pack A PARTIR da integração.
+      // Deletar primeiro perderia o vínculo e deixaria o leadscore órfão.
+      if (alsoClearEnrichment) {
+        cleared = (await api.integrations.google.clearSheetEnrichment(integrationId, false)).rows_cleared;
+      }
+      await api.integrations.google.deleteSheetIntegration(integrationId);
       updatePack(pack.id, { sheet_integration: undefined });
-      showSuccess("Integração removida com sucesso!");
+      setPackToRemoveIntegration(null);
+      if (cleared > 0) {
+        // O leadscore saiu do banco; sem invalidar, Manager e Insights seguem
+        // servindo MQL/CPMQL calculados com o dado que acabou de ser apagado.
+        invalidateAdPerformance();
+        await invalidatePackAds(pack.id);
+        showSuccess(`Integração removida e leadscore apagado de ${cleared.toLocaleString()} ${cleared === 1 ? "dia" : "dias"}.`);
+      } else {
+        showSuccess("Integração removida com sucesso!");
+      }
     } catch (error) {
       showError(error instanceof Error ? error : new Error("Erro ao remover integração"));
+    } finally {
+      setIsRemovingIntegration(false);
     }
   };
 
@@ -876,7 +895,7 @@ export default function PacksPage() {
                       />
                     </div>
                   )}
-                <PackCard pack={pack} adAccountName={adAccountNameById.get(pack.adaccount_id)} formatCurrency={formatCurrency} formatDate={formatDate} onRefresh={handleRefreshPack} onRemove={handleRemovePack} onToggleAutoRefresh={handleToggleAutoRefresh} onSetSheetIntegration={setSheetIntegrationPack} onEditSheetIntegration={handleEditSheetIntegration} onDeleteSheetIntegration={handleDeleteSheetIntegration} onClearSheetEnrichment={handleClearSheetEnrichment} isLoadingClearPreview={clearPreviewLoading === pack.id} onEditJudgment={setJudgmentPack} onTranscribeAds={(packId, packName) => setTranscriptionDialogPack({ id: packId, name: packName })} isSelected={isPackSelected(pack.id)} isUpdating={isPackUpdating(pack.id) || isPackRefreshingOnServer(pack)} updatingByName={isPackRefreshingOnServer(pack) ? pack.refresh_actor_name : null} isTogglingAutoRefresh={isTogglingAutoRefresh} packToDisableAutoRefresh={packToDisableAutoRefresh} />
+                <PackCard pack={pack} adAccountName={adAccountNameById.get(pack.adaccount_id)} formatCurrency={formatCurrency} formatDate={formatDate} onRefresh={handleRefreshPack} onRemove={handleRemovePack} onToggleAutoRefresh={handleToggleAutoRefresh} onSetSheetIntegration={setSheetIntegrationPack} onEditSheetIntegration={handleEditSheetIntegration} onDeleteSheetIntegration={handleDeleteSheetIntegration} onEditJudgment={setJudgmentPack} onTranscribeAds={(packId, packName) => setTranscriptionDialogPack({ id: packId, name: packName })} isSelected={isPackSelected(pack.id)} isUpdating={isPackUpdating(pack.id) || isPackRefreshingOnServer(pack)} updatingByName={isPackRefreshingOnServer(pack) ? pack.refresh_actor_name : null} isTogglingAutoRefresh={isTogglingAutoRefresh} packToDisableAutoRefresh={packToDisableAutoRefresh} />
                 </div>
               ))}
             </div>
@@ -1242,63 +1261,68 @@ export default function PacksPage() {
         </div>
       </AppDialog>
 
-      {/* Limpeza do leadscore importado — destrutiva e sem desfazer */}
+      {/* Desconectar a planilha — uma ação só: o vínculo sai e, por padrão, o
+          leadscore importado sai junto. Manter os dados sem a planilha deixaria
+          números órfãos que nenhuma tela saberia mais limpar. */}
       <ConfirmDialog
-        isOpen={!!packToClearEnrichment}
-        onClose={() => !isClearingEnrichment && setPackToClearEnrichment(null)}
-        title="Limpar leadscore importado"
-        message={`Apaga o leadscore que veio da planilha nas linhas do pack "${packToClearEnrichment?.pack.name}". As métricas da Meta (gasto, cliques, conversões) não são tocadas.`}
-        onConfirm={confirmClearSheetEnrichment}
+        isOpen={!!packToRemoveIntegration}
+        onClose={() => !isRemovingIntegration && setPackToRemoveIntegration(null)}
+        title="Desconectar planilha"
+        message={`O pack "${packToRemoveIntegration?.name}" continua existindo, e a planilha no Google não é alterada.`}
+        onConfirm={confirmRemoveSheetIntegration}
         variant="destructive"
-        confirmText="Limpar leadscore"
-        isLoading={isClearingEnrichment}
-        loadingText="Limpando..."
+        confirmText={alsoClearEnrichment ? "Desconectar e apagar" : "Desconectar"}
+        isLoading={isRemovingIntegration}
+        loadingText="Desconectando..."
         layout="left-aligned"
-        confirmIcon={<IconEraser className="w-4 h-4" />}
+        confirmIcon={<GoogleSheetsIcon className="w-4 h-4" />}
       >
-        {packToClearEnrichment && !isClearingEnrichment && (
+        {!isRemovingIntegration && (
           <div className="py-4 space-y-3">
-            <div className="bg-border p-4 rounded-lg">
-              <p className="text-sm text-muted-foreground mb-2">O que será apagado:</p>
-              <ul className="text-sm space-y-1">
-                <li>
-                  • <strong>{packToClearEnrichment.preview.rows_with_leadscore.toLocaleString()}</strong> dias com leadscore
-                </li>
-                {packToClearEnrichment.preview.rows_with_custom > 0 && (
-                  <li>
-                    • <strong>{packToClearEnrichment.preview.rows_with_custom.toLocaleString()}</strong> dias com colunas adicionais
-                  </li>
+            {isLoadingRemovePreview ? (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <IconLoader2 className="w-4 h-4 animate-spin" />
+                Conferindo o que foi importado...
+              </div>
+            ) : removeIntegrationPreview && removeIntegrationPreview.rows_matched > 0 ? (
+              <>
+                <label className="flex items-start gap-2.5 cursor-pointer rounded-md bg-border p-3">
+                  <Checkbox
+                    checked={alsoClearEnrichment}
+                    onCheckedChange={(v) => setAlsoClearEnrichment(v === true)}
+                    className="mt-0.5"
+                  />
+                  <span className="text-sm">
+                    Apagar também o leadscore já importado
+                    <span className="block text-2xs text-muted-foreground mt-0.5">
+                      {removeIntegrationPreview.rows_with_leadscore.toLocaleString()} dias com leadscore
+                      {removeIntegrationPreview.rows_with_custom > 0 &&
+                        ` · ${removeIntegrationPreview.rows_with_custom.toLocaleString()} com colunas adicionais`}
+                      . Não há como desfazer.
+                    </span>
+                  </span>
+                </label>
+                {/* Leadscore é do anúncio-dia, não do pack: dia compartilhado sai dos dois. */}
+                {alsoClearEnrichment && removeIntegrationPreview.rows_shared_with_other_packs > 0 && (
+                  <InlineNotice tone="warning">
+                    <strong>{removeIntegrationPreview.rows_shared_with_other_packs.toLocaleString()}</strong> desses dias também
+                    estão em {removeIntegrationPreview.other_packs_affected === 1 ? "outro pack" : `outros ${removeIntegrationPreview.other_packs_affected} packs`},
+                    que vão perder esse leadscore junto.
+                  </InlineNotice>
                 )}
-              </ul>
-            </div>
-            {/* O efeito que ninguém espera: leadscore é do anúncio-dia, não do
-                pack. Dia compartilhado sai dos dois lugares. */}
-            {packToClearEnrichment.preview.rows_shared_with_other_packs > 0 && (
-              <InlineNotice tone="warning">
-                <strong>{packToClearEnrichment.preview.rows_shared_with_other_packs.toLocaleString()}</strong> desses dias também
-                estão em {packToClearEnrichment.preview.other_packs_affected === 1 ? "outro pack" : `outros ${packToClearEnrichment.preview.other_packs_affected} packs`},
-                que vão perder esse leadscore junto. O leadscore pertence ao anúncio-dia, não ao pack.
-              </InlineNotice>
+                {!alsoClearEnrichment && (
+                  <InlineNotice tone="info">
+                    O leadscore já importado continua no pack, mas sem planilha conectada não haverá
+                    mais como apagá-lo depois.
+                  </InlineNotice>
+                )}
+              </>
+            ) : (
+              <p className="text-sm text-muted-foreground">Nenhum leadscore foi importado por esta planilha.</p>
             )}
-            <p className="text-2xs text-muted-foreground">
-              Não há como desfazer. Sincronizar a planilha de novo repovoa os dias que ela cobrir.
-            </p>
           </div>
         )}
       </ConfirmDialog>
-
-      {/* Remoção da integração de planilha (individual) */}
-      <ConfirmDialog
-        isOpen={!!packToRemoveIntegration}
-        onClose={() => setPackToRemoveIntegration(null)}
-        title="Remover integração de planilha"
-        message={`O pack "${packToRemoveIntegration?.name}" continua existindo — só o vínculo com a planilha é desfeito. A planilha no Google não é alterada.`}
-        onConfirm={confirmRemoveSheetIntegration}
-        variant="destructive"
-        confirmText="Remover integração"
-        layout="left-aligned"
-        confirmIcon={<GoogleSheetsIcon className="w-4 h-4" />}
-      />
 
       {/* Confirmation Dialog */}
       <ConfirmDialog isOpen={!!packToRemove} onClose={() => !isDeleting && setPackToRemove(null)} title={isDeleting ? "Deletando Pack..." : "Confirmar Remoção"} message={isDeleting ? `Excluindo os dados do pack "${packToRemove?.name}..."` : `Tem certeza que deseja remover o pack "${packToRemove?.name}"?`} onConfirm={confirmRemovePack} onCancel={cancelRemovePack} variant="destructive" confirmText="Remover Pack" isLoading={isDeleting} loadingText="Deletando..." layout="left-aligned" confirmIcon={<IconTrash className="w-4 h-4" />}>
