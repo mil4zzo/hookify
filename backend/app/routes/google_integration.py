@@ -924,6 +924,19 @@ def get_sync_job_progress(
                         # 140: relatório por coluna vinculada (rótulo, tipo, valores lidos,
                         # células puladas, motivo quando a coluna inteira foi ignorada)
                         "custom_columns": details.get("custom_columns") or {},
+                        # ATENCAO: esta lista e branca — campo que nao estiver aqui nunca
+                        # chega na tela, mesmo estando no payload do job. As duas parcelas
+                        # de "sem match" ficaram nesse limbo ate 2026-09-07.
+                        "ids_not_found_count": details.get("ids_not_found_count"),
+                        "ids_out_of_pack_count": details.get("ids_out_of_pack_count"),
+                        # Desfecho do sync: o que separa "aplicou" de "rodou e nao aplicou".
+                        "sync_outcome": details.get("sync_outcome"),
+                        "outcome_reason": details.get("outcome_reason"),
+                        "outcome_message": details.get("outcome_message"),
+                        "sheet_date_min": details.get("sheet_date_min"),
+                        "sheet_date_max": details.get("sheet_date_max"),
+                        "pack_date_start": details.get("pack_date_start"),
+                        "pack_date_stop": details.get("pack_date_stop"),
                     }
         
         return progress

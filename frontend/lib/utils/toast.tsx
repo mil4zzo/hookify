@@ -23,10 +23,10 @@ function makeToastId(prefix: string) {
 function emitStatusToast(
   variant: "success" | "info" | "warning",
   message: ReactNode,
-  options?: { eyebrow?: string; icon?: ReactNode },
+  options?: { eyebrow?: string; icon?: ReactNode; durationMs?: number },
 ) {
   const toastId = makeToastId(variant);
-  const duration = STATUS_TOAST_DURATION_MS[variant];
+  const duration = options?.durationMs ?? STATUS_TOAST_DURATION_MS[variant];
   const card = (
     <StatusToastCard
       variant={variant}
@@ -95,6 +95,33 @@ export function showProcessCancelledWarning(context: "meta" | "sheets" | "transc
 
   const { icon } = getTerminalContextMeta(context);
   emitStatusToast("warning", message, { eyebrow: packName ? `${packName}: ${label}` : label, icon });
+}
+
+/**
+ * Aviso de sync de planilha que rodou inteiro e nao aplicou nada.
+ *
+ * POR QUE NAO E UM TOAST VERDE NEM UM CARD DE ERRO
+ * ------------------------------------------------
+ * Antes este caso caia no ramo de sucesso e o usuario lia "Planilha importada
+ * com sucesso! Nenhuma atualizacao necessaria." — a frase mais tranquilizadora
+ * possivel para o pior resultado possivel. Nao e erro (nada quebrou, nao ha o
+ * que retentar), entao tambem nao vai para a pilha de cards de erro.
+ *
+ * Nao fecha sozinho: o ponto do aviso e ser lido. `empty` (planilha ainda sem
+ * linha valida) e caso legitimo e sai como info efemera, nao como alarme.
+ */
+export function showSheetSyncOutcomeWarning(
+  packName: string,
+  message: string,
+  outcome: "no_match" | "empty",
+) {
+  const { icon } = getTerminalContextMeta("sheets");
+  const eyebrow = packName ? `${packName}: Leadscore` : "Leadscore";
+  emitStatusToast(outcome === "empty" ? "info" : "warning", message, {
+    eyebrow,
+    icon,
+    durationMs: outcome === "empty" ? undefined : Infinity,
+  });
 }
 
 // Meta Ads: mapeamento status/stage -> índice 1-5 para "Etapa X de 5"

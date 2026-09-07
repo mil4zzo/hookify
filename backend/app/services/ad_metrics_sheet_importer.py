@@ -451,6 +451,182 @@ def _execute_batch_update(
 
     return aggregated
 
+def _persist_integration_status(sb, integration_id, user_id, stats):
+    """Carimba o resultado do sync na integracao. Falha aqui e critica.
+
+    `last_sync_status` ganha um terceiro valor alem de success/failed: "warning"
+    — o sync rodou inteiro e nao aplicou nada. Sem ele o desencontro sumia
+    entre um sync e outro, porque a integracao dizia "success" do mesmo jeito.
+
+    `last_successful_sync_at` so avanca quando algo entrou de fato. Ele nao e
+    so um rotulo: e o carimbo de frescor que o front usa para decidir se o
+    cache de MQL/CPMQL precisa ser refeito (lib/utils/packsFreshness.ts). Mover
+    o carimbo sem ter mudado uma linha sequer invalidaria cache a toa.
+    """
+    from datetime import datetime as dt, timezone as tz
+
+    now_iso = dt.now(tz.utc).isoformat(timespec="seconds")
+    applied_rows = stats.get("updated_rows", 0) > 0
+    payload = {
+        "last_synced_at": now_iso,
+        "last_sync_status": "success" if applied_rows else "warning",
+        "updated_at": now_iso,
+    }
+    if applied_rows:
+        payload["last_successful_sync_at"] = now_iso
+    try:
+        sb.table("ad_sheet_integrations").update(payload).eq("id", integration_id).eq(
+            "owner_id", user_id
+        ).execute()
+        stats["integration_status_updated"] = True
+    except Exception as e:
+        logger.error(
+            "[AD_METRICS_IMPORT] Falha crítica ao atualizar status da integração %s: %s",
+            integration_id,
+            e,
+        )
+        stats["integration_status_updated"] = False
+        raise AdMetricsImportError(
+            f"Atualização de leadscore concluída, mas falha ao persistir status da integração. "
+            f"Por favor, tente novamente. Detalhe: {e}"
+        ) from e
+
+
+def _fetch_pack_window(sb, pack_id, user_id):
+    """Janela do pack (date_start, date_stop, name) — só para explicar o desencontro.
+
+    Consulta deliberadamente atrasada: no caminho feliz ninguém pergunta o
+    periodo do pack, e um sync que aplicou linhas nao paga por ela.
+    """
+    try:
+        res = (
+            sb.table("packs")
+            .select("date_start, date_stop, name")
+            .eq("id", pack_id)
+            .limit(1)
+            .execute()
+        )
+        if res.data:
+            row = res.data[0]
+            return str(row.get("date_start") or ""), str(row.get("date_stop") or ""), row.get("name")
+    except Exception as e:
+        logger.warning("[AD_METRICS_IMPORT] Falha ao ler janela do pack %s: %s", pack_id, e)
+    return None
+
+
+def _br(iso_date):
+    """YYYY-MM-DD -> DD/MM/YYYY. Devolve a entrada quando nao reconhece."""
+    try:
+        y, m, d = str(iso_date).split("-")
+        return f"{d}/{m}/{y}"
+    except Exception:
+        return str(iso_date)
+
+
+def _classify_sync_outcome(
+    sb,
+    user_id,
+    pack_id,
+    total_updated,
+    unique_pairs,
+    sheet_date_min,
+    sheet_date_max,
+    ids_not_found_count,
+    ids_out_of_pack_count,
+):
+    """Traduz o resultado do sync em sucesso / aviso / planilha vazia.
+
+    POR QUE UM TERCEIRO ESTADO
+    --------------------------
+    "0 linhas atualizadas" nao e um erro (nada quebrou) nem um sucesso (nada
+    entrou). Sem esse estado a tela dizia "Importacao concluida com sucesso!
+    Nenhuma atualizacao necessaria" — a frase mais tranquilizadora possivel
+    para o pior resultado possivel. O leadscore fica parado enquanto a planilha
+    aponta para outro periodo, e nada na tela denuncia isso.
+
+    Estados:
+      success — aplicou pelo menos uma linha.
+      empty   — a planilha nao tem nenhum par (ad_id, data) valido. Caso
+                legitimo (planilha nova, ainda vazia): informa, nao alarma.
+      no_match — havia pares validos e nenhum entrou. E aqui que mora o
+                erro silencioso.
+    """
+    if total_updated > 0:
+        return {"sync_outcome": "success", "outcome_reason": None, "outcome_message": None}
+
+    if unique_pairs <= 0:
+        return {
+            "sync_outcome": "empty",
+            "outcome_reason": "empty_sheet",
+            "outcome_message": (
+                "A planilha nao tem nenhuma linha valida (ad_id + data + leadscore). "
+                "Nada foi aplicado."
+            ),
+        }
+
+    not_found = ids_not_found_count or 0
+    out_of_pack = ids_out_of_pack_count or 0
+
+    # Fora do pack domina: ou as datas nao se cruzam, ou os anuncios sao de outro pack.
+    if out_of_pack >= not_found and pack_id:
+        window = _fetch_pack_window(sb, pack_id, user_id)
+        if window and window[0] and window[1] and sheet_date_min and sheet_date_max:
+            pack_start, pack_stop, _pack_name = window
+            # Datas em ISO (YYYY-MM-DD) comparam corretamente como string.
+            overlaps = sheet_date_min <= pack_stop and sheet_date_max >= pack_start
+            if not overlaps:
+                return {
+                    "sync_outcome": "no_match",
+                    "outcome_reason": "date_range_disjoint",
+                    "outcome_message": (
+                        f"Nenhuma linha foi aplicada: a planilha tem dados de "
+                        f"{_br(sheet_date_min)} a {_br(sheet_date_max)} e o pack cobre "
+                        f"{_br(pack_start)} a {_br(pack_stop)} — nao ha nenhum dia em comum. "
+                        f"Confira se a planilha esta vinculada ao pack certo."
+                    ),
+                    "sheet_date_min": sheet_date_min,
+                    "sheet_date_max": sheet_date_max,
+                    "pack_date_start": pack_start,
+                    "pack_date_stop": pack_stop,
+                }
+            return {
+                "sync_outcome": "no_match",
+                "outcome_reason": "ads_out_of_pack",
+                "outcome_message": (
+                    "Nenhuma linha foi aplicada: as datas da planilha batem com o periodo do "
+                    "pack, mas os anuncios da planilha nao pertencem a este pack. "
+                    "Confira se a planilha esta vinculada ao pack certo."
+                ),
+                "sheet_date_min": sheet_date_min,
+                "sheet_date_max": sheet_date_max,
+                "pack_date_start": pack_start,
+                "pack_date_stop": pack_stop,
+            }
+        return {
+            "sync_outcome": "no_match",
+            "outcome_reason": "ads_out_of_pack",
+            "outcome_message": (
+                "Nenhuma linha foi aplicada: os pares (anuncio, data) da planilha nao "
+                "pertencem a este pack. Confira se a planilha esta vinculada ao pack certo."
+            ),
+            "sheet_date_min": sheet_date_min,
+            "sheet_date_max": sheet_date_max,
+        }
+
+    # Nao encontrados domina: o par (ad_id, data) nao existe em ad_metrics.
+    return {
+        "sync_outcome": "no_match",
+        "outcome_reason": "ids_not_found",
+        "outcome_message": (
+            "Nenhuma linha foi aplicada: os IDs de anuncio da planilha nao foram "
+            "encontrados nos dados importados. Confira se a coluna de ID esta correta e "
+            "se o pack ja foi atualizado com o periodo da planilha."
+        ),
+        "sheet_date_min": sheet_date_min,
+        "sheet_date_max": sheet_date_max,
+    }
+
+
 def run_ad_metrics_sheet_import(
     user_jwt: Optional[str],
     user_id: str,
@@ -553,7 +729,7 @@ def run_ad_metrics_sheet_import(
 
     if not aggregated_data:
         logger.warning("[AD_METRICS_IMPORT] Nenhum dado válido para processar após agregação")
-        return {
+        empty_stats = {
             "processed_rows": processed,
             "unique_ad_date_pairs": 0,
             "leads_aggregated": 0,
@@ -561,6 +737,18 @@ def run_ad_metrics_sheet_import(
             "skipped_no_match": 0,
             "skipped_invalid": skipped_invalid,
         }
+        empty_stats.update(
+            _classify_sync_outcome(
+                sb, user_id, pack_id,
+                total_updated=0, unique_pairs=0,
+                sheet_date_min=None, sheet_date_max=None,
+                ids_not_found_count=0, ids_out_of_pack_count=0,
+            )
+        )
+        # Antes este ramo saia sem tocar na integracao: uma planilha vazia deixava
+        # `last_synced_at` congelado para sempre, como se o sync nunca tivesse rodado.
+        _persist_integration_status(sb, integration_id, user_id, empty_stats)
+        return empty_stats
 
     unique_ad_ids_set = set(ad_id for ad_id, _ in aggregated_data.keys())
     unique_dates_set = set(date for _, date in aggregated_data.keys())
@@ -623,31 +811,28 @@ def run_ad_metrics_sheet_import(
         "custom_columns": custom_report,
     }
 
-    # Atualizar status da integracao - falha e critica, interrompe e notifica usuario
-    from datetime import datetime as dt, timezone as tz
-
-    now_iso = dt.now(tz.utc).isoformat(timespec="seconds")
-    try:
-        sb.table("ad_sheet_integrations").update(
-            {
-                "last_synced_at": now_iso,
-                "last_successful_sync_at": now_iso,
-                "last_sync_status": "success",
-                "updated_at": now_iso,
-            }
-        ).eq("id", integration_id).eq("owner_id", user_id).execute()
-        stats["integration_status_updated"] = True
-    except Exception as e:
-        logger.error(
-            "[AD_METRICS_IMPORT] Falha crítica ao atualizar status da integração %s: %s",
-            integration_id,
-            e,
+    # Sucesso / aviso / planilha vazia. Zero linha aplicada nao e "nada a fazer":
+    # e o sintoma mais comum de planilha vinculada ao pack errado.
+    sheet_date_min = min(unique_dates_set) if unique_dates_set else None
+    sheet_date_max = max(unique_dates_set) if unique_dates_set else None
+    stats.update(
+        _classify_sync_outcome(
+            sb, user_id, pack_id,
+            total_updated=total_updated,
+            unique_pairs=len(final_data),
+            sheet_date_min=sheet_date_min,
+            sheet_date_max=sheet_date_max,
+            ids_not_found_count=ids_not_found_count,
+            ids_out_of_pack_count=ids_out_of_pack_count,
         )
-        stats["integration_status_updated"] = False
-        raise AdMetricsImportError(
-            f"Atualização de leadscore concluída, mas falha ao persistir status da integração. "
-            f"Por favor, tente novamente. Detalhe: {e}"
-        ) from e
+    )
+    if stats.get("sync_outcome") != "success":
+        logger.warning(
+            "[AD_METRICS_IMPORT] Sync sem efeito (%s): %s",
+            stats.get("outcome_reason"), stats.get("outcome_message"),
+        )
+
+    _persist_integration_status(sb, integration_id, user_id, stats)
 
     logger.info(
         "[AD_METRICS_IMPORT] Concluido: %d processadas, %d atualizadas, %d sem match, %d invalidas",

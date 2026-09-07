@@ -181,8 +181,19 @@ export function useGoogleSyncJob() {
               skipped_invalid: stats.skipped_invalid || 0,
               matched_unique_pairs: stats.unique_ad_date_pairs,
               total_update_queries: stats.total_update_queries,
+              ids_not_found_count: stats.ids_not_found_count ?? undefined,
+              ids_out_of_pack_count: stats.ids_out_of_pack_count ?? undefined,
               // 140: relatório por coluna vinculada
               custom_columns: stats.custom_columns,
+              // Sem isto o resumo pintaria o card verde de "sucesso" mesmo quando
+              // nada entrou — é o desfecho que decide o cabeçalho da tela.
+              sync_outcome: stats.sync_outcome,
+              outcome_reason: stats.outcome_reason,
+              outcome_message: stats.outcome_message,
+              sheet_date_min: stats.sheet_date_min,
+              sheet_date_max: stats.sheet_date_max,
+              pack_date_start: stats.pack_date_start,
+              pack_date_stop: stats.pack_date_stop,
             });
           },
           onSuccessInvalidate: async (_pId) => {

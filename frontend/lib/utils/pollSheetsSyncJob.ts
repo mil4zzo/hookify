@@ -12,6 +12,7 @@ import {
   updateProgressToast,
   showPausedJobToast,
   showProcessCancelledWarning,
+  showSheetSyncOutcomeWarning,
   dismissToast,
   buildSheetsToastContent,
   calculateSheetsProgressPercent,
@@ -44,8 +45,23 @@ export type SheetSyncJobStats = {
   skipped_no_match?: number;
   unique_ad_date_pairs?: number;
   total_update_queries?: number;
+  /** As duas parcelas de `skipped_no_match`: par inexistente x par fora do pack. */
+  ids_not_found_count?: number | null;
+  ids_out_of_pack_count?: number | null;
   /** 140: por coluna vinculada. */
   custom_columns?: Record<string, SheetSyncCustomColumnReport>;
+  /**
+   * Desfecho do sync. "no_match" = rodou inteiro e não aplicou nada; é um aviso,
+   * não um erro. "empty" = planilha ainda sem nenhuma linha válida (caso legítimo).
+   * Ausente em jobs antigos — o consumidor deriva de `rows_updated`.
+   */
+  sync_outcome?: "success" | "no_match" | "empty" | null;
+  outcome_reason?: string | null;
+  outcome_message?: string | null;
+  sheet_date_min?: string | null;
+  sheet_date_max?: string | null;
+  pack_date_start?: string | null;
+  pack_date_stop?: string | null;
 };
 import { GoogleSheetsIcon } from "@/components/icons/GoogleSheetsIcon";
 
@@ -212,12 +228,29 @@ export async function pollSheetsSyncJob(config: PollSheetsSyncJobConfig): Promis
       if (progress.status === "completed") {
         const stats = (progress as any)?.stats || {};
         const updatedRows = stats.rows_updated || stats.updated_rows || 0;
-        finishProgressToast(
-          toastId,
-          true,
-          `Planilha importada com sucesso! ${updatedRows > 0 ? `${updatedRows} registros atualizados.` : "Nenhuma atualização necessária."}`,
-          { durationSeconds: 5, context: "sheets", packName }
-        );
+        // O backend classifica o desfecho; `updatedRows === 0` é o fallback para
+        // jobs antigos, que não carregam sync_outcome.
+        const outcome: "success" | "no_match" | "empty" =
+          stats.sync_outcome ?? (updatedRows > 0 ? "success" : "no_match");
+
+        if (outcome === "success") {
+          finishProgressToast(
+            toastId,
+            true,
+            `Planilha importada com sucesso! ${updatedRows} registros atualizados.`,
+            { durationSeconds: 5, context: "sheets", packName }
+          );
+        } else {
+          // Rodou inteiro e não aplicou nada. Sai da pilha de progresso e vira aviso:
+          // um toast verde aqui deixa o leadscore parado sem ninguém perceber.
+          dismissToast(toastId);
+          showSheetSyncOutcomeWarning(
+            packName,
+            stats.outcome_message ||
+              "Nenhuma linha da planilha foi aplicada. Confira se ela está vinculada ao pack certo.",
+            outcome === "empty" ? "empty" : "no_match"
+          );
+        }
 
         onCompleted?.({ ...stats, rows_updated: updatedRows });
 

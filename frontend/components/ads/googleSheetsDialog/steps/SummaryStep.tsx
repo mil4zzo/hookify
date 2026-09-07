@@ -2,7 +2,8 @@
 
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { IconCheck, IconRefresh, IconInfoCircle } from "@tabler/icons-react";
+import { IconCheck, IconRefresh, IconInfoCircle, IconAlertTriangle } from "@tabler/icons-react";
+import { InlineNotice } from "@/components/common/States";
 import { SheetSyncResponse } from "@/lib/api/schemas";
 
 interface SummaryStepProps {
@@ -10,6 +11,13 @@ interface SummaryStepProps {
   isImporting: boolean;
   onSyncAgain: () => void;
   onClose: () => void;
+}
+
+/** YYYY-MM-DD → DD/MM. Datas do backend vêm em ISO; o resumo lê em BR. */
+function brShort(iso?: string | null): string {
+  if (!iso) return "—";
+  const [, m, d] = iso.split("-");
+  return m && d ? `${d}/${m}` : iso;
 }
 
 export function SummaryStep({ stats, isImporting, onSyncAgain, onClose }: SummaryStepProps) {
@@ -23,13 +31,37 @@ export function SummaryStep({ stats, isImporting, onSyncAgain, onClose }: Summar
   const pct = (v: number) => (total > 0 ? ((v / total) * 100).toFixed(1) : "0.0");
   const customColumns = Object.entries(stats.custom_columns ?? {});
 
+  // Um sync que rodou inteiro e não aplicou nenhuma linha não é sucesso: era
+  // exatamente esse card verde que fazia o desencontro de planilha passar batido.
+  const outcome = stats.sync_outcome ?? (stats.updated_rows > 0 ? "success" : "no_match");
+  const isSuccess = outcome === "success";
+
   return (
-    <div className="border border-success-30 bg-success-10 rounded-lg p-6">
-      <h3 className="font-semibold text-lg flex items-center gap-2 text-success mb-4">
-        <IconCheck className="w-5 h-5" />
-        Importação concluída com sucesso!
+    // Fora do sucesso o card fica neutro e quem carrega a cor é o InlineNotice abaixo:
+    // um card inteiro amarelo competiria com o próprio aviso que ele contém.
+    <div className={isSuccess ? "border border-success-30 bg-success-10 rounded-lg p-6" : "border border-border bg-card rounded-lg p-6"}>
+      <h3 className={isSuccess ? "font-semibold text-lg flex items-center gap-2 text-success mb-4" : "font-semibold text-lg flex items-center gap-2 text-warning mb-4"}>
+        {isSuccess ? <IconCheck className="w-5 h-5" /> : <IconAlertTriangle className="w-5 h-5" />}
+        {isSuccess
+          ? "Importação concluída com sucesso!"
+          : outcome === "empty"
+            ? "Planilha sem linhas válidas"
+            : "Nenhuma linha foi aplicada"}
       </h3>
       <div className="space-y-4">
+        {/* O motivo vem pronto do backend: ele é quem sabe comparar a janela da
+            planilha com a do pack. Aqui só exibe. */}
+        {!isSuccess && stats.outcome_message && (
+          <InlineNotice tone={outcome === "empty" ? "info" : "warning"}>
+            {stats.outcome_message}
+            {stats.sheet_date_min && stats.pack_date_start && (
+              <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-2xs text-muted-foreground">
+                <span>Planilha: {brShort(stats.sheet_date_min)} → {brShort(stats.sheet_date_max)}</span>
+                <span>Pack: {brShort(stats.pack_date_start)} → {brShort(stats.pack_date_stop)}</span>
+              </div>
+            )}
+          </InlineNotice>
+        )}
         {/* Total de linhas processadas */}
         <div className="text-center">
           <div className="text-sm text-muted-foreground mb-1">Linhas processadas</div>

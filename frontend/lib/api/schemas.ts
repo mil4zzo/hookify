@@ -429,6 +429,15 @@ export const SheetSyncStatsSchema = z.object({
   ids_out_of_pack_count: z.number().optional(),
   total_update_queries: z.number().optional(),
   integration_status_updated: z.boolean().optional(),
+  // Desfecho do sync. "no_match" = rodou inteiro e nao aplicou nada — nem erro
+  // (nada quebrou) nem sucesso (nada entrou). "empty" = planilha sem linha valida.
+  sync_outcome: z.enum(["success", "no_match", "empty"]).nullable().optional(),
+  outcome_reason: z.string().nullable().optional(),
+  outcome_message: z.string().nullable().optional(),
+  sheet_date_min: z.string().nullable().optional(),
+  sheet_date_max: z.string().nullable().optional(),
+  pack_date_start: z.string().nullable().optional(),
+  pack_date_stop: z.string().nullable().optional(),
   // 140: relatório por coluna vinculada
   custom_columns: z.record(z.string(), SheetSyncCustomColumnReportSchema).optional(),
 })
@@ -448,7 +457,16 @@ export const SheetSyncJobProgressSchema = z.object({
     // Parcelas separadas de rows_skipped (o resumo as distingue)
     skipped_invalid: z.number().optional(),
     skipped_no_match: z.number().optional(),
+    ids_not_found_count: z.number().nullable().optional(),
+    ids_out_of_pack_count: z.number().nullable().optional(),
     custom_columns: z.record(z.string(), SheetSyncCustomColumnReportSchema).optional(),
+    sync_outcome: z.enum(["success", "no_match", "empty"]).nullable().optional(),
+    outcome_reason: z.string().nullable().optional(),
+    outcome_message: z.string().nullable().optional(),
+    sheet_date_min: z.string().nullable().optional(),
+    sheet_date_max: z.string().nullable().optional(),
+    pack_date_start: z.string().nullable().optional(),
+    pack_date_stop: z.string().nullable().optional(),
   }).optional(),
   result_count: z.number().optional(),
 })

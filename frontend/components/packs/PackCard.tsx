@@ -253,8 +253,15 @@ export function PackCard({ pack, adAccountName, formatCurrency, formatDate, onRe
   const lastSuccessfulSyncAt = pack.sheet_integration?.last_successful_sync_at;
   const lastSyncAttemptAt = pack.sheet_integration?.last_synced_at;
   const leadscoreSyncFailed = pack.sheet_integration?.last_sync_status === "failed";
+  // "warning" = o sync rodou inteiro e não aplicou nenhuma linha (tipicamente a
+  // planilha aponta para outro pack). Nada quebrou, mas o leadscore está parado —
+  // e sem este estado a integração dizia "success" e o problema sumia.
+  const leadscoreSyncEmpty = pack.sheet_integration?.last_sync_status === "warning";
+  const leadscoreSyncNotOk = leadscoreSyncFailed || leadscoreSyncEmpty;
   const hasAnyLeadscoreSyncInfo = !!(lastSuccessfulSyncAt || lastSyncAttemptAt);
-  const leadscoreDateForDisplay = leadscoreSyncFailed ? lastSuccessfulSyncAt || "" : lastSuccessfulSyncAt || lastSyncAttemptAt || "";
+  // Nos dois estados ruins o tempo mostrado é o do último SUCESSO: exibir o da
+  // tentativa leria como "atualizado agora" logo depois de não atualizar nada.
+  const leadscoreDateForDisplay = leadscoreSyncNotOk ? lastSuccessfulSyncAt || "" : lastSuccessfulSyncAt || lastSyncAttemptAt || "";
 
   return (
     <div className="relative inline-block w-full group">
@@ -530,7 +537,7 @@ export function PackCard({ pack, adAccountName, formatCurrency, formatDate, onRe
                         {!pack.sheet_integration ? (
                           <span className="text-2xs text-muted-foreground">Não conectado</span>
                         ) : hasAnyLeadscoreSyncInfo ? (
-                          leadscoreSyncFailed ? (
+                          leadscoreSyncNotOk ? (
                             // Falha na última tentativa: comunicar o ERRO explicitamente em vez de
                             // mostrar o tempo relativo do último sucesso (que lia como "atualizado ok").
                             <TooltipProvider>
@@ -538,11 +545,17 @@ export function PackCard({ pack, adAccountName, formatCurrency, formatDate, onRe
                                 <TooltipTrigger asChild>
                                   <div className="flex items-center gap-1 cursor-help">
                                     <IconAlertCircle className="w-3 h-3 text-warning flex-shrink-0" />
-                                    <span className="text-2xs text-warning font-medium">Falha ao atualizar</span>
+                                    <span className="text-2xs text-warning font-medium">
+                                      {leadscoreSyncFailed ? "Falha ao atualizar" : "Nada aplicado"}
+                                    </span>
                                   </div>
                                 </TooltipTrigger>
                                 <TooltipContent>
-                                  <p>{lastSuccessfulSyncAt ? `A última tentativa de sincronização falhou. Última sincronização bem-sucedida: ${formatRelativeTime(lastSuccessfulSyncAt).text.replace(/^Atualizado /, "")}.` : "A última tentativa de sincronização falhou e ainda não há nenhuma sincronização bem-sucedida para este pack."}</p>
+                                  {leadscoreSyncFailed ? (
+                                    <p>{lastSuccessfulSyncAt ? `A última tentativa de sincronização falhou. Última sincronização bem-sucedida: ${formatRelativeTime(lastSuccessfulSyncAt).text.replace(/^Atualizado /, "")}.` : "A última tentativa de sincronização falhou e ainda não há nenhuma sincronização bem-sucedida para este pack."}</p>
+                                  ) : (
+                                    <p>{`O último sync rodou sem erro, mas nenhuma linha da planilha foi aplicada — normalmente a planilha está vinculada a outro pack ou cobre um período diferente. Abra a integração para ver o motivo.${lastSuccessfulSyncAt ? ` Última sincronização com dados: ${formatRelativeTime(lastSuccessfulSyncAt).text.replace(/^Atualizado /, "")}.` : ""}`}</p>
+                                  )}
                                 </TooltipContent>
                               </Tooltip>
                             </TooltipProvider>

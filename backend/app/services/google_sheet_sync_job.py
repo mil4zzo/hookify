@@ -126,11 +126,31 @@ def process_sync_job(
             "skipped_no_match": stats.get("skipped_no_match", 0),
             "unique_ad_date_pairs": stats.get("unique_ad_date_pairs", 0),
             "total_update_queries": stats.get("total_update_queries", 0),
+            # As duas parcelas de "sem match". O resumo já as exibia, mas elas nunca
+            # saíam daqui — o tooltip ficava permanentemente vazio.
+            "ids_not_found_count": stats.get("ids_not_found_count"),
+            "ids_out_of_pack_count": stats.get("ids_out_of_pack_count"),
             # 140: relatório por coluna vinculada (rótulo, tipo, valores, puladas, motivo)
             "custom_columns": stats.get("custom_columns") or {},
+            # Desfecho do sync: "success" | "no_match" | "empty". O job continua
+            # completed (nada quebrou) — quem pinta o aviso amarelo é este campo.
+            "sync_outcome": stats.get("sync_outcome"),
+            "outcome_reason": stats.get("outcome_reason"),
+            "outcome_message": stats.get("outcome_message"),
+            "sheet_date_min": stats.get("sheet_date_min"),
+            "sheet_date_max": stats.get("sheet_date_max"),
+            "pack_date_start": stats.get("pack_date_start"),
+            "pack_date_stop": stats.get("pack_date_stop"),
         })
 
-        logger.info(f"[GoogleSheetSyncJob] Job {job_id} concluido. Atualizados: {result_count}")
+        outcome = stats.get("sync_outcome")
+        if outcome and outcome != "success":
+            logger.warning(
+                f"[GoogleSheetSyncJob] Job {job_id} concluido SEM APLICAR NADA "
+                f"({outcome}/{stats.get('outcome_reason')}): {stats.get('outcome_message')}"
+            )
+        else:
+            logger.info(f"[GoogleSheetSyncJob] Job {job_id} concluido. Atualizados: {result_count}")
 
         return {"success": True, "stats": stats, "result_count": result_count}
 
