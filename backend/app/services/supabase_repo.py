@@ -2187,11 +2187,21 @@ def record_job(user_jwt: Optional[str], job_id: str, status: str, user_id: Optio
         data["id"] = job_id
         data["user_id"] = user_id
         data["payload"] = final_payload if final_payload else None
-        sb.table("jobs").upsert(data, on_conflict="id").execute()
+        # Com retry: este upsert é a PRIMEIRA escrita do job, logo depois de
+        # abrir o relatório na Meta. Uma queda transitória do HTTP/2 aqui
+        # (WinError 10035/10054, GOAWAY) deixava o relatório órfão e o refresh
+        # em 500 "Erro desconhecido" — aconteceu em 2026-09-06.
+        with_postgrest_retry(
+            f"record_job_upsert[{job_id}]",
+            lambda: sb.table("jobs").upsert(data, on_conflict="id").execute(),
+        )
     else:
         # Sem payload: fazer UPDATE direto (UPDATE preserva campos não fornecidos)
         # Isso é mais eficiente que SELECT + UPSERT, pois evita query extra
-        update_result = sb.table("jobs").update(data).eq("id", job_id).eq("user_id", user_id).execute()
+        update_result = with_postgrest_retry(
+            f"record_job_update[{job_id}]",
+            lambda: sb.table("jobs").update(data).eq("id", job_id).eq("user_id", user_id).execute(),
+        )
         
         # Se nenhuma linha foi afetada (job não existe), criar com payload None
         # Isso só acontece em casos raros de race condition ou erro
@@ -2200,7 +2210,10 @@ def record_job(user_jwt: Optional[str], job_id: str, status: str, user_id: Optio
             data["id"] = job_id
             data["user_id"] = user_id
             data["payload"] = None
-            sb.table("jobs").insert(data).execute()
+            with_postgrest_retry(
+                f"record_job_insert[{job_id}]",
+                lambda: sb.table("jobs").insert(data).execute(),
+            )
 
 
 def insert_bulk_ad_items(
