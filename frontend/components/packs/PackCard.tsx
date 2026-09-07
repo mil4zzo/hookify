@@ -15,6 +15,7 @@ import { api } from "@/lib/api/endpoints";
 import { showError, showSuccess } from "@/lib/utils/toast";
 import { useClientPacks } from "@/lib/hooks/useClientSession";
 import { getTodayLocal } from "@/lib/utils/dateFilters";
+import { attributionWindowLabel, lookbackDaysForPack } from "@/lib/utils/refreshWindow";
 import { UpdatedAtText } from "@/components/common/UpdatedAtText";
 import { formatRelativeTime } from "@/lib/utils/formatRelativeTime";
 import { cn } from "@/lib/utils/cn";
@@ -473,9 +474,25 @@ export function PackCard({ pack, adAccountName, formatCurrency, formatDate, onRe
                   <span className="text-sm text-foreground">Anúncios</span>
                   <span className="text-sm font-medium text-foreground">{stats?.uniqueAdNames || 0}</span>
                 </div>
-                <div className="flex items-center justify-between py-2">
+                <div className="flex items-center justify-between py-2 border-b border-border">
                   <span className="text-sm text-foreground">Variações</span>
                   <span className="text-sm font-medium text-foreground">{stats?.uniqueAds || 0}</span>
+                </div>
+                {/* Janela de atribuição (migration 143): de onde vem o recuo do refresh */}
+                <div className="flex items-center justify-between py-2">
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <span className="text-sm text-foreground cursor-help">Atribuição</span>
+                      </TooltipTrigger>
+                      <TooltipContent side="top" className="max-w-xs">
+                        {pack.attribution_setting
+                          ? `Janela de atribuição dos conjuntos deste pack (${pack.attribution_setting}). Cada atualização "desde a última" recua ${lookbackDaysForPack(pack)} ${lookbackDaysForPack(pack) === 1 ? "dia" : "dias"} para as conversões tardias entrarem.`
+                          : `Ainda não calibrada — a primeira atualização lê a janela dos conjuntos. Até lá o recuo é de ${lookbackDaysForPack(pack)} dias.`}
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                  <span className="text-sm font-medium text-foreground">{attributionWindowLabel(pack.attribution_setting) ?? "—"}</span>
                 </div>
               </div>
 

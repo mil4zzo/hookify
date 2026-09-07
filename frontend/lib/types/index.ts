@@ -35,6 +35,14 @@ export interface AdsPack {
   // Lista materializada (union incremental no refresh) dos conversion types do pack.
   // Chaves: 'conversion:<type>' / 'action:<type>'. Fonte do dropdown de eventos no Manager.
   conversion_types?: string[]
+  // ── Janela de atribuição (migration 143) ───────────────────────────────────
+  // Recuo (dias) do refresh "desde a última atualização": a Meta só conta a
+  // conversão se o clique estiver dentro da janela consultada, então o refresh
+  // recua pela janela de atribuição da conta. Vem das linhas do /insights
+  // (`attribution_setting`, ex. '1d_view_7d_click'); null = ainda não calibrado
+  // (o backend recua 7 até a primeira carga).
+  attribution_window_days?: number | null
+  attribution_setting?: string | null
   // ── Configuração de julgamento (inerente ao pack) ──────────────────────────
   // Sem herança de user_preferences: null/undefined = NÃO DEFINIDO.
   // Sem corte de leadscore, MQL e CPMQL ficam indisponíveis — nunca zero.

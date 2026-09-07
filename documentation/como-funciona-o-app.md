@@ -61,6 +61,7 @@ Análises aprofundadas e insights sobre os anúncios.
 ### Atualização de Packs (Refresh)
 
 - **Manual**: O usuário pode atualizar um pack a qualquer momento, buscando novos dados desde a última atualização até hoje
+- **Janela de atribuição (recuo)**: ao atualizar "desde a última atualização", o app não pede só os dias novos — ele recua pela **janela de atribuição** do pack (7 dias nas contas atuais, lida dos conjuntos de anúncios a cada carga). Motivo: a Meta só conta uma conversão se o clique que a originou estiver dentro do período consultado; sem o recuo, conversões que acontecem dias depois do clique (pré-matrícula, venda) nunca entrariam. Os dias do recuo são gravados por cima, então o número converge conforme as conversões tardias chegam. O card do pack mostra a janela em "Atribuição".
 - **Automático**: Packs com `auto_refresh` ativado são atualizados automaticamente quando a data final é "hoje"
 - O processo de refresh segue o mesmo fluxo de importação, mas apenas para o período novo
 

@@ -30,6 +30,7 @@ from app.services.insights_collector import get_insights_collector
 from app.services.ad_inventory import count_ads_by_adset, select_zero_delivery_ads, synthesize_zero_raw_rows
 from app.services.ads_enricher import get_ads_enricher
 from app.services.dataformatter import format_ads_for_api
+from app.services.attribution_window import max_attribution_window
 from app.core.supabase_client import get_supabase_service
 from app.services import supabase_repo
 from app.services.background_tasks import spawn_pack_background_tasks
@@ -311,13 +312,19 @@ class JobProcessor:
                 job_tracker=self.tracker,
                 job_id=job_id
             )
-            collect_result = collector.collect(job_id)
+            # O id do job é o report_run_id da PRIMEIRA tentativa; um retry no GK
+            # abre relatório novo e deixa o id atual no payload (ver gk_retry).
+            report_run_id = str(payload.get("meta_report_run_id") or job_id)
+            collect_result = collector.collect(report_run_id)
             
             if not collect_result.get("success"):
                 self.tracker.mark_failed(job_id, collect_result.get("error", "Erro ao coletar insights"))
                 return {"success": False, "error": collect_result.get("error")}
             
             raw_data = collect_result.get("data", [])
+            # Janela de atribuição vista nas linhas reais (antes das linhas-zero,
+            # que não trazem o campo). Vira o recuo do próximo refresh (migration 143).
+            attribution_window = max_attribution_window(raw_data)
             page_count = collect_result.get("page_count", 0)
             total_collected = collect_result.get("total_collected", 0)
             
@@ -503,6 +510,7 @@ class JobProcessor:
                 job_id, payload, formatted_data, is_refresh, pack_id_from_payload,
                 parent_entities=enrich_result.get("parent_entities") or {},
                 adset_ads_counts=count_ads_by_adset(inventory_rows) if inventory_rows else None,
+                attribution_window=attribution_window,
             )
 
             # ===== CONCLUSÃO =====
@@ -660,6 +668,7 @@ class JobProcessor:
         *,
         parent_entities: Optional[Dict[str, Any]] = None,
         adset_ads_counts: Optional[Dict[str, int]] = None,
+        attribution_window: Optional[tuple] = None,
     ) -> Optional[str]:
         """Persiste dados no Supabase."""
         # Heartbeat limiter: evita spam de updates no jobs durante loops longos
@@ -845,6 +854,21 @@ class JobProcessor:
                     )
                 except Exception as e:
                     raise PersistStageError("pack_refresh_status", f"Erro ao atualizar refresh do pack: {e}") from e
+
+            # Janela de atribuição do pack (migration 143): o recuo que o PRÓXIMO
+            # refresh incremental usa. Best-effort — sem valor, o refresh cai no 7.
+            if pack_id and attribution_window and attribution_window[0] is not None:
+                try:
+                    supabase_repo.update_pack_attribution_window(
+                        self.user_jwt,
+                        pack_id,
+                        self.user_id,
+                        attribution_window[0],
+                        attribution_window[1],
+                        sb_client=self._sb,
+                    )
+                except Exception as e:
+                    logger.warning(f"[JobProcessor] update_pack_attribution_window falhou (best-effort): {e}")
 
             if formatted_data and pack_id:
                 ensure_not_cancelled("before_stats")

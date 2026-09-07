@@ -29,9 +29,18 @@ from app.services.facebook_token_service import (
 )
 from app.services.facebook_connections_repo import (
     get_facebook_token_for_connection,
+    get_primary_connection_scopes_for_silo,
     get_primary_facebook_token_with_status,
     list_connections,
     update_connection_status
+)
+from app.services.attribution_window import lookback_days_for_pack
+from app.services.gk_retry import (
+    MAX_ATTEMPTS,
+    exhausted_message,
+    is_transient_gk,
+    plan_retry,
+    waiting_message,
 )
 from app.services.facebook_page_token_service import get_user_page_access_info
 from app.core.auth import get_current_user
@@ -3507,6 +3516,53 @@ def get_ads_progress(request: AdsRequestFrontend, api: GraphAPI = Depends(get_gr
         logger.exception("Error in /ads-progress endpoint")
         raise HTTPException(status_code=500, detail=str(e))
 
+def _restart_meta_report(fb_token: str, silo_user_id: str, job_payload: Dict[str, Any]) -> Optional[str]:
+    """Reabre o relatório assíncrono com o MESMO pedido (retry do GK transitório).
+
+    Devolve o novo report_run_id ou None se a Meta recusou a abertura — nesse
+    caso quem chama encerra o job em vez de insistir.
+    """
+    act_id = str(job_payload.get("adaccount_id") or "")
+    since = str(job_payload.get("date_start") or "")
+    until = str(job_payload.get("date_stop") or "")
+    if not act_id or not since or not until:
+        logger.warning("[JOB_PROGRESS] Payload sem adaccount_id/date_start/date_stop; não dá para reabrir o relatório")
+        return None
+    filters = job_payload.get("filters")
+    if not isinstance(filters, list):
+        filters = []
+    try:
+        api = GraphAPI(fb_token, user_id=silo_user_id)
+        return str(api.start_ads_job(act_id, {"since": since, "until": until}, filters))
+    except GraphAPIError as e:
+        logger.warning(f"[JOB_PROGRESS] Reabertura do relatório recusada pela Meta: {e.status} - {e.message}")
+        return None
+    except Exception as e:
+        logger.warning(f"[JOB_PROGRESS] Reabertura do relatório falhou: {e}")
+        return None
+
+
+def _release_pack_after_meta_failure(job_payload: Dict[str, Any], silo_user_id: str) -> None:
+    """Pack deixa de ser 'running' quando o relatório da Meta falha de vez.
+
+    Antes o caminho de falha não escrevia o status final e o pack ficava
+    'running' até `refresh_lock_until` (15 min) vencer. Best-effort.
+    """
+    pack_id = job_payload.get("pack_id")
+    if not pack_id or not job_payload.get("is_refresh"):
+        return
+    try:
+        supabase_repo.update_pack_refresh_status(
+            None,
+            str(pack_id),
+            str(silo_user_id),
+            refresh_status="failed",
+            sb_client=get_supabase_service(),
+        )
+    except Exception as e:
+        logger.warning(f"[JOB_PROGRESS] Não liberei o pack {pack_id} após falha da Meta (best-effort): {e}")
+
+
 @router.get("/ads-progress/{job_id}")
 def get_job_progress(
     job_id: str,
@@ -3617,8 +3673,48 @@ def get_job_progress(
                 ),
             )
         
+        # O id do job é o report_run_id da PRIMEIRA tentativa. Um retry no GK abre
+        # relatório novo sem trocar o id do job; o relatório atual vive no payload.
+        job_payload = (job or {}).get("payload") or {}
+
+        # Retry pendente (GK transitório já visto nesta tentativa): decidir ANTES
+        # de tocar na Meta. O relatório antigo já morreu — consultá-lo a cada
+        # poll de 2 s só gastaria 2 chamadas por poll durante 15–60 s e encheria
+        # o log de erro. Esperando → devolve o progresso gravado; na hora →
+        # reabre o relatório; não conseguiu reabrir → encerra.
+        if job_payload.get("gk_retry_not_before"):
+            plan = plan_retry(job_payload, datetime.now(timezone.utc))
+            if plan.action == "wait":
+                return _progress_with_bg()
+            if plan.action == "retry_now":
+                new_report_id = _restart_meta_report(fb_token, silo_user_id, job_payload)
+                if new_report_id:
+                    logger.warning(
+                        f"[JOB_PROGRESS] GK transitório no job {job_id}: tentativa {plan.next_attempt}/{MAX_ATTEMPTS} "
+                        f"aberta como report {new_report_id}"
+                    )
+                    tracker.merge_payload(job_id, {
+                        "meta_report_run_id": new_report_id,
+                        "gk_attempts": plan.next_attempt,
+                        "gk_retry_not_before": None,
+                    })
+                    tracker.heartbeat(
+                        job_id,
+                        status=STATUS_META_RUNNING,
+                        progress=0,
+                        message="Solicitando pack ao Meta...",
+                        details={"stage": "meta_processing", "gk_attempt": plan.next_attempt, "gk_max": MAX_ATTEMPTS},
+                    )
+                    return _progress_with_bg()
+            # give_up, ou a Meta recusou a reabertura: encerra sem mandar reautorizar.
+            fail_details = {"meta_error": {**(job_payload.get("details", {}).get("meta_error") or {}), "transient": True}}
+            tracker.mark_failed(job_id, exhausted_message(), details=fail_details)
+            _release_pack_after_meta_failure(job_payload, silo_user_id)
+            return _progress_with_bg()
+
         meta_client = get_meta_job_client(fb_token)
-        meta_status = meta_client.get_status(job_id)
+        current_report_id = str(job_payload.get("meta_report_run_id") or job_id)
+        meta_status = meta_client.get_status(current_report_id)
         
         # Verificar erros da Meta
         if not meta_status.get("success"):
@@ -3669,9 +3765,46 @@ def get_job_progress(
         elif meta_job_status == "failed":
             # Meta falhou
             error_msg = meta_status.get("error", "Job falhou na Meta API")
-            meta_error_details = meta_status.get("meta_error") or {}
-            fail_details = {"meta_error": meta_error_details} if meta_error_details else None
+            meta_error_details = dict(meta_status.get("meta_error") or {})
+
+            # Gate Keeper `(#3) AdAccount must pass GK` com o scope concedido é
+            # instabilidade da Meta (medido: o mesmo request passa 3 de 6 vezes) —
+            # re-tentar até MAX_ATTEMPTS com respiro. Sem o scope é permissão
+            # faltando: falha de vez e o frontend manda reautorizar.
+            granted_scopes = None
+            try:
+                granted_scopes = get_primary_connection_scopes_for_silo(silo_user_id)
+            except Exception as e:
+                logger.warning(f"[JOB_PROGRESS] Não li os scopes do silo {silo_user_id[:8]} (assumindo GK transitório): {e}")
+            transient = is_transient_gk(meta_error_details, granted_scopes, error_msg)
+            meta_error_details["transient"] = transient
+
+            if transient:
+                # Primeira vez que ESTA tentativa morre com GK (o carimbo de espera
+                # ainda não existe — se existisse, o bloco antes da consulta à Meta
+                # teria decidido). Agenda o respiro ou desiste.
+                plan = plan_retry(job_payload, datetime.now(timezone.utc))
+                if plan.action == "wait":
+                    tracker.merge_payload(job_id, {
+                        "gk_attempts": plan.attempt,
+                        "gk_retry_not_before": plan.not_before.isoformat(),
+                        "gk_last_error": error_msg,
+                    })
+                    tracker.heartbeat(
+                        job_id,
+                        status=STATUS_META_RUNNING,
+                        progress=0,
+                        message=waiting_message(plan),
+                        details={"stage": "meta_retry_wait", "gk_attempt": plan.attempt, "gk_max": MAX_ATTEMPTS,
+                                 "meta_error": meta_error_details},
+                    )
+                    return _progress_with_bg()
+                # give_up: mensagem curta, sem mandar reautorizar.
+                error_msg = exhausted_message()
+
+            fail_details = {"meta_error": meta_error_details}
             tracker.mark_failed(job_id, error_msg, details=fail_details)
+            _release_pack_after_meta_failure(job_payload, silo_user_id)
 
             if check_meta_error_for_token_expiry(error_msg):
                 if not is_guest_poll:
@@ -4267,7 +4400,9 @@ def refresh_pack(
     """Atualiza um pack existente buscando novos dados do Meta.
     
     Calcula o range de datas baseado no refresh_type:
-    - 'since_last_refresh': desde last_refreshed_at - 1 dia até until_date
+    - 'since_last_refresh': desde last_refreshed_at - janela de atribuição do pack
+      (packs.attribution_window_days; 7 se ainda não calibrado) até until_date,
+      nunca antes de date_start
     - 'full_period': desde date_start até date_stop (ou até hoje se auto_refresh estiver ativado)
     
     Args:
@@ -4336,17 +4471,36 @@ def refresh_pack(
             last_refreshed_str = pack.get("last_refreshed_at") or pack.get("date_stop")
             if not last_refreshed_str:
                 raise HTTPException(status_code=400, detail="Pack não tem last_refreshed_at configurado. Use 'full_period' para atualizar todo o período.")
+            # Recuo = janela de atribuição do pack (migration 143). O /insights só
+            # conta a conversão se o CLIQUE estiver dentro da janela consultada; um
+            # recuo menor que a janela perde toda conversão tardia — para sempre,
+            # porque o dia gravado não é relido. Medido: 1 dia de recuo deixava a
+            # pré-matrícula 14,5% abaixo do Gerenciador. Os dias do recuo são
+            # reescritos por cima (upsert por {dia}-{ad_id}), então o dado converge.
+            lookback_days = lookback_days_for_pack(pack)
             # Parsing robusto: funciona com "YYYY-MM-DD" e "YYYY-MM-DDThh:mm:ss..."
-            since_date = date.fromisoformat(last_refreshed_str[:10]) - timedelta(days=1)
+            since_date = date.fromisoformat(last_refreshed_str[:10]) - timedelta(days=lookback_days)
+            # Nunca antes do início do pack: o primeiro dia do período não leva
+            # recuo — é onde o Gerenciador também começa (paridade conferida).
+            pack_start_str = str(pack.get("date_start") or "")[:10]
+            if pack_start_str:
+                try:
+                    since_date = max(since_date, date.fromisoformat(pack_start_str))
+                except ValueError:
+                    pass
             since_str = since_date.strftime("%Y-%m-%d")
             until_str = request.until_date
 
             if since_date > until_date_parsed:
                 raise HTTPException(status_code=400, detail=f"Range inválido: since ({since_str}) > until ({until_str})")
 
-            logger.info(f"[REFRESH_PACK] Pack {pack_id} - Tipo: desde última atualização - Range: {since_str} até {until_str} (last_refreshed: {last_refreshed_str})")
+            logger.info(
+                f"[REFRESH_PACK] Pack {pack_id} - Tipo: desde última atualização - Range: {since_str} até {until_str} "
+                f"(last_refreshed: {last_refreshed_str}, recuo: {lookback_days} dias, attribution_setting: {pack.get('attribution_setting')})"
+            )
         else:
-            # Opção 2: Todo o período
+            # Opção 2: Todo o período (sem recuo: começa onde o pack começa)
+            lookback_days = 0
             if not pack.get("date_start"):
                 raise HTTPException(status_code=400, detail="Pack não tem date_start configurado")
 
@@ -4459,6 +4613,9 @@ def refresh_pack(
             "type": "pack_refresh",
             "auto_refresh": pack.get("auto_refresh", False),
             "is_refresh": True,
+            "refresh_type": refresh_type,
+            # Recuo aplicado (dias) — observabilidade do efeito da migration 143.
+            "lookback_days": lookback_days,
             # Auditoria (decisao travada: registrar o ATOR em toda escrita).
             # silo_user_id e redundante com jobs.user_id, mas explicita a intencao.
             "actor_id": str(user["user_id"]),

@@ -121,6 +121,9 @@ export function useLoadPacks() {
                 refresh_actor_name: pack.refresh_actor_name ?? null,
                 sheet_integration: pack.sheet_integration || undefined, // Incluir dados de integração se disponível
                 conversion_types: Array.isArray(pack.conversion_types) ? pack.conversion_types : [], // Metadado materializado (dropdown de eventos)
+                // Janela de atribuição (migration 143) — null = ainda não calibrado
+                attribution_window_days: pack.attribution_window_days ?? null,
+                attribution_setting: pack.attribution_setting ?? null,
                 // Critério de julgamento do pack (migration 110) — null preservado:
                 // null = NÃO DEFINIDO (MQL/CPMQL indisponíveis), nunca zero.
                 mql_leadscore_min: pack.mql_leadscore_min ?? null,
@@ -165,6 +168,14 @@ export function useLoadPacks() {
               }
               if (JSON.stringify(pack.conversion_types || []) !== JSON.stringify((existing as any).conversion_types || [])) {
                 patch.conversion_types = Array.isArray(pack.conversion_types) ? pack.conversion_types : []
+              }
+              // Janela de atribuição: calibrada a cada carga — o store persistido
+              // não pode reidratar o valor antigo e mostrar um recuo que já mudou.
+              if ((pack.attribution_window_days ?? null) !== ((existing as any).attribution_window_days ?? null)) {
+                patch.attribution_window_days = pack.attribution_window_days ?? null
+              }
+              if ((pack.attribution_setting ?? null) !== ((existing as any).attribution_setting ?? null)) {
+                patch.attribution_setting = pack.attribution_setting ?? null
               }
               // Overrides de julgamento: campos mutáveis — sem isto, o store persistido
               // reidrata o valor antigo e a tela julga por um critério já alterado.

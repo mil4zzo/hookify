@@ -468,6 +468,8 @@ Agrupamentos de anúncios definidos pelo usuário para análise comparativa.
 | diagnostic_cost_metric | text |  |
 | last_status_sync_at | timestamp |  |
 | refresh_actor_id | uuid |  |
+| attribution_window_days | integer |  |
+| attribution_setting | text |  |
 
 ---
 
@@ -576,4 +578,4 @@ Preferências e configurações personalizadas por usuário.
 
 ---
 
-*Gerado em: 2026-09-05 — via `supabase/generate_schema_map.py`*
+*Gerado em: 2026-09-06 — via `supabase/generate_schema_map.py`*

@@ -405,3 +405,34 @@ def get_facebook_token_for_connection(
     
     token = decrypt_token(encrypted_token)
     return token, expires_at, status
+
+
+def get_primary_connection_scopes_for_silo(owner_id: str) -> Optional[List[str]]:
+    """Scopes concedidos da conexao primaria ATIVA do dono, via SERVICE ROLE.
+
+    Usado para classificar o Gate Keeper `(#3) AdAccount must pass GK` do
+    relatorio assincrono: com `business_management` concedido a falha e
+    instabilidade da Meta (re-tentar); sem ele e scope faltando (reautorizar).
+    Mesma disciplina de get_primary_facebook_token_for_silo: autorizacao e do
+    chamador, owner_id vem do resolvedor de acesso.
+
+    Devolve None quando nao ha conexao ativa ou a coluna `scopes` e nula
+    (conexao anterior a validacao de scopes) — o chamador decide o fallback.
+    """
+    if not owner_id:
+        return None
+    sb = get_supabase_service()
+    res = (
+        sb.table("facebook_connections")
+        .select("scopes,is_primary")
+        .eq("user_id", str(owner_id))
+        .eq("status", "active")
+        .order("is_primary", desc=True)
+        .order("created_at", desc=True)
+        .limit(1)
+        .execute()
+    )
+    if not res.data:
+        return None
+    scopes = res.data[0].get("scopes")
+    return list(scopes) if isinstance(scopes, list) else None

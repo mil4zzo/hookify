@@ -3053,6 +3053,40 @@ def update_pack_refresh_status(
         raise
 
 
+def update_pack_attribution_window(
+    user_jwt: str,
+    pack_id: str,
+    user_id: Optional[str],
+    window_days: Optional[int],
+    setting: Optional[str],
+    *,
+    sb_client: Optional["Client"] = None,
+) -> None:
+    """Grava a janela de atribuição vista na última carga (migration 143).
+
+    É o recuo que o PRÓXIMO refresh incremental vai usar. Sobrescreve sempre —
+    inclusive para baixo: a consulta que acabou de rodar já recuou N dias, então
+    qualquer conjunto que ainda pudesse gerar conversão tardia teve entrega na
+    janela e apareceu nas linhas; o maior valor visto é o maior valor VIVO do
+    pack. Sem valor legível (None) não toca no que está gravado.
+    """
+    if not user_id or not pack_id or window_days is None:
+        return
+    sb = _get_sb(user_jwt, sb_client)
+    update_data = {
+        "attribution_window_days": int(window_days),
+        "attribution_setting": setting,
+    }
+    with_postgrest_retry(
+        f"update_pack_attribution_window[{pack_id}]",
+        lambda: sb.table("packs").update(update_data).eq("id", pack_id).eq("user_id", user_id).execute(),
+    )
+    logger.info(
+        "[ATTRIBUTION_WINDOW] Pack %s: recuo=%s dias (attribution_setting=%s)",
+        pack_id, window_days, setting,
+    )
+
+
 def clear_pack_refresh_if_running(owner_id: str, pack_ids: Iterable[str]) -> int:
     """Derruba o "está atualizando" dos packs cujo refresh acabou de ser cancelado.
 

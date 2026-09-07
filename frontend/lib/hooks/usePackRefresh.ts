@@ -73,6 +73,10 @@ function buildMetaErrorDiagnosticLine(metaError: Record<string, unknown> | undef
  */
 function isMetaScopeError(metaError: Record<string, unknown> | undefined): boolean {
   if (!metaError) return false;
+  // O backend já classificou o GK olhando os scopes concedidos: `transient=true`
+  // é instabilidade da Meta (o mesmo request passa minutos depois) — mandar
+  // reautorizar aqui só faria o usuário perder tempo.
+  if (metaError.transient === true) return false;
   const code = metaError.code;
   const message = String(metaError.message || "").toLowerCase();
   if (code === 200) return true;
@@ -512,9 +516,14 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
               progress.message,
               `Não foi possível concluir a atualização de "${packName}".`,
             );
+            // GK transitório (classificado no backend pelos scopes concedidos):
+            // as tentativas esgotaram — é instabilidade da Meta, não permissão.
+            const transientMeta = metaError?.transient === true;
             const userMessage = scopeError
               ? `Esta conta de anúncios exige uma permissão que não está autorizada na conexão Facebook. Vá em "Configurações → Conexões" e clique em "Atualizar permissões".`
-              : normalized.message;
+              : transientMeta
+                ? "Instabilidade na Meta. Tente de novo em alguns minutos."
+                : normalized.message;
             const diagnosticLine = buildMetaErrorDiagnosticLine(metaError) ?? normalized.diagnostic;
 
             const failError = new Error(userMessage);

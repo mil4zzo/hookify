@@ -1383,6 +1383,72 @@ O campo suspeito de disparar o GK é `video_play_curve_actions` (curva de reten�
 
 **Como distinguir na prática:** tente de novo. Se a mesma conta completou um refresh nos últimos minutos/horas, é causa B (instabilidade). Se nenhuma tentativa naquele act jamais passou, é causa A (scope).
 
+**Experimento controlado (2026-09-06) — 30 relatórios no request real do pack `EI.30 - CA4 Cap` (`act_375919623592885`, 07/07→17/08, 42 dias), payload idêntico ao de produção, alternando os dois braços em sequência:**
+
+| braço | n | ok | GK |
+|---|---|---|---|
+| janela inteira (42d) | 6 | 3 | 3 |
+| fatias de ~11d | 24 | 21 | 3 |
+| **rodadas com as 4 fatias ok** | 6 | **3** | — |
+
+Três conclusões medidas:
+
+1. **Não é determinístico.** O mesmo request que falhou 2/2 na véspera passou 3 de 6 vezes. **Retry funciona** — a intuição de que retry seria "forçar a barra no mesmo problema" está errada.
+2. **Fatiar sozinho não compra nada.** A fatia falha 12,5% contra 50% da inteira, mas são 4 fatias e todas precisam passar: 50% ponta a ponta nos dois braços. O ganho só existe com **retry por fatia** (~99%).
+3. Falhas morrem em 15–27 s, em qualquer percentual (0%, 40%, 45%, 92%); sucessos levam 24–81 s. Não é timeout, é morte precoce arbitrária — e a fatia que falha muda a cada rodada, não existe "pedaço ruim" do período.
+
+**A armadilha do fatiamento — cauda de atribuição.** Fatiar por data **não é neutro**. O relatório de 42 dias devolveu 16.350 linhas; a soma das 4 fatias, 15.977. As **373 linhas perdidas** têm `spend`, `impressions`, `clicks` e `reach` **zerados**, mas **373 de 373 têm `actions`** com `conversions` (`offsite_conversion.fb_pixel_custom.TYP_PreMatricula` etc.) atribuídas por `7d_click`. Elas caem nos **~5 primeiros dias de cada fatia** (18–22/07 e 29/07–02/08), em volume decrescente conforme se afasta da borda: são conversões em dias sem entrega, originadas de cliques anteriores ao início da janela consultada. Cada borda de fatia abre um buraco de até 7 dias na cauda de conversão — o gasto continua exato ao centavo, mas o **CPR sobe artificialmente**, silenciosamente, justo nos anúncios que converteram depois de parar de rodar.
+
+**Conserto validado por diferencial.** Pedir cada fatia com **7 dias de encosto** antes do seu início (a fatia 18/07–28/07 vira a consulta 11/07–28/07) e descartar na ingestão as linhas anteriores ao início real da fatia. Resultado contra o relatório inteiro de referência:
+
+```
+linhas inteiro : 16350        spend inteiro : 532191.11
+linhas fatiado : 16350        spend fatiado : 532191.11
+só no inteiro  : 0            8 tipos de conversão: idênticos na unidade
+só no fatiado  : 0            (Captura_Evento 213470, TYP_Captacao_Evento 41525,
+                               LeadScoring 7879, TYP_PreMatricula 848, ...)
+```
+
+Custo do encosto: ~1,7× de linhas trafegadas (o encosto é baixado e jogado fora).
+
+**O que foi implementado (2026-09-06, migration 143):**
+
+| peça | antes | depois |
+|---|---|---|
+| recuo do `since_last_refresh` | `last_refreshed_at − 1 dia`, fixo | `− packs.attribution_window_days` (nulo → 7; teto 28), nunca antes de `date_start` |
+| origem da janela | — | campo `attribution_setting` do próprio `/insights`, por linha; o maior valor visto nas linhas do pack é gravado a cada carga (`update_pack_attribution_window`) e vale para o refresh seguinte. Sobrescreve inclusive para baixo: a consulta já recuou N dias, então qualquer conjunto que ainda pudesse gerar conversão tardia teve entrega na janela e apareceu |
+| GK `must pass GK` | job morre na 1ª falha; pack fica `running` até o lock (15 min) vencer; toast manda reautorizar | até 3 tentativas com respiro (15 s, 60 s) dirigidas pelo polling — sem thread dormindo; o id do job não muda, o `report_run_id` atual vive no payload (`meta_report_run_id`); esgotou → `failed` + pack liberado + "Instabilidade na Meta. Tente de novo em alguns minutos." Revisão de pente-fino (2026-09-07) pegou e corrigiu: durante a espera o polling **não consulta a Meta** — decidia depois de `get_status` no relatório morto, o que custaria 2 chamadas por poll de 2 s durante 15–60 s e enchia o log de erro; agora o carimbo `gk_retry_not_before` é lido antes de qualquer chamada (`test_enquanto_espera_nao_toca_na_meta`) |
+| GK × scope | indistinguíveis | `is_transient_gk`: GK com `business_management` concedido (`facebook_connections.scopes`) = instabilidade; sem o scope = permissão → mensagem de reautorização continua |
+| modal "Dados mais recentes" | mostrava `− 1 dia` | mostra a data real do recuo + "Inclui N dias de janela de atribuição" (`lib/utils/refreshWindow.ts`, espelho da regra do backend, com teste) |
+| card do pack | — | linha "Atribuição": `7d clique · 1d view` com tooltip explicando o recuo |
+
+Por que por pack e não 7 fixo: cliente com janela de 1 dia pagaria 4× de leitura todo dia (1.645 → 6.585 linhas medidas) sem ganhar nada. Custo aceito para quem tem 7: o refresh diário lê 8 dias em vez de 2.
+
+**Verificação pós-fix (2026-09-06, 23h30):** primeiro refresh do `EI.31 - CA4 Cap (BM1)` com o código novo pediu `30/08 → 06/09` (`lookback_days=7`, 27.317 linhas contra ~2.760 do refresh de 2 dias) e calibrou o pack (`attribution_window_days=7`). Diferencial contra a consulta única do período, nos dias 05–06/09: **conversões em linhas que o banco não tem = 0** (antes do fix, só o dia 05/09 perdia 47). Controle no mesmo horário, `EI.31 - CA9 Cap (BM1)` atualizado só pelo código antigo (produção, `05/09 → 06/09`): 15 conversões em 2.704 linhas de cauda ausentes. Um refresh estreito rodado DEPOIS do largo (produção por cima do local) não destrói a cauda — ele só grava as linhas que devolve, e a cauda é justamente o que ele não devolve.
+
+Adiado (fase 2, só se os logs pedirem): fatiar janelas longas — exige job com vários `report_run_id` e 1,7× de tráfego, para levar o sucesso de ~90–96% (retry) a 99%.
+
+**Como o app lê a atribuição (descoberta que muda o desenho):** o `dataformatter` lê `item["value"]`, não `7d_click`. `value` é o total **deduplicado sob a configuração de atribuição da conta** (medido: Captura_Evento `value`=1144 = `7d_click`, ignorando 245 de `1d_view` que eram as mesmas pessoas). Consequências: (1) `action_attribution_windows` é decorativo para o que se grava — o app já segue o Gerenciador por construção; (2) por isso mesmo o recuo tem que vir de `attribution_setting`, não do que a gente pede.
+
+**Lição transferível:** qualquer fatiamento por data em `/insights` com janela de atribuição precisa de lookback igual à maior janela (`7d_click` → 7 dias). Fatiar sem encosto não dá erro nem alerta — só devolve menos conversão.
+
+**O tamanho do estrago depende da velocidade do funil — e é brutal no que importa.** Conversão por tipo, relatório inteiro → fatiado sem encosto:
+
+| tipo de conversão | inteiro | fatiado sem encosto | perda |
+|---|---|---|---|
+| `Captura_Evento` | 213.470 | 213.340 | −0,06% |
+| `TYP_Captacao_Evento` | 41.525 | 41.516 | −0,02% |
+| `LeadScoring` | 7.879 | 7.875 | −0,05% |
+| **`TYP_PreMatricula`** | **848** | **418** | **−50,71%** |
+| `TYP_MDV` | 12 | 10 | −16,7% |
+| gasto | R$ 532.191,11 | R$ 532.191,11 | 0,00 |
+
+A cauda de atribuição **é** a conversão lenta. Um funil que converte no mesmo dia mal sente; um funil de dias perde metade. **Toda decisão sobre janela tem que ser avaliada na conversão lenta** — olhar só a métrica de topo esconde o problema por completo, porque o gasto continua exato ao centavo.
+
+**O mesmo buraco já existe em produção, sem fatiamento nenhum.** O refresh incremental pede `último_refresh → hoje` (ex.: 05/09–06/09) — que é uma fatia no meio da campanha, mesma classe de problema. Medido no dia 05/09 (dia fechado, pack DOR31): sem encosto 6.996 capturas, com encosto 7.041 (**−0,6%**), gasto igual a menos de R$ 0,04, e encosto de 7 e de 28 dias deram números idênticos (7 basta, como esperado de `7d_click`). Comparando o **banco** contra uma consulta fresca do período inteiro do pack DOR30 (07/07–17/08): `TYP_PreMatricula` **725 gravadas vs 848 reais (−14,5%)**, `TYP_MDV` −16,7%, enquanto `Captura_Evento` fica em −0,19%. Indicativo forte, não exato — os conjuntos de linhas não são idênticos (o banco tem 25.760 linhas acumuladas de vários refreshes contra 16.350 da consulta única) — mas a direção é inequívoca: **o banco tem mais linhas e menos conversão lenta**. Custo de consertar: encosto de 7 dias no refresh diário quadruplica as linhas lidas (1.645 → 6.585 por consulta).
+
+**`video_play_curve_actions` está inocente.** Oito rodadas por braço, mesmo request de 42 dias: com a curva 3/8 de GK, sem a curva 4/8, só a curva (relatório de 2 campos) 0/8. Tirar o campo não ajuda — e nas rodadas 2, 4 e 7 os dois braços falharam juntos, ou seja, as falhas se agrupam no relógio, não no payload.
+
 ---
 
 ## Landing de waitlist `/waitlist` e o padrão de rota pública de 3 pontos

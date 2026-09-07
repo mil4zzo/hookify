@@ -166,6 +166,10 @@ export function getMetaDynamicLine(status: string, stage: string, details?: any)
     return "Salvando...";
   }
 
+  // Retry do GK: o backend escreve "Instabilidade na Meta. Tentativa 2 de 3 em 15 s…"
+  // e o toast mostra o texto dele em vez do genérico.
+  if (stage === "meta_retry_wait" && details?.message) return details.message;
+
   // meta_running ou fallback
   if (status === "meta_running") return "Solicitando dados ao Meta...";
   return "Aguarde...";

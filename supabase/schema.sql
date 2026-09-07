@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict ZV4Ck8dHDMTNlZfkcNQcMS07bOrzBfOIjHLZdtx2fcenMAXXIml9tkgCwTcSd8Y
+\restrict 2TvYBubWj94lKX0R1QK79IswYcnD25OUIB7XVL36YGmtF0ySie6CddoGiv7byFw
 
 -- Dumped from database version 17.6
 -- Dumped by pg_dump version 17.6
@@ -14600,6 +14600,8 @@ CREATE TABLE public.packs (
     diagnostic_cost_metric text,
     last_status_sync_at timestamp with time zone,
     refresh_actor_id uuid,
+    attribution_window_days integer,
+    attribution_setting text,
     CONSTRAINT packs_diagnostic_cost_metric_check CHECK (((diagnostic_cost_metric IS NULL) OR (diagnostic_cost_metric = ANY (ARRAY['cpr'::text, 'cpmql'::text])))),
     CONSTRAINT packs_level_check CHECK ((level = ANY (ARRAY['campaign'::text, 'adset'::text, 'ad'::text]))),
     CONSTRAINT packs_mql_leadscore_min_check CHECK (((mql_leadscore_min IS NULL) OR (mql_leadscore_min >= (0)::numeric))),
@@ -14656,6 +14658,20 @@ COMMENT ON COLUMN public.packs.last_status_sync_at IS 'Instante do ultimo sync d
 --
 
 COMMENT ON COLUMN public.packs.refresh_actor_id IS 'Ator do refresh em andamento (quem disparou; num pack compartilhado difere do dono). Escrito junto com refresh_status=running, limpo em qualquer status terminal. Le-se sempre com refresh_status + refresh_lock_until, nunca sozinho.';
+
+
+--
+-- Name: COLUMN packs.attribution_window_days; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON COLUMN public.packs.attribution_window_days IS 'Recuo (dias) do refresh incremental = maior janela de atribuicao vista nas linhas do pack. NULL = ainda nao calibrado (codigo usa 7).';
+
+
+--
+-- Name: COLUMN packs.attribution_setting; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON COLUMN public.packs.attribution_setting IS 'Valor cru do attribution_setting da Meta que originou attribution_window_days (ex.: 1d_view_7d_click).';
 
 
 --
@@ -16951,5 +16967,5 @@ ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA public GRANT ALL ON T
 -- PostgreSQL database dump complete
 --
 
-\unrestrict ZV4Ck8dHDMTNlZfkcNQcMS07bOrzBfOIjHLZdtx2fcenMAXXIml9tkgCwTcSd8Y
+\unrestrict 2TvYBubWj94lKX0R1QK79IswYcnD25OUIB7XVL36YGmtF0ySie6CddoGiv7byFw
 
