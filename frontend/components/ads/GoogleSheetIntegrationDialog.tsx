@@ -19,6 +19,7 @@ import { useGoogleSyncJob } from "./googleSheetsDialog/hooks/useGoogleSyncJob";
 import { ConnectStep } from "./googleSheetsDialog/steps/ConnectStep";
 import { SelectSheetStep } from "./googleSheetsDialog/steps/SelectSheetStep";
 import { SelectColumnsStep, ColumnWithIndex, extraColumnProblem, resolveColumnIndex, type ExtraColumnDraft } from "./googleSheetsDialog/steps/SelectColumnsStep";
+import { useDateColumnProbe } from "./googleSheetsDialog/hooks/useDateColumnProbe";
 import type { SheetColumnKind, SheetColumnMapping } from "@/lib/api/schemas";
 import { SummaryStep } from "./googleSheetsDialog/steps/SummaryStep";
 
@@ -48,7 +49,9 @@ export function GoogleSheetIntegrationDialog({ isOpen, onClose, packId }: Google
 
   const [adIdColumn, setAdIdColumn] = useState("");
   const [dateColumn, setDateColumn] = useState("");
-  const [dateFormat, setDateFormat] = useState<"DD/MM/YYYY" | "MM/DD/YYYY">("DD/MM/YYYY");
+  // "" = neutro. Antes nascia em DD/MM/YYYY: um default silencioso é exatamente o
+  // que faz ninguém conferir, e o formato errado não dá erro — desloca o dia.
+  const [dateFormat, setDateFormat] = useState<"DD/MM/YYYY" | "MM/DD/YYYY" | "">("");
   const [leadscoreColumn, setLeadscoreColumn] = useState("");
   // O corte de MQL e definido AQUI, junto da planilha: e ela que da a escala do
   // leadscore. Definir isso fora deste contexto seria adivinhar.
@@ -130,7 +133,7 @@ export function GoogleSheetIntegrationDialog({ isOpen, onClose, packId }: Google
             setWorksheetTitle(integration.worksheet_title || "");
             setAdIdColumn(fmt(integration.ad_id_column, integrationWithConnection.ad_id_column_index) || integration.ad_id_column || "");
             setDateColumn(fmt(integration.date_column, integrationWithConnection.date_column_index) || integration.date_column || "");
-            setDateFormat((integration.date_format as "DD/MM/YYYY" | "MM/DD/YYYY") || "DD/MM/YYYY");
+            setDateFormat((integration.date_format as "DD/MM/YYYY" | "MM/DD/YYYY") || "");
             setLeadscoreColumn(fmt(integration.leadscore_column, integrationWithConnection.leadscore_column_index) || integration.leadscore_column || "");
             setIntegrationId(integration.id);
 
@@ -214,7 +217,7 @@ export function GoogleSheetIntegrationDialog({ isOpen, onClose, packId }: Google
       setSampleRows([]);
       setAdIdColumn("");
       setDateColumn("");
-      setDateFormat("DD/MM/YYYY");
+      setDateFormat("");
       setLeadscoreColumn("");
       setIntegrationId(null);
       setSelectedConnectionId("");
@@ -309,9 +312,36 @@ export function GoogleSheetIntegrationDialog({ isOpen, onClose, packId }: Google
     return extraColumns.every((draft) => extraColumnProblem(draft, sampleRows, reserved) === null);
   }, [extraColumns, adIdColumn, dateColumn, columnsWithIndices, sampleRows]);
 
+  // Janela do pack: a comparação com o período da planilha é feita aqui, no
+  // cliente, que já tem esse dado — o endpoint de sondagem fala só da planilha.
+  const packWindow = useMemo(() => {
+    const pk = packId ? packs.find((p) => p.id === packId) : undefined;
+    return { start: pk?.date_start ?? null, stop: pk?.date_stop ?? null };
+  }, [packId, packs]);
+
+  const dateColumnIndex = useMemo(
+    () => (dateColumn ? resolveColumnIndex(dateColumn, columnsWithIndices) : null),
+    [dateColumn, columnsWithIndices],
+  );
+
+  const { probe: dateProbe, isProbing: isProbingDate, failed: dateProbeFailed } = useDateColumnProbe({
+    spreadsheetId: selectedSpreadsheetId,
+    worksheetTitle,
+    columnIndex: dateColumnIndex,
+    connectionId: selectedConnectionId || undefined,
+    enabled: isOpen && step === "select-columns",
+  });
+
+  // A sonda preenche o seletor quando os dados PROVAM o formato (algum valor com
+  // componente > 12, que só pode ser dia). Roda uma vez por sondagem — trocar a
+  // escolha manualmente depois não dispara nova sonda, então nada é sobrescrito.
+  useEffect(() => {
+    if (dateProbe?.resolved_format) setDateFormat(dateProbe.resolved_format);
+  }, [dateProbe]);
+
   const canImport = useMemo(
-    () => !!selectedSpreadsheetId && !!worksheetTitle && !!adIdColumn && !!dateColumn && !!leadscoreColumn && parsedMqlLeadscoreMin !== null && extraColumnsValid,
-    [selectedSpreadsheetId, worksheetTitle, adIdColumn, dateColumn, leadscoreColumn, parsedMqlLeadscoreMin, extraColumnsValid]
+    () => !!selectedSpreadsheetId && !!worksheetTitle && !!adIdColumn && !!dateColumn && !!dateFormat && !!leadscoreColumn && parsedMqlLeadscoreMin !== null && extraColumnsValid,
+    [selectedSpreadsheetId, worksheetTitle, adIdColumn, dateColumn, dateFormat, leadscoreColumn, parsedMqlLeadscoreMin, extraColumnsValid]
   );
 
   const handleConnectGoogle = async () => {
@@ -472,7 +502,9 @@ export function GoogleSheetIntegrationDialog({ isOpen, onClose, packId }: Google
   };
 
   const handleImport = async () => {
-    if (!canImport || isSaving) return;
+    // `dateFormat` explícito no guard porque ele agora nasce vazio: sem isso o
+    // backend recusaria a integração com "formato de data não configurado".
+    if (!canImport || isSaving || !dateFormat) return;
     setIsSaving(true);
     try {
       const ad = parseColumnValue(adIdColumn);
@@ -627,7 +659,7 @@ export function GoogleSheetIntegrationDialog({ isOpen, onClose, packId }: Google
         {/* Step 3: Selecionar colunas ou Summary */}
         {isGoogleConnected && selectedSpreadsheetId && worksheetTitle && (
           <section className={cn("space-y-4", step !== "select-columns" && step !== "summary" && "hidden")}>
-            {step === "summary" && lastSyncStats ? <SummaryStep stats={lastSyncStats} isImporting={isImporting} onSyncAgain={handleSyncAgain} onClose={handleClose} /> : <SelectColumnsStep columns={columns} columnsWithIndices={columnsWithIndices} duplicates={duplicates} sampleRows={sampleRows} adIdColumn={adIdColumn} dateColumn={dateColumn} dateFormat={dateFormat} leadscoreColumn={leadscoreColumn} mqlLeadscoreMin={mqlLeadscoreMin} isSaving={isSaving} isImporting={isImporting} importStep={importStep} importProgress={importProgress} canImport={canImport} onAdIdColumnChange={setAdIdColumn} onDateColumnChange={setDateColumn} onDateFormatChange={setDateFormat} onLeadscoreColumnChange={setLeadscoreColumn} onMqlLeadscoreMinChange={setMqlLeadscoreMin} extraColumns={extraColumns} onExtraColumnsChange={setExtraColumns} onBack={() => setStep("select-sheet")} onImport={handleImport} />}
+            {step === "summary" && lastSyncStats ? <SummaryStep stats={lastSyncStats} isImporting={isImporting} onSyncAgain={handleSyncAgain} onClose={handleClose} /> : <SelectColumnsStep columns={columns} columnsWithIndices={columnsWithIndices} duplicates={duplicates} sampleRows={sampleRows} adIdColumn={adIdColumn} dateColumn={dateColumn} dateFormat={dateFormat} dateProbe={dateProbe} isProbingDate={isProbingDate} dateProbeFailed={dateProbeFailed} packDateStart={packWindow.start} packDateStop={packWindow.stop} leadscoreColumn={leadscoreColumn} mqlLeadscoreMin={mqlLeadscoreMin} isSaving={isSaving} isImporting={isImporting} importStep={importStep} importProgress={importProgress} canImport={canImport} onAdIdColumnChange={setAdIdColumn} onDateColumnChange={setDateColumn} onDateFormatChange={setDateFormat} onLeadscoreColumnChange={setLeadscoreColumn} onMqlLeadscoreMinChange={setMqlLeadscoreMin} extraColumns={extraColumns} onExtraColumnsChange={setExtraColumns} onBack={() => setStep("select-sheet")} onImport={handleImport} />}
           </section>
         )}
       </div>

@@ -8,7 +8,8 @@ import { Input } from "@/components/ui/input";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { IconChevronLeft, IconLoader2, IconAlertTriangle, IconPlus, IconX, IconLock } from "@tabler/icons-react";
-import type { SheetColumnKind } from "@/lib/api/schemas";
+import type { SheetColumnKind, DateColumnProbe } from "@/lib/api/schemas";
+import { DateColumnHealth } from "../DateColumnHealth";
 import { classifySampleValues, CATEGORY_MAX_DISTINCT } from "@/lib/utils/sheetColumnSamples";
 
 export interface ColumnWithIndex {
@@ -54,7 +55,13 @@ interface SelectColumnsStepProps {
   sampleRows?: string[][];
   adIdColumn: string;
   dateColumn: string;
-  dateFormat: "DD/MM/YYYY" | "MM/DD/YYYY";
+  dateFormat: "DD/MM/YYYY" | "MM/DD/YYYY" | "";
+  /** Sondagem da coluna de data escolhida (formato provado + janela real). */
+  dateProbe: DateColumnProbe | null;
+  isProbingDate: boolean;
+  dateProbeFailed: boolean;
+  packDateStart?: string | null;
+  packDateStop?: string | null;
   leadscoreColumn: string;
   /** Corte de MQL do pack. String vazia = ainda nao definido. */
   mqlLeadscoreMin: string;
@@ -314,6 +321,11 @@ export function SelectColumnsStep({
   adIdColumn,
   dateColumn,
   dateFormat,
+  dateProbe,
+  isProbingDate,
+  dateProbeFailed,
+  packDateStart,
+  packDateStop,
   leadscoreColumn,
   isSaving,
   isImporting,
@@ -417,6 +429,15 @@ export function SelectColumnsStep({
                   <SelectItem value="MM/DD/YYYY">MM/DD/YYYY</SelectItem>
                 </SelectContent>
               </Select>
+              {/* Uma linha só; o detalhe fica no tooltip. */}
+              <DateColumnHealth
+                probe={dateProbe}
+                isProbing={isProbingDate}
+                failed={dateProbeFailed}
+                selectedFormat={dateFormat}
+                packDateStart={packDateStart}
+                packDateStop={packDateStop}
+              />
             </div>
           </div>
 

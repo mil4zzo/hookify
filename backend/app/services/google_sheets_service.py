@@ -296,6 +296,47 @@ def _fetch_sheet_range(
     return data.get("values") or []
 
 
+
+def fetch_single_column(
+    user_jwt: str,
+    user_id: str,
+    spreadsheet_id: str,
+    worksheet_title: str,
+    column_index: int,
+    connection_id: Optional[str] = None,
+) -> List[str]:
+    """Le UMA coluna inteira (sem o header) como texto.
+
+    Existe para a sondagem da coluna de data no wizard: min/max e formato exigem
+    a coluna toda, mas nao a planilha toda. Numa planilha de 30 mil linhas isto
+    e uma coluna, nao 30 mil x N celulas — ordens de grandeza abaixo do sync.
+
+    As opcoes de render sao AS MESMAS de `_fetch_range` (o que o sync usa):
+    UNFORMATTED_VALUE + FORMATTED_STRING. Nao e detalhe — a sonda so pode
+    prometer o que o importador vai cumprir se as duas lerem o mesmo texto.
+    Trocar por FORMATTED_VALUE faria a sonda aprovar celulas que o sync
+    descartaria (e vice-versa).
+    """
+    letter = _index_to_column_letter(column_index)
+    value_range = _build_sheet_range(worksheet_title, f"{letter}2:{letter}")
+    url = f"{SHEETS_API_BASE}/{quote(spreadsheet_id)}/values/{quote(value_range)}"
+
+    resp = _request_with_retry(
+        url, user_jwt, user_id, connection_id, "fetch_single_column",
+        params={
+            "majorDimension": "COLUMNS",
+            "valueRenderOption": "UNFORMATTED_VALUE",
+            "dateTimeRenderOption": "FORMATTED_STRING",
+        },
+        timeout=60,
+    )
+    _check_response(resp, "fetch_single_column")
+
+    values = (resp.json().get("values") or [])
+    if not values:
+        return []
+    return [str(c) for c in (values[0] or [])]
+
 def fetch_all_rows(
     user_jwt: str,
     user_id: str,

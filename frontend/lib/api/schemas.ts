@@ -402,6 +402,29 @@ export const SheetIntegrationSchema = z.object({
   column_mappings: z.array(SheetColumnMappingSchema).optional(),
 }).passthrough()
 
+/**
+ * Sondagem da coluna de data escolhida no wizard. Fato sobre a PLANILHA apenas —
+ * a comparação com o período do pack é feita no cliente, que já tem as datas do pack.
+ *
+ * `format_verdict` é prova, não palpite: "DD/MM/YYYY"/"MM/DD/YYYY" só saem quando
+ * algum valor tem um componente > 12 (que só pode ser dia). "ambiguous" = toda data
+ * cai entre os dias 1 e 12; "conflicting" = há evidência dos dois formatos na mesma
+ * coluna; "unreadable" = nenhuma célula tem a forma a/b/c; "empty" = coluna vazia.
+ */
+export const DateColumnProbeSchema = z.object({
+  total_cells: z.number(),
+  non_empty_cells: z.number(),
+  readable_cells: z.number(),
+  format_verdict: z.enum(["DD/MM/YYYY", "MM/DD/YYYY", "ambiguous", "conflicting", "unreadable", "empty"]),
+  resolved_format: z.enum(["DD/MM/YYYY", "MM/DD/YYYY"]).nullable(),
+  evidence_dd_mm: z.number(),
+  evidence_mm_dd: z.number(),
+  unparseable_samples: z.array(z.string()).default([]),
+  date_min: z.string().nullable(),
+  date_max: z.string().nullable(),
+})
+export type DateColumnProbe = z.infer<typeof DateColumnProbeSchema>
+
 export const SaveSheetIntegrationResponseSchema = z.object({
   integration: SheetIntegrationSchema,
 })

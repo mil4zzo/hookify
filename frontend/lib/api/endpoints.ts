@@ -25,6 +25,7 @@ import {
   ListWorksheetsResponse,
   ListGoogleConnectionsResponse,
   SheetColumnsResponse,
+  DateColumnProbe,
   SheetIntegrationRequest,
   SaveSheetIntegrationResponse,
   SheetSyncJobProgress,
@@ -672,6 +673,25 @@ export const api = {
           )}/worksheets/${encodeURIComponent(worksheetTitle)}/columns`,
           {
             params: connectionId ? { connection_id: connectionId } : undefined,
+          },
+        ),
+
+      /** Lê só a coluna de data escolhida: formato provado + janela real da planilha. */
+      probeDateColumn: (
+        spreadsheetId: string,
+        worksheetTitle: string,
+        columnIndex: number,
+        connectionId?: string,
+      ): Promise<DateColumnProbe> =>
+        apiClient.get(
+          `/integrations/google/sheets/${encodeURIComponent(
+            spreadsheetId,
+          )}/worksheets/${encodeURIComponent(worksheetTitle)}/date-column-probe`,
+          {
+            params: {
+              column_index: columnIndex,
+              ...(connectionId ? { connection_id: connectionId } : {}),
+            },
           },
         ),
 

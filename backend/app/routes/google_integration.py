@@ -21,7 +21,8 @@ from app.core.config import (
     GOOGLE_OAUTH_SCOPES,
 )
 from app.services.google_accounts_repo import upsert_google_account, list_google_accounts, delete_google_account
-from app.services.google_sheets_service import fetch_columns_with_duplicate_detection, list_spreadsheets, list_worksheets, get_spreadsheet_name, GoogleSheetsError
+from app.services.google_sheets_service import fetch_columns_with_duplicate_detection, fetch_single_column, list_spreadsheets, list_worksheets, get_spreadsheet_name, GoogleSheetsError
+from app.services.sheet_date_probe import analyze_date_column
 from app.services.google_errors import (
     raise_google_http_error,
     GOOGLE_TOKEN_EXPIRED,
@@ -490,6 +491,52 @@ def list_sheet_columns(
         "sampleRows": result["sampleRows"],
         "columnsWithIndices": result["columnsWithIndices"],
     }
+
+
+@router.get("/sheets/{spreadsheet_id}/worksheets/{worksheet_title}/date-column-probe")
+def probe_sheet_date_column(
+    spreadsheet_id: str,
+    worksheet_title: str,
+    column_index: int = Query(..., ge=0, description="Índice 0-based da coluna de data"),
+    connection_id: Optional[str] = Query(None, description="ID da conexão Google específica a usar"),
+    user=Depends(get_current_user),
+):
+    """Sonda a coluna de data escolhida no wizard: formato provado + janela real.
+
+    Le SO essa coluna (nao a planilha inteira) e devolve um fato sobre a
+    planilha — nada sobre o pack. A comparacao com o periodo do pack fica no
+    frontend, que ja tem as datas do pack em maos; assim este endpoint nao
+    precisa receber pack_id nem carregar a checagem de acesso ao pack junto.
+    """
+    try:
+        values = fetch_single_column(
+            user_jwt=user["token"],
+            user_id=user["user_id"],
+            spreadsheet_id=spreadsheet_id,
+            worksheet_title=worksheet_title,
+            column_index=column_index,
+            connection_id=connection_id,
+        )
+    except GoogleSheetsError as e:
+        error_code = getattr(e, "code", GOOGLE_SHEETS_ERROR)
+        error_message = e.message if hasattr(e, "message") else str(e)
+        raise_google_http_error(
+            code=error_code,
+            message=error_message,
+            status_code=400,
+            details=getattr(e, "details", {}),
+        )
+    except Exception:
+        logger.exception("[GOOGLE_SHEETS] Erro inesperado ao sondar coluna de data")
+        raise HTTPException(status_code=500, detail="Erro ao analisar a coluna de data")
+
+    result = analyze_date_column(values)
+    logger.info(
+        "[GOOGLE_SHEETS] Sonda da coluna %d: %d celulas, veredito=%s, janela=%s..%s",
+        column_index, result["non_empty_cells"], result["format_verdict"],
+        result["date_min"], result["date_max"],
+    )
+    return result
 
 
 class SheetColumnMappingInput(BaseModel):
