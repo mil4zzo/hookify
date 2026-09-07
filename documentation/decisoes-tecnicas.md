@@ -1442,6 +1442,32 @@ Adiado (fase 2, só se os logs pedirem): fatiar janelas longas — exige job com
 
 **Lições:** (1) "sucesso parcial" é a pior classe de bug — não há erro, não há alerta, e o passo seguinte interpreta ausência como zero; qualquer coletor com teto tem que falhar ao bater nele. (2) Antes de acrescentar um campo a um relatório da Meta, medir o número de linhas antes e depois no mesmo período — um campo pode mudar a **cardinalidade**, não só a largura. (3) O teto de 50 mil linhas continua (memória do container); um pack legitimamente maior passa a falhar com aviso — se acontecer, a conversa é subir o teto ou fatiar, não silenciar.
 
+**Conflito entre sessões, resolvido (2026-09-07, tarde).** Outra sessão, conduzindo a edição de datas de pack, mediu com **GET síncrono e sem filtro de campanha** e concluiu que a janela consultada não muda o dia (`[D,D]` = `[D-7,D]`, 368 linhas / 1.775 pré-matrículas em 29/07 na conta inteira) — e propôs remover as buscas de encosto da feature. Reproduzi o número dela (síncrono, sem filtro, `[29/07,29/07]` = 368 / 277 cauda / 1.775) e depois medi o **caminho de produção** (relatório assíncrono, filtro do pack `EI.30 - CA4 Cap`, payload idêntico ao app), dia 29/07:
+
+| janela pedida | linhas em 29/07 | cauda | pré-matrículas |
+|---|---|---|---|
+| período inteiro 07/07→17/08 | 252 | 216 | 441 |
+| `[22/07, 29/07]` (7 dias antes) | 252 | 216 | 441 |
+| `[29/07, 29/07]` (só o dia) | 107 | 95 | 204 |
+| `[29/07, 08/08]` (fatia que começa em D) | 107 | 95 | 204 |
+| `[29/07, 29/07]` sem `use_account_attribution_setting` | 107 | 95 | 204 |
+
+As 145 chaves que faltam são **exatamente** as que a fatia começando em 29/07 perdeu em 06/09 — reproduzido ao número, com relatórios novos. Veredito: **no caminho de produção a janela muda o dia; 7 dias de encosto restauram tudo; a explicação da 143 está certa; o encosto é obrigatório em qualquer borda (fatia, início cortado, emenda ao esticar o início)**. O parâmetro `use_account_attribution_setting` é inerte (linha idêntica sem ele). O síncrono não completou o próprio experimento nesta conta (`[D-7,D]` sem filtro: 400 na paginação, depois 403 de rate limit; com filtro: 500) — se tiver semântica diferente, não importa para o app. A observação dela sobre captura (dia lido cedo demais congela verde) é verdadeira e **complementar**: os dois mecanismos existem e reler os últimos N dias resolve os dois.
+
+**Custo do dia de experimentos:** 40+ relatórios na mesma conta levaram a `(#4) Application request limit reached` — throttle **no nível do app**, que afeta todos os usuários. Medir com parcimônia, fora do horário de uso, e nunca duas sessões ao mesmo tempo na mesma conta.
+
+**"O primeiro dia da janela congela sem cauda?" — medido, não (2026-09-07, tarde).** Hipótese levantada pela sessão da edição de datas: o incremental pede `[âncora−7, hoje]` e grava tudo, então o dia `âncora−7` (primeiro da janela, sem contexto) seria gravado degradado e nunca mais relido — todo dia congelaria com o pior valor; conserto proposto: pedir `[âncora−14, hoje]` e gravar só `[âncora−7, hoje]` (dobra a leitura). Medição no `EI.31 - CA4 Cap (BM1)`, referência `[23/08, 07/09]` contra o banco, cinco dias:
+
+| dia | contexto com que foi gravado | cauda API | cauda banco | zero sintético no lugar |
+|---|---|---|---|---|
+| 30/08 | 0 (só como 1º dia de janela) | 39 | 39 | 0 |
+| 31/08 | 0–1 | 44 | 44 | 0 |
+| 01/09 | 1–2 | 77 | 77 | 0 |
+| 03/09 | 3–4 | 132 | 132 | 0 |
+| 05/09 | 5–7 | 137 | 137 | 0 |
+
+Conversões idênticas em todos. **Por que não congela:** o upsert não apaga. O primeiro dia degradado devolve *menos linhas* de cauda, não valores menores (725 = 725 nas chaves em comum, medido no fatiamento), e as linhas que faltam já estão no banco, das gravações anteriores com contexto (o dia D é reescrito de D até D+7). O único caminho real de perda é a **linha-zero sintética por cima de linha real** — o mesmo mecanismo do incidente do teto: anúncio entregável sem nenhuma linha na janela ganha zeros sintetizados que sobrescrevem a cauda gravada. Medido: 0 ocorrências aqui, mas o caminho existe no código. **Invariante certa: linha-zero sintética nunca sobrescreve linha existente** (insert-if-absent para as sintéticas) — mais barata e mais abrangente do que "só grave um dia com 7 dias de história". Não dobrar o recuo para 14. Para a **primeira gravação** de um dia (fatia intermediária, início cortado, emenda ao esticar o início), o encosto de 7 dias com descarte continua obrigatório — o dia 29/07 rende 204 pré-matrículas como primeiro da janela e 441 com contexto.
+
 **Lição transferível:** qualquer fatiamento por data em `/insights` com janela de atribuição precisa de lookback igual à maior janela (`7d_click` → 7 dias). Fatiar sem encosto não dá erro nem alerta — só devolve menos conversão.
 
 **O tamanho do estrago depende da velocidade do funil — e é brutal no que importa.** Conversão por tipo, relatório inteiro → fatiado sem encosto:
