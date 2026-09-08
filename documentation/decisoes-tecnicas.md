@@ -4344,3 +4344,81 @@ Memória: `manager_table_memo_signal_prop_for_cell_rerender.md` (atualizada, nã
 **Armadilhas de medição que produziram conclusões erradas nesta sessão** (cada uma com o número que custou): VACUUM antes de cronometrar depois de qualquer escrita revertida — páginas sem bit de visibilidade viram heap fetch e o index-only scan some (o porte foi de 2,4–2,8 s para 1,5 s só com VACUUM); `jit=off` no laboratório, como produção (com `jit=on` o plano de 871 linhas recompila a cada chamada, +1,5 s); sessão limpa por medição (o diferencial com JSONs de 500 linhas deixou a sessão num estado em que a mesma chamada levava 10 s); laboratório restaurado do dump ATUAL antes de medir (no dump velho havia 5.639 dias duplicados e a escrita saía 12% mais lenta; no real, zero e mais rápida). E a regra acima de todas: quando a RPC real existe, mede-se a RPC real — a reprodução do formato mentiu três vezes no mesmo dia.
 
 **Harness.** `supabase/tests/port_*_para_pack.py` (portes mecânicos que contam cada troca e recusam referência antiga em código), `gerar_migration_145.py` (monta a migration a partir do template + geradores), `lab_145_antes.sql` / `lab_145_depois.sql` (retrato do JSON inteiro de 13 telas antes, comparação e invariantes depois), `144_*.test.sql` reescrito com a asserção que a 145 compra: limpar o pack A não toca a cópia do mesmo anúncio-dia no pack B.
+
+## Chat Analista: o sandbox que parecia óbvio era inexecutável — e o banco tem 26 funções abertas a qualquer papel (2026-09-08)
+
+Design do chat com modelo de linguagem sobre os packs (spec completa em
+`chat-analista-design.md`, aprovada em revisão multi-agente com 35 objeções, 0
+rejeitadas). Três coisas descobertas antes de escrever uma linha, que valem além do chat:
+
+**1. `SET ROLE` dentro de função SECURITY DEFINER é proibido pelo Postgres.** O desenho
+intuitivo — RPC definer que cria o escopo, troca para um papel só-leitura e executa o SQL do
+modelo — falha no primeiro `select`. E o contorno (função sem definer rodando como
+`service_role`) é escapável: `role` é um GUC, `set_config('role','service_role',true)`
+numa subquery equivale a `SET ROLE`, funciona porque a sessão do PostgREST é
+`authenticator` (membro de `service_role`), e `query_to_xml()` planeja SQL depois da
+troca. **Sandbox de SQL não se faz por PostgREST**: conexão direta (`asyncpg`) como
+papel de login sem membership em nenhum outro papel, escopo por token aleatório numa
+tabela que o papel não lê (o mesmo mecanismo com que o PostgREST passa as claims do JWT).
+
+**2. "Sem GRANT = sem acesso" é falso para funções.** O Postgres dá EXECUTE a PUBLIC por
+default; o dump só revoga 15 das 41 SECURITY DEFINER de `public` — as de e-mail sim, as
+`fetch_manager_*`/`fetch_entity_*` (com `p_user_id` livre) e `ad_performance_rollup_rebuild`
+não. PUBLIC também tem USAGE em `public`. Hoje é latente porque não há papel além dos do
+Supabase; **o primeiro papel novo abre leitura cross-tenant do Manager inteiro**. A
+correção é migration própria (`REVOKE USAGE/EXECUTE ... FROM PUBLIC` + default privileges,
+mantendo os grants explícitos a anon/authenticated/service_role), testada no lab com a
+suíte rodando — e vale por si, antes do chat. Teste de sabotagem roda como o papel novo,
+nunca como superuser (superuser passa por qualquer buraco e não prova nada).
+
+**3. Um banco Micro de 60 conexões não comporta "4 conexões por worker".** 4 × 4 workers =
+16 fora do `db_slot`, no mesmo banco que caiu por 53300 em 2026-08-24. Pool de 1 por
+worker, `min_size=0`, `statement_cache_size=0` (Supavisor em transaction mode), e subir
+só com `pg_stat_activity` medido em pico.
+
+Decisões de produto que a revisão forçou a explicitar: transporte por job + polling
+(SSE arrastava Cloudflare 100 s, Traefik fora do repo, GZip, `fetch` sem refresh de 401 e
+cleanup cancelado); lease por usuário sem renovação; status `partial` quando o loop bate
+no teto (entregar parcial como completa é o único caso em que o usuário recebe algo errado
+sem sinal); vocabulário paritário com a tela ("sem dado", "indisponível" com a frase do
+topbar); custo como produto (~R$800/usuário/mês a 10 msg/dia com Opus) registrado como
+fato aberto, não decidido.
+
+Memória: `postgres_public_execute_default_cross_tenant_hole.md` (nova).
+
+## O pré-filtro que escondia o conflito (migration 146) — 2026-09-08
+
+A 145 tirou a exceção "mesmo dono nunca conflita" do `detect_pack_conflicts` (certo: desde
+ela cada pack tem a sua linha, então dois packs com o mesmo anúncio no mesmo dia contariam
+o dia duas vezes). Mas pôs no lugar um pré-filtro tirado dos **metadados** do pack: mesma
+conta e janelas de data sobrepostas. Passou no laboratório porque lá, com aquele dado, os
+dois caminhos davam a mesma resposta — zero pares.
+
+**Metadado defasa do dado.** Em produção há 847 linhas do mapa fora da janela declarada do
+próprio pack e 75 com anúncio fora do `ad_ids` do pack. Um par assim era descartado antes do
+teste real: conflito verdadeiro passando batido, exatamente o erro que a 145 existia para
+acabar. Na prática, dois packs que somariam o mesmo dia duas vezes seriam liberados para
+seleção conjunta — e o usuário veria gasto e resultado inflados sem nenhum aviso.
+
+**A regra que sobra:** um pré-filtro que protege um invariante de correção só pode usar o
+próprio dado que define o invariante. Aqui, o pertencimento é o mapa; então o filtro tem de
+sair do mapa, não da janela declarada do pack, que outra rotina mantém e pode atrasar.
+
+A 146 faz uma varredura agrupada do mapa (`group by ad_id, metric_date having count(*) > 1`,
+seguro porque a PK do mapa torna o par único) sem nenhum filtro que possa esconder par.
+
+| Caminho | Custo (37 packs, 687 mil linhas) | Seguro? |
+|---|---|---|
+| Par a par com pré-filtro por metadado (145) | 3,0 s | não — esconde par |
+| Varredura agrupada (146) | 2,4 s frio / 1,3 s morno | sim |
+
+**O sintoma que denunciou.** A rota `/pack-shares/conflicts` voltou 500 logo depois do
+deploy: com 37 packs do mesmo dono, os 3,0 s estouravam o `statement_timeout` de 8 s que o
+papel de serviço herda do `authenticator` (o `authenticated` tem 30 s). A função agora
+carrega folga própria de 25 s — `ALTER FUNCTION ... SET statement_timeout` funciona para
+chamada de topo via PostgREST, dúvida que estava anotada em aberto desde setembro.
+
+**O teste veio antes do conserto.** `supabase/tests/146_conflito_de_packs.test.sql` monta
+dois packs do mesmo dono que compartilham um anúncio-dia de verdade, com a janela do segundo
+pack mentindo. Contra a versão da 145 ele falha (devolve 0 para um conflito real); contra a
+146 passa com 5 asserções. Um teste que nunca falhou não provou nada.
