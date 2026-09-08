@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict uBQhenVftLTB3G8DqDzQ1lem0roz5t7hmo4uzTstxLa3pJo9ChceTK95XZb8ff2
+\restrict ncRi7C9jdUhR2u5aYR8RV4YLG81L4IYRywcPMaMPatYgNZvm5kh6yxBZdxydIgp
 
 -- Dumped from database version 17.6
 -- Dumped by pg_dump version 17.6
@@ -1362,30 +1362,30 @@ COMMENT ON FUNCTION public.clear_ad_metrics_enrichment(p_user_id uuid, p_pack_id
 CREATE FUNCTION public.detect_pack_conflicts(p_pack_ids uuid[], p_actor_id uuid) RETURNS TABLE(pack_a uuid, pack_b uuid)
     LANGUAGE sql STABLE SECURITY DEFINER
     SET search_path TO 'public'
+    SET statement_timeout TO '25s'
     AS $$
   with acc as (
-    select a.pack_id, a.owner_id, p.adaccount_id, p.date_start, p.date_stop
+    select a.pack_id, a.owner_id
     from public.resolve_pack_access(p_pack_ids, p_actor_id) a
-    join public.packs p on p.id = a.pack_id
+  ),
+  scoped as (
+    select m.pack_id, m.ad_id, m.metric_date
+    from acc a
+    join public.ad_metric_pack_map m
+      on m.user_id = a.owner_id
+     and m.pack_id = a.pack_id
+  ),
+  dup as (
+    -- (user_id, pack_id, ad_id, metric_date) e a PK do mapa, entao count(*) > 1
+    -- num grupo (ad_id, metric_date) ja significa "mais de um pack".
+    select ad_id, metric_date, array_agg(pack_id) as packs
+    from scoped
+    group by ad_id, metric_date
+    having count(*) > 1
   )
-  select a.pack_id as pack_a, b.pack_id as pack_b
-  from acc a
-  join acc b
-    on a.pack_id < b.pack_id
-   and a.adaccount_id is not distinct from b.adaccount_id
-   and a.date_start <= b.date_stop
-   and a.date_stop  >= b.date_start
-  where exists (
-    select 1
-    from public.ad_metric_pack_map ma
-    join public.ad_metric_pack_map mb
-      on mb.user_id = b.owner_id
-     and mb.pack_id = b.pack_id
-     and mb.metric_date = ma.metric_date
-     and mb.ad_id = ma.ad_id
-    where ma.user_id = a.owner_id
-      and ma.pack_id = a.pack_id
-  );
+  select distinct p1 as pack_a, p2 as pack_b
+  from dup, unnest(packs) p1, unnest(packs) p2
+  where p1 < p2;
 $$;
 
 
@@ -1395,7 +1395,7 @@ ALTER FUNCTION public.detect_pack_conflicts(p_pack_ids uuid[], p_actor_id uuid) 
 -- Name: FUNCTION detect_pack_conflicts(p_pack_ids uuid[], p_actor_id uuid); Type: COMMENT; Schema: public; Owner: postgres
 --
 
-COMMENT ON FUNCTION public.detect_pack_conflicts(p_pack_ids uuid[], p_actor_id uuid) IS 'Pares de packs acessiveis ao ator que compartilham ao menos um (ad_id, dia) — qualquer dono, desde a 145 (a linha de ad_metrics e do pack). Pre-filtro por conta e janela antes do EXISTS no mapa. Alimenta o bloqueio de selecao (camada 1).';
+COMMENT ON FUNCTION public.detect_pack_conflicts(p_pack_ids uuid[], p_actor_id uuid) IS 'Pares de packs acessiveis ao ator que compartilham ao menos um (ad_id, dia) — qualquer dono, desde a 145. Le o pertencimento do mapa, sem pre-filtro por metadado do pack: janela e ad_ids do pack podem estar defasados do mapa e esconderiam conflito real (146). statement_timeout proprio de 25s porque o papel de servico do PostgREST so tem 8s.';
 
 
 --
@@ -6890,5 +6890,5 @@ ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA public GRANT ALL ON T
 -- PostgreSQL database dump complete
 --
 
-\unrestrict uBQhenVftLTB3G8DqDzQ1lem0roz5t7hmo4uzTstxLa3pJo9ChceTK95XZb8ff2
+\unrestrict ncRi7C9jdUhR2u5aYR8RV4YLG81L4IYRywcPMaMPatYgNZvm5kh6yxBZdxydIgp
 
