@@ -709,20 +709,24 @@ export const api = {
         apiClient.get('/integrations/google/ad-sheet-integrations', { params: packId ? { pack_id: packId } : {} }),
 
       /**
-       * Apaga o leadscore importado da planilha nas linhas do pack.
-       * `dryRun` (padrão) só conta — é a prévia que o diálogo mostra antes de agir.
+       * Prévia do que a desconexão vai apagar. Só conta, não altera nada — o
+       * diálogo mostra estes números antes de o usuário confirmar.
+       *
+       * Apagar de verdade NÃO se pede por aqui: quem apaga é
+       * `deleteSheetIntegration`, para que "sem planilha, sem leadscore" seja
+       * garantia da rota e não uma ordem que a tela precisa lembrar de cumprir.
        */
-      clearSheetEnrichment: (
-        integrationId: string,
-        dryRun: boolean,
-      ): Promise<ClearEnrichmentResult> =>
+      previewSheetEnrichmentClear: (integrationId: string): Promise<ClearEnrichmentResult> =>
         apiClient.post(
           `/integrations/google/ad-sheet-integrations/${encodeURIComponent(integrationId)}/clear-enrichment`,
           undefined,
-          { params: { dry_run: dryRun } },
+          { params: { dry_run: true } },
         ),
 
-      deleteSheetIntegration: (integrationId: string): Promise<{ success: boolean }> =>
+      /** Desconecta a planilha e apaga o leadscore importado do pack, nesta ordem. */
+      deleteSheetIntegration: (
+        integrationId: string,
+      ): Promise<{ success: boolean; rows_cleared: number }> =>
         apiClient.delete(`/integrations/google/ad-sheet-integrations/${encodeURIComponent(integrationId)}`),
 
       // 140: colunas vinculadas além do leadscore. Tipo e coluna não mudam (exclua e crie outro).

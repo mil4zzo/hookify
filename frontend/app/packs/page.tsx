@@ -322,8 +322,9 @@ export default function PacksPage() {
     for (const pack of targets) {
       try {
         const integrationId = pack.sheet_integration!.id;
-        totalCleared += (await api.integrations.google.clearSheetEnrichment(integrationId, false)).rows_cleared;
-        await api.integrations.google.deleteSheetIntegration(integrationId);
+        // A rota de exclusão apaga o leadscore antes de desconectar e devolve
+        // quantos dias saíram — a ordem é garantia do backend, não da tela.
+        totalCleared += (await api.integrations.google.deleteSheetIntegration(integrationId)).rows_cleared;
         updatePack(pack.id, { sheet_integration: undefined });
       } catch (error) {
         logger.error(`Erro ao remover integração do pack ${pack.id}:`, error);
@@ -731,7 +732,7 @@ export default function PacksPage() {
     setRemoveIntegrationPreview(null);
     setIsLoadingRemovePreview(true);
     try {
-      setRemoveIntegrationPreview(await api.integrations.google.clearSheetEnrichment(integrationId, true));
+      setRemoveIntegrationPreview(await api.integrations.google.previewSheetEnrichmentClear(integrationId));
     } catch (error) {
       // A prévia é informativa: sem ela o diálogo ainda funciona, só não mostra
       // os números. Não vale bloquear a desconexão por causa disso.
@@ -749,10 +750,9 @@ export default function PacksPage() {
     setIsRemovingIntegration(true);
     let cleared = 0;
     try {
-      // Ordem obrigatória: a limpeza descobre o pack A PARTIR da integração.
-      // Deletar primeiro perderia o vínculo e deixaria o leadscore órfão.
-      cleared = (await api.integrations.google.clearSheetEnrichment(integrationId, false)).rows_cleared;
-      await api.integrations.google.deleteSheetIntegration(integrationId);
+      // A rota de exclusão apaga o leadscore com o vínculo ainda de pé e só
+      // então desconecta; se a limpeza falhar, nada é desconectado.
+      cleared = (await api.integrations.google.deleteSheetIntegration(integrationId)).rows_cleared;
       updatePack(pack.id, { sheet_integration: undefined });
       setPackToRemoveIntegration(null);
       if (cleared > 0) {

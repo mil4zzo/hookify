@@ -1304,6 +1304,17 @@ def delete_ad_sheet_integration(
     """
     Deleta uma integração de planilha específica.
     Se a integração estiver associada a um pack, remove a referência do pack também.
+
+    APAGA O LEADSCORE ANTES DE DELETAR. A regra do produto é "tem planilha
+    conectada, tem dado enriquecido; não tem planilha, não tem dado", e ela só é
+    garantida se as duas coisas acontecerem na mesma rota. Enquanto a limpeza
+    morava na tela (limpar, depois deletar), qualquer outro chamador desta rota
+    deixava leadscore órfão: sem integração não há mais como descobrir o pack,
+    então o dado ficava sem nenhum caminho de remoção na interface.
+
+    A limpeza vem PRIMEIRO e é bloqueante: se ela falhar, a integração não é
+    deletada. Melhor a desconexão falhar e poder ser repetida do que ela
+    "funcionar" deixando dado preso.
     """
     sb = get_supabase_for_user(user["token"])
     
@@ -1322,15 +1333,38 @@ def delete_ad_sheet_integration(
     
     integration = res.data[0]
     pack_id = integration.get("pack_id") if isinstance(integration, dict) else None
-    
-    # Deletar a integração
+
+    # 1) Leadscore primeiro, com o vínculo ainda de pé.
+    rows_cleared = 0
+    if pack_id:
+        try:
+            rpc = sb.rpc(
+                "clear_ad_metrics_enrichment",
+                {"p_user_id": user["user_id"], "p_pack_id": str(pack_id), "p_dry_run": False},
+            ).execute()
+            rows_cleared = int((rpc.data or {}).get("rows_cleared") or 0)
+        except Exception:
+            logger.exception(
+                "[AD_SHEET_INTEGRATION] Falha ao limpar o leadscore do pack %s; integração %s NÃO foi deletada",
+                pack_id, integration_id,
+            )
+            raise HTTPException(
+                status_code=500,
+                detail="Não foi possível apagar o leadscore importado, então a planilha não foi desconectada. Tente de novo.",
+            )
+
+    # 2) Deletar a integração
     try:
         sb.table("ad_sheet_integrations").delete().eq("id", integration_id).eq("owner_id", user["user_id"]).execute()
     except Exception as e:
         logger.exception("[AD_SHEET_INTEGRATION] Erro ao deletar integração")
         raise HTTPException(status_code=500, detail="Erro ao deletar integração")
     
-    # Se estava associada a um pack, remover a referência do pack
+    # 3) Se estava associada a um pack, remover a referência do pack.
+    #    O `updated_at` aqui é metade do carimbo de frescor que o front usa para
+    #    decidir se o cache de MQL/CPMQL precisa ser refeito (packsFreshness.ts):
+    #    sem este toque, outro aparelho seguiria servindo MQL calculado com o
+    #    leadscore que acabou de sair.
     if pack_id:
         try:
             from datetime import datetime as dt
@@ -1339,9 +1373,12 @@ def delete_ad_sheet_integration(
                 "sheet_integration_id": None,
                 "updated_at": now_iso
             }).eq("id", pack_id).eq("user_id", user["user_id"]).execute()
-            logger.info(f"[AD_SHEET_INTEGRATION] Referência removida do pack {pack_id}")
+            logger.info(
+                "[AD_SHEET_INTEGRATION] Pack %s: referência removida, %s linha(s) de leadscore apagada(s)",
+                pack_id, rows_cleared,
+            )
         except Exception as e:
             logger.warning(f"[AD_SHEET_INTEGRATION] Erro ao remover referência do pack {pack_id}: {e}")
             # Não falhar a operação principal se isso falhar
-    
-    return {"success": True}
+
+    return {"success": True, "rows_cleared": rows_cleared}
