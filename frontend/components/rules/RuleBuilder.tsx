@@ -1,9 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef } from "react";
-import { IconPlus, IconTrash, IconX } from "@tabler/icons-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { IconCalendar, IconPlus, IconTrash, IconX } from "@tabler/icons-react";
+import { format, isValid, parse } from "date-fns";
+import { ptBR } from "date-fns/locale";
 
 import { Button } from "@/components/ui/button";
+import { Calendar } from "@/components/ui/calendar";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -12,13 +15,16 @@ import { useTags } from "@/lib/api/hooks";
 import { useTagScope } from "@/components/manager/TagScopeProvider";
 import { tagChipClasses, tagDotClasses } from "@/lib/tags/colors";
 import {
+  PRESENCE_UI_OPERATOR,
   RULE_OPERATORS,
   ruleOperatorNeedsValue,
   getAvailableRuleFields,
+  getPresenceValueOptions,
   getRuleField,
-  getRuleOperators,
+  getRuleOperatorMenu,
   getDefaultRuleOperator,
   getDefaultRuleValue,
+  isPresenceOperator,
   type RuleContext,
   type RuleField,
   type RuleFieldGroup,
@@ -248,21 +254,119 @@ function MultiSelectValueEditor({
   );
 }
 
+/** Formato gravado na árvore: o mesmo que o `<input type="date">` gravava. */
+const RULE_DATE_FORMAT = "yyyy-MM-dd";
+
+/**
+ * Data via Popover + Calendar do projeto — o mesmo par do seletor de período do topo.
+ *
+ * Substitui o `<Input type="date">`, que era o ÚNICO input de data nativo aberto ao
+ * usuário: o ícone do picker é desenhado pelo navegador (preto sólido no tema escuro,
+ * sem como recolorir fora de um `filter: invert` que quebra no claro) e o calendário
+ * que ele abre não é o do app. A data continua gravada como "yyyy-MM-dd".
+ */
+function DateValueEditor({
+  value,
+  onChange,
+  disabled,
+}: {
+  value: RuleConditionValue;
+  onChange: (value: RuleConditionValue) => void;
+  disabled?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  // parse() em vez de new Date(string): "2026-09-08" no construtor nativo é UTC e vira
+  // 07/09 à noite em UTC-3. parse() lê no fuso local, sem deslocar o dia.
+  const selected = useMemo(() => {
+    if (typeof value !== "string" || !value) return undefined;
+    const parsed = parse(value, RULE_DATE_FORMAT, new Date());
+    return isValid(parsed) ? parsed : undefined;
+  }, [value]);
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className={cn("w-full min-w-0 justify-between font-normal", !selected && "text-muted-foreground")}
+          disabled={disabled}
+        >
+          <span className="truncate">{selected ? format(selected, "dd/MM/yyyy", { locale: ptBR }) : "Escolher data"}</span>
+          <IconCalendar className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-auto p-0" align="start">
+        <Calendar
+          mode="single"
+          selected={selected}
+          defaultMonth={selected}
+          locale={ptBR}
+          onSelect={(day) => {
+            onChange(day ? format(day, RULE_DATE_FORMAT) : "");
+            setOpen(false);
+          }}
+        />
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+/**
+ * Coluna de valor para o operador de presença: escolhe entre is_empty e is_not_empty.
+ * Grava no OPERADOR da condição, não no valor — a árvore não muda de formato.
+ */
+function PresenceValueEditor({
+  field,
+  operator,
+  onChange,
+  disabled,
+}: {
+  field: RuleField;
+  operator: string;
+  onChange: (operator: string) => void;
+  disabled?: boolean;
+}) {
+  const options = getPresenceValueOptions(field.kind);
+  return (
+    <Select value={operator} onValueChange={onChange} disabled={disabled}>
+      <SelectTrigger size="sm">
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        {options.map((option) => (
+          <SelectItem key={option.value} value={option.value}>
+            {option.label}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+}
+
 function ConditionValueEditor({
   field,
   condition,
   onChange,
+  onOperatorChange,
   dimensionOptions,
   disabled,
 }: {
   field: RuleField;
   condition: RuleConditionLeaf;
   onChange: (value: RuleConditionValue) => void;
+  onOperatorChange: (operator: string) => void;
   dimensionOptions?: Partial<Record<string, RuleDimensionOption[]>>;
   disabled?: boolean;
 }) {
+  if (isPresenceOperator(condition.operator)) {
+    return <PresenceValueEditor field={field} operator={condition.operator} onChange={onOperatorChange} disabled={disabled} />;
+  }
+
+  // Sobram is_active/is_paused (legado do status, fora do menu): a pergunta é inteira.
   if (!ruleOperatorNeedsValue(condition.operator)) {
-    return <span className="text-2xs text-muted-foreground">A pergunta já está completa.</span>;
+    return null;
   }
 
   if (field.kind === "tags") {
@@ -284,15 +388,7 @@ function ConditionValueEditor({
   }
 
   if (field.kind === "date") {
-    return (
-      <Input
-        size="sm"
-        type="date"
-        value={typeof condition.value === "string" ? condition.value : ""}
-        onChange={(event) => onChange(event.target.value)}
-        disabled={disabled}
-      />
-    );
+    return <DateValueEditor value={condition.value} onChange={onChange} disabled={disabled} />;
   }
 
   if (field.kind === "text") {
@@ -355,7 +451,19 @@ function ConditionRow({
   }, [highlighted]);
 
   const field = getRuleField(condition.field);
-  const operators = getRuleOperators(condition.field);
+  // O menu colapsa is_empty/is_not_empty em "Está" e reanexa operador legado (`>` em
+  // data) só quando a condição já o usa. Ver getRuleOperatorMenu em lib/rules/fields.ts.
+  const operatorMenu = getRuleOperatorMenu(condition.field, condition.operator);
+  const operatorMenuValue = isPresenceOperator(condition.operator) ? PRESENCE_UI_OPERATOR : condition.operator;
+
+  const handleOperatorChange = (next: string) => {
+    if (next === PRESENCE_UI_OPERATOR) {
+      // Já era presença? Mantém a escolha (vazio × preenchido). Senão, nasce em "vazio".
+      if (!isPresenceOperator(condition.operator)) onChange({ ...condition, operator: "is_empty" });
+      return;
+    }
+    onChange({ ...condition, operator: next });
+  };
 
   const grouped = useMemo(() => {
     const map = new Map<RuleFieldGroup, RuleField[]>();
@@ -378,12 +486,16 @@ function ConditionRow({
     });
   };
 
+  // Sem moldura: a linha se lê pelo alinhamento dos campos, que já são mais claros que
+  // o modal. Caixa com borda aqui era moldura dentro de moldura (o modal é bg-card e a
+  // linha também era — mesma tinta, só a borda separava). O destaque do funil usa ring
+  // com offset, que não mexe no layout e não precisa de padding para respirar.
   return (
     <div
       ref={rowRef}
       className={cn(
-        "flex flex-wrap items-center gap-2 rounded-md border bg-card px-2 py-2 transition-colors",
-        highlighted ? "border-primary ring-1 ring-primary-30" : "border-border",
+        "flex flex-wrap items-center gap-2 rounded-md transition-shadow",
+        highlighted && "ring-1 ring-primary ring-offset-4 ring-offset-card",
       )}
     >
       <div className="w-44 flex-shrink-0">
@@ -407,16 +519,12 @@ function ConditionRow({
       </div>
 
       <div className="w-44 flex-shrink-0">
-        <Select
-          value={condition.operator}
-          onValueChange={(operator) => onChange({ ...condition, operator })}
-          disabled={disabled}
-        >
+        <Select value={operatorMenuValue} onValueChange={handleOperatorChange} disabled={disabled}>
           <SelectTrigger size="sm">
             <SelectValue placeholder="Operador" />
           </SelectTrigger>
           <SelectContent>
-            {operators.map((operator) => (
+            {operatorMenu.map((operator) => (
               <SelectItem key={operator.value} value={operator.value}>
                 {operator.label}
               </SelectItem>
@@ -431,6 +539,7 @@ function ConditionRow({
             field={field}
             condition={condition}
             onChange={(value) => onChange({ ...condition, value })}
+            onOperatorChange={(operator) => onChange({ ...condition, operator })}
             dimensionOptions={dimensionOptions}
             disabled={disabled}
           />
@@ -448,18 +557,41 @@ function ConditionRow({
 // Builder
 // ─────────────────────────────────────────────────────────────────────────────
 
-function LogicSelect({
+const LOGIC_LABEL: Record<RuleLogic, string> = { AND: "E", OR: "OU" };
+
+/**
+ * O conector E/OU tem UMA forma: a mesma pastilha em todo lugar. O primeiro de cada
+ * grupo é clicável (o `logic` é do grupo, então um seletor basta); os seguintes são eco
+ * do mesmo valor, na mesma pastilha, vazada. Antes o primeiro era um Select de 32px —
+ * do tamanho de um campo de dado — e os ecos eram texto de 10px: a mesma informação
+ * com dois pesos opostos na mesma coluna.
+ */
+const LOGIC_CHIP_CLASSES = "h-control-chip rounded-full text-2xs font-semibold uppercase tracking-wide";
+
+function LogicChip({
   value,
   onChange,
   disabled,
 }: {
   value: RuleLogic;
-  onChange: (logic: RuleLogic) => void;
+  onChange?: (logic: RuleLogic) => void;
   disabled?: boolean;
 }) {
+  if (!onChange) {
+    return (
+      <span
+        className={cn(
+          LOGIC_CHIP_CLASSES,
+          "inline-flex min-w-12 items-center justify-center border border-border-50 bg-surface-2 px-2 text-muted-foreground",
+        )}
+      >
+        {LOGIC_LABEL[value]}
+      </span>
+    );
+  }
   return (
     <Select value={value} onValueChange={(next) => onChange(next as RuleLogic)} disabled={disabled}>
-      <SelectTrigger size="sm" className="w-20">
+      <SelectTrigger size="xs" className={cn(LOGIC_CHIP_CLASSES, "w-auto min-w-12 gap-1")} aria-label="Conector lógico">
         <SelectValue />
       </SelectTrigger>
       <SelectContent>
@@ -488,30 +620,36 @@ export function RuleBuilder({
 
   const setNodes = (conditions: RuleNode[]) => onChange({ ...value, conditions });
 
+  // Ritmo vertical ÚNICO: 6px (space-y-1.5) entre qualquer par de vizinhos — item↔chip,
+  // chip↔subgrupo, item↔item dentro do subgrupo. Nem item nem conector têm padding ou
+  // margem própria, então a distância é simétrica por construção; antes ela vinha de
+  // três fontes (padding do item, gap da lista, margem do grupo) e nunca batia.
   const renderNode = (node: RuleNode, index: number) => {
     const connector =
       index === 0 ? null : (
-        <div className="flex items-center gap-2 pl-1">
-          {index === 1 ? (
-            <LogicSelect value={value.logic} onChange={(logic) => onChange({ ...value, logic })} disabled={disabled} />
-          ) : (
-            <span className="w-20 text-center text-2xs font-medium uppercase text-muted-foreground">
-              {value.logic === "OR" ? "OU" : "E"}
-            </span>
-          )}
+        <div className="flex items-center">
+          <LogicChip
+            value={value.logic}
+            onChange={index === 1 ? (logic) => onChange({ ...value, logic }) : undefined}
+            disabled={disabled}
+          />
         </div>
       );
 
     if (node.type === "group") {
       const children = node.conditions ?? [];
+      // O subgrupo é o ÚNICO contêiner da tela: superfície um degrau acima do modal
+      // (surface-2), faixa de cabeçalho um degrau acima dela (surface-3). Antes era
+      // tracejado sobre bg-input-10 — um poço quase da cor da página, o nível mais
+      // profundo da regra desenhado como o mais fraco.
       return (
-        <div key={node.id} className="space-y-2">
+        <div key={node.id} className="space-y-1.5">
           {connector}
-          <div className="space-y-2 rounded-md border border-dashed border-border bg-input-10 p-2">
-            <div className="flex items-center justify-between gap-2">
+          <div className="overflow-hidden rounded-lg border border-border bg-surface-2">
+            <div className="flex items-center justify-between gap-2 border-b border-border-50 bg-surface-3 px-2.5 py-1.5">
               <div className="flex items-center gap-2">
-                <span className="text-2xs uppercase tracking-wide text-muted-foreground">Subgrupo</span>
-                <LogicSelect
+                <span className="text-2xs font-semibold uppercase tracking-wide text-muted-foreground">Subgrupo</span>
+                <LogicChip
                   value={node.logic}
                   onChange={(logic) => setNodes(replaceNode(value.conditions, node.id, { ...node, logic }))}
                   disabled={disabled}
@@ -543,15 +681,16 @@ export function RuleBuilder({
               </div>
             </div>
 
+            <div className="space-y-1.5 p-2">
             {children.length === 0 ? (
               <p className="px-1 text-2xs text-muted-foreground">Subgrupo vazio não restringe nada.</p>
             ) : (
               children.map((child, childIndex) => (
-                <div key={child.id} className="space-y-2">
+                <div key={child.id} className="space-y-1.5">
                   {childIndex > 0 && (
-                    <span className="block pl-1 text-2xs font-medium uppercase text-muted-foreground">
-                      {node.logic === "OR" ? "OU" : "E"}
-                    </span>
+                    <div className="flex items-center">
+                      <LogicChip value={node.logic} />
+                    </div>
                   )}
                   {child.type === "condition" && (
                     <ConditionRow
@@ -567,13 +706,14 @@ export function RuleBuilder({
                 </div>
               ))
             )}
+            </div>
           </div>
         </div>
       );
     }
 
     return (
-      <div key={node.id} className="space-y-2">
+      <div key={node.id} className="space-y-1.5">
         {connector}
         <ConditionRow
           condition={node}
@@ -597,7 +737,7 @@ export function RuleBuilder({
             : "Um grupo sem condição mostra todos os criativos do recorte. Adicione ao menos uma para o grupo significar algo."}
         </InlineNotice>
       ) : (
-        <div className="space-y-2">{value.conditions.map(renderNode)}</div>
+        <div className="space-y-1.5">{value.conditions.map(renderNode)}</div>
       )}
 
       <div className="flex flex-wrap items-center gap-2">

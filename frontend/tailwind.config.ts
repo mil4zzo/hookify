@@ -160,6 +160,7 @@ export default {
         lg: "var(--radius-lg)",
       },
       spacing: {
+        "control-chip": "1.5rem",
         "control-compact": "2rem",
         "control-default": "2.5rem",
         "control-large": "3rem",

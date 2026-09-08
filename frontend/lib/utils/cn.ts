@@ -10,6 +10,7 @@ import { extendTailwindMerge } from "tailwind-merge";
  * Manter em sincronia com `theme.extend` do tailwind.config.ts.
  */
 const SPACING_TOKENS = [
+  "control-chip",
   "control-compact",
   "control-default",
   "control-large",

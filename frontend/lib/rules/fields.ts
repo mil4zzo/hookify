@@ -81,7 +81,14 @@ export interface RuleField {
   rowKeyFallback?: string;
 }
 
-export const RULE_OPERATORS: Record<RuleFieldKind, { value: string; label: string }[]> = {
+export interface RuleOperatorOption {
+  value: string;
+  label: string;
+  /** Aceito pelo avaliador, mas fora do menu — só reaparece quando a regra salva já o usa. */
+  hidden?: boolean;
+}
+
+export const RULE_OPERATORS: Record<RuleFieldKind, RuleOperatorOption[]> = {
   metric: [
     { value: ">", label: "Maior que" },
     { value: "<", label: "Menor que" },
@@ -107,12 +114,18 @@ export const RULE_OPERATORS: Record<RuleFieldKind, { value: string; label: strin
     { value: "is_empty", label: "Está vazio" },
     { value: "is_not_empty", label: "Tem valor" },
   ],
+  // Data compara POR DIA (evaluate.ts corta em 10 chars), então `>` e `>=` diferem em
+  // exatamente um dia — e o rótulo não dizia de que lado o dia escolhido caía. "Depois
+  // de 01/09" pensando "setembro em diante" perdia o dia 1º em silêncio. Sobram só os
+  // inclusivos, com o "em ou" dito em voz alta ("até" em português vale para os dois
+  // lados). `>`/`<` continuam ACEITOS pelo avaliador e reaparecem no menu só quando a
+  // regra salva já os usa — mesmo precedente de is_active/is_paused no status.
   date: [
-    { value: ">=", label: "A partir de" },
-    { value: "<=", label: "Até" },
-    { value: ">", label: "Depois de" },
-    { value: "<", label: "Antes de" },
+    { value: ">=", label: "Em ou depois de" },
+    { value: "<=", label: "Em ou antes de" },
     { value: "=", label: "Exatamente em" },
+    { value: ">", label: "Depois de", hidden: true },
+    { value: "<", label: "Antes de", hidden: true },
     { value: "is_empty", label: "Está vazio" },
     { value: "is_not_empty", label: "Tem valor" },
   ],
@@ -143,6 +156,66 @@ const VALUELESS_OPERATORS = new Set(["is_active", "is_paused", "is_empty", "is_n
 
 export function ruleOperatorNeedsValue(operator: string): boolean {
   return !VALUELESS_OPERATORS.has(operator);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Presença: "Está vazio" + "Tem valor" viram UM operador na tela
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// A árvore continua gravando `is_empty` / `is_not_empty` — nada muda no banco nem no
+// avaliador. O que muda é como se edita: o menu de operador mostra um único "Está", e
+// a coluna de VALOR (que com esses dois operadores ficava morta, ocupada pela frase
+// "A pergunta já está completa.") passa a escolher entre os dois. A leitura vira frase:
+// "Hook · está · não se aplica". É tradução de tela, não migração.
+
+/** Valor sintético que o Select de operador mostra no lugar de is_empty/is_not_empty. */
+export const PRESENCE_UI_OPERATOR = "__presence__";
+
+export function isPresenceOperator(operator: string): boolean {
+  return operator === "is_empty" || operator === "is_not_empty";
+}
+
+/**
+ * Opções da coluna de valor quando o operador é de presença. Em métrica, "vazio"
+ * significa "não se aplica" (anúncio de imagem não tem hook) — a intenção que já
+ * estava no rótulo antigo. Em texto e data, é vazio mesmo.
+ */
+export function getPresenceValueOptions(kind: RuleFieldKind): RuleOperatorOption[] {
+  if (kind === "metric" || kind === "count") {
+    return [
+      { value: "is_empty", label: "Não se aplica" },
+      { value: "is_not_empty", label: "Tem valor" },
+    ];
+  }
+  return [
+    { value: "is_empty", label: "Vazio" },
+    { value: "is_not_empty", label: "Preenchido" },
+  ];
+}
+
+/**
+ * O que o menu de operador OFERECE — derivado de `RULE_OPERATORS`, que continua sendo
+ * o vocabulário completo do avaliador. Duas transformações:
+ *   - is_empty/is_not_empty colapsam em PRESENCE_UI_OPERATOR ("Está");
+ *   - operadores `hidden` saem, a menos que sejam o operador ATUAL da condição — uma
+ *     regra salva com `>` cairia num Select sem a opção e mostraria o operador em branco.
+ */
+export function getRuleOperatorMenu(fieldId: string, currentOperator?: string): RuleOperatorOption[] {
+  const all = getRuleOperators(fieldId);
+  const menu: RuleOperatorOption[] = [];
+  let presenceAdded = false;
+  for (const option of all) {
+    if (isPresenceOperator(option.value)) {
+      if (!presenceAdded) {
+        menu.push({ value: PRESENCE_UI_OPERATOR, label: "Está" });
+        presenceAdded = true;
+      }
+      continue;
+    }
+    if (option.hidden && option.value !== currentOperator) continue;
+    menu.push(option);
+  }
+  return menu;
 }
 
 const DIMENSION_FIELDS: RuleField[] = [
@@ -319,7 +392,7 @@ export function getAvailableRuleFields({
   });
 }
 
-export function getRuleOperators(fieldId: string): { value: string; label: string }[] {
+export function getRuleOperators(fieldId: string): RuleOperatorOption[] {
   const field = getRuleField(fieldId);
   return field ? RULE_OPERATORS[field.kind] : RULE_OPERATORS.metric;
 }

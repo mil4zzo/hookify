@@ -188,6 +188,7 @@ FilterSelectButton) tem a altura definida DENTRO do componente, via variant
 |---|---|---|---|
 | `size="default"` | `h-control-default` | 40px | Toolbars, filtros, formularios — o padrao |
 | `size="sm"` | `h-control-compact` | 32px | Contextos densos: linhas de tabela, builders, admin |
+| `size="xs"` (SelectTrigger) | `h-control-chip` | 24px | Chip seletor de uma palavra (conector E/OU do construtor). Nao e campo de formulario |
 | `size="lg"` (Button) | `h-control-large` | 48px | CTAs de marketing/waitlist |
 | `size="icon"` (Button) | `control-default` quadrado | 40x40 | Botao so-icone |
 
