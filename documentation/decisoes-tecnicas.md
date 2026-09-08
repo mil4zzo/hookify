@@ -4458,3 +4458,66 @@ tags distintas, e fundi-las esconderia de quem é cada uma.
 vazia, que se lê como "esse pack não tem tag". É a mesma família do `TagScopeProvider`
 que estava definido e consumido mas nunca montado. Ao ligar um consumidor novo de tags,
 conferir os dois: provider montado acima E `pack_ids` chegando na chamada.
+
+---
+
+## A escala alpha `-N` mistura com a página, não com a superfície — e não é elevação (2026-09-08)
+
+**O sintoma.** O construtor de regras (Critério de validação, filtros do Manager, Boards)
+parecia "estranho de contraste" e ninguém sabia dizer por quê. O idealizador descreveu
+uma sensação mais geral: features novas nascem feias até ele microgerenciar o design.
+
+**O que era.** Três coisas somadas, todas medidas no código:
+
+1. O modal (`AppDialog`) é `bg-card` e cada linha de condição também era `bg-card` — a
+   mesma tinta (`neutral-800` no escuro, `surface-fill` no claro). A caixa da condição
+   só existia pela borda de 1px.
+2. `bg-input-30`, o fundo de TODO campo do app, não é "input a 30% de opacidade". O
+   `alphaScale()` do `tailwind.config.ts` gera `color-mix(in oklab, var(--input) 30%,
+   var(--background))`: mistura OPACA com o fundo da PÁGINA. No escuro isso é 70% de
+   quase-preto — o campo é um poço mais escuro que o próprio cartão (L 0,279 contra
+   0,348). No claro o fundo é branco, então o mesmo `-30` clareia: a hierarquia inverte
+   de sinal ao trocar de tema, sem ninguém decidir.
+3. O subgrupo era tracejado sobre `bg-input-10` (L 0,232, quase a página): o nível mais
+   profundo da regra desenhado como o mais fraco. Era a única ocorrência de
+   `bg-input-10` em todo o frontend — uma elevação inventada para um caso.
+
+A tela tinha dois planos: cinza chapado para toda estrutura, quase-preto para todo campo.
+Nenhum terceiro degrau. Enquanto isso, `surface-2` e `surface-3` — a escada de superfície
+definida no `themeDefinitions.ts` nos dois temas — tinham **zero** usos no app.
+
+**Por que eu errei primeiro.** Desenhei o "estado atual" com `--input` puro (mais claro que
+o cartão) e o protótipo ficou bonito por estar errado. O nome `-30` promete transparência;
+a intenção está no `colorMixOnCanvas`, não no CSS gerado. Um token cujo nome prevê o
+resultado errado produz escolhas erradas em escala — por humano e por Claude.
+
+**A regra que sobra.**
+- Alpha é para **tinta semântica** sobre a página (`bg-primary-10`, `border-destructive-30`).
+- **Estrutura nunca vem de alpha.** Vem da escada, que anda "para longe do fundo" nos
+  dois temas: `background` → `muted` (rebaixado) → `card` (base) → `surface-2` (elevado)
+  → `surface-3` (flutuante).
+- Texto com alpha (`text-destructive-70`) é contraste rebaixado imprevisível → `muted-foreground`.
+
+**O que mudou no código (branch `feat/rule-builder-contraste`).**
+- Construtor: linha sem moldura (lê-se pelo alinhamento dos campos); subgrupo é o único
+  contêiner (`surface-2` + faixa `surface-3`); conector E/OU tem UMA forma (chip 24px,
+  `SelectTrigger size="xs"`, token `h-control-chip`); ritmo vertical único de 6px; data via
+  `Popover + Calendar` (o `<input type="date">` era o único nativo aberto ao usuário — ícone
+  preto no escuro, calendário do navegador).
+- Operadores de data: só inclusivos no menu ("Em ou depois de" / "Em ou antes de" /
+  "Exatamente em"). A comparação é por dia, então `>` e `>=` diferem em exatamente um
+  dia e o rótulo não dizia de que lado o dia escolhido caía. `>`/`<` seguem aceitos pelo
+  avaliador e reaparecem só quando a regra salva já os usa (`getRuleOperatorMenu`).
+  "Até o dia" foi descartado: "até" em português vale para os dois lados.
+- "Está vazio" + "Tem valor" viram um operador "Está" com o valor na terceira coluna
+  (antes morta: "A pergunta já está completa."). Tradução de tela — a árvore não muda.
+- Campo elevado: `bg-input-30 → bg-input` em Input, SelectTrigger, Combobox, Button
+  secondary e nos três combobox-like que copiavam a classe. Commit separado, porque
+  repinta todo formulário e deve poder voltar sozinho. Tintas de hover ficaram.
+
+**O que ficou em aberto.** Auditoria completa dos tokens contra o mercado (Material 3,
+Radix, shadcn, Primer): 85 variáveis, 412 usos de alpha em 14 degraus, sinônimos na camada
+semântica (`text-text` ≡ `text-foreground` em 107 arquivos, e no claro nem coincidem;
+`brand` ≡ `primary`; `secondary` ≡ `card`), 5 raios, 189 textos em 10px. Plano em 5 fases
+(F0 contrato + checker → F1 aliases → F2 cortar alpha p/ 3 degraus → F3 repintar por tela
+→ F4 forma), aguardando aprovação. Artefato: "Auditoria de Tokens do Hookify".
