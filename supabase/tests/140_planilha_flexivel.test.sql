@@ -1,6 +1,6 @@
 -- Teste da migration 140 (planilha flexível): custom_hist atravessa o rollup, o RPC de
 -- enriquecimento grava/limpa, a checagem de consistência acusa adulteração direta, e as
--- RPCs somam histogramas por grupo — sem mudar o que a v139/v134 devolviam.
+-- RPCs somam histogramas por grupo — (145: as comparacoes com v139/v134 sairam junto com elas.)
 --
 -- COMO RODAR (lab com a 140 aplicada, nunca prod):
 --   psql -d hookify_lab -X -v ON_ERROR_STOP=1 -f supabase/tests/140_planilha_flexivel.test.sql
@@ -39,7 +39,7 @@ FROM public.packs p
 WHERE p.sheet_integration_id IS NOT NULL
   AND EXISTS (
     SELECT 1 FROM public.ad_metric_pack_map m
-    JOIN public.ad_metrics am ON am.user_id = m.user_id AND am.ad_id = m.ad_id AND am.date = m.metric_date
+    JOIN public.ad_metrics am ON am.user_id = m.user_id AND am.pack_id = m.pack_id AND am.ad_id = m.ad_id AND am.date = m.metric_date
     WHERE m.pack_id = p.id AND cardinality(am.leadscore_values) > 0
   )
 ORDER BY (SELECT count(*) FROM public.ad_metric_pack_map m WHERE m.pack_id = p.id) DESC
@@ -53,10 +53,9 @@ END $$;
 
 -- Dois anúncio-dias do pack com leads (chave (user_id, id): ver achado 1 do plano)
 CREATE TEMP TABLE t_rows AS
-SELECT am.user_id, am.id, am.ad_id, am.date
+SELECT am.user_id, am.pack_id, am.id, am.ad_id, am.date
 FROM t_alvo a
-JOIN public.ad_metric_pack_map m ON m.pack_id = a.pack_id
-JOIN public.ad_metrics am ON am.user_id = m.user_id AND am.ad_id = m.ad_id AND am.date = m.metric_date
+JOIN public.ad_metrics am ON am.user_id = a.user_id AND am.pack_id = a.pack_id
 WHERE cardinality(am.leadscore_values) > 0
 ORDER BY am.date, am.ad_id
 LIMIT 2;
@@ -138,9 +137,9 @@ SELECT public.batch_update_ad_metrics_enrichment(
 CREATE FUNCTION pg_temp.scoped_diffs() RETURNS bigint LANGUAGE sql AS $$
   SELECT count(*)
   FROM t_rows r
-  JOIN public.ad_metrics am ON am.user_id = r.user_id AND am.id = r.id
+  JOIN public.ad_metrics am ON am.user_id = r.user_id AND am.pack_id = r.pack_id AND am.ad_id = r.ad_id AND am.date = r.date
   CROSS JOIN LATERAL public.ad_performance_derive_row(am) x
-  JOIN public.ad_performance_daily d ON d.user_id = r.user_id AND d.ad_id = r.ad_id AND d.date = r.date
+  JOIN public.ad_performance_daily d ON d.user_id = r.user_id AND d.pack_id = r.pack_id AND d.ad_id = r.ad_id AND d.date = r.date
   WHERE ROW(x.custom_hist, x.lead_scores, x.lead_qtys, x.spend, x.impressions)
         IS DISTINCT FROM ROW(d.custom_hist, d.lead_scores, d.lead_qtys, d.spend, d.impressions)
 $$;
@@ -153,11 +152,11 @@ SELECT pg_temp.expect('C1 adulteração direta é acusada (missing=1, extra=1)',
   (SELECT missing::text || '/' || extra::text FROM public.ad_performance_rollup_consistency_check((SELECT user_id FROM t_alvo))),
   '1/1');
 -- reparo pontual pelo worker do rollup
-SELECT public.ad_performance_rollup_apply((SELECT array_agg(ROW(r.user_id, r.ad_id, r.date)::public.ad_metric_key) FROM t_rows r));
+SELECT public.ad_performance_rollup_apply((SELECT array_agg(ROW(r.user_id, r.pack_id, r.ad_id, r.date)::public.ad_metric_key) FROM t_rows r));
 SELECT pg_temp.expect('C2 depois do reparo: consistente', pg_temp.scoped_diffs()::text, '0');
 
 -- ---------------------------------------------------------------------------
--- D. RPC v140 soma os histogramas por grupo (contra uma agregação manual)
+-- D. RPC do Manager (wrapper vivo; a base_v140 saiu na 145) soma os histogramas por grupo (contra uma agregação manual)
 -- ---------------------------------------------------------------------------
 -- Esperado: por ad_name, dentro do pack e do período do pack, somando as duas linhas.
 CREATE TEMP TABLE t_expected AS
@@ -165,7 +164,7 @@ WITH sel AS (
   SELECT d.*
   FROM t_alvo a
   JOIN public.ad_metric_pack_map m ON m.pack_id = a.pack_id
-  JOIN public.ad_performance_daily d ON d.user_id = m.user_id AND d.ad_id = m.ad_id AND d.date = m.metric_date
+  JOIN public.ad_performance_daily d ON d.user_id = m.user_id AND d.pack_id = m.pack_id AND d.ad_id = m.ad_id AND d.date = m.metric_date
   WHERE d.date BETWEEN a.date_start AND a.date_stop AND d.custom_hist IS NOT NULL
 )
 SELECT gk, jsonb_object_agg(mapping_id, hist) AS custom_histograms
@@ -180,7 +179,7 @@ FROM (
   ) x GROUP BY gk, mapping_id
 ) y GROUP BY gk;
 
-SELECT public.fetch_manager_performance_base_v140(
+SELECT public.fetch_manager_rankings_core_v2(
   (SELECT user_id FROM t_alvo), (SELECT date_start FROM t_alvo), (SELECT date_stop FROM t_alvo),
   'ad_name', ARRAY[(SELECT pack_id FROM t_alvo)], NULL, NULL, NULL, NULL, NULL,
   true, false, 10000, 0, 'spend', NULL, true) AS v140_on \gset
@@ -199,27 +198,10 @@ SELECT pg_temp.expect('D3 há pelo menos um grupo com histograma',
   (SELECT (count(*) > 0)::text FROM t_expected), 'true');
 
 -- ---------------------------------------------------------------------------
--- E. Contrato intacto: v140 sem o parâmetro == v139, tirando a chave nova
+-- E. (removida na 145) Comparava o payload com a base_v139, que a 145 apagou. A
+--    paridade de payload entre versoes passou a ser provada pelo diferencial
+--    lab_145_antes.sql / lab_145_depois.sql (JSON inteiro, 11 telas).
 -- ---------------------------------------------------------------------------
-CREATE FUNCTION pg_temp.strip_custom(p jsonb) RETURNS jsonb LANGUAGE sql AS $$
-  SELECT (p - 'data') || jsonb_build_object('data',
-    coalesce((SELECT jsonb_agg(it - 'custom_histograms') FROM jsonb_array_elements(p->'data') it), '[]'::jsonb))
-$$;
-DO $$
-DECLARE
-  a t_alvo%ROWTYPE;
-  gb text;
-  v139 jsonb; v140 jsonb;
-BEGIN
-  SELECT * INTO a FROM t_alvo;
-  FOREACH gb IN ARRAY ARRAY['ad_name', 'ad_id', 'adset_id', 'campaign_id'] LOOP
-    v139 := public.fetch_manager_performance_base_v139(a.user_id, a.date_start, a.date_stop, gb, ARRAY[a.pack_id], NULL, NULL, NULL, NULL, NULL, true, true, 200, 0, 'spend', NULL);
-    v140 := public.fetch_manager_performance_base_v140(a.user_id, a.date_start, a.date_stop, gb, ARRAY[a.pack_id], NULL, NULL, NULL, NULL, NULL, true, true, 200, 0, 'spend', NULL, false);
-    PERFORM pg_temp.expect('E ' || gb || ': v140(false) == v139 sem custom_histograms', (pg_temp.strip_custom(v140) = v139)::text, 'true');
-    PERFORM pg_temp.expect('E ' || gb || ': sem o parâmetro toda linha traz {}',
-      (SELECT count(*)::text FROM jsonb_array_elements(v140->'data') it WHERE it->'custom_histograms' <> '{}'::jsonb), '0');
-  END LOOP;
-END $$;
 
 -- ---------------------------------------------------------------------------
 -- F. Entry repontada e v135 (detalhe) com totals.custom_histograms
@@ -241,23 +223,19 @@ DECLARE
 BEGIN
   SELECT * INTO a FROM t_alvo;
   SELECT e.gk, e.custom_histograms INTO gk, want FROM t_expected e ORDER BY e.gk LIMIT 1;
-  det := public.fetch_entity_performance_v135(
+  det := public.fetch_entity_performance_v145(
     p_user_id => a.user_id, p_date_start => a.date_start, p_date_stop => a.date_stop,
     p_entity => 'ad_name', p_entity_id => gk, p_pack_ids => ARRAY[a.pack_id], p_group_by => 'entity',
     p_include_curve => false, p_series_days => 5, p_include_custom => true);
-  PERFORM pg_temp.expect('F2 v135 totals.custom_histograms == esperado',
+  PERFORM pg_temp.expect('F2 v145 totals.custom_histograms == esperado',
     (det->'groups'->0->'totals'->'custom_histograms')::text, want::text);
-  det_off := public.fetch_entity_performance_v135(
+  det_off := public.fetch_entity_performance_v145(
     p_user_id => a.user_id, p_date_start => a.date_start, p_date_stop => a.date_stop,
     p_entity => 'ad_name', p_entity_id => gk, p_pack_ids => ARRAY[a.pack_id], p_group_by => 'entity',
     p_include_curve => false, p_series_days => 5, p_include_custom => false);
-  PERFORM pg_temp.expect('F3 v135 sem o parâmetro devolve {}',
+  PERFORM pg_temp.expect('F3 v145 sem o parâmetro devolve {}',
     (det_off->'groups'->0->'totals'->'custom_histograms')::text, '{}');
-  PERFORM pg_temp.expect('F4 v135 sem o parâmetro == v134 (tirando a chave)',
-    ((det_off #- '{groups,0,totals,custom_histograms}') = public.fetch_entity_performance_v134(
-      p_user_id => a.user_id, p_date_start => a.date_start, p_date_stop => a.date_stop,
-      p_entity => 'ad_name', p_entity_id => gk, p_pack_ids => ARRAY[a.pack_id], p_group_by => 'entity',
-      p_include_curve => false, p_series_days => 5))::text, 'true');
+  -- F4 (removida na 145): comparava com a entity_v134, apagada; ver diferencial da 145.
 END $$;
 
 SELECT 'OK: ' || n || ' asserções' FROM t_counter;

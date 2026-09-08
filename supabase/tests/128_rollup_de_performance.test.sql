@@ -67,14 +67,16 @@ $$;
 
 -- Usuário sintético: nunca colide com dados reais.
 \set U '''00000000-0000-4000-8000-000000000128''::uuid'
+-- 145: a linha pertence a um pack. Sintetico, sem FK para packs.
+\set P '''00000000-0000-4000-8000-000000000145''::uuid'
 DELETE FROM public.ad_metrics WHERE user_id = :U;
 
 -- ---------------------------------------------------------------------------
 -- A. INSERT simples
 -- ---------------------------------------------------------------------------
-INSERT INTO public.ad_metrics (id, user_id, ad_id, date, spend, actions, conversions, leadscore_values)
+INSERT INTO public.ad_metrics (id, user_id, pack_id, ad_id, date, spend, actions, conversions, leadscore_values)
 VALUES (
-  '2026-01-01-T1', :U, 'T1', '2026-01-01', 10,
+  '2026-01-01-T1', :U, :P, 'T1', '2026-01-01', 10,
   '[{"action_type":"link_click","value":"3"},{"action_type":"link_click","value":"2"},{"action_type":"lead","value":"1.5"}]',
   '[{"action_type":"purchase","value":"7"}]',
   '{80,80,90}'
@@ -116,14 +118,14 @@ SELECT pg_temp.expect('D leads após sync', pg_temp.leads_of(:U, 'T1', '2026-01-
 SELECT pg_temp.expect('D conv intocada', pg_temp.conv_of(:U, 'T1', '2026-01-01'), 'action:link_click=10, conversion:purchase=7');
 
 -- ---------------------------------------------------------------------------
--- E. UPSERT no formato que o PostgREST gera (on_conflict=id,user_id) — o refresh de pack
+-- E. UPSERT no formato que o PostgREST gera (on_conflict=user_id,pack_id,ad_id,date desde a 145) — o refresh de pack
 -- ---------------------------------------------------------------------------
-INSERT INTO public.ad_metrics (id, user_id, ad_id, date, spend, actions, conversions, leadscore_values)
-VALUES ('2026-01-01-T1', :U, 'T1', '2026-01-01', 12,
+INSERT INTO public.ad_metrics (id, user_id, pack_id, ad_id, date, spend, actions, conversions, leadscore_values)
+VALUES ('2026-01-01-T1', :U, :P, 'T1', '2026-01-01', 12,
         '[{"action_type":"link_click","value":"10"}]',
         '[{"action_type":"purchase","value":"1"},{"action_type":"lead","value":"2"}]',
         '{90}')
-ON CONFLICT (id, user_id) DO UPDATE SET
+ON CONFLICT (user_id, pack_id, ad_id, date) DO UPDATE SET
   spend = EXCLUDED.spend, actions = EXCLUDED.actions, conversions = EXCLUDED.conversions,
   leadscore_values = EXCLUDED.leadscore_values;
 SELECT pg_temp.expect('E conv após upsert',
@@ -134,10 +136,10 @@ SELECT pg_temp.expect('E leads após upsert (iguais → continuam)', pg_temp.lea
 -- F. LOTE num único statement, com casos de borda: JSON que não é array, array vazio,
 --    elemento sem action_type, valor com lixo, leads nulos
 -- ---------------------------------------------------------------------------
-INSERT INTO public.ad_metrics (id, user_id, ad_id, date, actions, conversions, leadscore_values) VALUES
-  ('2026-01-02-T2', :U, 'T2', '2026-01-02', '{"nao":"array"}', '[]', NULL),
-  ('2026-01-02-T3', :U, 'T3', '2026-01-02', '[{"value":"5"},{"action_type":"","value":"5"},{"action_type":"comment","value":"R$ 1.234"}]', 'null', '{}'),
-  ('2026-01-02-T4', :U, 'T4', '2026-01-02', '[{"action_type":"video_view","value":"1"}]', '[{"action_type":"lead","value":"1-2"}]', '{50,50,50,261}');
+INSERT INTO public.ad_metrics (id, user_id, pack_id, ad_id, date, actions, conversions, leadscore_values) VALUES
+  ('2026-01-02-T2', :U, :P, 'T2', '2026-01-02', '{"nao":"array"}', '[]', NULL),
+  ('2026-01-02-T3', :U, :P, 'T3', '2026-01-02', '[{"value":"5"},{"action_type":"","value":"5"},{"action_type":"comment","value":"R$ 1.234"}]', 'null', '{}'),
+  ('2026-01-02-T4', :U, :P, 'T4', '2026-01-02', '[{"action_type":"video_view","value":"1"}]', '[{"action_type":"lead","value":"1-2"}]', '{50,50,50,261}');
 SELECT pg_temp.expect('F T2: não-array = nada', pg_temp.conv_of(:U, 'T2', '2026-01-02'), '<vazio>');
 SELECT pg_temp.expect('F T2: leads null = nada', pg_temp.leads_of(:U, 'T2', '2026-01-02'), '<vazio>');
 SELECT pg_temp.expect('F T2: sem evento e sem lead ainda tem linha (read model completo, 129)', pg_temp.row_exists(:U, 'T2', '2026-01-02'), 'true');
