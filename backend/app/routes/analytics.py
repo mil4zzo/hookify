@@ -1652,7 +1652,7 @@ def get_dashboard(req: DashboardRequest, user=Depends(get_current_user)):
     rows = _fetch_all_paginated(
         sb,
         "ad_metrics",
-        "clicks,impressions,inline_link_clicks,reach,video_total_plays,video_total_thruplays,spend,cpm,ctr,frequency,website_ctr,conversions,actions",
+        "ad_id,date,clicks,impressions,inline_link_clicks,reach,video_total_plays,video_total_thruplays,spend,cpm,ctr,frequency,website_ctr,conversions,actions",
         metrics_filters
     )
 
@@ -1667,7 +1667,15 @@ def get_dashboard(req: DashboardRequest, user=Depends(get_current_user)):
         "lpv": 0,
     }
 
+    # 145: com a linha por pack, um anuncio-dia em dois packs sao duas linhas. Este
+    # total e do silo inteiro (sem pack), entao dedup por (ad_id, date) — a semantica
+    # de sempre: uma linha por anuncio-dia.
+    seen_ad_days: set = set()
     for r in rows:
+        ad_day = (r.get("ad_id"), r.get("date"))
+        if ad_day in seen_ad_days:
+            continue
+        seen_ad_days.add(ad_day)
         totals["spend"] += float(r.get("spend") or 0)
         totals["impressions"] += int(r.get("impressions") or 0)
         totals["reach"] += int(r.get("reach") or 0)

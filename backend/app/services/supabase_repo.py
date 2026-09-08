@@ -1527,6 +1527,11 @@ def upsert_ad_metrics(
         return
 
     rows = []
+    # 145: a linha de ad_metrics pertence a UM pack. Sem pack nao ha onde gravar —
+    # falhar aqui, com mensagem, e melhor que o NOT NULL do banco falhar no lote.
+    if not pack_id:
+        raise ValueError("upsert_ad_metrics exige pack_id desde a migration 145")
+
     for ad in formatted_ads:
         ad_id = str(ad.get("ad_id") or "").strip()
         day = str(ad.get("date") or "").strip()[:10]
@@ -1592,8 +1597,9 @@ def upsert_ad_metrics(
         hold_rate = min(hold_rate_raw, 1.0)  # Cap em 100% (1.0)
 
         row = {
-            "id": metric_id,  # ID composto gerado no backend: {date}-{ad_id}
+            "id": metric_id,  # ID composto gerado no backend: {date}-{ad_id} (nao e mais unico entre packs)
             "user_id": user_id,
+            "pack_id": pack_id,  # 145: a linha pertence a UM pack (PK user/pack/anuncio/dia)
             "ad_id": ad_id,
             "account_id": ad.get("account_id"),
             "campaign_id": ad.get("campaign_id"),
@@ -1653,7 +1659,7 @@ def upsert_ad_metrics(
         try:
             with_postgrest_retry(
                 f"upsert_ad_metrics[batch {batch_num}/{total_batches}]",
-                lambda b=batch: sb.table("ad_metrics").upsert(b, on_conflict="id,user_id").execute(),
+                lambda b=batch: sb.table("ad_metrics").upsert(b, on_conflict="user_id,pack_id,ad_id,date").execute(),
             )
             logger.info(f"[UPSERT_AD_METRICS] Lote {batch_num}/{total_batches} processado com sucesso ({len(batch)} registros)")
             # Chamar callback ANTES do delay para feedback imediato
@@ -1687,7 +1693,7 @@ def upsert_ad_metrics(
                     cleaned.append(rr)
                 with_postgrest_retry(
                     f"upsert_ad_metrics[batch {batch_num}/{total_batches} cleaned]",
-                    lambda c=cleaned: sb.table("ad_metrics").upsert(c, on_conflict="id,user_id").execute(),
+                    lambda c=cleaned: sb.table("ad_metrics").upsert(c, on_conflict="user_id,pack_id,ad_id,date").execute(),
                 )
                 logger.info(
                     f"[UPSERT_AD_METRICS] Lote {batch_num}/{total_batches} reprocessado "
@@ -1944,7 +1950,8 @@ def calculate_pack_stats_essential(
             batch_ids = metric_ids[i:i + IN_BATCH_SIZE]
 
             def metrics_filters(q, _batch=batch_ids):
-                return q.eq("user_id", user_id).in_("id", _batch)
+                # 145: `id` nao e unico entre packs — sem o pack, somaria a copia de outro.
+                return q.eq("user_id", user_id).eq("pack_id", pack_id).in_("id", _batch)
 
             batch_metrics = _fetch_all_paginated(
                 sb,
@@ -2389,89 +2396,6 @@ def prune_ad_accounts(
     return deleted
 
 
-def _classify_ad_metrics_for_pack_deletion(
-    sb,
-    user_id: str,
-    pack_id: str,
-    date_start: Optional[str] = None,
-    date_stop: Optional[str] = None,
-) -> Tuple[List[str], List[str]]:
-    """Classifica ad_metrics para deleção vs. manutenção ao remover um pack.
-
-    Usa ad_metric_pack_map como fonte de verdade. DEVE ser chamada ANTES de deletar
-    de ad_metric_pack_map para que as referências de outros packs ainda existam.
-
-    Returns:
-        (to_delete_ids, to_update_ids): IDs de ad_metrics para deletar (único pack)
-        e manter mas limpar do array legado (compartilhados com outros packs).
-    """
-    # 1. Buscar todos (ad_id, metric_date) do pack
-    q = sb.table("ad_metric_pack_map").select("ad_id, metric_date") \
-        .eq("user_id", user_id).eq("pack_id", pack_id)
-    if date_start:
-        q = q.gte("metric_date", date_start)
-    if date_stop:
-        q = q.lte("metric_date", date_stop)
-
-    pack_entries: List[Dict] = []
-    offset = 0
-    page_size = 1000
-    while True:
-        page = q.range(offset, offset + page_size - 1).execute().data or []
-        pack_entries.extend(page)
-        if len(page) < page_size:
-            break
-        offset += page_size
-
-    if not pack_entries:
-        return [], []
-
-    pack_pairs = {(r["ad_id"], r["metric_date"]) for r in pack_entries}
-    ad_ids = list({r["ad_id"] for r in pack_entries})
-
-    # 2. Verificar quais (ad_id, metric_date) ainda têm outros packs na junction table
-    shared_set: set = set()
-    batch_size = 200
-    for i in range(0, len(ad_ids), batch_size):
-        batch = ad_ids[i:i + batch_size]
-        try:
-            other_res = sb.table("ad_metric_pack_map").select("ad_id, metric_date") \
-                .eq("user_id", user_id).neq("pack_id", pack_id) \
-                .in_("ad_id", batch).execute()
-            for r in (other_res.data or []):
-                pair = (r["ad_id"], r["metric_date"])
-                if pair in pack_pairs:
-                    shared_set.add(pair)
-        except Exception as e:
-            logger.warning(f"[CLASSIFY_AD_METRICS_DELETION] Falha ao checar pares compartilhados (batch {i}): {e}")
-
-    unique_pairs = pack_pairs - shared_set
-    all_relevant_ad_ids = list({p[0] for p in pack_pairs})
-
-    # 3. Buscar IDs de ad_metrics para os pares relevantes
-    to_delete: List[str] = []
-    to_update: List[str] = []
-
-    for i in range(0, len(all_relevant_ad_ids), batch_size):
-        batch = all_relevant_ad_ids[i:i + batch_size]
-        try:
-            metrics_res = sb.table("ad_metrics").select("id, ad_id, date") \
-                .eq("user_id", user_id).in_("ad_id", batch).execute()
-            for r in (metrics_res.data or []):
-                pair = (r["ad_id"], r["date"])
-                if pair in unique_pairs:
-                    to_delete.append(r["id"])
-                elif pair in shared_set:
-                    to_update.append(r["id"])
-        except Exception as e:
-            logger.warning(f"[CLASSIFY_AD_METRICS_DELETION] Falha ao buscar IDs de ad_metrics (batch {i}): {e}")
-
-    logger.info(
-        f"[CLASSIFY_AD_METRICS_DELETION] pack={pack_id}: "
-        f"{len(to_delete)} para deletar, {len(to_update)} para atualizar array legado"
-    )
-    return to_delete, to_update
-
 
 def delete_pack(
     user_jwt: str,
@@ -2568,42 +2492,39 @@ def delete_pack(
         except Exception as e:
             logger.debug(f"Pack {pack_id} não encontrado no Supabase ou não é UUID: {e}")
 
-        # 1.1 Classificar ad_metrics via junction table ANTES de deletar os vínculos,
-        #     para poder verificar quais (ad_id, metric_date) ainda têm outros packs.
-        to_delete_metric_ids: List[str] = []
-        try:
-            to_delete_metric_ids, _ = _classify_ad_metrics_for_pack_deletion(
-                sb, user_id, pack_id, date_start, date_stop
-            )
-        except Exception as e:
-            logger.warning(f"[DELETE_PACK] Falha ao classificar ad_metrics via junction table: {e}")
-
-        # 1.2 Remover vínculos da junction table.
+        # 1.1 Remover vínculos da junction table. (A FK ON DELETE CASCADE de ad_metrics
+        #     faria isso no passo 2; explícito aqui por segurança e por clareza.)
         try:
             sb.table("ad_metric_pack_map").delete().eq("user_id", user_id).eq("pack_id", pack_id).execute()
         except Exception as e:
             logger.warning(f"Erro ao remover vínculos de ad_metric_pack_map para pack {pack_id}: {e}")
 
-        # 2. Ajustar/deletar ad_metrics com base na classificação via junction table.
+        # 2. (145) A linha de ad_metrics pertence ao pack: não há "exclusivas" para
+        #    classificar — era essa classificação, com try/except que só logava, que
+        #    deixou 12.598 órfãs em produção. Apagar por (pack, dia): um pack de 40
+        #    dias são ~40 requisições pelo índice (user, pack, date), cada uma bem
+        #    abaixo do statement_timeout; a FK leva o mapa e o read model junto.
         try:
-            # Deletar métricas exclusivas deste pack
-            # IDs são compostos e longos (~30 chars), batch de 200 evita URLs > 8KB no Supabase
-            if to_delete_metric_ids:
-                _batch_size = 200
-                total_batches = (len(to_delete_metric_ids) + _batch_size - 1) // _batch_size
-                logger.info(f"Deletando {len(to_delete_metric_ids)} ad_metrics exclusivos em {total_batches} lote(s)")
-                for i in range(0, len(to_delete_metric_ids), _batch_size):
-                    batch = to_delete_metric_ids[i:i + _batch_size]
-                    batch_num = (i // _batch_size) + 1
-                    try:
-                        sb.table("ad_metrics").delete().in_("id", batch).eq("user_id", user_id).execute()
-                        logger.debug(f"Lote de deleção {batch_num}/{total_batches}: {len(batch)} registros")
-                    except Exception as batch_err:
-                        logger.warning(f"Erro ao deletar lote {batch_num}/{total_batches} de ad_metrics: {batch_err}")
-                result["metrics_deleted"] = len(to_delete_metric_ids)
-                logger.info(f"Deletados {len(to_delete_metric_ids)} ad_metrics exclusivos deste pack")
+            deleted_total = 0
+            if date_start and date_stop:
+                from datetime import date as _date, timedelta as _td
+                d0 = _date.fromisoformat(str(date_start)[:10])
+                d1 = _date.fromisoformat(str(date_stop)[:10])
+                if d1 < d0:
+                    d0, d1 = d1, d0
+                d = d0
+                while d <= d1:
+                    res = sb.table("ad_metrics").delete().eq("user_id", user_id).eq("pack_id", pack_id).eq("date", d.isoformat()).execute()
+                    deleted_total += len(res.data or [])
+                    d += _td(days=1)
+            # Sobras fora do período gravado (período do pack mudou depois do refresh)
+            # e o caso sem período: uma passada pelo prefixo (user, pack) da PK.
+            res = sb.table("ad_metrics").delete().eq("user_id", user_id).eq("pack_id", pack_id).execute()
+            deleted_total += len(res.data or [])
+            result["metrics_deleted"] = deleted_total
+            logger.info(f"Deletados {deleted_total} ad_metrics do pack {pack_id}")
         except Exception as e:
-            logger.warning(f"Erro ao ajustar ad_metrics ao deletar pack: {e}")
+            logger.warning(f"Erro ao deletar ad_metrics do pack {pack_id}: {e}")
 
         # 3. Ajustar/deletar ads
         # Processar sempre, mesmo se ad_ids estiver vazio - usar pack_id no array pack_ids como filtro principal
