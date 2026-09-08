@@ -14,9 +14,20 @@ import { logger } from '@/lib/utils/logger'
  * selo de atualização congelaria no estado do login — apareceria e nunca sairia
  * até um F5, o que é pior do que não mostrar nada.
  *
- * Só sincroniza os DOIS campos de refresh; nunca toca em stats, julgamento ou
- * integração. Um patch amplo aqui atropelaria atualizações otimistas da tela
- * (ex.: o toggle de auto_refresh voltaria sozinho se a escrita ainda não pousou).
+ * Só sincroniza os campos de refresh e o carimbo `updated_at`; nunca toca em
+ * stats, julgamento ou integração. Um patch amplo aqui atropelaria atualizações
+ * otimistas da tela (ex.: o toggle de auto_refresh voltaria sozinho se a escrita
+ * ainda não pousou).
+ *
+ * POR QUE `updated_at` ENTRA NESTA LISTA CURTA
+ * --------------------------------------------
+ * Ele é o carimbo de frescor que vai na chave de cache do Manager/rankings
+ * (`computePacksFreshnessStamp`) e do grafo de conflito
+ * (`computePacksContentStamp`). Sem relê-lo, o refresh feito por OUTRO membro de
+ * um pack compartilhado nunca move o carimbo neste aparelho — e o Manager serve
+ * números velhos até um F5. É seguro no meio das atualizações otimistas porque
+ * só o servidor escreve esse valor: nenhuma tela o edita para "adiantar" a UI, e
+ * ele não é renderizado em lugar nenhum (só entra em chave de cache).
  *
  * Custo: zero requisição em repouso. Só busca quando (a) a aba volta ao foco e
  * já faz um tempo desde a última leitura, ou (b) existe refresh em andamento —
@@ -62,7 +73,19 @@ export function usePackRefreshSync() {
           const status = remoto.refresh_status ?? null
           const lock = remoto.refresh_lock_until ?? null
           const ator = remoto.refresh_actor_name ?? null
+
+          // Carimbo SÓ PARA FRENTE. Esta leitura pode ter partido ANTES de um
+          // refresh terminar nesta própria aba (o intervalo de 30s roda
+          // justamente enquanto há refresh vivo): a resposta chegaria com o
+          // `updated_at` de antes e faria o carimbo ANDAR PARA TRÁS — o que
+          // ressuscitaria a chave de cache anterior e serviria de volta a
+          // resposta velha do Manager. Só avança; nunca regride.
+          const carimboLocal = (local as any).updated_at ?? ''
+          const carimboRemoto = typeof remoto.updated_at === 'string' ? remoto.updated_at : ''
+          const carimboAvancou = !!carimboRemoto && carimboRemoto > carimboLocal
+
           if (
+            !carimboAvancou &&
             status === ((local as any).refresh_status ?? null) &&
             lock === ((local as any).refresh_lock_until ?? null) &&
             ator === ((local as any).refresh_actor_name ?? null)
@@ -73,6 +96,9 @@ export function usePackRefreshSync() {
             refresh_status: status,
             refresh_lock_until: lock,
             refresh_actor_name: ator,
+            // Fora do patch quando não avançou: `{...pack, ...updates}` é merge
+            // raso, então mandar `undefined` APAGARIA o carimbo local.
+            ...(carimboAvancou ? { updated_at: carimboRemoto } : {}),
           } as any)
         }
       } catch (error) {

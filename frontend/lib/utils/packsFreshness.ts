@@ -41,7 +41,7 @@ export interface PackFreshnessSource {
   sheet_integration?: { last_successful_sync_at?: string | null } | null
 }
 
-function maxIso(values: Array<string | null | undefined>): string {
+export function maxIso(values: Array<string | null | undefined>): string {
   let max = ''
   for (const v of values) {
     if (typeof v === 'string' && v && v > max) max = v
@@ -64,4 +64,36 @@ export function computePacksFreshnessStamp(
   const refreshed = maxIso(selected.map((p) => p.updated_at))
   const synced = maxIso(selected.map((p) => p.sheet_integration?.last_successful_sync_at))
   return `n=${selected.length}|r=${refreshed}|s=${synced}`
+}
+
+/**
+ * Carimbo de CONTEÚDO dos packs — entra na queryKey do grafo de conflito.
+ *
+ * POR QUE UM CARIMBO SEPARADO DO DE CIMA
+ * --------------------------------------
+ * Conflito é "estes dois packs contêm o mesmo anúncio no mesmo dia?". A resposta
+ * só muda quando a MEMBRESIA (ad_id, metric_date) de algum pack muda — ou seja,
+ * no refresh, que grava `packs.updated_at` (supabase_repo.update_pack_stats).
+ *
+ * O `last_successful_sync_at` da planilha NÃO entra: o sync de leadscore altera
+ * `ad_metrics.leadscore_values`, nunca quem está dentro do pack. Reaproveitar o
+ * carimbo do Manager aqui faria o grafo ser recalculado a cada sync sem que a
+ * resposta pudesse ter mudado.
+ *
+ * POR QUE TODOS OS PACKS, NÃO SÓ OS SELECIONADOS
+ * ----------------------------------------------
+ * O grafo é buscado para a lista inteira de packs acessíveis (a seleção muda a
+ * cada clique; o grafo, não). Logo o carimbo cobre a mesma lista inteira.
+ *
+ * EFEITO COLATERAL ACEITO: renomear um pack também mexe em `updated_at` e custa
+ * um recálculo do grafo (~200 ms no pior caso medido) sem que nada tenha mudado.
+ * Mesmo trade-off já aceito em `computePacksFreshnessStamp` — nunca dado errado.
+ */
+export function computePacksContentStamp(
+  packs: readonly PackFreshnessSource[] | null | undefined,
+): string {
+  if (!packs?.length) return ''
+  // `n=` porque um pack que SAI da lista (share revogado) não é detectável só
+  // pelo máximo: o maior `updated_at` pode continuar sendo o de outro pack.
+  return `n=${packs.length}|r=${maxIso(packs.map((p) => p.updated_at))}`
 }

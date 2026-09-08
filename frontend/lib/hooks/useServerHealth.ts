@@ -237,11 +237,23 @@ export function useServerHealth(
           if (!existing) {
             addPack(pack)
           } else {
+            // Carimbo SÓ PARA FRENTE (mesma regra de usePackRefreshSync). Esta
+            // releitura pode ter partido antes de um refresh terminar: a resposta
+            // chegaria com o `updated_at` de antes e empurraria o carimbo para
+            // trás — o que ressuscitaria a chave de cache anterior e serviria de
+            // volta os números velhos do Manager. Ou ele nunca regride em lugar
+            // nenhum, ou a garantia não existe.
+            const carimboLocal = (existing as any).updated_at ?? ''
+            const carimboRemoto = typeof pack.updated_at === 'string' ? pack.updated_at : ''
+            const carimboAvancou = !!carimboRemoto && carimboRemoto > carimboLocal
+
             // Atualizar pack com novos dados
             updatePack(pack.id, {
               stats: pack.stats,
-              updated_at: pack.updated_at,
               auto_refresh: pack.auto_refresh,
+              // Fora do patch quando não avançou: o merge do store é raso, então
+              // mandar `undefined` APAGARIA o carimbo local.
+              ...(carimboAvancou ? { updated_at: carimboRemoto } : {}),
             })
           }
         })
