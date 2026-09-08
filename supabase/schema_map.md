@@ -86,6 +86,7 @@ Métricas diárias de performance de cada anúncio, importadas da Meta API.
 | scroll_stop_rate | numeric |  |
 | video_watched_p75 | integer |  |
 | custom_hist | jsonb |  |
+| pack_id | uuid | NOT NULL |
 
 ---
 
@@ -119,6 +120,7 @@ Métricas diárias de performance de cada anúncio, importadas da Meta API.
 | hook_value | numeric | NOT NULL, DEFAULT |
 | scroll_stop_value | numeric | NOT NULL, DEFAULT |
 | custom_hist | jsonb |  |
+| pack_id | uuid | NOT NULL |
 
 ---
 
@@ -578,4 +580,4 @@ Preferências e configurações personalizadas por usuário.
 
 ---
 
-*Gerado em: 2026-09-06 — via `supabase/generate_schema_map.py`*
+*Gerado em: 2026-09-08 — via `supabase/generate_schema_map.py`*
