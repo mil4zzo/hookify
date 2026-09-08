@@ -14,8 +14,35 @@
 --   custo    -12.598 linhas (orfas somem; duplicacao = 0, producao nao tem
 --            packs sobrepostos); indices 233 MB -> 101 MB com o desenho enxuto
 --   numero   identicos ate o centavo (5 packs)
---   leitura  3-7x mais rapido nas 4 formas (some o join no mapa e o dedup)
---   escrita  empate dentro do ruido (~30%) com 8 indices; ver saida com 3
+--   leitura  as 4 FORMAS abaixo saem 3-7x mais rapidas — MAS ISSO NAO SE
+--            TRANSFERE PARA AS RPCs REAIS. Medidas depois (ver
+--            lab_manager_v2_diferencial.sql e lab_entity_v2_diferencial.sql):
+--            Manager v142 1,59 s -> v2 fiel 1,52-1,55 s -> v2 simples 1,38-1,41 s
+--            (-12%); rotas de detalhe v135 ~70 ms -> v2 ~68 ms (paridade).
+--            As formas reproduziam o ESCOPO (mapa -> dedup -> join), que e ~13%
+--            do tempo do Manager; o resto e agregacao por grupo, igual nos dois.
+--            E a forma 4 nem usava o indice por nome que a v135 usa. Licao:
+--            quando a RPC real existe, mede-se a RPC real, nao uma reproducao.
+--   escrita  3-7x mais rapido com os 3 indices enxutos (3,4-9,0 s x 21-27 s
+--            para reescrever o maior pack); gatilho do rollup identico (~2 min
+--            para reaplicar 76.872 chaves, nos dois mundos)
+--
+-- CONCLUSAO HONESTA: a re-chaveagem NAO e uma jogada de performance de leitura.
+-- O que ela compra: leadscore por pack (sem vazamento na escrita, sem limpeza
+-- que apaga o vizinho, sem regua mista no refresh), delete_pack trivial (sem
+-- as 12.598 orfas), -57% de indice, escrita mais barata, e o mapa fora do
+-- caminho quente. Leitura fica em paridade.
+--
+-- ARMADILHAS DE MEDICAO que custaram conclusoes erradas nesta sessao:
+--   * VACUUM antes de cronometrar depois de QUALQUER escrita revertida: paginas
+--     sem bit de visibilidade viram heap fetch e o index-only scan some (v2 foi
+--     de 2,4-2,8 s para 1,5 s so com VACUUM).
+--   * jit=off no lab (ALTER DATABASE hookify_lab SET jit = off): producao roda
+--     assim; com jit=on o plano de 871 linhas recompila a cada chamada (+1,5 s).
+--   * Sessao limpa por medicao: o diferencial (a = b em JSONs de 500 linhas)
+--     deixou a sessao num estado em que a MESMA chamada levava 10 s.
+--   * As RPCs de leitura tem guard de tenancy: simular o JWT do dono via
+--     set_config('request.jwt.claims', ...).
 --
 -- POR QUE OS INDICES SAO DESENHADOS PELO USO E NAO TRADUZIDOS
 -- A traducao ingenua (pack_id em 6 dos 8 indices) inflou os indices em 46%.

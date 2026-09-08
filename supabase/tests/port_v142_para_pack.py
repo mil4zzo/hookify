@@ -18,14 +18,23 @@ O QUE TROCA (e por que so isso)
                join fecha com pack = any(selecao): exato sem sobreposicao, que e
                o invariante que o bloqueio garante.
 
+VARIANTE --simples (a candidata real)
+  O ramo por pack de `keys` perde o GROUP BY: com o bloqueio de selecao, nenhum
+  anuncio-dia se repete entre os packs selecionados, entao agrupar e trabalho
+  morto (vencedor cross-silo, x_cross_silo, bit_or) sobre grupos de 1 linha.
+  Medido no lab (jit=off, VACUUM antes, sessao limpa): fiel 1,52-1,55 s,
+  simples 1,38-1,41 s, v142 1,59 s — JSON identico nos tres. Sai como
+  `lab_manager_v2s`.
+
 Uso:
-  python supabase/tests/port_v142_para_pack.py <v142.sql> <saida.sql>
+  python supabase/tests/port_v142_para_pack.py <v142.sql> <saida.sql> [--simples]
 """
 import io
 import re
 import sys
 
 src, dst = sys.argv[1], sys.argv[2]
+simples = "--simples" in sys.argv[3:]
 s = io.open(src, encoding="utf-8").read()
 
 
@@ -63,6 +72,41 @@ must(s.count(old), "keys/ramo pack")
 s = s.replace(old, new, 1)
 s, c = re.subn(r"apm\.metric_date as date,", "apm.date as date,", s)
 must(c, "keys/metric_date")
+
+if simples:
+    # Sem sobreposicao na selecao (invariante do bloqueio), cada grupo do GROUP BY
+    # tem 1 linha: vencedor = a propria linha, x_cross_silo = false, bit_or = o bit.
+    old = """    select
+      apm.ad_id,
+      apm.date as date,
+      (array_agg(apm.user_id order by (apm.user_id = p_user_id), apm.user_id))[1] as user_id,
+      (min(apm.user_id::text) is distinct from max(apm.user_id::text)) as x_cross_silo,
+      bit_or(set_bit(repeat('0', v_n_packs)::varbit, array_position(v_pack_universe, apm.pack_id) - 1, 1)) as pack_mask,
+      (array_agg(apm.pack_id order by (apm.user_id = p_user_id), apm.user_id))[1] as pack_id
+    from unnest(v_owners) as o(owner_id)
+    join public.lab_rollup_v2 apm
+      on apm.user_id = o.owner_id
+     and apm.pack_id = any(p_pack_ids)
+     and apm.date >= v_date_start
+     and apm.date <= v_date_stop
+    where p_pack_ids is not null
+    group by apm.ad_id, apm.date"""
+    new = """    select
+      apm.ad_id,
+      apm.date as date,
+      apm.user_id,
+      false as x_cross_silo,
+      set_bit(repeat('0', v_n_packs)::varbit, array_position(v_pack_universe, apm.pack_id) - 1, 1) as pack_mask,
+      apm.pack_id
+    from unnest(v_owners) as o(owner_id)
+    join public.lab_rollup_v2 apm
+      on apm.user_id = o.owner_id
+     and apm.pack_id = any(p_pack_ids)
+     and apm.date >= v_date_start
+     and apm.date <= v_date_stop
+    where p_pack_ids is not null"""
+    must(s.count(old), "keys/ramo pack (--simples)")
+    s = s.replace(old, new, 1).replace("FUNCTION public.lab_manager_v2(", "FUNCTION public.lab_manager_v2s(", 1)
 
 old = """    select
       am.ad_id,
