@@ -91,7 +91,7 @@ export function PackFilter({ packs, selectedPackIds, onTogglePack, onClose, clas
               if (enemies.has(selectedId)) {
                 const conflictName = nameById.get(selectedId) ?? "um pack selecionado";
                 disabled = true;
-                disabledHint = `Conflita com «${conflictName}»: mesmos anúncios em contas de donos diferentes. Desmarque um para usar o outro.`;
+                disabledHint = `Conflita com «${conflictName}»: os dois têm os mesmos anúncios nos mesmos dias. Desmarque um para usar o outro.`;
                 break;
               }
             }

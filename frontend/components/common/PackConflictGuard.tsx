@@ -70,9 +70,9 @@ export function PackConflictGuard({ serverOverlapRows, children }: PackConflictG
         <div className="space-y-1">
           <h2 className="text-lg font-semibold text-text">Packs em conflito na seleção</h2>
           <p className="text-sm text-muted-foreground">
-            Os packs abaixo contêm os mesmos anúncios vindos de donos diferentes. Analisá-los
-            juntos duplicaria (ou descartaria) dados — os totais deixariam de ser exatos.
-            Desmarque um pack de cada par para continuar.
+            Os packs abaixo contêm os mesmos anúncios nos mesmos dias. Analisá-los juntos
+            duplicaria (ou descartaria) dados — os totais deixariam de ser exatos. Desmarque
+            um pack de cada par para continuar, ou crie um pack que junte os dois recortes.
           </p>
         </div>
 

@@ -49,7 +49,7 @@ export function TopbarFilters() {
   const packPreferencesRef = useRef(packPreferences)
   const packsRef = useRef(packs)
 
-  // Camada 1 do bloqueio de conflito: grafo cross-silo p/ desabilitar na selecao.
+  // Camada 1 do bloqueio de conflito: grafo de conflito (qualquer dono, desde a 145) p/ desabilitar na selecao.
   const { conflictMap } = usePackConflicts()
   const conflictMapRef = useRef(conflictMap)
   const isDirtyRef = useRef(false) // tracks whether pending differs from committed
@@ -84,7 +84,7 @@ export function TopbarFilters() {
   // seleção atual — quem está fora da busca não é tocado. Com a busca vazia, `visibleIds`
   // são todos os packs, então continua sendo "selecionar todos".
   //
-  // Packs em conflito cross-silo ficam de fora, inclusive quando conflitam entre si (o veto
+  // Packs em conflito ficam de fora, inclusive quando conflitam entre si (o veto
   // visual do popover não pega esse caso — ver selectVisibleRespectingConflicts). Avisamos
   // no toast: pular calado se lê como bug.
   const handleSelectAllPacks = useCallback((visibleIds: string[]) => {

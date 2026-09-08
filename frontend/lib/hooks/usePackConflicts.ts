@@ -9,13 +9,19 @@ import { computePacksContentStamp } from "@/lib/utils/packsFreshness";
 import { usePacksLoading } from "@/components/layout/PacksLoader";
 
 /**
- * Grafo de conflito cross-silo entre os packs acessíveis.
+ * Grafo de conflito entre os packs acessíveis.
  *
- * Dois packs de DONOS diferentes que contêm o mesmo anúncio no mesmo dia não
- * podem ser analisados juntos: o dedup escolheria uma das linhas e o total
- * deixaria de ser exato. Decisão de produto: "impreciso é impreciso" — não se
- * avisa com porcentagem, bloqueia-se. Packs do MESMO dono nunca conflitam
- * (mesma linha física, nenhuma imprecisão).
+ * Dois packs que contêm o mesmo anúncio no mesmo dia não podem ser analisados
+ * juntos: o dedup escolheria uma das linhas e o total deixaria de ser exato.
+ * Decisão de produto: "impreciso é impreciso" — não se avisa com porcentagem,
+ * bloqueia-se.
+ *
+ * Até a migration 145 isso valia só entre DONOS diferentes: packs do mesmo dono
+ * liam a mesma linha física de ad_metrics, então somar não duplicava. Desde a
+ * 145 cada linha pertence a UM pack — o mesmo anúncio-dia em dois packs são duas
+ * linhas — e a regra passou a valer para qualquer par. O uso esperado é packs
+ * que não se sobrepõem (recortes complementares); para comparar recortes que se
+ * cruzam, cria-se outro pack.
  *
  * O grafo cobre TODOS os packs da lista, não só os selecionados: a seleção muda
  * a cada clique, mas o grafo só muda quando o conteúdo de um pack muda (refresh)
