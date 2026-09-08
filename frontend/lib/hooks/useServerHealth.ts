@@ -249,7 +249,13 @@ export function useServerHealth(
 
             // Atualizar pack com novos dados
             updatePack(pack.id, {
-              stats: pack.stats,
+              // `stats` fica de fora quando veio vazio, pelo mesmo motivo do
+              // carimbo: o merge do store é raso, e `undefined` APAGARIA os
+              // stats locais. Acontece quando o backend responde sem stats e o
+              // cache do IndexedDB também não tem nada — aí os números do card
+              // do pack (gasto, nº de anúncios) sumiriam depois da reconexão.
+              // Mesma guarda que useLoadPacks já faz.
+              ...(pack.stats ? { stats: pack.stats } : {}),
               auto_refresh: pack.auto_refresh,
               // Fora do patch quando não avançou: o merge do store é raso, então
               // mandar `undefined` APAGARIA o carimbo local.
