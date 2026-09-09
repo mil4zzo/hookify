@@ -4526,7 +4526,7 @@ semântica (`text-text` ≡ `text-foreground` em 107 arquivos, e no claro nem co
 
 ## A planilha de leadscore é UM arquivo renomeado a cada lançamento — o nome guardado envelhece por desenho
 
-**Data:** 2026-09-09 · status: **implementado (migration 147 APLICADA; revalidação passiva na listagem de packs + marca de renomeação no card)**
+**Data:** 2026-09-09 · status: **implementado (migrations 147 e 148 APLICADAS; revalidação passiva na listagem de packs + marca de renomeação com "estou ciente")**
 
 **Contexto:** um pack antigo continuava exibindo "EI.30 - PTRAFEGO DADOS" no card e no dialog
 depois de a planilha ter sido renomeada para "EI.31". A conferência em produção mostrou que
@@ -4572,10 +4572,9 @@ distinto resolve todos os vínculos (≈1–5 chamadas ao Drive, não 25). Memó
   pinta o guardado na hora, troca no lugar se voltar diferente.
 - **Marca persistente `spreadsheet_renamed_from` (migration 147).** Consertar o nome em
   silêncio APAGARIA A EVIDÊNCIA da troca — que é justamente o que o usuário não quer
-  esquecer. Guarda o nome **original** (nunca o penúltimo: a cópia diz "era X
-  *originalmente*") e sai sozinha no primeiro sync que aplica linhas. Num sync que não
-  aplicou nada ela FICA: renomeação + nenhuma linha é a combinação que conta a história
-  do arquivo trocado.
+  esquecer. Sai sozinha no primeiro sync que aplica linhas; num sync que não aplicou nada
+  ela FICA, porque renomeação + nenhuma linha é a combinação que conta a história do
+  arquivo trocado.
 - **Silêncio é requisito.** `get_spreadsheet_name` levanta `GOOGLE_TOKEN_EXPIRED` no 401, e
   esse código chegando ao front dispara o evento global `google-token-expired` — o app
   pediria "reconecte sua conta Google" sozinho, no meio de uma navegação qualquer. A rota
@@ -4585,6 +4584,31 @@ distinto resolve todos os vínculos (≈1–5 chamadas ao Drive, não 25). Memó
   abriu uma tela seria cobrar de quem não pediu.
 - **Piso de 15 min** por usuário no cliente (chave de localStorage com escopo por
   `user_id`): F5 seguido não reconfere.
+
+### Revisão de 148: o penúltimo nome, e uma saída barata
+
+Duas correções de produto sobre a 147, ambas do idealizador:
+
+**A marca guarda o penúltimo nome, não o original.** A 147 gravava só na primeira
+renomeação, para preservar o nome com que o vínculo nasceu. A pergunta que o aviso
+responde, porém, é "o que mudou desde a última vez que olhei?" — e num arquivo renomeado
+a cada lançamento o nome de nascimento envelhece até virar trivia: depois de três
+lançamentos, "era EI.29" não ajuda a decidir nada, enquanto "antes era EI.30" descreve o
+salto que acabou de acontecer. Consequência obrigatória na cópia: "era X **originalmente**"
+virou "**antes era** X" — mantida a primeira, a frase passaria a mentir.
+
+**"Estou ciente" (`POST .../dismiss-rename`).** A marca só saía por um sync que aplicasse
+linhas. Mas quem renomeou a planilha costuma ser o próprio usuário: obrigá-lo a rodar um
+sync só para calar o aviso transforma o aviso em ruído — e **ruído permanente é ignorado
+justamente no dia em que ele estiver certo**. Só o dono dispensa (é a linha do silo dele);
+um convidado editor já tem a saída pelo sync.
+
+**Por que popover e não um "X".** O pedido era um botão discreto tipo "X". Um X solto ao
+lado do nome custa o mesmo pixel do ícone que já existe, mas deixa o usuário adivinhando
+o que ele dispensa — e some no toque, onde não há hover para revelar o contexto. O ícone
+de alerta virou um botão que abre um popover com a frase, a razão e o "Estou ciente":
+mesma pegada visual, a ação ganha rótulo, e o aviso deixa de depender de hover (o tooltip
+anterior nem era clicável, então não teria onde pendurar o botão).
 
 **Armadilha que quase passou.** `useLoadPacks` põe `isLoading` em `false` **também na fase
 pré-auth**, então `!packsLoading` não significa "packs no store". Gatear só nisso fazia o

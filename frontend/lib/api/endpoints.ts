@@ -723,6 +723,14 @@ export const api = {
         apiClient.post('/integrations/google/ad-sheet-integrations/revalidate-names'),
 
       /**
+       * "Estou ciente": apaga a marca de renomeação sem exigir um sync. Quem
+       * renomeou a planilha costuma ser o próprio usuário — obrigá-lo a
+       * sincronizar só para calar o aviso transformaria o aviso em ruído.
+       */
+      dismissSheetRename: (integrationId: string): Promise<{ success: boolean }> =>
+        apiClient.post(`/integrations/google/ad-sheet-integrations/${encodeURIComponent(integrationId)}/dismiss-rename`),
+
+      /**
        * Prévia do que a desconexão vai apagar. Só conta, não altera nada — o
        * diálogo mostra estes números antes de o usuário confirmar.
        *

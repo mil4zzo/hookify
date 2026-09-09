@@ -121,22 +121,28 @@ class TestRevalidateSheetNames(unittest.TestCase):
         self.assertEqual(alterados, [])
         self.assertEqual(updates, [], "escrita a toa move updated_at e suja o banco por nada")
 
-    def test_marca_guarda_o_nome_original_e_nao_o_penultimo(self):
+    def test_marca_guarda_sempre_o_nome_imediatamente_anterior(self):
+        """148: o aviso responde "o que mudou desde a ultima vez que olhei?".
+
+        Guardar o nome de NASCIMENTO envelhece ate virar trivia: depois de tres
+        lancamentos, "era EI.29" nao ajuda a decidir nada, enquanto "antes era
+        EI.30" descreve o salto que acabou de acontecer.
+        """
         rows = [_integ("i1", "EI.29")]
 
-        # 1a renomeacao: EI.29 -> EI.30. A marca nasce com EI.29.
+        # 1a renomeacao: EI.29 -> EI.30.
         alterados, updates, _ = self._run(rows, lambda _sid: "EI.30")
         self.assertEqual(updates[0][1]["spreadsheet_renamed_from"], "EI.29")
         self.assertEqual(alterados[0]["spreadsheet_renamed_from"], "EI.29")
 
-        # 2a renomeacao: EI.30 -> EI.31, no MESMO estado ja marcado.
+        # 2a renomeacao: EI.30 -> EI.31, no MESMO estado ja marcado com EI.29.
         alterados2, updates2, _ = self._run(rows, lambda _sid: "EI.31")
         self.assertEqual(updates2[0][1]["spreadsheet_name"], "EI.31")
-        self.assertNotIn(
-            "spreadsheet_renamed_from", updates2[0][1],
-            "a marca ja existe: reescreve-la trocaria o nome ORIGINAL pelo penultimo",
+        self.assertEqual(
+            updates2[0][1]["spreadsheet_renamed_from"], "EI.30",
+            "a marca tem que avancar para o penultimo, nao ficar presa no primeiro",
         )
-        self.assertEqual(alterados2[0]["spreadsheet_renamed_from"], "EI.29")
+        self.assertEqual(alterados2[0]["spreadsheet_renamed_from"], "EI.30")
 
     def test_nome_vazio_preenchido_nao_e_renomeacao(self):
         rows = [_integ("i1", None)]
@@ -179,3 +185,74 @@ class TestRevalidateSheetNames(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestDismissRename(unittest.TestCase):
+    """148 — "estou ciente": apaga a marca sem exigir um sync.
+
+    O ponto sensivel nao e o UPDATE, e o ESCOPO: a marca vive na linha do dono.
+    Sem `owner_id` no filtro, qualquer um com o id da integracao mexeria no silo
+    alheio — e um id de integracao nao e segredo, viaja no payload do pack.
+    """
+
+    def _call(self, rows):
+        from fastapi import HTTPException as _HTTPException
+        from app.routes import google_integration as route
+
+        filtros = []
+        updates = []
+
+        class _Fluent:
+            def __init__(self, outer_rows):
+                self._rows = outer_rows
+                self._modo = "select"
+                self._payload = None
+
+            def select(self, *_a, **_k):
+                self._modo = "select"
+                return self
+
+            def update(self, payload):
+                self._modo = "update"
+                self._payload = payload
+                return self
+
+            def eq(self, col, val):
+                filtros.append((self._modo, col, val))
+                return self
+
+            def limit(self, *_a):
+                return self
+
+            def execute(self):
+                if self._modo == "update":
+                    updates.append(self._payload)
+                    return _FakeResp([])
+                return _FakeResp(self._rows)
+
+        class _Sb:
+            def table(_self, name):
+                assert name == "ad_sheet_integrations"
+                return _Fluent(rows)
+
+        with mock.patch.object(route, "get_supabase_for_user", return_value=_Sb()):
+            try:
+                res = route.dismiss_sheet_rename("integ-1", user={"token": "jwt", "user_id": "u1"})
+            except _HTTPException as e:
+                return e, filtros, updates
+        return res, filtros, updates
+
+    def test_apaga_a_marca_escopada_pelo_dono(self):
+        res, filtros, updates = self._call([{"id": "integ-1", "pack_id": "pack-1"}])
+        self.assertTrue(res["success"])
+        self.assertEqual(updates, [{"spreadsheet_renamed_from": None}])
+        self.assertIn(
+            ("update", "owner_id", "u1"), filtros,
+            "sem owner_id no UPDATE, um id de integracao alheio apagaria a marca do dono",
+        )
+        self.assertIn(("select", "owner_id", "u1"), filtros)
+
+    def test_integracao_de_outro_dono_nao_e_encontrada(self):
+        erro, _filtros, updates = self._call([])
+        self.assertEqual(erro.status_code, 404)
+        self.assertEqual(updates, [], "404 nao pode ter escrito nada antes")

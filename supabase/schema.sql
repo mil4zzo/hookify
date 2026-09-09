@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict mCPYCgTieLVeuzfH5nQkLkYreH2ft4BDRotzWMm5GFv12V6Wyqc33RYotr7FZe1
+\restrict ePTf4BMCth4loboedcSN3ezOrDo6i07583uNqotwbYPff2XZHmkxxDhAhMfnoWM
 
 -- Dumped from database version 17.6
 -- Dumped by pg_dump version 17.6
@@ -4105,7 +4105,7 @@ COMMENT ON COLUMN public.ad_sheet_integrations.ad_id_column_index IS 'Índice da
 -- Name: COLUMN ad_sheet_integrations.spreadsheet_renamed_from; Type: COMMENT; Schema: public; Owner: postgres
 --
 
-COMMENT ON COLUMN public.ad_sheet_integrations.spreadsheet_renamed_from IS 'Nome que a planilha tinha antes da ultima renomeacao detectada. NULL = nunca renomeada ou ja reconciliada por um sync bem-sucedido. Alimenta o aviso "Renomeada: era X originalmente." no card do pack.';
+COMMENT ON COLUMN public.ad_sheet_integrations.spreadsheet_renamed_from IS 'Nome imediatamente anterior da planilha, quando uma renomeacao foi detectada no Drive. NULL = nunca renomeada, ja reconciliada por um sync que aplicou linhas, ou dispensada pelo usuario ("estou ciente"). Alimenta o aviso "Renomeada: antes era X." no card do pack.';
 
 
 --
@@ -6898,5 +6898,5 @@ ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA public GRANT ALL ON T
 -- PostgreSQL database dump complete
 --
 
-\unrestrict mCPYCgTieLVeuzfH5nQkLkYreH2ft4BDRotzWMm5GFv12V6Wyqc33RYotr7FZe1
+\unrestrict ePTf4BMCth4loboedcSN3ezOrDo6i07583uNqotwbYPff2XZHmkxxDhAhMfnoWM
 

@@ -202,18 +202,22 @@ def test_renomeada_devolve_o_nome_antigo_e_grava_o_novo(monkeypatch):
     assert cfg["spreadsheet_renamed_from"] == "Planilha antiga"
 
 
-def test_marca_existente_nao_e_reescrita_pela_segunda_renomeacao(monkeypatch):
-    """A cópia diz "era X ORIGINALMENTE" — o valor certo é o nome de nascimento.
+def test_marca_avanca_para_o_penultimo_a_cada_renomeacao(monkeypatch):
+    """148: a marca é sempre o nome imediatamente anterior, nunca o de nascimento.
 
-    Sem esta guarda, uma segunda renomeação trocaria o nome original pelo
-    penúltimo apelido do arquivo e a tela mentiria com toda a naturalidade.
+    Presa no primeiro nome, ela envelheceria até virar trivia: depois de três
+    lançamentos "era EI.29" não ajuda a decidir nada, enquanto "antes era EI.30"
+    descreve o salto que acabou de acontecer.
     """
     cfg = _cfg("EI.30")
     cfg["spreadsheet_renamed_from"] = "EI.29"
     old, sb, cfg = _run_rename(monkeypatch, "EI.31", cfg=cfg)
     assert old == "EI.30"
-    assert sb.sink["payload"] == {"spreadsheet_name": "EI.31"}
-    assert cfg["spreadsheet_renamed_from"] == "EI.29"
+    assert sb.sink["payload"] == {
+        "spreadsheet_name": "EI.31",
+        "spreadsheet_renamed_from": "EI.30",
+    }
+    assert cfg["spreadsheet_renamed_from"] == "EI.30"
 
 
 def test_sync_que_aplicou_linhas_limpa_a_marca(monkeypatch):

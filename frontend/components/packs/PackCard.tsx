@@ -7,6 +7,8 @@ import { ToggleSwitch } from "@/components/common/ToggleSwitch";
 import { PackActivityDialog } from "@/components/packs/PackActivityDialog";
 import { PackShareDialog } from "@/components/packs/PackShareDialog";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Button } from "@/components/ui/button";
 import { IconLogout, IconUsers, IconFilter, IconTrash, IconLoader2, IconRotateClockwise, IconPencil, IconTableExport, IconAlertTriangle, IconAlertCircle, IconMicrophone, IconTargetArrow, IconHistory } from "@tabler/icons-react";
 import { MetaIcon, GoogleSheetsIcon } from "@/components/icons";
 import { FilterRule } from "@/lib/api/schemas";
@@ -83,6 +85,33 @@ export function PackCard({ pack, adAccountName, formatCurrency, formatDate, onRe
   const [isShareDialogOpen, setIsShareDialogOpen] = useState(false);
   const [isActivityDialogOpen, setIsActivityDialogOpen] = useState(false);
   const [isLeaving, setIsLeaving] = useState(false);
+  const [isRenameNoticeOpen, setIsRenameNoticeOpen] = useState(false);
+  const [isDismissingRename, setIsDismissingRename] = useState(false);
+
+  /**
+   * "Estou ciente": some com o aviso sem exigir um sync.
+   *
+   * Quem renomeou a planilha costuma ser o próprio usuário. Obrigá-lo a rodar um
+   * sync só para calar o aviso transformaria o aviso em ruído — e ruído
+   * permanente é ignorado justamente no dia em que ele estiver certo.
+   */
+  const handleDismissRename = async () => {
+    const integrationId = pack.sheet_integration?.id;
+    if (!integrationId || isDismissingRename) return;
+    setIsDismissingRename(true);
+    try {
+      await api.integrations.google.dismissSheetRename(integrationId);
+      // Patch local em vez de recarregar a lista: o que mudou é um campo só.
+      updatePack(pack.id, {
+        sheet_integration: { ...pack.sheet_integration, spreadsheet_renamed_from: null },
+      } as any);
+      setIsRenameNoticeOpen(false);
+    } catch (e: any) {
+      showError(e);
+    } finally {
+      setIsDismissingRename(false);
+    }
+  };
 
   const handleLeavePack = async () => {
     if (!confirm(`Sair do pack "${pack.name}"? Você deixará de ver os dados dele.`)) return;
@@ -259,13 +288,14 @@ export function PackCard({ pack, adAccountName, formatCurrency, formatDate, onRe
   const leadscoreSyncEmpty = pack.sheet_integration?.last_sync_status === "warning";
   const leadscoreSyncNotOk = leadscoreSyncFailed || leadscoreSyncEmpty;
   const leadscoreTitle = pack.sheet_integration?.spreadsheet_name || "Leadscore";
-  // 147: o arquivo foi renomeado no Drive desde que este pack foi vinculado a ele.
-  // A revalidação passiva já corrigiu o nome exibido — esta marca é o que impede o
+  // 147/148: o arquivo foi renomeado no Drive desde a última conferência. A
+  // revalidação passiva já corrigiu o nome exibido — esta marca é o que impede o
   // conserto de APAGAR A EVIDÊNCIA de que a planilha pode não ser mais a mesma.
-  // Sai sozinha no primeiro sync que aplicar linhas.
+  // Guarda o nome imediatamente ANTERIOR: o aviso responde "o que mudou desde a
+  // última vez que olhei?". Sai por um sync que aplique linhas ou pelo "estou ciente".
   const spreadsheetRenamedFrom = pack.sheet_integration?.spreadsheet_renamed_from || null;
   const renameNotice = spreadsheetRenamedFrom
-    ? `Renomeada: era ${spreadsheetRenamedFrom} originalmente.`
+    ? `Renomeada: antes era ${spreadsheetRenamedFrom}.`
     : null;
   const hasAnyLeadscoreSyncInfo = !!(lastSuccessfulSyncAt || lastSyncAttemptAt);
   // Nos dois estados ruins o tempo mostrado é o do último SUCESSO: exibir o da
@@ -552,21 +582,41 @@ export function PackCard({ pack, adAccountName, formatCurrency, formatDate, onRe
                           >
                             {leadscoreTitle}
                           </label>
+                          {/* Popover, não tooltip: o aviso precisa carregar uma AÇÃO
+                              ("estou ciente"), e conteúdo de hover não é clicável nem
+                              existe no toque. Um "X" solto ao lado do nome custaria o
+                              mesmo pixel e ainda deixaria o usuário adivinhando o que
+                              ele dispensa — aqui a frase e o botão vêm juntos. */}
                           {renameNotice && (
-                            <TooltipProvider>
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <span className="flex-shrink-0 cursor-help leading-none">
-                                    <IconAlertTriangle className="w-3.5 h-3.5 text-warning" />
-                                  </span>
-                                </TooltipTrigger>
-                                <TooltipContent>
-                                  <p className="max-w-[16rem]">
-                                    {renameNotice} Confira se o conteúdo dela ainda é o mesmo.
-                                  </p>
-                                </TooltipContent>
-                              </Tooltip>
-                            </TooltipProvider>
+                            <Popover open={isRenameNoticeOpen} onOpenChange={setIsRenameNoticeOpen}>
+                              <PopoverTrigger asChild>
+                                <button
+                                  type="button"
+                                  aria-label="Planilha renomeada — ver detalhes"
+                                  className="flex-shrink-0 leading-none cursor-pointer"
+                                >
+                                  <IconAlertTriangle className="w-3.5 h-3.5 text-warning" />
+                                </button>
+                              </PopoverTrigger>
+                              <PopoverContent align="start" className="w-64 p-3">
+                                <p className="text-xs text-foreground">{renameNotice}</p>
+                                <p className="text-2xs text-muted-foreground mt-1">
+                                  Renomear costuma acompanhar troca de conteúdo. Confira se a
+                                  planilha ainda é a mesma que você vinculou.
+                                </p>
+                                {!isSharedGuest && (
+                                  <Button
+                                    size="sm"
+                                    variant="secondary"
+                                    className="w-full mt-3"
+                                    disabled={isDismissingRename}
+                                    onClick={handleDismissRename}
+                                  >
+                                    {isDismissingRename ? "Dispensando..." : "Estou ciente"}
+                                  </Button>
+                                )}
+                              </PopoverContent>
+                            </Popover>
                           )}
                         </div>
                         {!pack.sheet_integration ? (

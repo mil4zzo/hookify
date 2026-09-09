@@ -136,12 +136,12 @@ def revalidate_sheet_names(user_jwt: str, user_id: str) -> List[Dict[str, Any]]:
             continue
 
         payload: Dict[str, Any] = {"spreadsheet_name": atual}
-        # Preencher um nome que faltava nao e uma renomeacao — nao ha "era X".
-        # E uma renomeacao ja marcada nao pode ser reescrita por uma segunda
-        # troca: o valor que interessa e o nome com que o vinculo NASCEU para o
-        # usuario, nao o penultimo apelido do arquivo.
-        renomeado_de = integ.get("spreadsheet_renamed_from")
-        if guardado and not (isinstance(renomeado_de, str) and renomeado_de.strip()):
+        # 148: a marca guarda sempre o nome imediatamente ANTERIOR. O aviso
+        # responde "o que mudou desde a ultima vez que olhei?" — num arquivo
+        # renomeado a cada lancamento, o nome de nascimento vira trivia.
+        # Preencher um nome que faltava nao e renomeacao: nao ha "antes era X".
+        renomeado_de = None
+        if guardado:
             payload["spreadsheet_renamed_from"] = guardado
             renomeado_de = guardado
 
@@ -167,7 +167,7 @@ def revalidate_sheet_names(user_jwt: str, user_id: str) -> List[Dict[str, Any]]:
             "integration_id": str(integ["id"]),
             "pack_id": str(integ["pack_id"]) if integ.get("pack_id") else None,
             "spreadsheet_name": atual,
-            "spreadsheet_renamed_from": renomeado_de if isinstance(renomeado_de, str) and renomeado_de.strip() else None,
+            "spreadsheet_renamed_from": renomeado_de,
         })
 
     return alterados

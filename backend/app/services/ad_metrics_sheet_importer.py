@@ -496,12 +496,11 @@ def _refresh_spreadsheet_name(sb, user_jwt, user_id, integration_id, cfg):
         "[AD_METRICS_IMPORT] Planilha renomeada na origem: '%s' -> '%s' (integracao %s)",
         stored, current, integration_id,
     )
-    # 147: a marca sobrevive ao sync e alimenta o aviso no card do pack. So e
-    # escrita na PRIMEIRA renomeacao detectada — o que interessa e o nome com
-    # que o vinculo nasceu, nao o penultimo apelido do arquivo.
+    # 147/148: a marca sobrevive ao sync e alimenta o aviso no card do pack, e
+    # guarda sempre o nome imediatamente ANTERIOR — o aviso responde "o que
+    # mudou desde a ultima vez que olhei?", nao "como se chamava no inicio".
     payload = {"spreadsheet_name": current}
-    marca = cfg.get("spreadsheet_renamed_from")
-    if stored and not (isinstance(marca, str) and marca.strip()):
+    if stored:
         payload["spreadsheet_renamed_from"] = stored
 
     try:
