@@ -9,6 +9,7 @@ import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrig
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { InlineNotice } from "@/components/common/States";
 import { useTags } from "@/lib/api/hooks";
+import { useTagScope } from "@/components/manager/TagScopeProvider";
 import { tagChipClasses, tagDotClasses } from "@/lib/tags/colors";
 import {
   RULE_OPERATORS,
@@ -123,7 +124,15 @@ function TagValueEditor({
   onChange: (value: RuleConditionValue) => void;
   disabled?: boolean;
 }) {
-  const { data } = useTags();
+  // O vocabulário é do SILO do pack, não do usuário (migration 139). Sem passar o
+  // escopo, o backend resolvia para o silo do próprio ator e quem recebe um pack
+  // compartilhado abria o filtro vazio — as tags apareciam nas linhas da tabela e
+  // não existiam na lista ao lado.
+  //
+  // Fora do Manager (Boards, Critério) não há provider montado e `packIds` vem
+  // vazio: cai no silo próprio, que é o escopo correto nessas telas.
+  const { packIds } = useTagScope();
+  const { data } = useTags(packIds);
   const allTags = useMemo(() => data?.data ?? [], [data]);
   const selectedIds = useMemo(() => (Array.isArray(value) ? value : []), [value]);
   const selected = useMemo(() => allTags.filter((tag) => selectedIds.includes(tag.id)), [allTags, selectedIds]);

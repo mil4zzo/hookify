@@ -15,6 +15,8 @@ funcionava. Consequencias no codigo:
     entao vai por service role — depois de o papel ser conferido aqui. Mesmo
     padrao da reconexao do Google em pack compartilhado.
   - Viewer LE o vocabulario (senao o filtro abre vazio para ele) e nao escreve.
+  - LEITURA e multi-silo (espelha o any(v_owners) da RPC); ESCRITA exige silo
+    unico, porque uma tag nova nao tem criativo que decida em qual silo nascer.
 """
 from __future__ import annotations
 
@@ -28,7 +30,11 @@ from pydantic import BaseModel, Field
 from app.core.auth import get_current_user
 from app.core.supabase_client import get_supabase_for_user, get_supabase_service
 from app.core.supabase_retry import with_postgrest_retry
-from app.services.pack_access import resolve_entity_pack_scope, resolve_pack_silo
+from app.services.pack_access import (
+    resolve_entity_pack_scope,
+    resolve_pack_silo,
+    resolve_pack_silos_for_read,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/tags", tags=["tags"])
@@ -148,19 +154,26 @@ def list_tags(
     pack_ids: List[str] = Query(default_factory=list),
     user=Depends(get_current_user),
 ) -> Dict[str, Any]:
-    """Vocabulario do SILO + quantos criativos cada tag marca.
+    """Vocabulario dos SILOS da selecao + quantos criativos cada tag marca.
 
-    Viewer entra aqui: sem a lista, o filtro por tag abriria vazio para quem so
-    tem leitura, embora as tags apareçam nas linhas.
+    MULTI-SILO, e de proposito. A RPC do Manager devolve as tags de todos os donos
+    da selecao (`atg.user_id = any(v_owners)`, migration 139). Se esta listagem
+    respondesse por um silo so, a tela mostraria tags nas linhas e um filtro vazio
+    ao lado — que foi exatamente o bug relatado por quem recebe pack compartilhado.
+
+    Duas tags de mesmo NOME em donos diferentes aparecem as duas: sao tags
+    distintas, e fundi-las esconderia de quem e cada uma.
+
+    Qualquer papel le, viewer incluido.
     """
-    silo = resolve_pack_silo(user["user_id"], pack_ids, roles=READ_ROLES)
-    sb = _client_for(user, silo.is_guest)
+    silos = resolve_pack_silos_for_read(user["user_id"], pack_ids)
+    sb = _client_for(user, silos.includes_foreign)
     try:
         res = with_postgrest_retry(
             "tags.list",
             lambda: sb.table("tags")
             .select("id,name,slug,color,created_at,ad_tags(count)")
-            .eq("user_id", silo.owner_id)
+            .in_("user_id", list(silos.owner_ids))
             .order("name")
             .execute(),
         )
@@ -185,7 +198,7 @@ def list_tags(
             "created_at": row.get("created_at"),
             "usage_count": usage,
         })
-    return {"data": items, "owner_id": silo.owner_id, "role": silo.role}
+    return {"data": items, "owner_ids": list(silos.owner_ids)}
 
 
 @router.post("", status_code=201)

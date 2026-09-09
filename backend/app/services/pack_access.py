@@ -409,3 +409,60 @@ def resolve_pack_silo(
         raise HTTPException(status_code=403, detail=detail)
 
     return PackSilo(owner_id=owner_id, role=effective, is_guest=owner_id != actor)
+
+
+class PackSilosRead(NamedTuple):
+    owner_ids: tuple       # todos os silos legiveis na selecao
+    includes_foreign: bool # algum silo nao e do ator => leitura por service role
+
+
+def resolve_pack_silos_for_read(
+    actor_id: str,
+    pack_ids: Optional[Sequence[str]],
+) -> PackSilosRead:
+    """Silos LEGIVEIS a partir do contexto de packs — plural, e sem 409.
+
+    Existe separado de `resolve_pack_silo` porque leitura e escrita tem regras
+    opostas quando a selecao mistura donos:
+
+    - ESCRITA precisa de um silo unico. Uma tag nova nao pertence a um criativo
+      especifico que pudesse decidir em qual silo nascer, entao gravar no silo
+      errado e pior que recusar -> 409.
+    - LEITURA e multi-silo por construcao. A RPC do Manager ja devolve as tags de
+      TODOS os donos da selecao (`atg.user_id = any(v_owners)`, migration 139).
+      Se a listagem recusasse a mesma selecao, a UI mostraria tags nas linhas e
+      um filtro vazio ao lado — que e exatamente o bug que isto corrige.
+
+    Qualquer papel le (dono|editor|viewer): ver a tag na linha e nao poder
+    filtra-la por ela seria uma meia-permissao sem sentido.
+    """
+    actor = str(actor_id or "").strip()
+    if not actor:
+        raise HTTPException(status_code=401, detail="Sessao invalida")
+
+    packs = [str(p).strip() for p in (pack_ids or []) if str(p or "").strip()]
+    if not packs:
+        return PackSilosRead(owner_ids=(actor,), includes_foreign=False)
+
+    sb = get_supabase_service()
+    try:
+        res = sb.rpc(
+            "resolve_pack_access",
+            {"p_pack_ids": packs, "p_actor_id": actor},
+        ).execute()
+    except Exception as e:
+        logger.exception("[PACK_ACCESS] Falha ao resolver silos p/ packs %s: %s", packs, e)
+        raise HTTPException(status_code=500, detail="Erro ao verificar acesso ao pack")
+
+    rows = [r for r in (res.data or []) if isinstance(r, dict)]
+    # Pack que nao volta do resolvedor e pack sem acesso. Nunca ignorar em silencio:
+    # a lista sairia menor que a selecao e pareceria "esse pack nao tem tag".
+    if len({str(r.get("pack_id")) for r in rows}) < len(set(packs)):
+        raise HTTPException(status_code=404, detail="Pack nao encontrado")
+
+    owners = {str(r.get("owner_id")) for r in rows if r.get("owner_id")}
+    if not owners:
+        raise HTTPException(status_code=404, detail="Pack nao encontrado")
+
+    ordered = tuple(sorted(owners))
+    return PackSilosRead(owner_ids=ordered, includes_foreign=any(o != actor for o in ordered))
