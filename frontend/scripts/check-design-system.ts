@@ -58,6 +58,19 @@ const REGEX_RULES: RegexRule[] = [
     pattern: /\bz-\[(?:[6-9]\d|\d{3,})\]/,
   },
   {
+    id: "structural-alpha-surface",
+    description:
+      "Superficie estrutural em repouso nao pode vir da escala alpha (-5..-95): ela mistura com --background, entao afunda no tema escuro e eleva no claro. Use a escada: bg-background / bg-muted / bg-card / bg-surface-2 / bg-surface-3.",
+    // Passos exatos da escala (tailwind.config `alphaSteps`) — sem isso, `bg-surface-2`
+    // e `bg-surface-3`, que sao os tokens CERTOS da escada, virariam falso positivo.
+    // `bg-background-N` fica de fora de proposito: ali o mix e com a propria cor, o
+    // que e alpha de verdade (overlay de modal).
+    // Variante de estado (`hover:`, `data-[x]:`) tambem fica de fora: e receita de
+    // estado, assunto do token `accent`, nao de superficie.
+    pattern:
+      /(?<![\w:[\]-])bg-(?:card|popover|surface|input|muted-foreground|muted|secondary|accent|foreground|border)-(?:5|10|20|30|40|45|50|60|70|75|80|82|88|90|95)(?![\w-])/,
+  },
+  {
     id: "raw-shadow",
     description: "Use shadow-elevation-flat/raised/overlay instead of raw Tailwind shadows.",
     pattern: /\bshadow-(?:xs|sm|md|lg|xl|2xl)\b/,
@@ -66,6 +79,7 @@ const REGEX_RULES: RegexRule[] = [
 
 const COLOR_RULES = ["hardcoded-tailwind-color", "large-radius", "raw-color", "emoji-icon"];
 const CONTROL_HEIGHT_RULE = "control-height-override";
+const STRUCTURAL_ALPHA_RULE = "structural-alpha-surface";
 const DIRECT_PRIMITIVE_RULE = "direct-primitive-import";
 const DIRECT_SKELETON_RULE = "direct-skeleton-import";
 const INLINE_NOTICE_RULE = "inline-notice-pattern";
@@ -92,6 +106,19 @@ const RULE_ALLOWLIST: RuleAllowlistEntry[] = [
   { pattern: /^lib\/store\/activeJobs\.ts$/, rules: ["emoji-icon"], reason: "emoji markers in console diagnostics, not UI" },
   { pattern: /^components\/share\//, rules: ["emoji-icon"], reason: "public share viewer (/s) uses deliberate playful emoji in expiry states" },
   { pattern: /^components\/waitlist\/(?:WaitlistV2|CanvasRevealEffect)\.tsx$/, rules: [...COLOR_RULES, DIRECT_PRIMITIVE_RULE], reason: "cinematic public waitlist v2 keeps a raw black/white/accent palette" },
+
+  // ── Backlog da escada de superficie (fase F3 do plano de tokens) ──────────
+  // 54 usos em 30 arquivos herdados de antes do contrato de superficie. Cada tela
+  // migrada REMOVE a sua entrada daqui — a allowlist e o rastreador da divida, e
+  // "fase pronta" e a allowlist encolher com o checker verde.
+  { pattern: /^components\/upload\//, rules: [STRUCTURAL_ALPHA_RULE], reason: "legacy surface tints — F3 upload phase" },
+  { pattern: /^components\/plano\//, rules: [STRUCTURAL_ALPHA_RULE], reason: "legacy surface tints — F3 plano phase" },
+  { pattern: /^components\/(?:ads|gold|insights|share|packs)\//, rules: [STRUCTURAL_ALPHA_RULE], reason: "legacy surface tints — F3 analytics phase" },
+  { pattern: /^components\/common\/(?:AdPlayArea|MetricDeltaBadge|MultiSelectChipsField|StandardCard)\.tsx$/, rules: [STRUCTURAL_ALPHA_RULE], reason: "legacy surface tints — F3 common phase" },
+  { pattern: /^components\/layout\/Topbar\.tsx$/, rules: [STRUCTURAL_ALPHA_RULE], reason: "legacy surface tints — F3 common phase" },
+  { pattern: /^components\/ui\/(?:accordion|table)\.tsx$/, rules: [STRUCTURAL_ALPHA_RULE], reason: "legacy surface tints — F3 primitives phase" },
+  { pattern: /^app\/(?:docs|packs|upload)\//, rules: [STRUCTURAL_ALPHA_RULE], reason: "legacy surface tints — F3 pages phase" },
+  { pattern: /^lib\/utils\/gemsColorSchemes\.ts$/, rules: [STRUCTURAL_ALPHA_RULE], reason: "legacy surface tints — F3 recipes phase" },
 
   // Exceções pontuais de skeleton agora vivem inline nos arquivos ("design-system-exception: direct-skeleton-import - ..."),
   // para não isentar o arquivo inteiro da regra. Só diretórios/superfícies inteiras permanecem aqui.
@@ -368,7 +395,13 @@ function scanFile(filePath: string): Finding[] {
   const findings: Finding[] = [];
 
   lines.forEach((lineText, index) => {
+    // Linha que e SO comentario e prosa, nao markup. Sem isto, documentar o que se
+    // deixou de usar ("antes era bg-input-10") viraria violacao, e o checker
+    // empurraria o codigo para comentarios piores.
+    const isCommentOnly = /^\s*(?:\/\/|\*|\/\*)/.test(lineText);
+
     for (const rule of REGEX_RULES) {
+      if (isCommentOnly) continue;
       if (isRuleAllowed(file, rule.id)) continue;
       rule.pattern.lastIndex = 0;
       if (rule.pattern.test(lineText)) {

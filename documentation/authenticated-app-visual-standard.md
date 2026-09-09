@@ -211,7 +211,7 @@ registre-o tambem em `SPACING_TOKENS` de `lib/utils/cn.ts`.
 Ao tomar uma decisao de design que diverge deste contrato (nova variant,
 nova excecao, novo padrao de barra), atualize esta secao no mesmo commit.
 
-## Contrato de tokens (tipografia, elevacao, z-index)
+## Contrato de tokens (superficie, estado, tipografia, elevacao, z-index)
 
 ### Tipografia
 
@@ -221,6 +221,57 @@ nova excecao, novo padrao de barra), atualize esta secao no mesmo commit.
 - `text-[Npx]` arbitrario e violacao (regra `arbitrary-font-size`). Tamanhos
   display em `rem` (titulos hero) e relativos em `em` (superscript) sao
   permitidos.
+
+### Superficie (contrato de elevacao)
+
+Toda superficie estrutural sai de UM destes cinco degraus. A escada anda sempre
+**para longe do fundo da pagina**: no tema escuro clareia a cada degrau, no claro
+escurece. Nunca o contrario, e nunca dependendo do tema.
+
+| Degrau | Token | Onde | Regra |
+|---|---|---|---|
+| Pagina | `bg-background` | body, area de pagina | nao recebe sombra |
+| Rebaixado | `bg-muted` | poco, faixa de secao, linha alternada | nao contem outro conteiner |
+| Base | `bg-card` | cartao, modal, painel | o degrau padrao de conteudo |
+| Elevado | `bg-surface-2` | grupo dentro de cartao, campo, celula em destaque | `shadow-elevation-raised` |
+| Flutuante | `bg-surface-3` | popover, menu, tooltip | unico com `shadow-elevation-overlay` |
+
+`bg-popover` e alias historico de `bg-card`; em codigo novo, use `bg-card`.
+
+**A regra que isso substitui:** superficie estrutural em repouso NAO pode vir da
+escala alpha (`bg-card-20`, `bg-input-30`, `bg-muted-50`...). A escala gera
+`color-mix(in oklab, var(--token) N%, var(--background))` — mistura com o fundo da
+PAGINA, nao com a superficie que esta atras do elemento. Sobre um cartao mais claro
+que a pagina, o resultado sempre afunda no tema escuro e sempre eleva no claro: a
+hierarquia inverte de sinal ao trocar de tema, sem ninguem decidir. Regra
+`structural-alpha-surface` no checker.
+
+Continuam validos, e nao sao violacao:
+
+- **Tinta semantica** sobre a pagina — `bg-primary-10`, `border-destructive-30`,
+  `bg-success-10`. Ali a intencao e mesmo um veu da cor, e o mix com o fundo e o
+  comportamento certo.
+- **`bg-background-{n}`** — o mix e com a propria cor, entao e alpha de verdade
+  (overlay de modal).
+- **Variante de estado** — `hover:bg-*`, `data-[state=open]:bg-*`. Estado tem receita
+  propria (ver abaixo), e o token de hover do app e `accent`.
+
+**Aninhamento le mais forte, nunca mais fraco.** O nivel mais profundo (um subgrupo
+dentro de um painel) e o que carrega a informacao mais importante; ele precisa ser o
+elemento mais definido da tela, com superficie propria e borda solida. Borda tracejada
+le como placeholder ou area de drop — nao use para agrupar conteudo real.
+
+**Nem tudo e cartao.** Borda, preenchimento, raio e sombra dizem "objeto separado".
+Gaste por papel: um bloco que ja esta dentro de um cartao raramente precisa da propria
+moldura, e uma linha cujas colunas ja sao controles com borda nao precisa de caixa em
+volta — vira moldura dentro de moldura.
+
+### Estado (hover, foco, selecao)
+
+- **Hover** de superficie interativa: `hover:bg-accent`. Nao invente mistura propria.
+- **Foco**: anel via `focus-visible:ring-ring` — nunca so mudanca de cor de fundo.
+- **Selecionado**: `bg-primary-10` + `border-primary-30`, sempre esse par.
+- **Desabilitado**: `disabled:opacity-50` das primitivas; nao rebaixar cor a mao.
 
 ### Elevacao
 
@@ -267,6 +318,10 @@ quebram silenciosamente para ele.
 - [ ] Usa um unico scroll principal em workspaces de analise.
 - [ ] Usa tokens semanticos de cor e radius aprovado.
 - [ ] Altura de controles via prop `size`, nunca `h-*` em className.
+- [ ] Todo fundo estrutural sai da escada (`background`/`muted`/`card`/
+      `surface-2`/`surface-3`), nunca de `bg-<token>-<N>`.
+- [ ] Hover de superficie usa `hover:bg-accent`; selecao usa
+      `bg-primary-10` + `border-primary-30`.
 - [ ] Micro-texto usa `text-2xs`, nunca `text-[10px]`/`text-[11px]`.
 - [ ] Sombras via `shadow-elevation-*`; camadas de app via `z-<token>`.
 - [ ] Icon-only buttons tem `aria-label` ou `title`.
