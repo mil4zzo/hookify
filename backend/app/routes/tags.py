@@ -14,7 +14,8 @@ funcionava. Consequencias no codigo:
   - Escrita em silo alheio nao passa por RLS (a policy e user_id = auth.uid()),
     entao vai por service role — depois de o papel ser conferido aqui. Mesmo
     padrao da reconexao do Google em pack compartilhado.
-  - Viewer LE o vocabulario (senao o filtro abre vazio para ele) e nao escreve.
+  - Viewer LE e ESCREVE tags. Tag e classificacao interna, nao muda o que veicula
+    no Meta — ao contrario de status/budget, onde viewer continua barrado.
   - LEITURA e multi-silo (espelha o any(v_owners) da RPC); ESCRITA exige silo
     unico, porque uma tag nova nao tem criativo que decida em qual silo nascer.
 """
@@ -50,7 +51,12 @@ MAX_TAGS_PER_USER = 200
 MAX_AD_NAMES_PER_CALL = 5000
 
 READ_ROLES = ("dono", "editor", "viewer")
-WRITE_ROLES = ("dono", "editor")
+# Viewer gerencia tags. Diferente de status/budget — que mudam o que veicula no
+# Meta e gastam dinheiro do dono — tag e classificacao interna: nao sai do banco.
+# E quem foi convidado para LER os criativos costuma ser justamente quem os
+# organiza. Deixar so dono|editor marcar transformava o viewer num leitor que ve
+# a tag na linha e nao pode usa-la.
+WRITE_ROLES = ("dono", "editor", "viewer")
 
 # ad_name e texto livre e longo (~38 bytes de media, cauda bem maior). PostgREST
 # monta o .in_() na URL, entao lote grande estoura o limite de tamanho — mesmo

@@ -4422,3 +4422,39 @@ chamada de topo via PostgREST, dúvida que estava anotada em aberto desde setemb
 dois packs do mesmo dono que compartilham um anúncio-dia de verdade, com a janela do segundo
 pack mentindo. Contra a versão da 145 ele falha (devolve 0 para um conflito real); contra a
 146 passa com 5 asserções. Um teste que nunca falhou não provou nada.
+
+---
+
+## Tags: viewer gerencia, e leitura é multi-silo (2026-09-08)
+
+**Viewer passa a gerenciar tags.** Antes só dono e editor. A distinção que justifica:
+status e budget mudam o que veicula no Meta e gastam dinheiro do dono — viewer segue
+barrado neles. Tag é classificação interna, não sai do banco, e quem foi convidado para
+ler os criativos costuma ser justamente quem os organiza. Um viewer que enxerga a tag na
+linha e não pode usá-la era meia-permissão sem sentido.
+
+**Efeito colateral aceito:** viewer também pode apagar uma tag, e apagar remove a
+marcação de todos naquele silo (ON DELETE CASCADE), inclusive do dono. Se isso incomodar,
+o ajuste é restringir só o DELETE a dono|editor — o gate já é por rota.
+
+**O bug do filtro vazio tinha duas causas independentes**, ambas silenciosas:
+
+1. `RuleBuilder` (motor único de filtros) chamava `useTags()` **sem `pack_ids`**. Sem
+   escopo, o backend resolve para o silo do próprio ator — um caminho legítimo para quem
+   não compartilha nada, e por isso sem erro nenhum. Quem recebia pack compartilhado via
+   as tags nas linhas da tabela e um filtro vazio ao lado.
+
+2. `resolve_pack_silo` dava **409 quando a seleção misturava donos**, inclusive na
+   leitura. Mas a RPC do Manager lê multi-silo (`any(v_owners)`, migration 139). Quem
+   selecionasse o próprio pack junto com um compartilhado caía no mesmo sintoma.
+
+**Leitura e escrita passaram a ter resolvedores separados**: `resolve_pack_silo`
+(escrita, silo único, 409 em donos diferentes — uma tag nova não tem criativo que decida
+onde nascer) e `resolve_pack_silos_for_read` (leitura, plural, sem 409 — espelha o
+`any(v_owners)` da RPC). Tags de mesmo nome em donos diferentes aparecem as duas: são
+tags distintas, e fundi-las esconderia de quem é cada uma.
+
+**Padrão de falha a reconhecer:** escopo ausente aqui nunca dá erro — devolve lista
+vazia, que se lê como "esse pack não tem tag". É a mesma família do `TagScopeProvider`
+que estava definido e consumido mas nunca montado. Ao ligar um consumidor novo de tags,
+conferir os dois: provider montado acima E `pack_ids` chegando na chamada.

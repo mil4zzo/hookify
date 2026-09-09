@@ -14,7 +14,13 @@ role, esquecer falha ABERTO. Por isso a regra e uma so e mora aqui:
     assert_pack_role() ANTES do write. Sem excecao.
 
 Papeis validos: 'dono' | 'editor' | 'viewer' (resolve_pack_access, migration 103).
-Viewer nunca escreve. So o dono compartilha/apaga.
+So o dono compartilha/apaga o pack.
+
+Viewer nao escreve ESTADO DO ANUNCIO (status, budget) — isso muda o que veicula
+no Meta e custa dinheiro do dono. Mas viewer GERENCIA TAGS: tag e classificacao
+interna, nao toca no Meta, e quem foi convidado para ler os criativos costuma ser
+exatamente quem os classifica. Por isso `roles` e parametro em vez de constante:
+cada rota declara o seu, e routes/tags.py declara viewer junto.
 """
 from __future__ import annotations
 
