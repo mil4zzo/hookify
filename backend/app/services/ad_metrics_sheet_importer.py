@@ -184,6 +184,7 @@ def _load_sheet_config(sb: Any, integration_id: str, user_id: str) -> Dict[str, 
         .select(
             "id, spreadsheet_id, worksheet_title, ad_id_column, date_column, "
             "leadscore_column, date_format, pack_id, connection_id, spreadsheet_name, "
+            "spreadsheet_renamed_from, "
             "ad_id_column_index, date_column_index, leadscore_column_index"
         )
         .eq("id", integration_id)
@@ -495,8 +496,16 @@ def _refresh_spreadsheet_name(sb, user_jwt, user_id, integration_id, cfg):
         "[AD_METRICS_IMPORT] Planilha renomeada na origem: '%s' -> '%s' (integracao %s)",
         stored, current, integration_id,
     )
+    # 147: a marca sobrevive ao sync e alimenta o aviso no card do pack. So e
+    # escrita na PRIMEIRA renomeacao detectada — o que interessa e o nome com
+    # que o vinculo nasceu, nao o penultimo apelido do arquivo.
+    payload = {"spreadsheet_name": current}
+    marca = cfg.get("spreadsheet_renamed_from")
+    if stored and not (isinstance(marca, str) and marca.strip()):
+        payload["spreadsheet_renamed_from"] = stored
+
     try:
-        sb.table("ad_sheet_integrations").update({"spreadsheet_name": current}).eq(
+        sb.table("ad_sheet_integrations").update(payload).eq(
             "id", integration_id
         ).eq("owner_id", user_id).execute()
     except Exception as e:
@@ -504,6 +513,8 @@ def _refresh_spreadsheet_name(sb, user_jwt, user_id, integration_id, cfg):
         return stored
 
     cfg["spreadsheet_name"] = current
+    if "spreadsheet_renamed_from" in payload:
+        cfg["spreadsheet_renamed_from"] = payload["spreadsheet_renamed_from"]
     return stored
 
 
@@ -530,6 +541,11 @@ def _persist_integration_status(sb, integration_id, user_id, stats):
     }
     if applied_rows:
         payload["last_successful_sync_at"] = now_iso
+        # 147: sync que APLICOU linhas depois da renomeacao e a prova de que o
+        # conteudo novo casa com este pack — o aviso ja cumpriu o papel dele.
+        # Num sync que nao aplicou nada a marca fica: renomeacao + nenhuma linha
+        # e exatamente a combinacao que conta a historia do arquivo trocado.
+        payload["spreadsheet_renamed_from"] = None
     try:
         sb.table("ad_sheet_integrations").update(payload).eq("id", integration_id).eq(
             "owner_id", user_id

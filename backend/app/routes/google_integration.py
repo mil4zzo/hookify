@@ -13,6 +13,7 @@ from app.core.supabase_client import get_supabase_service
 from app.services.pack_access import assert_pack_role
 from app.services import pack_action_log
 from app.services import sheet_column_mappings
+from app.services import sheet_name_revalidation
 from app.core.config import (
     GOOGLE_OAUTH_CLIENT_ID,
     GOOGLE_OAUTH_CLIENT_SECRET,
@@ -1010,6 +1011,25 @@ def sync_ad_sheet_integration(
         status_code=410,
         detail="Endpoint legado descontinuado. Utilize o fluxo assíncrono de sync-job.",
     )
+
+
+@router.post("/ad-sheet-integrations/revalidate-names")
+def revalidate_ad_sheet_names(user=Depends(get_current_user)):
+    """Reconfere no Drive o nome das planilhas vinculadas do usuario.
+
+    Existe porque o nome guardado so era reconferido dentro do sync: pack que
+    parou de sincronizar exibia para sempre o nome do ultimo sync — e como o
+    arquivo do Drive costuma ser UM SO, renomeado a cada lancamento, o vinculo
+    antigo aponta para o conteudo NOVO sem ninguem notar.
+
+    Chamada em segundo plano pela listagem de packs, entao: nunca falha (200 com
+    lista vazia no pior caso) e devolve SO os vinculos que mudaram, para a tela
+    aplicar um patch cirurgico em vez de repintar a lista inteira.
+    """
+    alterados = sheet_name_revalidation.revalidate_sheet_names(
+        user_jwt=user["token"], user_id=user["user_id"]
+    )
+    return {"integrations": alterados}
 
 
 @router.get("/ad-sheet-integrations")

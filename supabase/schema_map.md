@@ -169,6 +169,7 @@ Integrações com Google Sheets para importar leadscores via planilha.
 | date_column_index | integer |  |
 | leadscore_column_index | integer |  |
 | spreadsheet_name | text |  |
+| spreadsheet_renamed_from | text |  |
 
 ---
 
@@ -580,4 +581,4 @@ Preferências e configurações personalizadas por usuário.
 
 ---
 
-*Gerado em: 2026-09-08 — via `supabase/generate_schema_map.py`*
+*Gerado em: 2026-09-09 — via `supabase/generate_schema_map.py`*

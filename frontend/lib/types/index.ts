@@ -20,6 +20,11 @@ export interface AdsPack {
   }
   sheet_integration?: SheetIntegration & {
     spreadsheet_name?: string // Adicionado pelo backend ao buscar nomes das planilhas
+    // 147: nome com que o vínculo NASCEU, quando o arquivo foi renomeado desde então.
+    // Sobrevive à revalidação passiva de propósito: consertar o nome em silêncio
+    // apagaria a evidência de que aquela planilha pode não ser mais a mesma.
+    // Limpo pelo primeiro sync que aplica linhas.
+    spreadsheet_renamed_from?: string | null
   }
   last_refreshed_at?: string // Data do último refresh no formato YYYY-MM-DD
   // ── Refresh em andamento, legível por QUALQUER membro (pack compartilhado) ──

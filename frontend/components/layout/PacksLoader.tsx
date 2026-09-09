@@ -3,6 +3,7 @@
 import { useFiltersUserScope } from '@/lib/hooks/useFiltersUserScope'
 import { useLoadPacks } from '@/lib/hooks/useLoadPacks'
 import { usePackRefreshSync } from '@/lib/hooks/usePackRefreshSync'
+import { useRevalidateSheetNames } from '@/lib/hooks/useRevalidateSheetNames'
 import { createContext, useContext, ReactNode } from 'react'
 
 /**
@@ -26,6 +27,10 @@ export function PacksLoader({ children }: { children: ReactNode }) {
   // useLoadPacks lê os packs uma vez por carregamento de página; isto mantém vivo
   // o "outro membro está atualizando" sem reler o resto do pack.
   usePackRefreshSync()
+  // Depois da carga (nunca junto: não pode atrasar o primeiro paint), reconfere no
+  // Drive o nome das planilhas vinculadas. O nome guardado só era revalidado dentro
+  // do sync — pack que parou de sincronizar exibia para sempre o nome antigo.
+  useRevalidateSheetNames(isLoading)
   return <PacksLoadingContext.Provider value={{ isLoading }}>{children}</PacksLoadingContext.Provider>
 }
 

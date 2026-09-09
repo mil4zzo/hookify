@@ -259,6 +259,14 @@ export function PackCard({ pack, adAccountName, formatCurrency, formatDate, onRe
   const leadscoreSyncEmpty = pack.sheet_integration?.last_sync_status === "warning";
   const leadscoreSyncNotOk = leadscoreSyncFailed || leadscoreSyncEmpty;
   const leadscoreTitle = pack.sheet_integration?.spreadsheet_name || "Leadscore";
+  // 147: o arquivo foi renomeado no Drive desde que este pack foi vinculado a ele.
+  // A revalidação passiva já corrigiu o nome exibido — esta marca é o que impede o
+  // conserto de APAGAR A EVIDÊNCIA de que a planilha pode não ser mais a mesma.
+  // Sai sozinha no primeiro sync que aplicar linhas.
+  const spreadsheetRenamedFrom = pack.sheet_integration?.spreadsheet_renamed_from || null;
+  const renameNotice = spreadsheetRenamedFrom
+    ? `Renomeada: era ${spreadsheetRenamedFrom} originalmente.`
+    : null;
   const hasAnyLeadscoreSyncInfo = !!(lastSuccessfulSyncAt || lastSyncAttemptAt);
   // Nos dois estados ruins o tempo mostrado é o do último SUCESSO: exibir o da
   // tentativa leria como "atualizado agora" logo depois de não atualizar nada.
@@ -536,13 +544,31 @@ export function PackCard({ pack, adAccountName, formatCurrency, formatDate, onRe
                             falta quando alguem esquece qual arquivo alimenta este pack —
                             justamente o esquecimento que faz uma planilha trocada entrar
                             sem ninguem notar. Sem integracao, volta a ser o rotulo. */}
-                        <label
-                          htmlFor={`leadscore-${pack.id}`}
-                          title={leadscoreTitle}
-                          className="font-medium text-sm text-foreground cursor-pointer truncate max-w-[13rem]"
-                        >
-                          {leadscoreTitle}
-                        </label>
+                        <div className="flex items-center gap-1 min-w-0">
+                          <label
+                            htmlFor={`leadscore-${pack.id}`}
+                            title={leadscoreTitle}
+                            className="font-medium text-sm text-foreground cursor-pointer truncate max-w-[13rem]"
+                          >
+                            {leadscoreTitle}
+                          </label>
+                          {renameNotice && (
+                            <TooltipProvider>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <span className="flex-shrink-0 cursor-help leading-none">
+                                    <IconAlertTriangle className="w-3.5 h-3.5 text-warning" />
+                                  </span>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  <p className="max-w-[16rem]">
+                                    {renameNotice} Confira se o conteúdo dela ainda é o mesmo.
+                                  </p>
+                                </TooltipContent>
+                              </Tooltip>
+                            </TooltipProvider>
+                          )}
+                        </div>
                         {!pack.sheet_integration ? (
                           <span className="text-2xs text-muted-foreground">Não conectado</span>
                         ) : hasAnyLeadscoreSyncInfo ? (
@@ -625,6 +651,14 @@ export function PackCard({ pack, adAccountName, formatCurrency, formatDate, onRe
                   <span className="text-xs text-muted-foreground">
                     {pack.sheet_integration.spreadsheet_name || "Planilha"} • {pack.sheet_integration.worksheet_title || "Aba"}
                   </span>
+                  {/* Largura travada: o nome antigo é texto do usuário e pode ser
+                      longo — sem isto ele esticaria o menu inteiro. A frase completa
+                      fica no title e no tooltip da face do card. */}
+                  {renameNotice && (
+                    <span title={renameNotice} className="text-2xs text-warning block max-w-[15rem] truncate">
+                      {renameNotice}
+                    </span>
+                  )}
                 </div>
               </DropdownMenuItem>
               {onEditSheetIntegration && !isSharedGuest && (

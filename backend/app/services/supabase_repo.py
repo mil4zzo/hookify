@@ -2766,7 +2766,7 @@ def list_packs(user_jwt: str, user_id: Optional[str]) -> List[Dict[str, Any]]:
                 integrations = _fetch_all_paginated(
                     sb,
                     "ad_sheet_integrations",
-                    "id, spreadsheet_id, spreadsheet_name, worksheet_title, connection_id, last_synced_at, last_sync_status, last_successful_sync_at",
+                    "id, spreadsheet_id, spreadsheet_name, spreadsheet_renamed_from, worksheet_title, connection_id, last_synced_at, last_sync_status, last_successful_sync_at",
                     lambda q: q.in_("id", integration_ids)
                 )
                 # Criar mapa id -> integration
@@ -2835,7 +2835,7 @@ def list_shared_packs(actor_id: str) -> List[Dict[str, Any]]:
             integrations = _fetch_all_paginated(
                 sb,
                 "ad_sheet_integrations",
-                "id, spreadsheet_id, spreadsheet_name, worksheet_title, connection_id, last_synced_at, last_sync_status, last_successful_sync_at",
+                "id, spreadsheet_id, spreadsheet_name, spreadsheet_renamed_from, worksheet_title, connection_id, last_synced_at, last_sync_status, last_successful_sync_at",
                 lambda q: q.in_("id", integration_ids),
             )
             integrations_map = {str(i["id"]): i for i in integrations}
@@ -2883,7 +2883,7 @@ def get_pack(
                     f"get_pack_sheet_integration[{sheet_integration_id}]",
                     lambda: (
                         sb.table("ad_sheet_integrations")
-                        .select("id, spreadsheet_id, spreadsheet_name, worksheet_title, connection_id, last_synced_at, last_sync_status, last_successful_sync_at")
+                        .select("id, spreadsheet_id, spreadsheet_name, spreadsheet_renamed_from, worksheet_title, connection_id, last_synced_at, last_sync_status, last_successful_sync_at")
                         .eq("id", sheet_integration_id)
                         .limit(1)
                         .execute()

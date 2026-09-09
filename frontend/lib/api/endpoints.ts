@@ -55,6 +55,7 @@ import {
   BoardItem,
   BoardGroupItem,
 } from './schemas'
+import type { RevalidatedSheetName } from './schemas'
 import { env } from '@/lib/config/env'
 import type { CreateSharePayload, CreateShareResponse, ShareSummary } from '@/lib/share/types'
 
@@ -707,6 +708,19 @@ export const api = {
 
       listSheetIntegrations: (packId?: string): Promise<{ integrations: any[] }> =>
         apiClient.get('/integrations/google/ad-sheet-integrations', { params: packId ? { pack_id: packId } : {} }),
+
+      /**
+       * Reconfere no Drive o nome das planilhas vinculadas e devolve SÓ as que
+       * mudaram. Roda em segundo plano na listagem de packs: o nome guardado só
+       * era reconferido dentro do sync, então pack que parou de sincronizar
+       * exibia para sempre o nome do último sync — e como o arquivo do Drive
+       * costuma ser um só, renomeado a cada lançamento, o vínculo antigo aponta
+       * para o conteúdo NOVO sem ninguém notar.
+       *
+       * Nunca falha do lado do servidor (200 com lista vazia no pior caso).
+       */
+      revalidateSheetNames: (): Promise<{ integrations: RevalidatedSheetName[] }> =>
+        apiClient.post('/integrations/google/ad-sheet-integrations/revalidate-names'),
 
       /**
        * Prévia do que a desconexão vai apagar. Só conta, não altera nada — o

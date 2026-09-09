@@ -395,12 +395,27 @@ export const SheetIntegrationSchema = z.object({
   date_format: z.string().nullable().optional(),
   leadscore_column: z.string().nullable().optional(),
   spreadsheet_name: z.string().nullable().optional(),
+  spreadsheet_renamed_from: z.string().nullable().optional(),
   last_synced_at: z.string().nullable().optional(),
   last_sync_status: z.string().nullable().optional(),
   last_successful_sync_at: z.string().nullable().optional(),
   // 140: colunas vinculadas (lista vazia quando não há)
   column_mappings: z.array(SheetColumnMappingSchema).optional(),
 }).passthrough()
+
+/**
+ * 147: um vínculo cujo nome de planilha mudou no Drive desde a última conferência.
+ * A rota de revalidação devolve SÓ os alterados — o que permite à tela aplicar um
+ * patch cirúrgico em vez de repintar a lista inteira de packs a cada carregamento.
+ */
+export const RevalidatedSheetNameSchema = z.object({
+  integration_id: z.string(),
+  pack_id: z.string().nullable().optional(),
+  spreadsheet_name: z.string(),
+  spreadsheet_renamed_from: z.string().nullable().optional(),
+})
+
+export type RevalidatedSheetName = z.infer<typeof RevalidatedSheetNameSchema>
 
 /**
  * Sondagem da coluna de data escolhida no wizard. Fato sobre a PLANILHA apenas —

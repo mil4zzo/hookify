@@ -274,6 +274,7 @@ const SUPABASE_TABLES: TableDoc[] = [
       { name: "connection_id", type: "UUID", description: "FK para google_accounts" },
       { name: "spreadsheet_id", type: "TEXT", description: "ID da planilha no Google Sheets" },
       { name: "spreadsheet_name", type: "TEXT", description: "Nome da planilha persistido para listagens rápidas" },
+      { name: "spreadsheet_renamed_from", type: "TEXT", description: "Nome de origem, quando o arquivo foi renomeado no Drive desde o vínculo. Limpo pelo primeiro sync que aplica linhas" },
       { name: "worksheet_title", type: "TEXT", description: "Nome da aba/worksheet" },
       { name: "ad_id_column", type: "TEXT", description: "Coluna com os IDs dos anúncios" },
       { name: "date_column", type: "TEXT", description: "Coluna com as datas" },
