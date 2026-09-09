@@ -59,6 +59,7 @@ import { loadManagerColumnPreferences, normalizeManagerColumnOrder, saveManagerC
 /** Referência estável para "nenhuma coluna vinculada" — evita re-normalizar as preferências a cada render. */
 const EMPTY_CUSTOM_COLUMNS: ReadonlyArray<CustomColumnDef> = [];
 import { useProvenanceIndex } from "@/lib/manager/provenance";
+import { computeBudgetTotals, EMPTY_MANAGER_BUDGET_TOTALS, type BudgetSubsetTotals, type ManagerBudgetTotals } from "@/lib/manager/budget";
 import { buildRuleDimensionOptions } from "@/lib/rules/dimensionOptions";
 import { useAdAccountsDb } from "@/lib/api/hooks";
 import { BULK_ENTITY_NOUN, isTerminalEntityStatus, useBulkEntityStatusControl, type AdEntityType } from "@/lib/hooks/useAdStatusControl";
@@ -836,6 +837,9 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
   const formatAverageRef = useRef(formatAverage);
   const formatCurrencyRef = useRef(formatCurrency);
   const actionTypeRef = useRef(actionType);
+  // Somas da coluna Orçamento (só existem nas abas de conjunto/campanha) — ref pelo mesmo
+  // motivo das médias: mudam a cada filtro/checkbox e não podem recriar as colunas.
+  const budgetTotalsRef = useRef<ManagerBudgetTotals>(EMPTY_MANAGER_BUDGET_TOTALS);
   // Âncora do último checkbox clicado sem shift — usada para seleção em intervalo (shift+click).
   const selectionAnchorRef = useRef<string | null>(null);
 
@@ -858,6 +862,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
       selectionAveragesRef,
       formatSelectionAverageRef,
       formatCurrencyRef,
+      budgetTotalsRef,
       formatPct,
       viewMode,
       colorMetricValue,
@@ -1017,6 +1022,34 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
     [selectionAverages, formatCurrency],
   );
 
+  // Somas de orçamento do header. Só as abas de conjunto/campanha têm a coluna — nas demais
+  // o cálculo nem roda. A base cobre a aba inteira (o par do "gasto total" do Spend); o
+  // recorte segue a MESMA regra das médias: seleção ganha do filtro, e filtro que não filtra
+  // nada (n === total) não vira segunda linha.
+  const isBudgetTab = currentTab === "por-conjunto" || currentTab === "por-campanha";
+
+  const baseBudgetTotals = useMemo(() => (isBudgetTab ? computeBudgetTotals(data) : null), [isBudgetTab, data]);
+
+  const subsetBudgetTotals = useMemo<BudgetSubsetTotals | null>(() => {
+    if (!isBudgetTab) return null;
+    const selectedRows = table.getSelectedRowModel().rows;
+    if (selectedRows.length > 0) {
+      return {
+        kind: "selection",
+        count: selectedRows.length,
+        totals: computeBudgetTotals(selectedRows.map((row) => row.original as RankingsItem)),
+      };
+    }
+    const filteredRows = table.getFilteredRowModel().rows;
+    if (filteredRows.length === 0 || filteredRows.length === data.length) return null;
+    return {
+      kind: "filter",
+      count: filteredRows.length,
+      totals: computeBudgetTotals(filteredRows.map((row) => row.original as RankingsItem)),
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- seleção/filtros são os gatilhos; `table` é instância estável
+  }, [isBudgetTab, table, rowSelection, tableColumnFilters, deferredGlobalFilter, data]);
+
   // Atualizar refs sincronamente (antes do render) para que os headers leiam valores atualizados
   // Não usar useEffect aqui pois ele roda APÓS render, causando valores desatualizados nos headers
   filteredAveragesRef.current = filteredAverages;
@@ -1029,6 +1062,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
   formatAverageRef.current = formatAverage;
   formatCurrencyRef.current = formatCurrency;
   actionTypeRef.current = actionType;
+  budgetTotalsRef.current = { base: baseBudgetTotals, subset: subsetBudgetTotals };
 
   // Opções dos campos multi-seleção: saem do recorte carregado, não do universo —
   // oferecer pack que não está na tela produz filtro que zera a tabela e parece bug.

@@ -12,7 +12,8 @@ import { IconFilter } from "@tabler/icons-react";
 import { buildMetricColumns, SortIcon } from "@/components/manager/managerTableMetricColumns";
 import { AdNameCell } from "@/components/manager/AdNameCell";
 import { StatusCell } from "@/components/manager/StatusCell";
-import { BudgetCell, getRowBudgetMinor } from "@/components/manager/BudgetCell";
+import { BudgetCell, BudgetHeaderTotals } from "@/components/manager/BudgetCell";
+import { getRowBudgetMinor, type ManagerBudgetTotals } from "@/lib/manager/budget";
 import { ProvenanceCell } from "@/components/manager/ProvenanceCell";
 import { TagsCell } from "@/components/manager/TagsCell";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -74,6 +75,9 @@ export type CreateManagerTableColumnsParams = {
   formatSelectionAverageRef: React.MutableRefObject<(metricId: string) => string>;
 
   formatCurrencyRef: React.MutableRefObject<(n: number) => string>;
+  /** Somas de orçamento do header (aba inteira + recorte). Ref pelo mesmo motivo das médias:
+   *  um valor que muda a cada filtro/checkbox não pode entrar na dependência das colunas. */
+  budgetTotalsRef: React.MutableRefObject<ManagerBudgetTotals>;
   formatPct: (v: number) => string;
 
   viewMode: ViewMode;
@@ -423,13 +427,17 @@ export function createManagerTableColumns(params: CreateManagerTableColumnsParam
   // Orçamento — só nas abas cuja linha é uma entidade que pode ter budget próprio
   if (currentTab === "por-conjunto" || currentTab === "por-campanha") {
     const budgetTab = currentTab;
+    const isMinimalView = viewMode === "minimal";
     cols.push(
       columnHelper.accessor("budget_daily", {
         id: "budget",
         header: ({ column }) => (
-          <div className="flex items-center justify-center gap-1 w-full">
-            <SortIcon column={column} />
-            <span>Orçamento</span>
+          <div className={`flex w-full flex-col items-center ${isMinimalView ? "gap-1" : "gap-0.5"}`}>
+            <div className="flex items-center justify-center gap-1">
+              <SortIcon column={column} />
+              <span className={isMinimalView ? "text-xs" : ""}>Orçamento</span>
+            </div>
+            <BudgetHeaderTotals totals={params.budgetTotalsRef.current} currentTab={budgetTab} minimal={isMinimalView} />
           </div>
         ),
         size: 130,

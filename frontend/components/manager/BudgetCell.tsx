@@ -1,35 +1,118 @@
 "use client";
 
 import React, { useCallback, useMemo, useState } from "react";
-import { IconAlertTriangle, IconPencil } from "@tabler/icons-react";
+import { IconAlertTriangle, IconPencil, IconSquareCheck } from "@tabler/icons-react";
 import type { RankingsItem } from "@/lib/api/schemas";
 import { useFormatCurrency, getCurrencySymbol } from "@/lib/utils/currency";
+import { budgetMinorToValue, budgetValueToMinor, formatBudgetTotals, type BudgetTotals, type ManagerBudgetTotals } from "@/lib/manager/budget";
 import { useBudgetControl, type BudgetEntityType } from "@/lib/hooks/useBudgetControl";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
-// Moedas que a Meta trata SEM subunidade (offset 1) — nas demais o budget vem em
-// centésimos (offset 100). Fonte: doc oficial de currencies da Marketing API.
-const META_OFFSET_ONE = new Set([
-  "CLP", "COP", "CRC", "HUF", "ISK", "IDR", "JPY", "KRW", "MWK", "PYG", "TWD", "VND",
-]);
+/**
+ * Soma dos orçamentos abaixo do título da coluna — o par do "gasto total" que já aparece
+ * sob o Spend. Diferença importante: o Spend é o que JÁ saiu no período; isto é o que está
+ * programado para sair (por dia, no caso do orçamento diário) se nada mudar.
+ *
+ * Como a soma só cobre as linhas com orçamento PRÓPRIO, o tooltip diz quantas ficaram de
+ * fora (campanha ABO tem o orçamento nos conjuntos; conjunto CBO tem na campanha) — um
+ * número que ignorasse isso em silêncio pareceria "investimento total" e não seria.
+ */
+function BudgetTotalLine({
+  totals,
+  formatCurrency,
+  elsewhereHint,
+  tooltipTitle,
+  minimal,
+  emphasis,
+  icon,
+}: {
+  totals: BudgetTotals;
+  formatCurrency: (value: number, currency?: string) => string;
+  elsewhereHint: string;
+  tooltipTitle: string;
+  minimal: boolean;
+  emphasis: boolean;
+  icon?: React.ReactNode;
+}) {
+  const text = formatBudgetTotals(totals, formatCurrency);
+  if (!text) return null;
 
-/** Converte budget em subunidade da Meta para o valor de exibição na moeda da conta. */
-export function budgetMinorToValue(minor: number, currency?: string | null): number {
-  const code = String(currency || "").toUpperCase();
-  return META_OFFSET_ONE.has(code) ? minor : minor / 100;
+  const textSize = minimal ? "text-2xs" : "text-xs";
+  const leading = minimal ? "leading-none" : "";
+  const tone = emphasis ? "text-primary font-semibold" : "text-muted-foreground font-normal";
+
+  return (
+    <TooltipProvider>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span className={`${textSize} ${tone} flex items-center gap-0.5 cursor-help whitespace-nowrap ${leading}`}>
+            {icon}
+            {text}
+          </span>
+        </TooltipTrigger>
+        <TooltipContent side="bottom">
+          <p className="text-xs">{tooltipTitle}</p>
+          {totals.withoutBudget > 0 && (
+            <p className="text-xs text-muted-foreground">
+              {totals.withoutBudget} {totals.withoutBudget === 1 ? "linha" : "linhas"} com orçamento {elsewhereHint} não entram na soma.
+            </p>
+          )}
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
 }
 
-/** Converte valor de exibição (unidade da moeda) para a subunidade que a Meta espera. */
-export function budgetValueToMinor(value: number, currency?: string | null): number {
-  const code = String(currency || "").toUpperCase();
-  return Math.round(META_OFFSET_ONE.has(code) ? value : value * 100);
-}
+/**
+ * Bloco do header: soma da aba inteira e, quando há recorte ativo, a soma do recorte —
+ * mesma gramática das colunas de métrica (régua em cinza, recorte em destaque, seleção
+ * ganhando do filtro).
+ */
+export function BudgetHeaderTotals({
+  totals,
+  currentTab,
+  minimal,
+}: {
+  totals: ManagerBudgetTotals;
+  currentTab: "por-conjunto" | "por-campanha";
+  minimal: boolean;
+}) {
+  const formatCurrency = useFormatCurrency();
+  const entityPlural = currentTab === "por-campanha" ? "campanhas" : "conjuntos";
+  const elsewhereHint = currentTab === "por-campanha" ? "definido nos conjuntos" : "definido na campanha";
 
-/** Budget efetivo da linha para ordenação: daily ?? lifetime (subunidade; null = sem budget próprio). */
-export function getRowBudgetMinor(row: RankingsItem): number | null {
-  return row.budget_daily ?? row.budget_lifetime ?? null;
+  return (
+    <>
+      {totals.base && (
+        <BudgetTotalLine
+          totals={totals.base}
+          formatCurrency={formatCurrency}
+          elsewhereHint={elsewhereHint}
+          tooltipTitle={`Soma dos orçamentos de ${totals.base.withBudget} ${entityPlural}`}
+          minimal={minimal}
+          emphasis={false}
+        />
+      )}
+      {totals.subset && (
+        <BudgetTotalLine
+          totals={totals.subset.totals}
+          formatCurrency={formatCurrency}
+          elsewhereHint={elsewhereHint}
+          tooltipTitle={
+            totals.subset.kind === "selection"
+              ? `Soma dos orçamentos de ${totals.subset.totals.withBudget} dos ${totals.subset.count} selecionados`
+              : `Soma dos orçamentos de ${totals.subset.totals.withBudget} ${entityPlural} filtrados`
+          }
+          minimal={minimal}
+          emphasis
+          icon={totals.subset.kind === "selection" ? <IconSquareCheck className="h-3 w-3 shrink-0" /> : undefined}
+        />
+      )}
+    </>
+  );
 }
 
 interface BudgetCellProps {
