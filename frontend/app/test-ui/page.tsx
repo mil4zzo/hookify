@@ -5,7 +5,7 @@ import { showSuccess } from "@/lib/utils/toast";
 
 export default function TestUI() {
   return (
-    <div className="min-h-screen bg-background text-text p-8 space-y-8">
+    <div className="min-h-screen bg-background text-foreground p-8 space-y-8">
       <h1 className="text-2xl font-bold">Teste de Componentes</h1>
 
       <div className="space-y-4">
@@ -25,7 +25,7 @@ export default function TestUI() {
         <EmptyState message="Nenhum resultado encontrado" />
       </div>
 
-      <button onClick={() => showSuccess("Teste de sucesso!")} className="px-4 py-2 bg-brand text-primary-foreground rounded-md">
+      <button onClick={() => showSuccess("Teste de sucesso!")} className="px-4 py-2 bg-primary text-primary-foreground rounded-md">
         Testar Toast
       </button>
     </div>

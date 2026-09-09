@@ -157,7 +157,7 @@ backend/cython_debug/
 # ===========================================
 
 # Dependencies
-frontend/node_modules/
+node_modules/
 frontend/npm-debug.log*
 frontend/yarn-debug.log*
 frontend/yarn-error.log*

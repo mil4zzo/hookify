@@ -81,8 +81,6 @@ export const colorTokenDefinitions: ColorTokenDef[] = [
   { name: "muted-20", value: "color-mix(in oklab, var(--muted) 20%, var(--background))", category: "Superfícies" },
   { name: "accent", value: "var(--accent)", category: "Superfícies" },
   { name: "accent-foreground", value: "var(--accent-foreground)", category: "Superfícies" },
-  { name: "secondary", value: "var(--secondary)", category: "Superfícies" },
-  { name: "secondary-foreground", value: "var(--secondary-foreground)", category: "Superfícies" },
 
   // === BRAND ===
   { name: "primary", value: "var(--primary)", category: "Brand" },

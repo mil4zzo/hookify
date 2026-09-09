@@ -72,7 +72,7 @@ export function ConfirmDialog({ isOpen, onClose, title, message, children, confi
   return (
     <AppDialog isOpen={isOpen} onClose={handleCancel} title={title} size={size} padding="md" closeOnOverlayClick={effectiveCloseOnOverlayClick} closeOnEscape={effectiveCloseOnEscape} showCloseButton={showCloseButton && canClose}>
       <div className={`flex flex-col gap-6 py-4 ${isCentered ? "items-center" : "items-start"}`}>
-        <h2 className={`text-xl font-semibold text-text ${isCentered ? "text-center" : ""}`}>{title}</h2>
+        <h2 className={`text-xl font-semibold text-foreground ${isCentered ? "text-center" : ""}`}>{title}</h2>
 
         {message && <p className={`text-sm text-muted-foreground ${isCentered ? "text-center" : ""}`}>{message}</p>}
 

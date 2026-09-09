@@ -13,7 +13,7 @@ export default function UIDemo() {
   const [isModalOpen, setIsModalOpen] = useState(false);
 
   return (
-    <div className="min-h-screen bg-background text-text p-8">
+    <div className="min-h-screen bg-background text-foreground p-8">
       <div className="max-w-6xl mx-auto space-y-12">
         <div className="text-center space-y-4">
           <h1 className="text-4xl font-bold">Design System Demo</h1>
@@ -185,7 +185,7 @@ export default function UIDemo() {
               <Card key={i}>
                 <CardContent className="p-4">
                   <div className="text-center">
-                    <div className="text-2xl font-bold text-brand">{i + 1}</div>
+                    <div className="text-2xl font-bold text-primary">{i + 1}</div>
                     <div className="text-sm text-muted-foreground">Item {i + 1}</div>
                   </div>
                 </CardContent>

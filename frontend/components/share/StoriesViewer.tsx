@@ -220,7 +220,7 @@ export function StoriesViewer({ share }: { share: PublicShare }) {
   })).filter((section) => section.cards.length > 0);
 
   return (
-    <div className="fixed inset-0 z-overlay flex items-center justify-center overflow-hidden bg-background text-text">
+    <div className="fixed inset-0 z-overlay flex items-center justify-center overflow-hidden bg-background text-foreground">
       {/* Glow de marca atrás do frame (desktop) — a pitada Hookify */}
       <div aria-hidden className="pointer-events-none absolute hidden h-2/3 w-96 rounded-full bg-primary-20 blur-3xl sm:block" />
 
@@ -280,7 +280,7 @@ export function StoriesViewer({ share }: { share: PublicShare }) {
           {isUserPaused && (
             <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
               <div className="rounded-full bg-background-60 p-4 shadow-elevation-overlay">
-                <IconPlayerPlayFilled className="h-9 w-9 text-text" />
+                <IconPlayerPlayFilled className="h-9 w-9 text-foreground" />
               </div>
             </div>
           )}
@@ -312,7 +312,7 @@ export function StoriesViewer({ share }: { share: PublicShare }) {
               <button
                 type="button"
                 aria-label={isUserPaused ? "Retomar" : "Pausar"}
-                className="pointer-events-auto rounded-full bg-background-60 p-1.5 text-text"
+                className="pointer-events-auto rounded-full bg-background-60 p-1.5 text-foreground"
                 onClick={() => setIsUserPaused((p) => !p)}
               >
                 {isUserPaused ? <IconPlayerPlay className="h-4 w-4" /> : <IconPlayerPause className="h-4 w-4" />}
@@ -321,7 +321,7 @@ export function StoriesViewer({ share }: { share: PublicShare }) {
                 <button
                   type="button"
                   aria-label={isMuted ? "Ativar som" : "Silenciar"}
-                  className="pointer-events-auto rounded-full bg-background-60 p-1.5 text-text"
+                  className="pointer-events-auto rounded-full bg-background-60 p-1.5 text-foreground"
                   onClick={() => setIsMuted((m) => !m)}
                 >
                   {isMuted ? <IconVolumeOff className="h-4 w-4" /> : <IconVolume className="h-4 w-4" />}
@@ -404,9 +404,9 @@ export function StoriesViewer({ share }: { share: PublicShare }) {
               href={`${getSiteOrigin()}/pv`}
               target="_blank"
               rel="noopener noreferrer"
-              className="shrink-0 border-t border-border py-1.5 text-center text-2xs text-muted-foreground hover:text-text"
+              className="shrink-0 border-t border-border py-1.5 text-center text-2xs text-muted-foreground hover:text-foreground"
             >
-              Feito com <span className="font-semibold text-brand">Hookify</span>
+              Feito com <span className="font-semibold text-primary">Hookify</span>
             </a>
           </div>
         ) : (

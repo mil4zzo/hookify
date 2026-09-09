@@ -138,21 +138,21 @@ export function PackShareDialog({ pack, open, onOpenChange }: PackShareDialogPro
     <AppDialog isOpen={open} onClose={() => onOpenChange(false)} size="lg" title="Compartilhar pack">
       <div className="space-y-6">
         <header className="space-y-1">
-          <h2 className="flex items-center gap-2 text-lg font-semibold text-text">
+          <h2 className="flex items-center gap-2 text-lg font-semibold text-foreground">
             <IconUsers className="h-5 w-5" />
             Compartilhar «{pack.name}»
           </h2>
           <p className="text-sm text-muted-foreground">
             O convidado vê e analisa este pack ao vivo — sem copiar dados e sem precisar
-            conectar o Facebook. <span className="font-medium text-text">Editor</span> também
-            atualiza e calibra os critérios; <span className="font-medium text-text">Leitura</span> só
+            conectar o Facebook. <span className="font-medium text-foreground">Editor</span> também
+            atualiza e calibra os critérios; <span className="font-medium text-foreground">Leitura</span> só
             consulta.
           </p>
         </header>
 
         {/* ── Convite ── */}
         <section className="space-y-2">
-          <label className="text-sm font-medium text-text">Convidar por e-mail</label>
+          <label className="text-sm font-medium text-foreground">Convidar por e-mail</label>
           <div className="flex gap-2">
             <Input
               type="email"
@@ -185,7 +185,7 @@ export function PackShareDialog({ pack, open, onOpenChange }: PackShareDialogPro
 
           {lookupResult && lookupResult !== "not_found" && (
             <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border bg-background p-3">
-              <span className="text-sm font-medium text-text">{lookupResult.display_name || email.trim()}</span>
+              <span className="text-sm font-medium text-foreground">{lookupResult.display_name || email.trim()}</span>
               <div className="flex items-center gap-2">
                 <Select value={inviteRole} onValueChange={(v) => setInviteRole(v as "editor" | "viewer")}>
                   <SelectTrigger size="sm" className="w-28">
@@ -206,7 +206,7 @@ export function PackShareDialog({ pack, open, onOpenChange }: PackShareDialogPro
 
         {/* ── Membros ── */}
         <section className="space-y-2">
-          <label className="text-sm font-medium text-text">Membros</label>
+          <label className="text-sm font-medium text-foreground">Membros</label>
           {isLoadingShares ? (
             <div className="flex items-center justify-center py-6">
               <IconLoader2 className="h-5 w-5 animate-spin text-muted-foreground" />
@@ -217,7 +217,7 @@ export function PackShareDialog({ pack, open, onOpenChange }: PackShareDialogPro
             <div className="space-y-2">
               {shares.map((share) => (
                 <div key={share.id} className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border bg-background p-3">
-                  <span className="truncate text-sm text-text">{share.display_name || share.grantee_id.slice(0, 8)}</span>
+                  <span className="truncate text-sm text-foreground">{share.display_name || share.grantee_id.slice(0, 8)}</span>
                   <div className="flex items-center gap-2">
                     <Select
                       value={share.role}

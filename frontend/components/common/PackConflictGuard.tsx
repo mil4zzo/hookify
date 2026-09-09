@@ -95,7 +95,7 @@ export function PackConflictGuard({ serverOverlapRows, children }: PackConflictG
       <div className="flex max-w-xl flex-col items-center gap-4 text-center">
         <IconAlertTriangle className="h-8 w-8 text-warning" />
         <div className="space-y-1">
-          <h2 className="text-lg font-semibold text-text">
+          <h2 className="text-lg font-semibold text-foreground">
             {unknownWithMultiple && conflictingPairs.length === 0
               ? "Não foi possível verificar conflito entre packs"
               : "Packs em conflito na seleção"}
@@ -114,7 +114,7 @@ export function PackConflictGuard({ serverOverlapRows, children }: PackConflictG
                 key={`${a}:${b}`}
                 className="flex flex-wrap items-center justify-center gap-2 rounded-md border border-border bg-background p-3"
               >
-                <span className="text-sm text-text">
+                <span className="text-sm text-foreground">
                   «{nameById.get(a) ?? a}» × «{nameById.get(b) ?? b}»
                 </span>
                 <div className="flex gap-2">

@@ -78,11 +78,6 @@ export default {
         "primary-foreground": alphaScale("--primary-foreground"),
 
         // === SECUNDÁRIAS ===
-        secondary: {
-          ...alphaScale("--secondary"),
-          hover: "color-mix(in oklab, var(--secondary) 85%, var(--accent) 15%)",
-        },
-        "secondary-foreground": alphaScale("--secondary-foreground"),
 
         // === ESTADOS ===
         muted: {
@@ -132,12 +127,9 @@ export default {
           2: "var(--surface-2)",
           3: "var(--surface-3)",
         },
-        "surface-2": "var(--surface-2)",
-        surface3: "var(--surface-3)",
         overlay: "var(--overlay)",
 
         // === TEXTO ===
-        text: "rgb(var(--text-rgb) / <alpha-value>)",
 
         // === GRÁFICOS ===
         chart: {
@@ -148,11 +140,6 @@ export default {
           5: alphaScale("--chart-5"),
         },
 
-        // === BRAND ===
-        brand: {
-          ...alphaScale("--primary"),
-          ...semanticToneScale("primary"),
-        },
       },
       borderRadius: {
         sm: "var(--radius-sm)",

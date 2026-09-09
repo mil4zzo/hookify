@@ -128,7 +128,7 @@ export function ShareCreateDialog({ isOpen, onClose, rows, dateStart, dateStop, 
       <div className="flex flex-col gap-4">
         <p className="text-sm text-muted-foreground">
           Link público em formato stories com {items.length} criativo{items.length !== 1 ? "s" : ""} e as métricas do
-          período <span className="font-medium text-text">{formatDatePt(dateStart)} – {formatDatePt(dateStop)}</span>.
+          período <span className="font-medium text-foreground">{formatDatePt(dateStart)} – {formatDatePt(dateStop)}</span>.
         </p>
 
         <div className="max-h-72 space-y-1.5 overflow-y-auto pr-1">
@@ -183,7 +183,7 @@ export function ShareCreateDialog({ isOpen, onClose, rows, dateStart, dateStop, 
                       "rounded-full border px-2.5 py-1 text-xs transition-colors",
                       isSelected
                         ? "border-primary bg-primary text-primary-foreground"
-                        : "border-border bg-card text-muted-foreground hover:text-text",
+                        : "border-border bg-card text-muted-foreground hover:text-foreground",
                     )}
                   >
                     {option.label}

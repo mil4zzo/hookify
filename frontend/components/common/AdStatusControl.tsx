@@ -88,7 +88,7 @@ export function AdStatusControl({ entityType, entityId, currentStatus, variant =
           {label}
         </Button>
       ) : variant === "inline" ? (
-        <button onClick={handleClick} disabled={isLoading} className="inline-flex items-center gap-2 text-xs text-muted-foreground hover:text-text disabled:opacity-60" title={label}>
+        <button onClick={handleClick} disabled={isLoading} className="inline-flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground disabled:opacity-60" title={label}>
           {icon}
           <span>{label}</span>
         </button>

@@ -31,7 +31,7 @@ const THUMB_TRANSLATE = ["translate-x-0", "translate-x-2.5", "translate-x-5"] as
 // Cores distintas por posição (não graus de opacidade da mesma cor): cinza do "desligado",
 // roxo do intermediário (chart-4, o único tom fora da família semântica bom/ruim — usar
 // success/destructive aqui sugeriria julgamento que a posição não tem) e azul da marca.
-const TRACK_TONE = ["bg-input", "bg-chart-4", "bg-brand"] as const;
+const TRACK_TONE = ["bg-input", "bg-chart-4", "bg-primary"] as const;
 
 /**
  * Toggle de três posições (esquerda / centro / direita) com label que muda conforme

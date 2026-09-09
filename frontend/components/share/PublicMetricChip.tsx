@@ -15,7 +15,7 @@ const CHIP_BORDER: Record<MetricQualityTone, string> = {
   attention: "border-attention-40",
   success: "border-success-40",
   primary: "border-primary-40",
-  brand: "border-brand-40",
+  brand: "border-primary-40",
   muted: "border-border",
   accent: "border-border",
   "muted-foreground": "border-border",

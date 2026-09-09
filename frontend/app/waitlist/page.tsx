@@ -140,7 +140,7 @@ export default function WaitlistPage() {
   };
 
   return (
-    <div className="relative min-h-screen overflow-hidden bg-background text-text">
+    <div className="relative min-h-screen overflow-hidden bg-background text-foreground">
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: serializeJsonLd([orgSchema, faqSchema]) }}
@@ -213,7 +213,7 @@ export default function WaitlistPage() {
 
             <p className="lp-rise lp-d6 mx-auto mt-6 max-w-xl text-sm leading-relaxed text-muted-foreground">
               Criado por quem já analisou dados de{" "}
-              <span className="font-medium text-text">+R$ 15 milhões</span> investidos em Meta Ads na
+              <span className="font-medium text-foreground">+R$ 15 milhões</span> investidos em Meta Ads na
               última década.
             </p>
           </div>
@@ -257,7 +257,7 @@ export default function WaitlistPage() {
                         {row.rank}
                       </div>
                       <div className="flex min-w-0 items-center gap-2">
-                        <span className={`truncate font-mono text-sm ${row.dim ? "text-muted-foreground" : "text-text"}`}>
+                        <span className={`truncate font-mono text-sm ${row.dim ? "text-muted-foreground" : "text-foreground"}`}>
                           {row.name}
                         </span>
                         <span className="hidden shrink-0 rounded-sm bg-surface-fill px-1.5 py-0.5 font-mono text-2xs uppercase tracking-wide text-muted-foreground sm:inline">
@@ -270,13 +270,13 @@ export default function WaitlistPage() {
                           </span>
                         )}
                       </div>
-                      <div className={`text-right font-mono text-sm tabular-nums ${row.top ? "font-semibold text-primary" : row.dim ? "text-muted-foreground" : "text-text"}`}>
+                      <div className={`text-right font-mono text-sm tabular-nums ${row.top ? "font-semibold text-primary" : row.dim ? "text-muted-foreground" : "text-foreground"}`}>
                         {row.hook}
                       </div>
-                      <div className={`text-right font-mono text-sm tabular-nums ${row.dim ? "text-muted-foreground" : "text-text"}`}>
+                      <div className={`text-right font-mono text-sm tabular-nums ${row.dim ? "text-muted-foreground" : "text-foreground"}`}>
                         {row.ctr}
                       </div>
-                      <div className={`text-right font-mono text-sm tabular-nums ${row.dim ? "text-muted-foreground" : "text-text"}`}>
+                      <div className={`text-right font-mono text-sm tabular-nums ${row.dim ? "text-muted-foreground" : "text-foreground"}`}>
                         {row.cpr}
                       </div>
                     </div>
@@ -367,9 +367,9 @@ export default function WaitlistPage() {
               <p className="text-base leading-relaxed text-muted-foreground">
                 Antes: aba do Gerenciador aberta, números soltos, decisão no escuro. Depois: seus
                 criativos rankeados num lugar só. Em segundos você sabe o que{" "}
-                <span className="font-medium text-text">escalar</span>, o que{" "}
-                <span className="font-medium text-text">cortar</span> e{" "}
-                <span className="font-medium text-text">por quê</span> — por Hook, CTR, CPR e Leadscore.
+                <span className="font-medium text-foreground">escalar</span>, o que{" "}
+                <span className="font-medium text-foreground">cortar</span> e{" "}
+                <span className="font-medium text-foreground">por quê</span> — por Hook, CTR, CPR e Leadscore.
               </p>
               <div className="flex flex-wrap gap-2 pt-1">
                 {["Meta Ads", "Packs", "Rankings", "Leadscore"].map((chip) => (
@@ -387,7 +387,7 @@ export default function WaitlistPage() {
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-2">
               <div className="rounded-lg border border-primary-30 bg-primary-10 p-4">
                 <p className="font-mono text-2xs uppercase tracking-[0.16em] text-primary">Hook · campeão</p>
-                <p className="mt-2 font-mono text-3xl font-semibold tabular-nums text-text">0.38</p>
+                <p className="mt-2 font-mono text-3xl font-semibold tabular-nums text-foreground">0.38</p>
                 <p className="mt-1 inline-flex items-center gap-1 font-mono text-xs text-success">
                   <IconArrowUpRight size={13} stroke={2.5} aria-hidden="true" />
                   +22% vs. média
@@ -395,17 +395,17 @@ export default function WaitlistPage() {
               </div>
               <div className="rounded-lg border border-border bg-card p-4">
                 <p className="font-mono text-2xs uppercase tracking-[0.16em] text-muted-foreground">CTR</p>
-                <p className="mt-2 font-mono text-3xl font-semibold tabular-nums text-text">2.1%</p>
+                <p className="mt-2 font-mono text-3xl font-semibold tabular-nums text-foreground">2.1%</p>
                 <p className="mt-1 font-mono text-xs text-muted-foreground">link click</p>
               </div>
               <div className="rounded-lg border border-border bg-card p-4">
                 <p className="font-mono text-2xs uppercase tracking-[0.16em] text-muted-foreground">CPR</p>
-                <p className="mt-2 font-mono text-3xl font-semibold tabular-nums text-text">R$ 12</p>
+                <p className="mt-2 font-mono text-3xl font-semibold tabular-nums text-foreground">R$ 12</p>
                 <p className="mt-1 font-mono text-xs text-muted-foreground">custo / resultado</p>
               </div>
               <div className="rounded-lg border border-border bg-card p-4">
                 <p className="font-mono text-2xs uppercase tracking-[0.16em] text-muted-foreground">Leadscore</p>
-                <p className="mt-2 font-mono text-3xl font-semibold tabular-nums text-text">8.4</p>
+                <p className="mt-2 font-mono text-3xl font-semibold tabular-nums text-foreground">8.4</p>
                 <p className="mt-1 font-mono text-xs text-muted-foreground">via Google Sheets</p>
               </div>
             </div>

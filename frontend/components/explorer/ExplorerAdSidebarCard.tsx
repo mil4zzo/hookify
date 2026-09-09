@@ -46,7 +46,7 @@ export function ExplorerAdSidebarCard({ ad, metricLabel, metricKey, selected = f
               {ad.ad_name || "Sem nome"}
             </p>
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <IconCurrencyDollar className="h-5 w-5 flex-shrink-0 rounded-full bg-secondary p-1" stroke={2} aria-hidden />
+              <IconCurrencyDollar className="h-5 w-5 flex-shrink-0 rounded-full bg-card p-1" stroke={2} aria-hidden />
               <span>{formatCurrency(spend)}</span>
             </div>
           </div>

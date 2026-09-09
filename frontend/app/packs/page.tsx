@@ -1151,8 +1151,8 @@ export default function PacksPage() {
       <AppDialog isOpen={refreshModalPacks.length > 0} onClose={cancelRefreshPack} title={isBulkRefresh ? "Atualizar Packs" : "Atualizar Pack"} size="md" padding="md" closeOnOverlayClick closeOnEscape showCloseButton>
         <div className="flex flex-col gap-5 py-4">
           <div>
-            <h2 className="text-xl font-semibold text-text mb-1">{isBulkRefresh ? `Atualizar ${refreshModalPacks.length} packs?` : "Atualizar Pack?"}</h2>
-            <p className="text-sm text-text-muted">
+            <h2 className="text-xl font-semibold text-foreground mb-1">{isBulkRefresh ? `Atualizar ${refreshModalPacks.length} packs?` : "Atualizar Pack?"}</h2>
+            <p className="text-sm text-muted-foreground">
               {isBulkRefresh ? (
                 <>
                   Os packs serão atualizados <strong>um de cada vez</strong>, na ordem da tela. Escolha o tipo de atualização:
@@ -1218,7 +1218,7 @@ export default function PacksPage() {
                   <div className="flex items-center gap-3">
                     <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${refreshType === "since_last_refresh" ? "border-primary" : "border-border"}`}>{refreshType === "since_last_refresh" && <div className="w-2 h-2 rounded-full bg-primary" />}</div>
                     <div>
-                      <div className="font-semibold text-text text-sm">Dados mais recentes</div>
+                      <div className="font-semibold text-foreground text-sm">Dados mais recentes</div>
                       <div className="text-xs text-muted-foreground mt-0.5">{sinceLastRange}</div>
                       {sinceLastHint && <div className="text-2xs text-muted-foreground mt-0.5">{sinceLastHint}</div>}
                     </div>
@@ -1229,7 +1229,7 @@ export default function PacksPage() {
                   <div className="flex items-center gap-3">
                     <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${refreshType === "full_period" ? "border-primary" : "border-border"}`}>{refreshType === "full_period" && <div className="w-2 h-2 rounded-full bg-primary" />}</div>
                     <div>
-                      <div className="font-semibold text-text text-sm">Todo o período</div>
+                      <div className="font-semibold text-foreground text-sm">Todo o período</div>
                       <div className="text-xs text-muted-foreground mt-0.5">{fullPeriodRange}</div>
                     </div>
                   </div>

@@ -64,7 +64,7 @@ function ManagerSkeletonTable() {
             ))}
           </colgroup>
           <thead className="sticky top-0 z-10 bg-background">
-            <tr className="text-text/80">
+            <tr className="text-foreground-80">
               <th className="px-4 py-4 text-left text-base font-normal">Anúncio</th>
               {columns.map((id) => (
                 <th key={id} className="px-4 py-4 text-center text-base font-normal">

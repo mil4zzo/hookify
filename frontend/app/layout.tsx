@@ -25,7 +25,7 @@ export const metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="pt-BR" data-theme="dark" className={`${geist.variable} ${geistMono.variable}`}>
-      <body className={`${geist.className} bg-background text-text antialiased`}>
+      <body className={`${geist.className} bg-background text-foreground antialiased`}>
         <ReactQueryProvider>
           <SidebarProvider>
             <SentryUserIdentifier />

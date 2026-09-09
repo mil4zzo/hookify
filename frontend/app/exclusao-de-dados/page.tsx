@@ -5,7 +5,7 @@ export const metadata = {
 
 export default function DataDeletionPage() {
   return (
-    <div className="min-h-screen bg-background text-text">
+    <div className="min-h-screen bg-background text-foreground">
       <main className="container mx-auto px-4 md:px-6 lg:px-8 py-12">
         <div className="mx-auto max-w-3xl space-y-10">
           <header className="space-y-3">

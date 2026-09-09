@@ -16,8 +16,8 @@ export default function Error({
 
   return (
     <div className="flex min-h-[50vh] flex-col items-center justify-center gap-4 p-8">
-      <h2 className="text-xl font-semibold text-text">Algo deu errado</h2>
-      <p className="text-sm text-text-secondary">
+      <h2 className="text-xl font-semibold text-foreground">Algo deu errado</h2>
+      <p className="text-sm text-muted-foreground">
         Ocorreu um erro inesperado. Tente novamente.
       </p>
       <button

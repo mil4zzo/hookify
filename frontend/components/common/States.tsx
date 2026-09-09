@@ -173,7 +173,7 @@ export function ErrorState({ message, action }: { message: string; action?: Reac
   return (
     <div className="flex items-center gap-3 text-destructive">
       <IconAlertTriangle className="h-5 w-5" />
-      <span className="text-text">{message}</span>
+      <span className="text-foreground">{message}</span>
       {action}
     </div>
   );

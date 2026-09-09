@@ -123,7 +123,7 @@ export default async function PvPage({
   };
 
   return (
-    <div className="min-h-screen bg-background text-text">
+    <div className="min-h-screen bg-background text-foreground">
       <main className="container mx-auto px-4 md:px-6 lg:px-8 py-14 md:py-20">
         <script
           type="application/ld+json"

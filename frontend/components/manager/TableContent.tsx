@@ -28,7 +28,7 @@ const VARIANT_STYLES = {
     container: "flex-1 min-h-0 overflow-auto overscroll-contain",
     table: "w-full text-sm border-separate border-spacing-y-4",
     thead: "sticky top-0 z-10 bg-background",
-    headerRow: "text-text/80",
+    headerRow: "text-foreground-80",
     th: (headerAlign: string) => `text-base font-normal py-4 px-4 ${headerAlign} relative`,
     thWidthStyle: false,
     sortGap: "gap-1",
@@ -324,7 +324,7 @@ export const TableContent = React.memo(function TableContent({ table, isLoadingE
                     <th key={header.id} className={styles.th(headerAlign)} style={styles.thWidthStyle ? { width: header.getSize() } : undefined}>
                       {header.isPlaceholder ? null : (
                         <div
-                          className={`flex items-center ${justify} ${styles.sortGap} ${header.column.getCanSort() && !isResizing ? "cursor-pointer select-none hover:text-brand" : ""} ${header.column.getIsSorted() ? "text-primary" : ""}`}
+                          className={`flex items-center ${justify} ${styles.sortGap} ${header.column.getCanSort() && !isResizing ? "cursor-pointer select-none hover:text-primary" : ""} ${header.column.getIsSorted() ? "text-primary" : ""}`}
                           onClick={(e) => {
                             if (isResizing) {
                               e.preventDefault();

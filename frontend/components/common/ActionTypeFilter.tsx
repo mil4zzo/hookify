@@ -21,7 +21,7 @@ interface ActionTypeFilterProps {
 
 const ACTION_TYPE_GROUPS: FilterListGroup[] = [
   { id: "conversions", label: "Conversions", labelClassName: "text-primary" },
-  { id: "actions", label: "Actions", labelClassName: "text-brand" },
+  { id: "actions", label: "Actions", labelClassName: "text-primary" },
 ];
 
 // Formata o label exibido (remove o prefixo "conversion:"/"action:")
@@ -66,7 +66,7 @@ export function ActionTypeFilter({ label = "Evento de Conversão", value, onChan
           searchable
           searchPlaceholder="Buscar evento de conversão..."
           emptyMessage="Nenhum evento encontrado."
-          contentClassName="w-[var(--radix-popover-trigger-width)] bg-secondary text-text"
+          contentClassName="w-[var(--radix-popover-trigger-width)] bg-card text-foreground"
           disabled={isActuallyLoading}
           trigger={
             <FilterSelectButton disabled={isActuallyLoading} iconPosition="start" icon={<IconFocus2 className="mr-2 h-4 w-4 flex-shrink-0" />}>

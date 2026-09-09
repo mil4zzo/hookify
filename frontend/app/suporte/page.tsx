@@ -14,7 +14,7 @@ const EMAIL_SECONDARY = "gethookify@gmail.com";
 
 export default function SupportPage() {
   return (
-    <div className="min-h-screen bg-background text-text">
+    <div className="min-h-screen bg-background text-foreground">
       <main className="container mx-auto px-4 md:px-6 lg:px-8 py-12">
         <div className="mx-auto max-w-2xl space-y-10">
           <header className="space-y-3">
@@ -68,7 +68,7 @@ export default function SupportPage() {
           <footer className="pt-2">
             <Link
               href="/"
-              className="text-sm font-medium text-muted-foreground underline hover:text-text"
+              className="text-sm font-medium text-muted-foreground underline hover:text-foreground"
             >
               Voltar para o início
             </Link>

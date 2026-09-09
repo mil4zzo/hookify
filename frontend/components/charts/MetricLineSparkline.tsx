@@ -23,7 +23,7 @@ function toneColor(tone: MetricQualityTone): string {
     case "attention":   return "var(--attention)";
     case "success":     return "var(--success)";
     case "primary":     return "var(--primary)";
-    case "brand":       return "var(--brand)";
+    case "brand":       return "var(--primary)";
     case "accent":      return "var(--ring)";
     default:            return "var(--muted-foreground)";
   }

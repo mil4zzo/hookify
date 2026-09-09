@@ -403,7 +403,7 @@ export function RetentionChart({ videoPlayCurve, videoWatchedP50, showIcon = fal
     <div className={className || (showTitle ? "space-y-4" : "")}>
       {showTitle && (
         <div className="text-lg font-semibold">
-          {showIcon && <IconEye className="w-5 h-5 text-brand inline-block mr-2" />}
+          {showIcon && <IconEye className="w-5 h-5 text-primary inline-block mr-2" />}
           Reten??o
         </div>
       )}

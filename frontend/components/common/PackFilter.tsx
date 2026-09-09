@@ -179,7 +179,7 @@ export function PackFilter({ packs, selectedPackIds, onTogglePack, onClose, clas
           emptyMessage="Nenhum pack encontrado."
           onSelectAll={!singleSelect ? onSelectAll : undefined}
           onDeselectAll={!singleSelect ? onDeselectAll : undefined}
-          contentClassName={singleSelect ? "w-[300px] bg-secondary text-text" : undefined}
+          contentClassName={singleSelect ? "w-[300px] bg-card text-foreground" : undefined}
           onOpenChange={(open) => {
             if (!open) onClose?.();
           }}

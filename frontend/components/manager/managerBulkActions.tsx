@@ -92,7 +92,7 @@ export function buildManagerBulkActions({ onPause, onActivate, onShare, onTags, 
       id: "share",
       label: "Compartilhar",
       icon: <IconShare2 className="h-3.5 w-3.5" />,
-      className: "text-brand hover:bg-primary hover:text-primary-foreground",
+      className: "text-primary hover:bg-primary hover:text-primary-foreground",
       onSelect: onShare,
     });
   }

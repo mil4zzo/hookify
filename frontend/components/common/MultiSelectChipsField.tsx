@@ -77,7 +77,7 @@ export function MultiSelectChipsField({
       {selectedIds.length > 0 && (
         <div className="flex flex-wrap gap-1">
           {selectedIds.map((id) => (
-            <span key={id} className="inline-flex max-w-full items-center gap-1 rounded border border-border bg-input-30 py-0.5 pl-1.5 pr-1 text-2xs text-text">
+            <span key={id} className="inline-flex max-w-full items-center gap-1 rounded border border-border bg-input-30 py-0.5 pl-1.5 pr-1 text-2xs text-foreground">
               <span className="truncate">{labelByValue.get(id) ?? id}</span>
               <button type="button" onClick={() => toggle(id)} className="shrink-0 text-muted-foreground transition-colors hover:text-destructive" aria-label={`Remover ${labelByValue.get(id) ?? id}`}>
                 <IconX className="h-3 w-3" />

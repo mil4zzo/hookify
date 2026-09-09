@@ -224,7 +224,7 @@ export function FilterListPopover({ options, groups, mode = "multi", selectedIds
             {...sortable.handleProps}
             // O clique na alça não deve alternar a seleção da opção.
             onClick={(e) => e.stopPropagation()}
-            className="mr-1 flex h-5 w-4 shrink-0 cursor-grab items-center justify-center text-muted-foreground outline-none hover:text-text active:cursor-grabbing"
+            className="mr-1 flex h-5 w-4 shrink-0 cursor-grab items-center justify-center text-muted-foreground outline-none hover:text-foreground active:cursor-grabbing"
             aria-label={`Reordenar ${option.label}`}
           >
             <IconGripVertical className="h-3.5 w-3.5" />
@@ -330,13 +330,13 @@ export function FilterListPopover({ options, groups, mode = "multi", selectedIds
           <div className="flex items-center justify-between gap-2 border-b border-border px-2 py-1.5">
             <div className="flex items-center gap-2">
               {onSelectAll && (
-                <button type="button" onClick={() => onSelectAll(selectableVisibleIds)} disabled={!hasSelectableLeft} className="text-xs font-medium text-text hover:underline disabled:pointer-events-none disabled:opacity-40">
+                <button type="button" onClick={() => onSelectAll(selectableVisibleIds)} disabled={!hasSelectableLeft} className="text-xs font-medium text-foreground hover:underline disabled:pointer-events-none disabled:opacity-40">
                   Selecionar todos
                 </button>
               )}
               {onSelectAll && onDeselectAll && <span className="text-xs text-muted-foreground">·</span>}
               {onDeselectAll && (
-                <button type="button" onClick={() => onDeselectAll(visibleIds)} disabled={visibleSelectedCount === 0} className="text-xs font-medium text-text hover:underline disabled:pointer-events-none disabled:opacity-40">
+                <button type="button" onClick={() => onDeselectAll(visibleIds)} disabled={visibleSelectedCount === 0} className="text-xs font-medium text-foreground hover:underline disabled:pointer-events-none disabled:opacity-40">
                   Limpar
                 </button>
               )}

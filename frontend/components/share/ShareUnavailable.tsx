@@ -9,7 +9,7 @@ import { getSiteOrigin } from "@/lib/utils/siteUrl";
  */
 export function ShareUnavailable() {
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background px-4 text-text">
+    <div className="flex min-h-screen items-center justify-center bg-background px-4 text-foreground">
       <div className="w-full max-w-sm space-y-6 text-center">
         <Image src="/logo-hookify-alpha.png" alt="Hookify" width={80} height={21} className="mx-auto h-[21px] w-[80px]" priority />
         <div className="space-y-2">

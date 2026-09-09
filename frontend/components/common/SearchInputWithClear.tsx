@@ -22,7 +22,7 @@ export interface SearchInputWithClearProps extends Omit<React.InputHTMLAttribute
 
 /**
  * Input de busca padrão com ícone de lupa à esquerda e botão de limpar à direita.
- * Padrão do app: IconX com cores text-text (default) e text-destructive (hover) aplicadas ao button.
+ * Padrão do app: IconX com cores text-foreground (default) e text-destructive (hover) aplicadas ao button.
  */
 export function SearchInputWithClear({
   value,
@@ -58,7 +58,7 @@ export function SearchInputWithClear({
         <button
           type="button"
           onClick={handleClear}
-          className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded-full hover:bg-muted transition-colors text-text hover:text-destructive"
+          className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded-full hover:bg-muted transition-colors text-foreground hover:text-destructive"
           aria-label="Limpar busca"
         >
           <IconX className="h-4 w-4" />

@@ -325,7 +325,7 @@ export function ManagerChildrenTable({
     return formatManagerChildMetricValue(columnId as ManagerMetricKey, child, { currencyFormatter: formatCurrency });
   };
 
-  const metricColumnClass = "cursor-pointer select-none px-4 py-3 text-center hover:text-brand";
+  const metricColumnClass = "cursor-pointer select-none px-4 py-3 text-center hover:text-primary";
 
   const loadingContent = (
     <StatePanel kind="loading" message={`Carregando ${childrenLabel}...`} framed={false} density="compact" align="left" />
@@ -448,14 +448,14 @@ export function ManagerChildrenTable({
                     />
                   </div>
                 </th>
-                <th className={`w-20 cursor-pointer select-none p-4 text-center hover:text-brand ${sortConfig.column === "status" ? "text-primary" : ""}`} onClick={() => handleSort("status")}>
+                <th className={`w-20 cursor-pointer select-none p-4 text-center hover:text-primary ${sortConfig.column === "status" ? "text-primary" : ""}`} onClick={() => handleSort("status")}>
                   <div className="flex items-center justify-center gap-1">
                     Status
                     {filteredColumnIds.has("status") && filterIndicator}
                     <IconArrowsSort className="h-3 w-3" />
                   </div>
                 </th>
-                <th className={`cursor-pointer select-none p-4 text-left hover:text-brand ${sortConfig.column === config.nameSortKey ? "text-primary" : ""}`} onClick={() => handleSort(config.nameSortKey)}>
+                <th className={`cursor-pointer select-none p-4 text-left hover:text-primary ${sortConfig.column === config.nameSortKey ? "text-primary" : ""}`} onClick={() => handleSort(config.nameSortKey)}>
                   <div className="flex items-center gap-1">
                     {config.nameHeader}
                     {isNameColumnFiltered && filterIndicator}

@@ -54,7 +54,7 @@ export function ManagerDrillBreadcrumb({ crumbs, onNavigate }: ManagerDrillBread
               <IconChevronRight className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" aria-hidden />
             )}
             {isLast ? (
-              <span className="flex flex-col items-start text-text" aria-current="page">
+              <span className="flex flex-col items-start text-foreground" aria-current="page">
                 <span className="text-muted-foreground">{kindRow}</span>
                 <span className="font-medium truncate max-w-[280px]" title={title}>
                   {crumb.label}
@@ -64,7 +64,7 @@ export function ManagerDrillBreadcrumb({ crumbs, onNavigate }: ManagerDrillBread
               <button
                 type="button"
                 onClick={() => onNavigate(index)}
-                className="flex flex-col items-start rounded text-muted-foreground transition-colors hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                className="flex flex-col items-start rounded text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
                 {kindRow}
                 <span className="truncate max-w-[200px]" title={title}>

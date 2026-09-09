@@ -342,7 +342,7 @@ export default function Topbar() {
     const initials = getUserInitials(user);
 
     const renderTriggerAvatar = () => (
-      <div className="relative w-full h-full bg-brand flex items-center justify-center">
+      <div className="relative w-full h-full bg-primary flex items-center justify-center">
         {initials ? (
           <span className="text-sm font-semibold text-primary-foreground">{initials}</span>
         ) : (
@@ -374,16 +374,16 @@ export default function Topbar() {
                   onError={() => setProfilePopupAvatarError(true)}
                 />
               ) : initials ? (
-                <div className="w-12 h-12 bg-brand rounded-full flex items-center justify-center">
+                <div className="w-12 h-12 bg-primary rounded-full flex items-center justify-center">
                   <span className="text-base font-semibold text-primary-foreground">{initials}</span>
                 </div>
               ) : (
-                <div className="w-12 h-12 bg-brand rounded-full flex items-center justify-center">
+                <div className="w-12 h-12 bg-primary rounded-full flex items-center justify-center">
                   <IconUserFilled className="h-6 w-6 text-primary-foreground" />
                 </div>
               )}
               <div className="flex-1 min-w-0">
-                <p className="font-semibold text-text truncate">{formatToTitleCase(user.user_metadata?.name || user.user_metadata?.full_name) || user.email?.split("@")[0] || "Usuário"}</p>
+                <p className="font-semibold text-foreground truncate">{formatToTitleCase(user.user_metadata?.name || user.user_metadata?.full_name) || user.email?.split("@")[0] || "Usuário"}</p>
                 <p className="text-sm text-muted-foreground truncate">{user.email}</p>
               </div>
             </div>
@@ -495,7 +495,7 @@ export default function Topbar() {
           {packs.map((pack) => (
             <DropdownMenuItem key={pack.id} onClick={() => handleSelectPack(pack.id)} className="flex flex-col items-start gap-1 py-3">
               <div className="flex items-center justify-between w-full">
-                <span className="font-medium text-text truncate flex-1">{pack.name}</span>
+                <span className="font-medium text-foreground truncate flex-1">{pack.name}</span>
                 <IconRefresh className="h-4 w-4 text-muted-foreground flex-shrink-0 ml-2" />
               </div>
               <div className="flex flex-col items-start gap-0.5 w-full">
@@ -515,13 +515,13 @@ export default function Topbar() {
   const renderGeneralTabContent = () => (
     <div className="space-y-6">
       <div>
-        <h3 className="text-lg font-semibold text-text mb-6">Preferências</h3>
+        <h3 className="text-lg font-semibold text-foreground mb-6">Preferências</h3>
       </div>
 
       <div className="space-y-4">
         {/* Idioma */}
         <div className="space-y-2">
-          <label className="text-sm font-medium text-text">Idioma</label>
+          <label className="text-sm font-medium text-foreground">Idioma</label>
           <Select
             value={userLanguage}
             onValueChange={async (value) => {
@@ -553,7 +553,7 @@ export default function Topbar() {
 
         {/* Moeda: informativa, não editável — vem da conta Meta conectada (nunca convertemos valores) */}
         <div className="space-y-2">
-          <label className="text-sm font-medium text-text">Moeda</label>
+          <label className="text-sm font-medium text-foreground">Moeda</label>
           <Input
             type="text"
             readOnly
@@ -572,7 +572,7 @@ export default function Topbar() {
 
         {/* Nicho */}
         <div className="space-y-2">
-          <label className="text-sm font-medium text-text">Nicho</label>
+          <label className="text-sm font-medium text-foreground">Nicho</label>
           <Input
             type="text"
             placeholder="Ex: E-commerce, SaaS, etc."
@@ -602,7 +602,7 @@ export default function Topbar() {
   const renderAccountsTabContent = () => (
     <div className="space-y-6">
       <div>
-        <h3 className="text-lg font-semibold text-text mb-6">Contas</h3>
+        <h3 className="text-lg font-semibold text-foreground mb-6">Contas</h3>
       </div>
 
       {connections.isLoading ? (
@@ -651,7 +651,7 @@ export default function Topbar() {
 
         <div className="flex items-start justify-between gap-4">
           <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium text-text">Excluir meus dados</p>
+            <p className="text-sm font-medium text-foreground">Excluir meus dados</p>
             <p className="text-xs text-muted-foreground">Remove todos os dados (packs, métricas, anúncios, conexões e configurações). Sua conta Hookify será mantida.</p>
           </div>
           <Button variant="destructiveOutline" size="sm" className="flex-shrink-0" onClick={() => setShowDeleteDataConfirm(true)}>
@@ -662,7 +662,7 @@ export default function Topbar() {
 
         <div className="flex items-start justify-between gap-4">
           <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium text-text">Excluir minha conta</p>
+            <p className="text-sm font-medium text-foreground">Excluir minha conta</p>
             <p className="text-xs text-muted-foreground">Remove permanentemente sua conta e todos os dados associados. Esta ação é irreversível.</p>
           </div>
           <Button variant="destructive" size="sm" className="flex-shrink-0" onClick={() => setShowDeleteAccountConfirm(true)}>
@@ -678,7 +678,7 @@ export default function Topbar() {
     <div className="space-y-6">
       <div>
         <div className="flex items-center justify-between mb-2">
-          <h3 className="text-lg font-semibold text-text">Critério de validação</h3>
+          <h3 className="text-lg font-semibold text-foreground">Critério de validação</h3>
           {(isLoadingCriteria || isSavingCriteria) && (
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               {isLoadingCriteria && (
@@ -721,7 +721,7 @@ export default function Topbar() {
     <div className="space-y-6">
       <div>
         <div className="flex items-center justify-between mb-2">
-          <h3 className="text-lg font-semibold text-text">Configuração de Leadscore</h3>
+          <h3 className="text-lg font-semibold text-foreground">Configuração de Leadscore</h3>
           {isLoadingMql && (
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <IconLoader2 className="h-4 w-4 animate-spin" />
@@ -743,8 +743,8 @@ export default function Topbar() {
           </div>
         ) : (
           <div className="space-y-2">
-            <label className="text-sm font-medium text-text">Em vigor na seleção atual</label>
-            <p className="text-2xl font-semibold text-text tabular-nums">
+            <label className="text-sm font-medium text-foreground">Em vigor na seleção atual</label>
+            <p className="text-2xl font-semibold text-foreground tabular-nums">
               {effectiveMqlLeadscoreMin != null ? effectiveMqlLeadscoreMin.toFixed(1) : "—"}
             </p>
             {mqlDivergent ? (
@@ -779,8 +779,8 @@ export default function Topbar() {
           <div className="flex min-w-0 items-center gap-3">
             {!isOnboardingRoute && (
               <div className="hidden md:flex md:items-center md:gap-3">
-                {Icon && <Icon className="h-6 w-6 text-brand" />}
-                <h1 className="text-2xl font-bold text-text">{title}</h1>
+                {Icon && <Icon className="h-6 w-6 text-primary" />}
+                <h1 className="text-2xl font-bold text-foreground">{title}</h1>
               </div>
             )}
             <Link href="/" className={cn("flex items-center hover:opacity-80 transition-opacity flex-shrink-0", !isOnboardingRoute && "md:hidden")}>
@@ -801,7 +801,7 @@ export default function Topbar() {
                 {/* Stats: sourced from Zustand/IndexedDB — no dependency on connections query */}
                 {packs.length > 0 && (
                   <div className="hidden md:flex flex-col items-end gap-0 pr-3 border-r border-border">
-                    <p className="text-xs font-medium text-text leading-tight">
+                    <p className="text-xs font-medium text-foreground leading-tight">
                       {packs.length} {packs.length === 1 ? "pack" : "packs"}
                     </p>
                     <p className="text-xs font-medium text-muted-foreground leading-tight">
@@ -844,7 +844,7 @@ export default function Topbar() {
                   <div className="w-10 h-1 rounded-full bg-border" />
                 </div>
                 <div className="flex items-center justify-between px-5 pb-3">
-                  <h2 className="text-lg font-semibold text-text">Configurações</h2>
+                  <h2 className="text-lg font-semibold text-foreground">Configurações</h2>
                 </div>
                 {/* Mobile: Tabs horizontal */}
                 <div className="border-b border-border">
@@ -865,7 +865,7 @@ export default function Topbar() {
                             "flex items-center gap-1.5 px-3 py-2.5 text-sm font-medium whitespace-nowrap border-b-2 transition-colors",
                             isActive
                               ? "border-primary text-primary"
-                              : "border-transparent text-muted-foreground hover:text-text"
+                              : "border-transparent text-muted-foreground hover:text-foreground"
                           )}
                         >
                           <Icon className="w-4 h-4" />
@@ -886,9 +886,9 @@ export default function Topbar() {
               </div>
 
               {/* Desktop: Sidebar with Title and Tabs */}
-              <div className="hidden md:flex w-fit min-w-0 border-r border-border bg-secondary flex-col shrink-0">
+              <div className="hidden md:flex w-fit min-w-0 border-r border-border bg-card flex-col shrink-0">
                 <div className="p-4 border-b border-border">
-                  <h2 className="text-lg font-semibold text-text whitespace-nowrap">Configurações</h2>
+                  <h2 className="text-lg font-semibold text-foreground whitespace-nowrap">Configurações</h2>
                 </div>
                 <div className="flex-1 overflow-y-auto min-w-0">
                   <TabbedContent
@@ -903,7 +903,7 @@ export default function Topbar() {
                       { value: "leadscore", label: "Leadscore", icon: IconTarget },
                     ]}
                     tabsContainerClassName="h-full w-fit"
-                    tabsListClassName="flex-col w-auto border-r-0 border-t-0 border-border bg-secondary rounded-none gap-1 space-y-1 p-2 flex-shrink-0"
+                    tabsListClassName="flex-col w-auto border-r-0 border-t-0 border-border bg-card rounded-none gap-1 space-y-1 p-2 flex-shrink-0"
                   >
                     <TabbedContentItem value="general" variant="with-icons" orientation="vertical" className="hidden">
                       {null}

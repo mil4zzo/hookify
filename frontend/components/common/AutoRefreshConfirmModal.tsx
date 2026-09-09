@@ -54,9 +54,9 @@ export function AutoRefreshConfirmModal({ isOpen, packCount, autoRefreshPacks, o
     return (
       <AppDialog isOpen={isOpen} onClose={onCancel} title="Atualizar dados de Packs" size="md" closeOnOverlayClick={false} closeOnEscape={false} showCloseButton={false}>
         <div className="flex flex-col items-center gap-6 py-4">
-          <h2 className="text-xl font-semibold text-text">Atualizar dados de Packs</h2>
+          <h2 className="text-xl font-semibold text-foreground">Atualizar dados de Packs</h2>
 
-          <p className="text-center text-sm text-text-muted">Encontramos 1 pack configurado para atualização automática. Deseja atualizá-lo agora?</p>
+          <p className="text-center text-sm text-muted-foreground">Encontramos 1 pack configurado para atualização automática. Deseja atualizá-lo agora?</p>
 
           <div className="flex gap-4 w-full">
             <Button onClick={onCancel} variant="destructive" className="flex-1 flex items-center justify-center gap-2">
@@ -79,7 +79,7 @@ export function AutoRefreshConfirmModal({ isOpen, packCount, autoRefreshPacks, o
     <AppDialog isOpen={isOpen} onClose={onCancel} title="Atualizar dados de Packs" size="md" closeOnOverlayClick={false} closeOnEscape={false} showCloseButton={false}>
       <div className="flex flex-col gap-6 py-4">
         <div>
-          <h2 className="text-xl font-semibold text-text mb-2">Atualizar dados de Packs</h2>
+          <h2 className="text-xl font-semibold text-foreground mb-2">Atualizar dados de Packs</h2>
           <p className="text-sm text-muted-foreground">Selecione quais deseja atualizar:</p>
         </div>
 
@@ -91,7 +91,7 @@ export function AutoRefreshConfirmModal({ isOpen, packCount, autoRefreshPacks, o
                 <CheckSquare checked={isSelected} className="w-5 h-5" />
                 <div className="flex-1 min-w-0 flex items-center justify-between gap-3">
                   <div className="flex-1 min-w-0">
-                    <p className="font-medium text-text truncate">{pack.name}</p>
+                    <p className="font-medium text-foreground truncate">{pack.name}</p>
                     {pack.date_start && pack.date_stop && (
                       <p className="text-xs text-muted-foreground">
                         {formatDate(pack.date_start)} → {formatDate(pack.date_stop)}

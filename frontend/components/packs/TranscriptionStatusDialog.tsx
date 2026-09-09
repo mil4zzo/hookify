@@ -126,7 +126,7 @@ export function TranscriptionStatusDialog({ isOpen, onClose, packId, packName, o
       showCloseButton={false}
     >
       <div className="flex flex-col gap-6 py-4">
-        <h2 className="text-xl font-semibold text-text">Transcrição — {packName}</h2>
+        <h2 className="text-xl font-semibold text-foreground">Transcrição — {packName}</h2>
 
         {isLoading && <TranscriptionStatusSkeleton />}
 
@@ -377,7 +377,7 @@ function AdRow({ ad, checked, onToggle }: AdRowProps) {
     <label className="flex w-full cursor-pointer select-none items-center rounded-md p-3 hover:bg-accent transition-colors gap-3">
       <Checkbox checked={checked} onCheckedChange={() => onToggle()} />
       <Thumbnail url={ad.thumbnail_url} />
-      <span className="min-w-0 truncate text-sm text-text flex-1">{ad.ad_name}</span>
+      <span className="min-w-0 truncate text-sm text-foreground flex-1">{ad.ad_name}</span>
     </label>
   );
 }
@@ -387,7 +387,7 @@ function ProcessingAdRow({ ad }: { ad: TranscriptionAdInfo }) {
     <div className="flex items-center gap-3 rounded-md p-3 opacity-50">
       <IconLoader2 className="h-4 w-4 shrink-0 animate-spin text-primary" />
       <Thumbnail url={ad.thumbnail_url} />
-      <span className="min-w-0 truncate text-sm text-text flex-1">{ad.ad_name}</span>
+      <span className="min-w-0 truncate text-sm text-foreground flex-1">{ad.ad_name}</span>
     </div>
   );
 }
@@ -396,7 +396,7 @@ function ReadOnlyAdRow({ ad }: { ad: TranscriptionAdInfo }) {
   return (
     <div className="flex items-center gap-3 rounded-md p-3">
       <Thumbnail url={ad.thumbnail_url} />
-      <span className="min-w-0 truncate text-sm text-text flex-1">{ad.ad_name}</span>
+      <span className="min-w-0 truncate text-sm text-foreground flex-1">{ad.ad_name}</span>
     </div>
   );
 }
@@ -437,7 +437,7 @@ function AdBreakdownBar({
     <div className="flex flex-col gap-2.5">
       <span className="text-sm text-muted-foreground">
         Dos{" "}
-        <span className="font-semibold text-text">{total}</span>{" "}
+        <span className="font-semibold text-foreground">{total}</span>{" "}
         de vídeo:
       </span>
 

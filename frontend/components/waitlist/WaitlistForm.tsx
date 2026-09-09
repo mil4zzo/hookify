@@ -62,7 +62,7 @@ export function WaitlistForm({ source = "waitlist" }: { source?: string }) {
           <IconCheck size={16} stroke={3} aria-hidden="true" />
         </span>
         <div className="space-y-1">
-          <p className="text-sm font-semibold text-text">Condição de fundador garantida.</p>
+          <p className="text-sm font-semibold text-foreground">Condição de fundador garantida.</p>
           <p className="text-sm text-muted-foreground">
             Você entrou na frente da fila. Estamos liberando o acesso aos poucos — você é avisado por
             e-mail assim que sua vez chegar.

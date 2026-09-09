@@ -18,13 +18,13 @@ import { ExplorerAdsKanbanList } from "./ExplorerAdsKanbanList";
 function getToneStyles(tone: "neutral" | "positive" | "warning" | "critical") {
   switch (tone) {
     case "positive":
-      return "border-border bg-secondary text-success";
+      return "border-border bg-card text-success";
     case "warning":
-      return "border-border bg-secondary text-attention";
+      return "border-border bg-card text-attention";
     case "critical":
-      return "border-border bg-secondary text-destructive";
+      return "border-border bg-card text-destructive";
     case "neutral":
-      return "border-border bg-secondary text-secondary-foreground";
+      return "border-border bg-card text-card-foreground";
   }
 }
 
@@ -193,7 +193,7 @@ function ExplorerSignalSkeleton() {
 
       <div className="space-y-3">
         {[0, 1].map((index) => (
-          <div key={index} className="rounded-md border border-border bg-secondary p-5">
+          <div key={index} className="rounded-md border border-border bg-card p-5">
             <div className="flex items-start gap-2">
               <SkeletonBlock className="h-5 w-5 shrink-0 rounded-full" />
               <div className="min-w-0 flex-1 space-y-2">

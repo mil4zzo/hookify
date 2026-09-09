@@ -6,7 +6,7 @@ const badgeVariants = cva("inline-flex items-center rounded-full border px-2.5 p
   variants: {
     variant: {
       default: "border-transparent bg-primary text-primary-foreground hover:bg-primary-hover",
-      secondary: "border-transparent bg-secondary text-secondary-foreground hover:bg-secondary-hover",
+      secondary: "border-transparent bg-card text-card-foreground hover:bg-card-hover",
       destructive: "border-0 rounded-sm bg-destructive text-background hover:bg-destructive-hover px-1 py-0 text-2xs",
       success: "border-0 rounded-sm bg-success text-background hover:bg-success-hover px-1 py-0 text-2xs",
       outline: "border-border text-foreground",

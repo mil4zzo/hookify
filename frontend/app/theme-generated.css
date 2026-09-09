@@ -32,8 +32,6 @@
   --success-label: oklch(0.754 0.181 149.0);
   --primary: var(--primary-600);
   --primary-foreground: var(--surface-fill);
-  --secondary: var(--surface);
-  --secondary-foreground: var(--neutral-950);
   --muted: color-mix(in oklab, var(--surface-fill) 78%, var(--neutral-400) 22%);
   --muted-foreground: var(--neutral-600);
   --accent: color-mix(in oklab, var(--surface-fill) 82%, var(--primary-300) 18%);
@@ -58,8 +56,6 @@
   --sidebar-foreground-rgb: 17 24 39;
   --sidebar-primary: var(--primary-600);
   --sidebar-primary-foreground: var(--surface-fill);
-  --text: var(--neutral-950);
-  --text-rgb: 17 24 39;
   --surface: var(--surface-fill);
   --surface-2: color-mix(in oklab, var(--surface) 90%, var(--neutral-600) 10%);
   --surface-3: color-mix(in oklab, var(--surface) 82%, var(--neutral-600) 18%);
@@ -113,8 +109,6 @@
   --success-label: oklch(0.754 0.181 149.0);
   --primary: var(--primary-600);
   --primary-foreground: var(--surface-fill);
-  --secondary: var(--surface);
-  --secondary-foreground: var(--surface-fill);
   --muted: color-mix(in oklab, var(--neutral-800) 75%, var(--neutral-950) 25%);
   --muted-foreground: var(--neutral-400);
   --accent: color-mix(in oklab, var(--neutral-800) 80%, var(--primary-300) 20%);
@@ -139,8 +133,6 @@
   --sidebar-foreground-rgb: 250 250 250;
   --sidebar-primary: var(--primary-400);
   --sidebar-primary-foreground: var(--neutral-950);
-  --text: var(--surface-fill);
-  --text-rgb: 250 250 250;
   --surface: var(--neutral-800);
   --surface-2: color-mix(in oklab, var(--surface) 92%, var(--foreground) 8%);
   --surface-3: color-mix(in oklab, var(--surface) 85%, var(--foreground) 15%);

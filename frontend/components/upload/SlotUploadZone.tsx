@@ -206,7 +206,7 @@ function SlotCard({ set, index, templateSlots, onUpdate, onRemove }: { set: AdMe
   const totalCount = templateSlots.length;
 
   return (
-    <div className={`rounded-md border bg-secondary transition-colors ${complete ? "border-primary-30" : "border-border"}`}>
+    <div className={`rounded-md border bg-card transition-colors ${complete ? "border-primary-30" : "border-border"}`}>
       {/* Header */}
       <div className="flex items-center justify-between gap-3 rounded-t-md border-b border-border bg-card px-4 py-3">
         <div className="flex items-center gap-2.5">

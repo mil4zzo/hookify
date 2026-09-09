@@ -208,7 +208,7 @@ export default function ApiTestPage() {
         <CardContent className="space-y-4">
           <div className="flex items-center gap-4">
             <span className="font-medium">Status:</span>
-            <span className={`px-2 py-1 rounded text-sm ${isAuthenticated ? "bg-brand text-primary-foreground" : "bg-border text-muted-foreground"}`}>{isAuthenticated ? "Autenticado" : "Não autenticado"}</span>
+            <span className={`px-2 py-1 rounded text-sm ${isAuthenticated ? "bg-primary text-primary-foreground" : "bg-border text-muted-foreground"}`}>{isAuthenticated ? "Autenticado" : "Não autenticado"}</span>
           </div>
 
           {user && (
@@ -324,7 +324,7 @@ export default function ApiTestPage() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium mb-2">Conta de Anúncios</label>
-              <select value={testParams.adaccount_id} onChange={(e) => setTestParams((prev) => ({ ...prev, adaccount_id: e.target.value }))} className="w-full h-10 px-3 py-2 border border-border bg-input text-text rounded-md">
+              <select value={testParams.adaccount_id} onChange={(e) => setTestParams((prev) => ({ ...prev, adaccount_id: e.target.value }))} className="w-full h-10 px-3 py-2 border border-border bg-input text-foreground rounded-md">
                 <option value="">Selecione uma conta de anúncios</option>
                 {Array.isArray(adAccountsData) &&
                   (adAccountsData as any).length > 0 &&
@@ -353,7 +353,7 @@ export default function ApiTestPage() {
           {(jobProgress.status === "running" || jobProgress.status === "starting") && (
             <div className="mt-4 p-4 bg-border rounded-lg space-y-3">
               <div className="flex items-center justify-between">
-                <span className="text-sm font-medium text-text">{jobProgress.message}</span>
+                <span className="text-sm font-medium text-foreground">{jobProgress.message}</span>
                 <span className="text-sm text-muted-foreground">{jobProgress.progress}%</span>
               </div>
               <Progress value={jobProgress.progress} className="h-2" />
@@ -543,7 +543,7 @@ export default function ApiTestPage() {
 
                       {/* Todos os campos (debug) */}
                       <details className="mt-3">
-                        <summary className="cursor-pointer text-sm font-medium text-muted-foreground hover:text-text">Ver todos os campos (debug)</summary>
+                        <summary className="cursor-pointer text-sm font-medium text-muted-foreground hover:text-foreground">Ver todos os campos (debug)</summary>
                         <div className="mt-2 bg-border p-3 rounded text-xs">
                           <pre className="whitespace-pre-wrap overflow-x-auto max-h-40">{JSON.stringify(ad, null, 2)}</pre>
                         </div>

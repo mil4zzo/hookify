@@ -14,7 +14,7 @@ const buttonVariants = cva("inline-flex items-center justify-center gap-2 whites
       outline: "border hover:bg-accent hover:text-accent-foreground border-border shadow-elevation-raised has-[>svg]:px-3",
       secondary: "border bg-input hover:bg-accent hover:text-accent-foreground border-border shadow-elevation-raised has-[>svg]:px-3",
       ghost: "hover:bg-accent hover:text-accent-foreground",
-      link: "text-brand underline-offset-4 hover:underline",
+      link: "text-primary underline-offset-4 hover:underline",
     },
     size: {
       default: "h-control-default py-2 px-4",

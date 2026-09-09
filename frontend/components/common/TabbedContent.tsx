@@ -66,7 +66,7 @@ export function TabbedContent({ value, onValueChange, tabs, children, variant = 
   };
 
   const tabsContent = (
-    <TabsList className={cn(orientation === "vertical" ? "flex-col w-full h-full bg-secondary rounded-none border-r border-border p-2 space-y-1" : variant === "with-controls" ? "flex-shrink-0" : "", orientation === "horizontal" && "max-w-full", tabsListClassName)}>
+    <TabsList className={cn(orientation === "vertical" ? "flex-col w-full h-full bg-card rounded-none border-r border-border p-2 space-y-1" : variant === "with-controls" ? "flex-shrink-0" : "", orientation === "horizontal" && "max-w-full", tabsListClassName)}>
       {tabs.map((tab) => (
         <React.Fragment key={tab.value}>{renderTabTrigger(tab)}</React.Fragment>
       ))}

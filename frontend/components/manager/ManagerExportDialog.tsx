@@ -278,7 +278,7 @@ export function ManagerExportDialog({ isOpen, onClose, table, activeColumns, col
       <AppDialog isOpen={isOpen} onClose={onClose} title="Exportar CSV" size="lg" padding="md">
         <div className="flex flex-col gap-5">
           <div className="space-y-1">
-            <h2 className="text-lg font-semibold text-text">Exportar CSV</h2>
+            <h2 className="text-lg font-semibold text-foreground">Exportar CSV</h2>
             <p className="text-sm text-muted-foreground">
               {mediaUrlReview.resolved} de {totalMedia} URLs de mídia resolvidas — {mediaUrlReview.failedNames.length} falharam.
             </p>
@@ -287,7 +287,7 @@ export function ManagerExportDialog({ isOpen, onClose, table, activeColumns, col
           <div className="space-y-2 rounded-md border border-border bg-background px-3 py-2.5">
             <div className="flex items-center gap-2">
               <IconAlertTriangle className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
-              <span className="text-sm text-text">Motivos das falhas</span>
+              <span className="text-sm text-foreground">Motivos das falhas</span>
             </div>
             <ul className="max-h-60 space-y-2 overflow-y-auto">
               {Object.entries(mediaUrlReview.failuresByReason)
@@ -295,7 +295,7 @@ export function ManagerExportDialog({ isOpen, onClose, table, activeColumns, col
                 .map(([reason, names]) => (
                   <li key={reason} className="space-y-0.5">
                     <p className="text-xs text-muted-foreground">
-                      <span className="font-medium text-text">{names.length}×</span> {reason}
+                      <span className="font-medium text-foreground">{names.length}×</span> {reason}
                     </p>
                     <ul className="space-y-0.5 border-l border-border pl-3">
                       {[...names].sort((a, b) => a.localeCompare(b)).map((name) => (
@@ -334,7 +334,7 @@ export function ManagerExportDialog({ isOpen, onClose, table, activeColumns, col
     <AppDialog isOpen={isOpen} onClose={onClose} title="Exportar CSV" size="lg" padding="md">
       <div className="flex flex-col gap-5">
         <div className="space-y-1">
-          <h2 className="text-lg font-semibold text-text">Exportar CSV</h2>
+          <h2 className="text-lg font-semibold text-foreground">Exportar CSV</h2>
           <p className="text-sm text-muted-foreground">Escolha as colunas e as opções do arquivo. Nome e Status entram sempre.</p>
           {/* Composição do recorte, UMA vez e no topo: é contexto do arquivo inteiro,
               não de um toggle. Antes vivia dentro do card de URLs, obrigando a somar
@@ -352,7 +352,7 @@ export function ManagerExportDialog({ isOpen, onClose, table, activeColumns, col
         {/* Colunas incluídas */}
         <div className="space-y-2">
           <div className="flex items-center justify-between gap-2">
-            <span className="text-sm font-medium text-text">Colunas incluídas ({activeList.length})</span>
+            <span className="text-sm font-medium text-foreground">Colunas incluídas ({activeList.length})</span>
             {availableColumns.length > 0 && (
               <Button variant="ghost" size="sm" onClick={toggleAllColumns}>
                 {allSelected ? "Desmarcar todas" : "Marcar todas"}
@@ -368,7 +368,7 @@ export function ManagerExportDialog({ isOpen, onClose, table, activeColumns, col
                   key={c.id}
                   type="button"
                   onClick={() => toggleColumn(c.id)}
-                  className="inline-flex items-center gap-1 rounded-md border border-primary-20 bg-primary-10 px-2 py-1 text-xs text-text transition-colors hover:bg-primary-20"
+                  className="inline-flex items-center gap-1 rounded-md border border-primary-20 bg-primary-10 px-2 py-1 text-xs text-foreground transition-colors hover:bg-primary-20"
                   aria-label={`Remover ${c.name} do export`}
                 >
                   {c.name}
@@ -382,14 +382,14 @@ export function ManagerExportDialog({ isOpen, onClose, table, activeColumns, col
         {/* Colunas disponíveis */}
         {inactiveList.length > 0 && (
           <div className="space-y-2">
-            <span className="text-sm font-medium text-text">Disponíveis ({inactiveList.length})</span>
+            <span className="text-sm font-medium text-foreground">Disponíveis ({inactiveList.length})</span>
             <div className="flex flex-wrap gap-1.5">
               {inactiveList.map((c) => (
                 <button
                   key={c.id}
                   type="button"
                   onClick={() => toggleColumn(c.id)}
-                  className="inline-flex items-center gap-1 rounded-md border border-border bg-background px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-text"
+                  className="inline-flex items-center gap-1 rounded-md border border-border bg-background px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
                   aria-label={`Adicionar ${c.name} ao export`}
                 >
                   <IconPlus className="h-3 w-3 opacity-70" />
@@ -407,7 +407,7 @@ export function ManagerExportDialog({ isOpen, onClose, table, activeColumns, col
               <div className="flex items-center gap-2 min-w-0">
                 <IconFileText className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
                 <div className="flex min-w-0 flex-col">
-                  <span className="text-sm text-text">Incluir transcrições</span>
+                  <span className="text-sm text-foreground">Incluir transcrições</span>
                   <span className="text-xs text-muted-foreground">
                     {creativeStats.videos === 0
                       ? "Nenhum criativo de vídeo neste recorte"
@@ -455,7 +455,7 @@ export function ManagerExportDialog({ isOpen, onClose, table, activeColumns, col
             <div className="flex items-center gap-2 min-w-0">
               <IconVideo className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
               <div className="flex min-w-0 flex-col">
-                <span className="text-sm text-text">Incluir URLs das mídias</span>
+                <span className="text-sm text-foreground">Incluir URLs das mídias</span>
                 <span className="text-xs text-muted-foreground">
                   Link direto de cada vídeo e imagem, com a validade na coluna ao lado
                 </span>

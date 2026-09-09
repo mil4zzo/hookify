@@ -59,7 +59,7 @@ export function Combobox({ value, onValueChange, options, placeholder = "Selecio
           <IconChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
         </Button>
       </PopoverTrigger>
-      <PopoverContent disablePortal={disablePortal} className={cn("w-[var(--radix-popover-trigger-width)] p-0 z-dropdown rounded-md border border-border bg-secondary text-text shadow-elevation-overlay", contentClassName)} align="start" sideOffset={4}>
+      <PopoverContent disablePortal={disablePortal} className={cn("w-[var(--radix-popover-trigger-width)] p-0 z-dropdown rounded-md border border-border bg-card text-foreground shadow-elevation-overlay", contentClassName)} align="start" sideOffset={4}>
         <div className="flex flex-col">
           <div className="border-b border-border p-2">
             <Input

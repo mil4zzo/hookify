@@ -88,7 +88,7 @@ export const AdNameCell = React.memo(function AdNameCell({ original, value, grou
         </div>
         {canDrill ? (
           <div className="mt-1">
-            <Button size="sm" variant="ghost" onClick={handleOpenDrill} className="h-auto py-1 px-2 text-xs gap-1.5 text-muted-foreground hover:text-text">
+            <Button size="sm" variant="ghost" onClick={handleOpenDrill} className="h-auto py-1 px-2 text-xs gap-1.5 text-muted-foreground hover:text-foreground">
               {currentTab === "por-campanha" ? (
                 <>
                   {secondLine}

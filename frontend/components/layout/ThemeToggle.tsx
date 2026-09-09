@@ -29,7 +29,7 @@ export default function ThemeToggle() {
 
   return (
     <button onClick={toggle} className="relative p-2 rounded-lg hover:bg-border transition-colors" aria-label={theme === "dark" ? "Alternar para modo claro" : "Alternar para modo escuro"}>
-      {theme === "dark" ? <IconSun className="h-5 w-5 text-text" /> : <IconMoon className="h-5 w-5 text-text" />}
+      {theme === "dark" ? <IconSun className="h-5 w-5 text-foreground" /> : <IconMoon className="h-5 w-5 text-foreground" />}
     </button>
   );
 }

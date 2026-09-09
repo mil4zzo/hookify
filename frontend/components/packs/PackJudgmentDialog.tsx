@@ -121,9 +121,9 @@ export function PackJudgmentDialog({ pack, open, onOpenChange }: PackJudgmentDia
     <AppDialog isOpen={open} onClose={() => onOpenChange(false)} size="lg" title="Configuração do pack">
       <div className="space-y-6">
         <header className="space-y-1">
-          <h2 className="text-lg font-semibold text-text">Configuração do pack</h2>
+          <h2 className="text-lg font-semibold text-foreground">Configuração do pack</h2>
           <p className="text-sm text-muted-foreground">
-            Define como o pack <span className="font-medium text-text">{pack.name}</span> julga os
+            Define como o pack <span className="font-medium text-foreground">{pack.name}</span> julga os
             anúncios. Estes critérios pertencem ao pack e acompanham quem tiver acesso a ele.
           </p>
         </header>
@@ -132,7 +132,7 @@ export function PackJudgmentDialog({ pack, open, onOpenChange }: PackJudgmentDia
           {/* ── Leadscore mínimo para MQL ── */}
           <section className="space-y-2">
             <div>
-              <p className="text-sm font-medium text-text">Leadscore mínimo para MQL</p>
+              <p className="text-sm font-medium text-foreground">Leadscore mínimo para MQL</p>
               <p className="text-2xs text-muted-foreground">
                 Leads com leadscore maior ou igual a este valor contam como MQL. A escala vem da
                 planilha integrada.
@@ -169,7 +169,7 @@ export function PackJudgmentDialog({ pack, open, onOpenChange }: PackJudgmentDia
           {/* ── CPR alvo por evento ── */}
           <section className="space-y-2">
             <div>
-              <p className="text-sm font-medium text-text">CPR alvo por evento</p>
+              <p className="text-sm font-medium text-foreground">CPR alvo por evento</p>
               <p className="text-2xs text-muted-foreground">
                 Opcional. Usado pelo plano de ação para comparar o custo real com a sua meta.
               </p>

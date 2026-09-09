@@ -187,7 +187,7 @@ function BudgetEditor({ entityType, entityId, packIds, currentMinor, isDaily, cu
       <PopoverTrigger asChild>
         <button
           type="button"
-          className="group/budget mx-auto flex flex-col items-end justify-center gap-0 rounded-md px-2 py-0.5 tabular-nums transition-colors hover:bg-secondary"
+          className="group/budget mx-auto flex flex-col items-end justify-center gap-0 rounded-md px-2 py-0.5 tabular-nums transition-colors hover:bg-card"
           title={titleHint}
           onClick={(e) => e.stopPropagation()}
           aria-label={`Editar orçamento ${isDaily ? "diário" : "total"}`}
@@ -201,7 +201,7 @@ function BudgetEditor({ entityType, entityId, packIds, currentMinor, isDaily, cu
       </PopoverTrigger>
       <PopoverContent className="w-64 p-3" align="center" onClick={(e) => e.stopPropagation()}>
         <div className="space-y-3">
-          <div className="text-sm font-medium text-text">{isDaily ? "Orçamento diário" : "Orçamento total (lifetime)"}</div>
+          <div className="text-sm font-medium text-foreground">{isDaily ? "Orçamento diário" : "Orçamento total (lifetime)"}</div>
           <div className="flex items-center gap-2">
             {symbol ? <span className="text-sm text-muted-foreground">{symbol}</span> : null}
             <Input

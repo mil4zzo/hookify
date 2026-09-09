@@ -137,7 +137,7 @@ function ActivityRow({ entry }: { entry: PackActivityEntry }) {
     <li className="flex gap-3 border-b border-border py-3 last:border-b-0">
       <IconUserCircle className="mt-0.5 h-5 w-5 shrink-0 text-muted-foreground" />
       <div className="min-w-0 flex-1">
-        <p className="text-sm text-text">
+        <p className="text-sm text-foreground">
           <span className="font-medium">{entry.actor_name || "Alguém"}</span>{" "}
           <span className="text-muted-foreground">{VERB_LABEL[entry.action] ?? entry.action}</span>
           {target && <span className="font-medium"> {target}</span>}
@@ -206,7 +206,7 @@ export function PackActivityDialog({ pack, open, onOpenChange }: PackActivityDia
     <AppDialog isOpen={open} onClose={() => onOpenChange(false)} size="lg" title="Histórico do pack">
       <div className="space-y-4">
         <header className="space-y-1">
-          <h2 className="flex items-center gap-2 text-lg font-semibold text-text">
+          <h2 className="flex items-center gap-2 text-lg font-semibold text-foreground">
             <IconHistory className="h-5 w-5" />
             Histórico de «{pack.name}»
           </h2>

@@ -150,7 +150,7 @@ export function SpreadsheetCombobox({ value, valueLabel, onValueChange, onValueL
           <IconChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0 z-dropdown rounded-md border border-border bg-secondary text-text shadow-elevation-overlay" align="start" sideOffset={4}>
+      <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0 z-dropdown rounded-md border border-border bg-card text-foreground shadow-elevation-overlay" align="start" sideOffset={4}>
         <div className="flex flex-col">
           <div className="border-b border-border p-2">
             <Input
