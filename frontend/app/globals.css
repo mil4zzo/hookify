@@ -51,7 +51,7 @@
     color-mix(in oklab, var(--primary-400) 95%, transparent),
     color-mix(in oklab, var(--primary) 92%, transparent) 34%,
     color-mix(in oklab, var(--primary-800) 98%, transparent) 72%,
-    var(--primary-900) 100%
+    var(--primary-950) 100%
   );
   --gradient-glow: 0px 0px 18px color-mix(in oklab, var(--primary-600) 10%, transparent);
   --gradient-glow-hover: 0px 0px 28px color-mix(in oklab, var(--primary-600) 42%, transparent);
@@ -73,7 +73,7 @@
     color-mix(in oklab, var(--success-400) 95%, transparent),
     color-mix(in oklab, var(--success-600) 92%, transparent) 34%,
     color-mix(in oklab, var(--success-800) 98%, transparent) 72%,
-    var(--success-900) 100%
+    var(--success-950) 100%
   );
   --gradient-glow: 0px 0px 18px color-mix(in oklab, var(--success-600) 10%, transparent);
   --gradient-glow-hover: 0px 0px 28px color-mix(in oklab, var(--success-600) 25%, transparent);
