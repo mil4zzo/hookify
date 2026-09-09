@@ -54,6 +54,13 @@ class _FakeQuery:
 
     def execute(self):
         if self.op == "select":
+            if self.table == "ads":
+                # Desde a migration 149 o escopo do inventario vem da RPC
+                # `present_parent_ids`, agregada no servidor. Reintroduzir a varredura
+                # paginada de `ads` tem de quebrar o teste, nao passar em silencio.
+                raise AssertionError(
+                    "varredura de `ads` reintroduzida - o escopo e da RPC present_parent_ids (149)"
+                )
             inicio, fim = self._range or (0, 999)
             dados = self._linhas_select[inicio : fim + 1]
             return type("Res", (), {"data": dados})()
@@ -84,11 +91,23 @@ class _FakeSB:
 
     def __init__(self, ads_presentes=None):
         self.registro = []
-        # `_fetch_present_parent_ids` pagina `ads` para descobrir o escopo real.
+        # Escopo real do inventario. Desde a migration 149 ele vem da RPC
+        # `present_parent_ids` (agregada no servidor), nao de uma varredura de `ads`.
         self._linhas_ads = ads_presentes or []
+        self.rpcs = []
 
     def table(self, nome):
-        return _FakeTable(nome, self.registro, self._linhas_ads if nome == "ads" else [])
+        # `ads` continua acessivel para UPDATE (outros testes verificam que o toggle
+        # deixou de escrever la); so o SELECT e barrado, em `_FakeQuery.execute`.
+        return _FakeTable(nome, self.registro, [])
+
+    def rpc(self, nome, params):
+        self.rpcs.append((nome, dict(params)))
+        assert nome == "present_parent_ids", f"RPC inesperada: {nome}"
+        campanhas = sorted({r["campaign_id"] for r in self._linhas_ads if r.get("campaign_id")})
+        conjuntos = sorted({r["adset_id"] for r in self._linhas_ads if r.get("adset_id")})
+        data = [{"campaign_ids": campanhas, "adset_ids": conjuntos}]
+        return type("_Rpc", (), {"execute": staticmethod(lambda: type("Res", (), {"data": data})())})()
 
     # --- helpers de leitura do registro ---
     def upserts_parent_entities(self):
@@ -163,9 +182,11 @@ class TestWriteParentEntityStatuses(unittest.TestCase):
         supabase_repo.write_parent_entity_statuses(None, "u1", {"campaigns": {}}, sb_client=sb)
         self.assertEqual(sb.upserts_parent_entities(), [])
 
-    def test_nao_pagina_a_tabela_ads(self):
-        # `_fetch_present_parent_ids` custa ~71 paginas sobre 71k linhas. Pagar isso no
-        # toggle reintroduziria justamente o custo que esta migracao quer eliminar.
+    def test_nao_consulta_o_escopo(self):
+        # O toggle age sobre entidades que o usuario esta vendo na tela: por construcao
+        # ja sao do escopo dele. Consultar o escopo aqui e perguntar o que ja se sabe.
+        # (Ate a migration 149 isso tambem custava 47 paginas sobre `ads`; hoje custa uma
+        # RPC de 84 ms — o motivo mudou de natureza, a conclusao nao.)
         sb = _FakeSB(ads_presentes=[{"campaign_id": "c1", "adset_id": "a1"}])
         with patch.object(
             supabase_repo, "_fetch_present_parent_ids", side_effect=AssertionError("nao deve paginar")

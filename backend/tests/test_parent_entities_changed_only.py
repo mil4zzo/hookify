@@ -47,9 +47,12 @@ class _Query:
     def execute(self):
         if self.op == "select":
             if self.table == "ads":
-                # inventário: pais presentes
-                a, b = self.filtros.get("range", (0, 999))
-                return type("Res", (), {"data": self.db["ads"][a : b + 1]})()
+                # Desde a migration 149 o escopo vem da RPC `present_parent_ids`, não de
+                # uma varredura paginada de `ads`. Se alguém reintroduzir a varredura,
+                # este teste tem de quebrar em vez de passar silenciosamente.
+                raise AssertionError(
+                    "varredura de `ads` reintroduzida — o escopo é da RPC present_parent_ids (149)"
+                )
             ids = set(self.filtros.get("entity_id", []))
             rows = [dict(r, entity_id=eid) for eid, r in self.db["parent_entities"].items() if eid in ids]
             return type("Res", (), {"data": rows})()
@@ -60,13 +63,30 @@ class _Query:
         return type("Res", (), {"data": []})()
 
 
+class _RpcCall:
+    def __init__(self, data):
+        self.data = data
+
+    def execute(self):
+        return type("Res", (), {"data": self.data})()
+
+
 class _FakeSB:
     def __init__(self, ads, parents):
         self.db = {"ads": ads, "parent_entities": dict(parents)}
         self.registro = []
+        self.rpcs = []
 
     def table(self, nome):
         return _Query(nome, self.db, self.registro)
+
+    def rpc(self, nome, params):
+        """`present_parent_ids` (migration 149): o servidor agrega e devolve dois arrays."""
+        self.rpcs.append((nome, dict(params)))
+        assert nome == "present_parent_ids", f"RPC inesperada: {nome}"
+        campanhas = sorted({r["campaign_id"] for r in self.db["ads"] if r.get("campaign_id")})
+        conjuntos = sorted({r["adset_id"] for r in self.db["ads"] if r.get("adset_id")})
+        return _RpcCall([{"campaign_ids": campanhas, "adset_ids": conjuntos}])
 
 
 ADS = [{"campaign_id": "c1", "adset_id": "s1"}, {"campaign_id": "c2", "adset_id": "s2"}]

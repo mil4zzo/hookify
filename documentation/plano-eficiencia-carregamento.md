@@ -49,7 +49,7 @@ Herdadas da filosofia do projeto (`CLAUDE.md`) e do que já custou caro neste ap
 
 | # | Item | Esforço | Ganho esperado | Risco | Estado |
 |---|---|---|---|---|---|
-| **F1** | Varredura de `ads` por OFFSET → filtro pelos ids pedidos | ~1 h | −350 s/dia de banco, −47 requisições por refresh | nenhum | ⬜ |
+| **F1** | Varredura de `ads` por OFFSET → RPC que agrega no servidor | ~1 h | −350 s/dia de banco, −46 requisições por refresh | nenhum | ✅ **falta só o deploy** |
 | **F2** | Grafo de conflito: 6 s a cada refresh | ~1 tarde | −1,2 a 6 s de disputa, ~60×/dia | baixo | ⬜ |
 | **F3** | Linha-zero sintética nunca sobrescreve linha real | ~2 h | zero de velocidade — fecha a classe de bug dos R$ 12 mil | baixo | ⬜ |
 | **F4** | Página de 1.000 + espera guiada pelo cabeçalho da Meta | ~meio dia | −5% no refresh incremental, −14% na recarga completa | baixo | ⬜ |
@@ -137,7 +137,8 @@ PAGE_DELAY_S = 1     # espera cega entre páginas
 
 ## 4. F1 — a varredura de `ads` por OFFSET
 
-**Estado:** ⬜
+**Estado:** ✅ implementado e testado em 2026-09-09 — **falta aplicar a migration em
+produção e fazer o deploy**. Migration `149_escopo_de_pais_sem_varredura.sql`.
 
 ### O que acontece
 
@@ -170,41 +171,94 @@ Quem chama já **tem em mãos** os ids que quer testar: o `entities` que veio da
 campanhas e conjuntos do snapshot. O laço seguinte faz `if eid not in present: continue`.
 Ou seja: só interessa saber a presença **dos ids perguntados** — nunca a lista completa.
 
-### O que fazer
+### A ideia original foi descartada na implementação
 
-Trocar a varredura por consulta filtrada pelos ids pedidos:
+O plano dizia: "filtrar pelos ids que o chamador já tem" (`where campaign_id = any(...)`).
+Parecia o caminho óbvio e mais barato. **Não serve, e o motivo é um velho conhecido deste
+projeto:** o PostgREST devolveria uma linha por **anúncio**, não por campanha — uma
+campanha com 5.000 anúncios traz 5.000 linhas — e o **teto silencioso de 1.000 linhas**
+(memória `supabase_silent_1000_row_cap`) cortaria a resposta **sem erro**.
 
-```python
-def _fetch_present_parent_ids(sb, user_id, campaign_ids, adset_ids) -> Tuple[set, set]:
-    # lotes de 200 ids por causa do limite de URL do PostgREST
-    # (memória: supabase_in_clause_url_limit)
-```
+Consequência: campanhas reais sumiriam do escopo e ficariam com orçamento e status por
+gravar, em silêncio. É a mesma família de bug que apagou os R$ 12 mil — ausência
+interpretada como "não existe".
 
-Índices que já existem e servem: `ads_campaign_idx (campaign_id)` e
-`ads_user_adset_idx (user_id, adset_id)`.
+### O que foi feito
 
-### Teste de aceitação
+**Migration 149** cria `public.present_parent_ids(p_user_id uuid)`, que agrega no servidor
+e devolve **dois arrays** — não há linha para truncar. O backend faz **uma** chamada.
 
-1. **Diferencial obrigatório.** Script que roda a versão antiga (varredura) e a nova
-   (filtrada) para o mesmo `user_id` e afirma que
-   `nova ∩ perguntados == antiga ∩ perguntados`, **conjunto a conjunto**, para os 3 usuários
-   de produção. Sem isso, não vai.
-2. `EXPLAIN (ANALYZE, BUFFERS)` da consulta nova com um lote real de ids — anexar o plano
-   ao commit. Se não for index scan, o índice está errado e é preciso resolver antes.
-3. Teste unitário com lote > 200 ids, provando que o loteamento não perde id.
-4. Teste unitário com lista vazia (não pode disparar consulta).
+A forma da consulta também foi medida antes de escolher:
+
+| formulação | tempo | por quê |
+|---|---|---|
+| `array_agg(distinct ...)` direto sobre as 46.581 linhas | 468 ms | ordena em disco (2,2 MB) |
+| **`distinct` dos pares primeiro, agrega os 5.090 sobreviventes** | **84 ms** | HashAggregate, 593 kB, zero temporário |
+
+**47 idas e ~1.400 ms → 1 ida e 84 ms.**
+
+`SECURITY INVOKER` de propósito (o default), para se comportar **exatamente** como o
+`select` que substitui nos dois clientes que a chamam: com JWT do usuário a RLS de `ads`
+se aplica; em service role (pack compartilhado, convenção P3.3b) o `p_user_id` é o silo.
+Marcá-la `SECURITY DEFINER` criaria um vazamento que hoje não existe.
+
+**Índice descartado:** `(user_id) INCLUDE (campaign_id, adset_id)` levaria os 84 ms a ~20 ms,
+mas `ads` é upsertada em massa a cada refresh e todo índice novo é imposto a toda escrita.
+84 ms uma vez por refresh não é mais o problema.
+
+### O que foi testado
+
+**SQL — `supabase/tests/149_escopo_de_pais.test.sql`**, no laboratório (5 silos reais,
+60.645 ads):
+
+- **Diferencial** contra a lógica da varredura antiga, conjunto a conjunto, em **todo**
+  silo — real e sintético. Zero divergências.
+- 8 asserções de borda, **ordenadas de propósito** para que cada uma seja provável
+  isoladamente (a rede ampla do diferencial pegaria tudo primeiro e deixaria as bordas
+  sem prova).
+- **4 sabotagens rodadas**, cada uma falhando na asserção que lhe corresponde:
+
+  | sabotagem | falha em |
+  |---|---|
+  | `limit 1000` na função | `B4.mil-e-duzentas-campanhas` |
+  | tirar o `filter (where ... is not null)` | `B2.nulos-fora-do-array` |
+  | tirar o `where user_id = p_user_id` | `B5.grande-nao-ve-vizinho` |
+  | trocar `coalesce(..., '{}')` por NULL | `B3.vazio-nao-e-null` |
+
+  `B1` é guarda de **forma**, não de lógica (agregação sem `GROUP BY` sempre devolve uma
+  linha) — está anotado como tal no arquivo, sem fingir prova que não tem.
+
+**Python — `backend/tests/test_present_parent_ids.py`** (10 testes): forma da chamada,
+tradução dos arrays em conjuntos, resposta vazia/`None`, ids não-texto, e a passagem pelo
+`with_postgrest_retry`. Sabotagem verificada: remover o filtro de vazio faz
+`test_vazio_e_espaco_sao_descartados_como_antes` falhar.
+
+**Guarda contra regressão:** os fakes de `test_parent_entities_changed_only.py` e
+`test_parent_entities_double_write.py` agora **levantam exceção** se alguém voltar a fazer
+`select` em `ads` por esse caminho.
+
+**Suíte completa: 650 testes passando** (com o venv do projeto — o Python global tem
+httpx 0.28/postgrest 2.27 contra os 0.27.2/0.16.11 fixados, e 3 testes de concorrência
+falham só por isso).
+
+### Detalhe preservado de propósito
+
+O código antigo filtrava valor *falsy* (`if r.get("campaign_id")`), o que descartava
+**string vazia**; a RPC só descarta NULL. O filtro de vazio ficou no Python para o
+contrato do chamador não mudar. Medido em produção: **zero** strings vazias hoje
+(1.837 NULLs), então na prática é cinto e suspensório.
+
+### Deploy — nesta ordem
+
+1. `psql "$DB" -f supabase/migrations/149_escopo_de_pais_sem_varredura.sql`
+2. Só então o backend. **A ordem importa:** o backend novo chama uma função que precisa
+   existir. O backend antigo convive com a função nova sem problema (não a chama).
 
 ### Como comprovar o ganho
 
 Depois de 24 h em produção, repetir a consulta 10.2 do apêndice: a linha
-`SELECT campaign_id, adset_id FROM ads ...` deve **parar de crescer** em `calls`. Comparar
-`total_exec_time` acumulado.
-
-### Riscos
-
-Nenhum identificado. A semântica é comprovadamente equivalente para o único consumidor.
-**Atenção:** se algum dia surgir um segundo consumidor que precise da lista completa, ele
-não pode reintroduzir a varredura — a assinatura nova, que exige os ids, é a proteção.
+`SELECT campaign_id, adset_id FROM ads ...` deve **parar de crescer** em `calls`, e
+`present_parent_ids` deve aparecer com ~1 chamada por refresh e média perto de 84 ms.
 
 ---
 
@@ -634,3 +688,4 @@ Uma linha por passo concluído: data, item, o que mudou, o número antes e depoi
 | Data | Item | O que foi feito | Antes | Depois |
 |---|---|---|---|---|
 | 2026-09-09 | — | Linha de base medida; plano aberto; worktree `perf/eficiencia-carregamento` criado | — | — |
+| 2026-09-09 | **F1** | Migration 149 + `_fetch_present_parent_ids` pela RPC. Ideia original (filtrar por ids) **descartada** — teto de 1.000 linhas do PostgREST truncaria em silêncio. Diferencial em 5 silos + 4 sabotagens + 10 testes Python; 650 na suíte | 47 idas, ~1.400 ms, 358 s/dia | 1 ida, **84 ms** — *aguardando deploy* |

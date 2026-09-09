@@ -675,32 +675,42 @@ def upsert_ads(
 
 
 def _fetch_present_parent_ids(sb: "Client", user_id: str) -> Tuple[set, set]:
-    """(campaign_ids, adset_ids) com linhas em `ads` para o usuário — escopo real do inventário."""
-    present_campaigns: set = set()
-    present_adsets: set = set()
-    page_size = 1000
-    offset = 0
-    while True:
-        res = with_postgrest_retry(
-            "fetch_present_parent_ids",
-            lambda _offset=offset: (
-                sb.table("ads")
-                .select("campaign_id,adset_id")
-                .eq("user_id", user_id)
-                .range(_offset, _offset + page_size - 1)
-                .execute()
-            ),
-        )
-        rows = res.data or []
-        for r in rows:
-            if r.get("campaign_id"):
-                present_campaigns.add(str(r["campaign_id"]))
-            if r.get("adset_id"):
-                present_adsets.add(str(r["adset_id"]))
-        if len(rows) < page_size:
-            break
-        offset += page_size
-    return present_campaigns, present_adsets
+    """(campaign_ids, adset_ids) com linhas em `ads` para o usuário — escopo real do inventário.
+
+    UMA chamada à RPC `present_parent_ids` (migration 149), que agrega no servidor e
+    devolve dois arrays.
+
+    Antes daqui isto era uma varredura paginada da tabela `ads` inteira do usuário
+    (46.581 linhas em mil-a-mil) da qual só se aproveitavam duas colunas. Rodava em todo
+    refresh e no sync on-focus, e era — medido — o MAIOR consumidor do banco: 175.008
+    chamadas e 5.011 s em 14 dias. O `.range()` do PostgREST vira LIMIT/OFFSET, então
+    cada página custava mais que a anterior (2 ms na primeira, 59 ms na quadragésima).
+    Varredura completa: 47 páginas, ~1,4 s de banco. Agora: 1 ida, 84 ms.
+
+    Por que não filtrar pelos ids que o chamador já tem, que seria mais barato ainda:
+    o PostgREST devolveria uma linha por ANÚNCIO (não por campanha) e o teto silencioso
+    de 1.000 linhas cortaria a resposta sem erro — campanhas sumiriam do escopo e ficariam
+    com orçamento e status por gravar. Com a agregação no servidor não há linha para
+    truncar. O teste `supabase/tests/149_escopo_de_pais.test.sql` trava isso com um silo
+    de 1.200 campanhas.
+
+    O filtro de vazio continua aqui, e não só no SQL: a RPC descarta NULL, este laço
+    descarta também string vazia — que é o que o `if r.get(...)` fazia antes. Hoje não
+    existe nenhuma em produção (medido), mas o contrato do chamador não muda por isso.
+    """
+    res = with_postgrest_retry(
+        "present_parent_ids",
+        lambda: sb.rpc("present_parent_ids", {"p_user_id": user_id}).execute(),
+    )
+    data = getattr(res, "data", None) or []
+    row = data[0] if isinstance(data, list) and data else (data if isinstance(data, dict) else {})
+
+    def _as_set(value: Any) -> set:
+        if not isinstance(value, (list, tuple)):
+            return set()
+        return {str(v).strip() for v in value if v is not None and str(v).strip()}
+
+    return _as_set(row.get("campaign_ids")), _as_set(row.get("adset_ids"))
 
 
 # `write_parent_statuses` foi REMOVIDA na migracao do read-path de status (passo 3).
@@ -919,13 +929,13 @@ def write_parent_entity_statuses(
     ON CONFLICT DO UPDATE apenas das colunas presentes no payload, entao um
     payload estreito preserva o resto da linha.
 
-    Sem `_fetch_present_parent_ids` de proposito: aquela varredura pagina as
-    ~71k linhas de `ads` (medido: 65 ms x 71 paginas) e existe para filtrar
-    snapshots de conta inteira, que trazem milhares de pais fora do escopo.
-    Aqui os ids vem de uma acao explicita do usuario sobre entidades que ele
-    esta vendo na tela — ja sao, por construcao, do escopo dele. Pagar a
-    varredura aqui seria reintroduzir no toggle o custo que esta migracao quer
-    eliminar.
+    Sem `_fetch_present_parent_ids` de proposito, e o motivo mudou de natureza na
+    migration 149: aquele filtro deixou de ser caro (era uma varredura paginada de
+    `ads`, 47 paginas; virou uma RPC de 84 ms), mas continua sem cabimento AQUI.
+    Ele existe para podar snapshots de conta inteira, que trazem milhares de pais
+    fora do escopo. Neste caminho os ids vem de uma acao explicita do usuario sobre
+    entidades que ele esta vendo na tela — ja sao, por construcao, do escopo dele.
+    Consultar o escopo aqui seria uma pergunta cuja resposta ja se sabe.
 
     Linha ausente e CRIADA com status e sem budget — mesmo resultado visivel
     que a linha inexistente (join devolve NULL), porem ja com a verdade do
