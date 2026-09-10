@@ -50,7 +50,8 @@ Herdadas da filosofia do projeto (`CLAUDE.md`) e do que já custou caro neste ap
 | # | Item | Esforço | Ganho esperado | Risco | Estado |
 |---|---|---|---|---|---|
 | **F1** | Varredura de `ads` por OFFSET → RPC que agrega no servidor | ~1 h | −350 s/dia de banco, −46 requisições por refresh | nenhum | ✅ **falta só o deploy** |
-| **F2** | Grafo de conflito: 6 s a cada refresh | ~1 tarde | −1,2 a 6 s de disputa, ~60×/dia | baixo | ⬜ |
+| **F2a** | **Restaurar a camada 2** — `x_cross_silo` está fixo em `false` desde a 145; dois packs com o mesmo anúncio-dia somam duas vezes **em silêncio** | ~1 tarde | **correção** — hoje nada avisa | médio | ⬜ **prioridade** |
+| **F2b** | Grafo de conflito: 6 s a frio, 79×/dia. Incremental por pack custa 196 ms | ~2 dias | −1,2 a 6 s de disputa, 79×/dia | **alto até o F2a existir** | ⏸️ bloqueado pelo F2a |
 | **F3** | Linha-zero sintética nunca sobrescreve linha real | ~2 h | zero de velocidade — fecha a classe de bug dos R$ 12 mil | baixo | ⬜ |
 | **F4** | Página de 1.000 + espera guiada pelo cabeçalho da Meta | ~meio dia | −5% no refresh incremental, −14% na recarga completa | baixo | ⬜ |
 | **F5** | Inventário fora de `ad_metrics` (fim das linhas-zero gravadas) | ~1 semana | tabela 4× menor; resolve o F2 de graça | **alto** | ⏸️ |
@@ -60,10 +61,13 @@ Herdadas da filosofia do projeto (`CLAUDE.md`) e do que já custou caro neste ap
 | **M4** | Quedas transitórias de HTTP/2 — 69× em 10 h | — | já absorvidas pelo retry; só monitorar | — | 📊 |
 | **M5** | 7–9 refreshes por pack por dia | decisão | −60% de leitura da Meta se cair para 3–4 | — | ⏸️ |
 
-**Ordem recomendada:** F1 → F2 → F3 → F4 → (decisão sobre F5) → M1/M2/M3.
+**Ordem recomendada:** F1 → **F2a** → F3 → F4 → F2b → (decisão sobre F5) → M1/M2/M3.
 
-F1 e F2 são os que atacam a queixa de lentidão de 09/09. Nenhum dos dois toca em como o
-dado é calculado.
+F1 (feito) e F2b são os que atacam a queixa de lentidão de 09/09. Mas o **F2a entrou na
+frente do F2b**: a investigação do F2 descobriu que a rede de segurança contra soma
+duplicada foi neutralizada pela migration 145, e enquanto isso não for consertado,
+reduzir a frequência do grafo **piora a segurança em vez de melhorar a velocidade**.
+Ver §5-bis.
 
 ---
 
@@ -264,7 +268,9 @@ Depois de 24 h em produção, repetir a consulta 10.2 do apêndice: a linha
 
 ## 5. F2 — o grafo de conflito refeito a cada refresh
 
-**Estado:** ⬜
+**Estado:** 🟡 investigado a fundo em 2026-09-09. O passo 1 **confirmou** a causa da
+lentidão; o passo 2 **derrubou o meu diagnóstico**; e no caminho apareceu um achado de
+**correção** que é mais grave que os 6 segundos e que inverte o passo 3. Ver §5-bis.
 
 ### O que acontece
 
@@ -349,13 +355,114 @@ aprovado logo, o passo 2 daqui pode virar desnecessário.
    `Sort`/`temp written` sumiu.
 4. Medir a frio e a quente, 3 execuções cada.
 
+---
+
+## 5-bis. O que a investigação do F2 realmente encontrou (2026-09-09)
+
+### Passo 1 — CONFIRMADO: o carimbo global é a causa da frequência
+
+79 chamadas a `GET /pack-shares/conflicts` em 24 h, em rajadas. Correlação exata com o
+término dos jobs:
+
+| jobs terminaram | grafo foi rebuscado |
+|---|---|
+| 20:20, 20:21, 20:23, 20:25, 20:27, 20:29, 20:35 | 20:20, 20:21, 20:24, 20:25, 20:25, 20:27, 20:29, 20:31, 20:31, 20:34, 20:35, 20:36, 20:37, 20:37, 20:41 |
+
+**16 buscas para 7 refreshes.** O carimbo é o `max(updated_at)` de todos os packs: um
+refresh de qualquer pack invalida o grafo inteiro.
+
+### Passo 2 — DIAGNÓSTICO ERRADO, e três becos sem saída
+
+Eu havia escrito que o `GROUP BY` ordenava 660 mil linhas e que um índice
+`INCLUDE (pack_id)` tiraria o *sort*. **Não existe `Sort` no plano.** O plano real mostra
+outros custos:
+
+| custo real | número |
+|---|---|
+| `Heap Fetches` no index-only scan | **335.196** (metade das linhas vai ao heap — mapa de visibilidade defasado; 8,6% de tuplas mortas) |
+| `HashAggregate` vazando para disco | **33 lotes, 62,7 MB** (661 mil grupos não cabem no `work_mem`) |
+| Linhas lidas para descartar | 670.270 lidas, **661.395 descartadas** pelo `count(*) > 1` |
+
+Três recortes foram testados e **descartados por medição**:
+
+1. **Recorte por dia** — inútil: **99,7%** das linhas estão em dias que 2+ packs
+   compartilham (205 de 370 dias). Os packs são recortes de criativo, não de tempo.
+2. **Recorte por par de packs** (janela observada no mapa, não no metadado): 197 dos 703
+   pares se cruzam. Reduz pares, não linhas.
+3. **Duas passadas** (agrupar por `ad_id` primeiro, 47 mil grupos, depois por
+   `(ad_id, dia)`): parecia 10,7 s → 4,8 s. **Era cache.** Alternando as duas na mesma
+   condição: **1.392 ms × 1.314 ms**. Ganho zero.
+
+> Lição para o próximo: a primeira comparação foi feita com a consulta antiga a frio e a
+> nova logo depois, com o buffer já quente. A regra 2 deste plano existe por isso.
+
+### O que sobrou de real para performance
+
+Recalcular **um** pack (arestas incidentes a ele) custa **196 ms**, contra 1.350 ms do
+grafo inteiro a quente e 6.000–10.700 ms a frio. E desde a 145 isso é **provavelmente
+correto**: cada linha pertence a UM pack, então um refresh do pack A só pode criar ou
+destruir arestas **incidentes a A** — arestas (B,C) não podem mudar sem tocar B ou C.
+
+### O ACHADO GRANDE — a camada 2 está morta desde a migration 145
+
+`usePackConflicts.ts` documenta uma rede de segurança: *"se o grafo envelhecer, a camada 2
+(sinal `overlap` no read-path) bloqueia a tela — nunca se mostra número impreciso"*.
+
+**Essa camada não existe mais.** Na migration 145, o CTE `keys` da RPC do Manager passou a
+declarar `false as x_cross_silo` — literalmente constante — nos dois ramos (linhas 666 e
+684). Logo `overlap_stat.conflict_rows` é sempre 0, a chave `overlap` nunca é emitida,
+`serverOverlapRows` é sempre `null` e o `PackConflictGuard` nunca dispara por esse sinal.
+
+**E o dano que ela vigiava passou a ser real.** Antes da 145, dois packs do mesmo dono
+liam a MESMA linha física, e o `GROUP BY (ad_id, dia)` dedupava. Desde a 145 são duas
+linhas, `keys` emite uma por `(ad_id, dia, pack_id)`, `filtered` é filtro puro (sem
+dedup) e `per_ad` faz `group by group_key, user_id, ad_id` com `sum(spend)`,
+`sum(impressions)`, `sum(results)`. **Dois packs que compartilham um anúncio-dia somam
+esse dia duas vezes, em silêncio.**
+
+Hoje não há dano em produção: zero conflitos, e o seletor (camada 1) impede entrar no
+estado. Mas a conclusão inverte o plano:
+
+> **O carimbo de conteúdo é load-bearing.** O grafo do cliente é a ÚNICA proteção que
+> restou. Reduzir a frequência — o passo 3 — deixaria de ser uma otimização e passaria a
+> ser uma **regressão de segurança**. Não fazer antes de restaurar a camada 2.
+
+### F2 vira duas coisas
+
+| | o quê | por quê primeiro |
+|---|---|---|
+| **F2a** | Restaurar a detecção de duplicação no read-path (`overlap` de verdade) | É correção. E é a pré-condição para o F2b não ser perigoso |
+| **F2b** | Reduzir a frequência do grafo (incremental por pack, 196 ms) | Só é seguro depois do F2a |
+
+**F2a é barato:** a informação já está na mão da RPC. O `keys` já carrega `pack_id` por
+linha; detectar "esta `(ad_id, data)` aparece sob 2+ `pack_id` neste mesmo resultado" é
+uma janela sobre dado que já foi lido — **sem varredura extra**. É a mesma pergunta do
+grafo, respondida sobre o recorte que o usuário está de fato somando, o que é mais forte:
+não depende de o grafo estar fresco.
+
+### Teste de aceitação do F2a
+
+1. **Sabotado, e é o teste que importa:** montar dois packs com o mesmo anúncio-dia
+   (transação com `ROLLBACK`), chamar a RPC e afirmar que (a) `overlap.rows > 0` e (b) o
+   `spend` devolvido é o **dobro** do de um pack só — provando que o dano existe e que o
+   sinal o acusa.
+2. **Controle negativo:** com a detecção revertida, o teste tem de falhar. Registrar.
+3. **Sem conflito, `overlap` continua ausente** — não pode virar chave sempre presente que
+   o frontend passe a interpretar como aviso.
+4. **Custo:** `EXPLAIN (ANALYZE, BUFFERS)` antes e depois, provando que a detecção não
+   adiciona varredura.
+5. O `PackConflictGuard` volta a receber `serverOverlapRows` não-nulo no caso de conflito —
+   hoje esse `prop` é código morto.
+
 ### Riscos
 
-- Índice novo custa espaço e torna a escrita do mapa um pouco mais cara. Medir o efeito na
-  gravação (a tabela recebe milhares de linhas por refresh).
-- Se o passo 3 for necessário: **cuidado com correção**. Um grafo parcialmente atualizado
-  que perca uma aresta faz o app somar dado duplicado sem avisar — exatamente o que o
-  bloqueio existe para impedir. "Impreciso é impreciso."
+- **F2a:** se a detecção for cara, encarece TODA leitura do Manager para vigiar um caso
+  raro. Por isso o item 4 do teste é obrigatório antes do cutover.
+- **F2b:** exige guardar o grafo do lado do servidor (arestas + marca d'água por pack) e
+  tratar pack apagado, pack compartilhado e dois refreshes simultâneos. É a parte cara.
+- **Índice `INCLUDE (pack_id)`:** já não se justifica — não havia `Sort` para eliminar.
+- **`Heap Fetches` e o vazamento de 62 MB:** continuam valendo como afinação barata
+  (autovacuum mais agressivo no mapa; `work_mem` na função), independentes do resto.
 
 ---
 
@@ -688,4 +795,5 @@ Uma linha por passo concluído: data, item, o que mudou, o número antes e depoi
 | Data | Item | O que foi feito | Antes | Depois |
 |---|---|---|---|---|
 | 2026-09-09 | — | Linha de base medida; plano aberto; worktree `perf/eficiencia-carregamento` criado | — | — |
+| 2026-09-09 | **F2** | Investigação. Passo 1 confirmado (16 buscas p/ 7 refreshes). Passo 2 **derrubado**: não há `Sort`; recorte por dia inútil (99,7% compartilhados); duas passadas com ganho zero (1.392 × 1.314 ms — o "10,7→4,8 s" era cache). Achado: `x_cross_silo` fixo em `false` desde a 145 → camada 2 morta e soma duplicada silenciosa. F2 vira F2a (correção) + F2b (performance) | grafo 6 s a frio, 79×/dia | *diagnóstico corrigido; nada implementado* |
 | 2026-09-09 | **F1** | Migration 149 + `_fetch_present_parent_ids` pela RPC. Ideia original (filtrar por ids) **descartada** — teto de 1.000 linhas do PostgREST truncaria em silêncio. Diferencial em 5 silos + 4 sabotagens + 10 testes Python; 650 na suíte | 47 idas, ~1.400 ms, 358 s/dia | 1 ida, **84 ms** — *aguardando deploy* |
