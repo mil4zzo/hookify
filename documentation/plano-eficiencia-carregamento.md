@@ -65,10 +65,14 @@ Herdadas da filosofia do projeto (`CLAUDE.md`) e do que já custou caro neste ap
 **Ordem recomendada:** F1 ✅ → F2a ✅ → F3 → F4 → F2b → (decisão sobre F5) → M1/M2/M3.
 
 F1 (feito) e F2b são os que atacam a queixa de lentidão de 09/09. Mas o **F2a entrou na
-frente do F2b**: a investigação do F2 descobriu que a rede de segurança contra soma
-duplicada foi neutralizada pela migration 145, e enquanto isso não for consertado,
-reduzir a frequência do grafo **piora a segurança em vez de melhorar a velocidade**.
-Ver §5-bis.
+frente do F2b**: a investigação do F2 descobriu que o grafo de conflito é a única proteção
+contra somar packs sobrepostos — e que o bloqueio **falhava aberto** quando o grafo não
+podia ser obtido. Enquanto isso não estivesse fechado, reduzir a frequência do grafo
+**pioraria a segurança em vez de melhorar a velocidade**. Ver §5-bis.
+
+Uma proposta minha foi **rejeitada pelo dono** e o registro está em §5-bis: restaurar a
+detecção no read-path seria desfazer o −12% que a 145 comprou de propósito. A decisão do
+produto é **prevenir, não deduplicar** — recortes que se cruzam se comparam separados.
 
 ---
 
@@ -413,6 +417,17 @@ destruir arestas **incidentes a A** — arestas (B,C) não podem mudar sem tocar
 declarar `false as x_cross_silo` — literalmente constante — nos dois ramos (linhas 666 e
 684). Logo `overlap_stat.conflict_rows` é sempre 0, a chave `overlap` nunca é emitida,
 `serverOverlapRows` é sempre `null` e o `PackConflictGuard` nunca dispara por esse sinal.
+
+> **Precisão de 10/09, porque a primeira redação foi ampla demais.** O *dedup* ainda existe
+> — na rota de DETALHE (`fetch_entity_performance_v145`, `row_number() over (partition by
+> ad_id, date)`, schema.sql:1488). Quem não tem dedup é o **Manager**
+> (`fetch_manager_performance_base_v145`; o único `row_number() over ()` de lá é ordinal de
+> paginação). A *sentinela* (`overlap`) é que não existe em lugar nenhum. Medido com dois
+> packs sintéticos, em transação revertida: Manager R$ 450,99 → **R$ 901,98** (o dobro
+> exato), impressões 11.403 → 22.806, `overlap` não emitido; e o detalhe devolve o anúncio
+> como **2 grupos** — o dedup dele funciona (cada grupo com R$ 450,99), mas o join da linha
+> representante aceita qualquer pack da seleção e fana o grupo. As duas rotas erram, cada uma
+> do seu jeito; **nenhuma é rede para a outra** — o que reforça bloquear em vez de deduplicar.
 
 **E o dano que ela vigiava passou a ser real.** Antes da 145, dois packs do mesmo dono
 liam a MESMA linha física, e o `GROUP BY (ad_id, dia)` dedupava. Desde a 145 são duas

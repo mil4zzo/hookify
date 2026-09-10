@@ -17,12 +17,28 @@
  * a migration 145 cada linha pertence a UM pack, então o mesmo anúncio-dia em dois
  * packs são duas linhas e o total conta o dia duas vezes.
  *
- * E o read-path NÃO deduplica — de propósito. A 145 tirou o `GROUP BY` do ramo por
- * pack da RPC do Manager justamente porque bloquear passou a ser o mecanismo (ver
- * "Por que bloquear e não deduplicar" em `documentation/decisoes-tecnicas.md`; foi
- * de lá que veio o −12% do Manager). Decisão de produto: analisar recortes que se
- * cruzam não é o uso esperado do app — compara-se separado, ou num pack que junte
- * os dois.
+ * E o read-path do Manager NÃO deduplica — de propósito. A 145 tirou o `GROUP BY`
+ * do ramo por pack de `fetch_manager_performance_base_v145` justamente porque
+ * bloquear passou a ser o mecanismo (ver "Por que bloquear e não deduplicar" em
+ * `documentation/decisoes-tecnicas.md`; foi de lá que veio o −12% do Manager).
+ * Decisão de produto: analisar recortes que se cruzam não é o uso esperado do app —
+ * compara-se separado, ou num pack que junte os dois.
+ *
+ * MEDIDO em 2026-09-10 (dois packs sintéticos com o mesmo anúncio-dia, em transação
+ * revertida contra produção), para que ninguém precise confiar na leitura do SQL:
+ *   gasto real do anúncio-dia .................... R$ 450,99
+ *   Manager com 1 pack ........................... R$ 450,99
+ *   Manager com os 2 packs ....................... R$ 901,98  (o dobro exato)
+ *   impressões ................................... 11.403 -> 22.806
+ *   sinal `overlap` .............................. não emitido
+ *   rota de DETALHE .............................. o anúncio vem como 2 grupos
+ *
+ * A rota de detalhe (`fetch_entity_performance_v145`) AINDA TEM o dedup
+ * (`row_number() over (partition by ad_id, date)`), e ele faz o seu trabalho — cada
+ * grupo traz R$ 450,99, não dobrado. Mas o join da linha representante aceita
+ * qualquer pack da seleção (`am.pack_id = any(p_pack_ids)`, sem fixar um), então as
+ * duas linhas casam e o grupo se duplica. Ou seja: as DUAS rotas erram com packs
+ * sobrepostos, cada uma do seu jeito. Nenhuma das duas é rede para a outra.
  *
  * A consequência que obriga o `graphUnavailable`: **não existe rede atrás deste
  * bloqueio**. Se o grafo não pôde ser obtido, o mapa vem vazio — e mapa vazio por

@@ -54,6 +54,12 @@ import { usePacksLoading } from "@/components/layout/PacksLoader";
  * documentation/decisoes-tecnicas.md). Foi de lá que veio o −12% do Manager.
  * `x_cross_silo` ficou como constante `false`: o sinal `overlap` nunca é emitido.
  *
+ * Cuidado com a meia-verdade: o dedup AINDA EXISTE na rota de detalhe
+ * (`fetch_entity_performance_v145`). Ele só não cobre este caso — medido em
+ * 10/09, dois packs com o mesmo anúncio-dia fazem o Manager somar o dobro
+ * (R$ 450,99 -> R$ 901,98) e o detalhe devolver o anúncio como dois grupos. As
+ * duas rotas erram, cada uma do seu jeito; nenhuma é rede para a outra.
+ *
  * Consequência para quem mexer aqui: ESTE GRAFO É A ÚNICA PROTEÇÃO. Não há rede
  * atrás dele. Duas coisas seguem dessa afirmação:
  *   - reduzir a frequência da busca alarga a janela de grafo velho, e isso é

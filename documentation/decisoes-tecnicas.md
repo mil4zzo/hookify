@@ -4333,9 +4333,16 @@ Memória: `manager_table_memo_signal_prop_for_cell_rerender.md` (atualizada, nã
 
 **Por que bloquear e não deduplicar.** O dedup (`row_number() over (partition by ad_id, date)`) já existia para o caso cross-silo e não pode sair: é a rede de segurança da janela entre um refresh criar sobreposição e o grafo de conflito (cache de 5 min) perceber. O que muda é que ele deixa de ser o mecanismo e vira sentinela. Bloquear é decisão de produto: analisar packs sobrepostos juntos não é o uso esperado — recortes que se cruzam se comparam separados, ou num pack que junte os dois. Pré-filtro por conta de anúncios e por janela de datas antes do EXISTS caro: 649 pares → 53 avaliados, 538 → 40 ms.
 
-> **CORREÇÃO (2026-09-09): a sentinela do parágrafo acima nunca existiu no código.** O
-> parágrafo diz que o dedup "não pode sair" e "vira sentinela". O que foi entregue não tem
-> dedup **nem** sentinela no ramo por pack: `x_cross_silo` ficou como constante `false`
+> **CORREÇÃO (2026-09-09, precisada em 10/09).** O parágrafo acima diz que o dedup "não pode
+> sair" e "vira sentinela". Onde ele está e onde não está, exatamente:
+>
+> | função | rota | dedup? |
+> |---|---|---|
+> | `fetch_manager_performance_base_v145` | Manager (tabela e totais) | **não** — o único `row_number() over ()` ali é ordinal de paginação |
+> | `fetch_entity_performance_v145` | detalhe de entidade | **sim** — `row_number() over (partition by ad_id, date)` (schema.sql:1488) |
+>
+> Ou seja: o dedup **existe**, no detalhe. O que não existe é no Manager — e a **sentinela**
+> não existe em lugar nenhum: `x_cross_silo` ficou como constante `false`
 > (migration 145, linhas 666 e 684), então `overlap` nunca é emitido, `serverOverlapRows` é
 > sempre `null` e o ramo do `PackConflictGuard` que o consome é inalcançável. Foi exatamente
 > essa promessa não cumprida que, ao ser lida meses depois, gerou uma proposta de "restaurar
@@ -4362,6 +4369,30 @@ Memória: `manager_table_memo_signal_prop_for_cell_rerender.md` (atualizada, nã
 > 09/09), zero na época da 145, e nenhum pack criado ou editado desde então (`pack_action_log`
 > só tem refresh, sync de planilha, status, orçamento e share) — e sobreposição só nasce
 > quando a *definição* de dois packs passa a se cruzar. O risco nunca se materializou.
+>
+> **O que o dano SERIA, medido (10/09).** Dois packs sintéticos com o mesmo anúncio-dia, em
+> transação revertida contra produção — para não depender de leitura de SQL:
+>
+> | | |
+> |---|---|
+> | gasto real do anúncio-dia | R$ 450,99 |
+> | Manager com 1 pack | R$ 450,99 ✓ |
+> | **Manager com os 2 packs** | **R$ 901,98** — o dobro exato |
+> | impressões | 11.403 → **22.806** |
+> | sinal `overlap` | **não emitido** |
+> | rota de detalhe | o anúncio vem como **2 grupos** |
+>
+> A rota de detalhe erra de um jeito diferente, e vale registrar porque o dedup dela
+> **funciona**: cada grupo traz R$ 450,99, não dobrado. Quem duplica é o join da linha
+> representante (`fetch_entity_performance_v145`, `left join public.ad_metrics ... and
+> (p_pack_ids is null or am.pack_id = any(p_pack_ids))` — aceita qualquer pack da seleção
+> em vez de fixar um), então as duas linhas casam e o grupo se repete. **As duas rotas erram
+> com packs sobrepostos, cada uma do seu jeito; nenhuma é rede para a outra.** Isso reforça a
+> decisão de bloquear: não há um lugar só onde deduplicar resolveria.
+>
+> Reparo do join do representante: **não feito**, de propósito. Ele só se manifesta no estado
+> que o bloqueio impede, e mexer na rota de detalhe para um caso inalcançável é superfície
+> sem retorno. Fica registrado para o dia em que alguém for tocar essa função.
 
 **Por que NÃO é uma jogada de performance de leitura — e as três correções que custou saber.** As primeiras medições diziam "leitura 3–7× mais rápida". Eram reproduções minhas do *formato* de consulta (escopo → dedup → join), que é ~13% do tempo do Manager; o resto é agregação por grupo, igual nos dois. A forma 4 nem usava o índice por nome que a rota de detalhe real usa. Medidas as RPCs reais, com JSON idêntico no diferencial: Manager 1,59 s → 1,38–1,41 s (−12%, só porque o `keys` perdeu um `GROUP BY` que o bloqueio tornou desnecessário); detalhe ~70 ms → ~68 ms por nome, 48 → 69 ms por adset (o índice de adset saiu; o prefixo do pack varre o pack e filtra em memória). O que a re-chaveagem compra: correção (acima), `delete_pack` trivial, índices 233 → ~101 MB (desenhados pelas `pg_stat_user_indexes` de produção, não traduzidos: dois índices carregavam 99,9% do uso; o maior, 99 MB, foi usado 445 vezes na vida), escrita 3–7× mais barata (3 índices em vez de 8), gatilho do rollup idêntico (o custo mora em `derive_row`).
 
