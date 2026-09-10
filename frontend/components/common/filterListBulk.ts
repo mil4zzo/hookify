@@ -1,3 +1,5 @@
+import { vetoForPack } from "@/components/common/packConflictGate";
+
 /**
  * Semântica dos atalhos bulk ("Selecionar todos" / "Limpar") do `FilterListPopover`.
  *
@@ -64,20 +66,33 @@ export function deselectVisibleOrdered<T extends string>(selected: readonly T[],
  *
  * Devolve também os `skipped`, porque pular em silêncio se lê como bug — quem clicou precisa
  * saber por que 3 dos 7 não marcaram.
+ *
+ * `graphUnavailable`: o grafo de conflito não pôde ser obtido. Este atalho é a PORTA LARGA —
+ * ele não passa pelo veto visual de item nenhum —, então sem grafo ele não marca nada além do
+ * que já estava: mapa vazio por falha é "não sei", não "não há conflito", e desde a migration
+ * 145 não há dedup no read-path para consertar depois. Ver `packConflictGate`.
  */
 export function selectVisibleRespectingConflicts<T extends string>(
   selected: Set<T>,
   visibleIds: readonly T[],
   conflicts: ReadonlyMap<string, ReadonlySet<string>>,
+  opts: { graphUnavailable?: boolean } = {},
 ): { next: Set<T>; skipped: T[] } {
   const next = new Set(selected);
   const skipped: T[] = [];
 
   for (const id of visibleIds) {
-    if (next.has(id)) continue;
-    const enemies = conflicts.get(id);
-    if (enemies && [...enemies].some((enemy) => next.has(enemy as T))) {
-      skipped.push(id);
+    // `vetoForPack` é a MESMA regra do veto visual e do bloqueio da área. Rodada a
+    // cada passo contra o acumulado, ela também cobre o caso que o veto visual não
+    // pega: packs que conflitam ENTRE SI quando nada estava selecionado.
+    const veto = vetoForPack({
+      packId: id,
+      selected: next,
+      conflicts,
+      graphUnavailable: opts.graphUnavailable,
+    });
+    if (veto) {
+      if (!next.has(id)) skipped.push(id);
       continue;
     }
     next.add(id);

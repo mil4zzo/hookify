@@ -50,8 +50,9 @@ Herdadas da filosofia do projeto (`CLAUDE.md`) e do que já custou caro neste ap
 | # | Item | Esforço | Ganho esperado | Risco | Estado |
 |---|---|---|---|---|---|
 | **F1** | Varredura de `ads` por OFFSET → RPC que agrega no servidor | ~1 h | −350 s/dia de banco, −46 requisições por refresh | nenhum | ✅ **falta só o deploy** |
-| **F2a** | **Restaurar a camada 2** — `x_cross_silo` está fixo em `false` desde a 145; dois packs com o mesmo anúncio-dia somam duas vezes **em silêncio** | ~1 tarde | **correção** — hoje nada avisa | médio | ⬜ **prioridade** |
-| **F2b** | Grafo de conflito: 6 s a frio, 79×/dia. Incremental por pack custa 196 ms | ~2 dias | −1,2 a 6 s de disputa, 79×/dia | **alto até o F2a existir** | ⏸️ bloqueado pelo F2a |
+| ~~**F2a-v1**~~ | ~~Restaurar a detecção no read-path (a "camada 2")~~ | — | — | — | ❌ **rejeitado pelo dono** — seria desfazer o −12% da 145 de propósito. Ver §5-bis |
+| **F2a** | **Bloqueio falha fechado** — grafo indisponível liberava tudo em silêncio | ~1 tarde | **correção**, custo zero no caminho normal | baixo | ✅ **falta só o deploy** |
+| **F2b** | Grafo de conflito: 6 s a frio, 79×/dia. Incremental por pack custa 196 ms | ~2 dias | −1,2 a 6 s de disputa, 79×/dia | **decisão de segurança** — alarga a janela de grafo velho | ⏸️ depois da feature de editar data |
 | **F3** | Linha-zero sintética nunca sobrescreve linha real | ~2 h | zero de velocidade — fecha a classe de bug dos R$ 12 mil | baixo | ⬜ |
 | **F4** | Página de 1.000 + espera guiada pelo cabeçalho da Meta | ~meio dia | −5% no refresh incremental, −14% na recarga completa | baixo | ⬜ |
 | **F5** | Inventário fora de `ad_metrics` (fim das linhas-zero gravadas) | ~1 semana | tabela 4× menor; resolve o F2 de graça | **alto** | ⏸️ |
@@ -61,7 +62,7 @@ Herdadas da filosofia do projeto (`CLAUDE.md`) e do que já custou caro neste ap
 | **M4** | Quedas transitórias de HTTP/2 — 69× em 10 h | — | já absorvidas pelo retry; só monitorar | — | 📊 |
 | **M5** | 7–9 refreshes por pack por dia | decisão | −60% de leitura da Meta se cair para 3–4 | — | ⏸️ |
 
-**Ordem recomendada:** F1 → **F2a** → F3 → F4 → F2b → (decisão sobre F5) → M1/M2/M3.
+**Ordem recomendada:** F1 ✅ → F2a ✅ → F3 → F4 → F2b → (decisão sobre F5) → M1/M2/M3.
 
 F1 (feito) e F2b são os que atacam a queixa de lentidão de 09/09. Mas o **F2a entrou na
 frente do F2b**: a investigação do F2 descobriu que a rede de segurança contra soma
@@ -427,39 +428,97 @@ estado. Mas a conclusão inverte o plano:
 > restou. Reduzir a frequência — o passo 3 — deixaria de ser uma otimização e passaria a
 > ser uma **regressão de segurança**. Não fazer antes de restaurar a camada 2.
 
-### F2 vira duas coisas
+### A proposta de restaurar a detecção foi REJEITADA — e estava errada
 
-| | o quê | por quê primeiro |
-|---|---|---|
-| **F2a** | Restaurar a detecção de duplicação no read-path (`overlap` de verdade) | É correção. E é a pré-condição para o F2b não ser perigoso |
-| **F2b** | Reduzir a frequência do grafo (incremental por pack, 196 ms) | Só é seguro depois do F2a |
+Eu propus recolocar a detecção no read-path. **O dono rejeitou, e com razão.** A decisão
+de tirar o dedup foi deliberada e está registrada em `decisoes-tecnicas.md` sob o título
+literal **"Por que bloquear e não deduplicar"** (07/09, migration 145):
 
-**F2a é barato:** a informação já está na mão da RPC. O `keys` já carrega `pack_id` por
-linha; detectar "esta `(ad_id, data)` aparece sob 2+ `pack_id` neste mesmo resultado" é
-uma janela sobre dado que já foi lido — **sem varredura extra**. É a mesma pergunta do
-grafo, respondida sobre o recorte que o usuário está de fato somando, o que é mais forte:
-não depende de o grafo estar fresco.
+> *Bloquear é decisão de produto: analisar packs sobrepostos juntos não é o uso esperado —
+> recortes que se cruzam se comparam separados, ou num pack que junte os dois.*
 
-### Teste de aceitação do F2a
+E foi de lá que veio o ganho: *"Manager 1,59 s → 1,38–1,41 s (−12%, só porque o `keys`
+perdeu um `GROUP BY` que o bloqueio tornou desnecessário)"*. **Restaurar a detecção é
+refazer esse `GROUP BY`** — desfazer o −12% de propósito. Medido em 09/09: como consulta
+separada sobre 3 packs selecionados, 295 ms estáveis, num Manager de 907 ms.
 
-1. **Sabotado, e é o teste que importa:** montar dois packs com o mesmo anúncio-dia
-   (transação com `ROLLBACK`), chamar a RPC e afirmar que (a) `overlap.rows > 0` e (b) o
-   `spend` devolvido é o **dobro** do de um pack só — provando que o dano existe e que o
-   sinal o acusa.
-2. **Controle negativo:** com a detecção revertida, o teste tem de falhar. Registrar.
-3. **Sem conflito, `overlap` continua ausente** — não pode virar chave sempre presente que
-   o frontend passe a interpretar como aviso.
-4. **Custo:** `EXPLAIN (ANALYZE, BUFFERS)` antes e depois, provando que a detecção não
-   adiciona varredura.
-5. O `PackConflictGuard` volta a receber `serverOverlapRows` não-nulo no caso de conflito —
-   hoje esse `prop` é código morto.
+**O que me enganou** (registrado porque vai enganar o próximo): o mesmo parágrafo que
+decidiu bloquear diz que o dedup *"não pode sair: é a rede de segurança... vira sentinela"*.
+O código entregue não tem dedup **nem** sentinela. Fui conferir se a promessa era cumprida
+e li a ausência como bug, quando era decisão. A correção já está no `decisoes-tecnicas.md`,
+no próprio parágrafo.
 
-### Riscos
+**Dano verificado: nenhum.** Zero anúncio-dia em 2+ packs em **qualquer** silo (09/09),
+zero na época da 145, e nenhum pack criado ou editado desde então (`pack_action_log` só tem
+refresh, sync, status, orçamento, share) — e sobreposição só nasce quando a *definição* de
+dois packs passa a se cruzar.
 
-- **F2a:** se a detecção for cara, encarece TODA leitura do Manager para vigiar um caso
-  raro. Por isso o item 4 do teste é obrigatório antes do cutover.
-- **F2b:** exige guardar o grafo do lado do servidor (arestas + marca d'água por pack) e
-  tratar pack apagado, pack compartilhado e dois refreshes simultâneos. É a parte cara.
+### O que sobrou, e virou o F2a de verdade: **o bloqueio falhava aberto**
+
+A conclusão que fica de pé é outra, e é da forma que o produto prefere — prevenção:
+
+> **O grafo é a única proteção, sem rede atrás.** Então mapa vazio **por falha** não pode
+> ser lido como "não há conflito".
+
+E era. Se a busca do grafo falhasse (`retry: 1`, depois desiste), `conflictMap` vinha
+vazio: nada era desabilitado no `PackFilter`, o `PackConflictGuard` não bloqueava (deriva
+do mesmo mapa) e **"Selecionar todos" marcava tudo** — essa é a porta larga, ela não passa
+pelo veto de item nenhum. Na única situação em que o app não sabia se havia conflito, ele
+liberava.
+
+**Implementado em 09/09.** A regra virou uma função pura,
+`frontend/components/common/packConflictGate.ts`, compartilhada pelos três caminhos (veto
+por item, atalho bulk, bloqueio da área) — porque escrita três vezes ela **já havia
+divergido uma**: o veto por item é calculado contra a seleção do momento, então com nada
+marcado nenhum pack aparecia desabilitado e um "Selecionar todos" ingênuo montava o estado
+proibido.
+
+Regras:
+- quem **já está** selecionado nunca é vetado (desmarcar tem de continuar possível, senão
+  o usuário fica preso sem saída);
+- o corte é no **segundo** pack (um pack sozinho não soma em duplicidade, e travar a
+  seleção inteira puniria quem só quer trocar de pack);
+- conflito **nomeado** tem precedência sobre o "não sei" (a mensagem útil ganha);
+- `isLoading` **não** entra: bloquear durante a primeira busca piscaria a tela em toda
+  carga de página, e o risco real só existe depois que a busca falha em definitivo;
+- "Selecionar todos" recusa o clique **inteiro** em vez de deixar o primeiro passar — o que
+  a regra pura permitiria, e ela segue valendo como rede: um atalho que marca um pack
+  arbitrário se lê como bug, não como proteção.
+
+### O que foi testado (F2a)
+
+`frontend/components/common/__tests__/packConflictGate.test.ts` — 13 testes, e a suíte
+inteira do frontend em **446 passando**, `tsc --noEmit` limpo.
+
+**4 sabotagens rodadas**, cada uma falhando na asserção que lhe corresponde:
+
+| sabotagem | falha em |
+|---|---|
+| `graphUnavailable` ignorado | `sem grafo, o segundo pack é vetado` |
+| veto aplicado a quem já está selecionado | `desmarcar continua possível` |
+| corte no primeiro pack em vez do segundo | `sem grafo, o primeiro pack entra` |
+| flag não repassada ao atalho bulk | `selecionar todos não passa por cima do grafo indisponível` |
+
+Há também um teste de **excesso de zelo**: com grafo disponível, dois packs sem conflito
+continuam somáveis — falhar fechado não pode virar "só um pack, sempre".
+
+### Riscos do F2a
+
+- **Falso bloqueio:** se a rota do grafo ficar instável, o usuário perde a seleção múltipla
+  sem que exista conflito. É o lado certo do erro (mostrar menos, nunca mostrar errado),
+  mas se acontecer com frequência a rota é que precisa de conserto, não a regra.
+- **`serverOverlapRows` continua código morto**, agora rotulado como tal em três lugares
+  (o `prop`, o ramo do render, e o `usePackConflicts`). Deliberado: a fiação fica para o dia
+  em que a detecção server-side voltar; o que não pode é alguém confiar nela como rede.
+
+### Riscos do F2b (quando for a hora)
+
+- Exige guardar o grafo do lado do servidor (arestas + marca d'água por pack) e tratar pack
+  apagado, pack compartilhado e dois refreshes simultâneos. É a parte cara.
+- **É decisão de segurança, não de performance:** alarga a janela de grafo velho. E a
+  feature de **editar a data do pack** (em construção em outro chat) é a única ação capaz
+  de criar sobreposição onde não havia — o F2b deve vir depois dela, e essa feature precisa
+  revalidar o grafo ao salvar.
 - **Índice `INCLUDE (pack_id)`:** já não se justifica — não havia `Sort` para eliminar.
 - **`Heap Fetches` e o vazamento de 62 MB:** continuam valendo como afinação barata
   (autovacuum mais agressivo no mapa; `work_mem` na função), independentes do resto.
@@ -795,5 +854,6 @@ Uma linha por passo concluído: data, item, o que mudou, o número antes e depoi
 | Data | Item | O que foi feito | Antes | Depois |
 |---|---|---|---|---|
 | 2026-09-09 | — | Linha de base medida; plano aberto; worktree `perf/eficiencia-carregamento` criado | — | — |
+| 2026-09-09 | **F2a** | Proposta de restaurar a detecção **rejeitada pelo dono** (seria desfazer o −12% da 145; medido: 295 ms num Manager de 907 ms). Dano verificado: **nenhum**. O que ficou: o bloqueio **falhava aberto** — grafo indisponível liberava seleção múltipla e "Selecionar todos". Regra extraída em `packConflictGate.ts`, compartilhada pelos 3 caminhos; 13 testes + 4 sabotagens; 446 na suíte | grafo indisponível ⇒ **libera tudo** | grafo indisponível ⇒ **1 pack por vez** — *aguardando deploy* |
 | 2026-09-09 | **F2** | Investigação. Passo 1 confirmado (16 buscas p/ 7 refreshes). Passo 2 **derrubado**: não há `Sort`; recorte por dia inútil (99,7% compartilhados); duas passadas com ganho zero (1.392 × 1.314 ms — o "10,7→4,8 s" era cache). Achado: `x_cross_silo` fixo em `false` desde a 145 → camada 2 morta e soma duplicada silenciosa. F2 vira F2a (correção) + F2b (performance) | grafo 6 s a frio, 79×/dia | *diagnóstico corrigido; nada implementado* |
 | 2026-09-09 | **F1** | Migration 149 + `_fetch_present_parent_ids` pela RPC. Ideia original (filtrar por ids) **descartada** — teto de 1.000 linhas do PostgREST truncaria em silêncio. Diferencial em 5 silos + 4 sabotagens + 10 testes Python; 650 na suíte | 47 idas, ~1.400 ms, 358 s/dia | 1 ida, **84 ms** — *aguardando deploy* |

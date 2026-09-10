@@ -10,6 +10,10 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { ToggleSwitch } from "@/components/common/ToggleSwitch";
 import { usePackSortStore } from "@/lib/store/packSort";
 import { sortPacks } from "@/lib/utils/packSort";
+import { vetoForPack } from "@/components/common/packConflictGate";
+
+/** Identidade estável: `conflictMap` é opcional e um `new Map()` por render invalidaria o memo. */
+const EMPTY_CONFLICTS: ReadonlyMap<string, ReadonlySet<string>> = new Map();
 
 interface Pack {
   id: string;
@@ -54,9 +58,16 @@ interface PackFilterProps {
    * selecionado continua sempre possível (canToggle do FilterListPopover).
    */
   conflictMap?: Map<string, Set<string>>;
+  /**
+   * O grafo não pôde ser obtido (`usePackConflicts().isUnavailable`). Mapa vazio
+   * por FALHA não é "sem conflito", é "não sei" — e como o bloqueio é a única
+   * proteção desde a migration 145 (o read-path não deduplica mais, de
+   * propósito), "não sei" fecha a porta: só um pack por vez enquanto durar.
+   */
+  conflictUnknown?: boolean;
 }
 
-export function PackFilter({ packs, selectedPackIds, onTogglePack, onClose, className, showLabel = true, isLoading = false, packsClient = true, groupByPacks = false, onGroupByPacksChange, showGroupByPacksSwitch = false, singleSelect = false, onSelectAll, onDeselectAll, conflictMap }: PackFilterProps) {
+export function PackFilter({ packs, selectedPackIds, onTogglePack, onClose, className, showLabel = true, isLoading = false, packsClient = true, groupByPacks = false, onGroupByPacksChange, showGroupByPacksSwitch = false, singleSelect = false, onSelectAll, onDeselectAll, conflictMap, conflictUnknown = false }: PackFilterProps) {
   // Determinar se está carregando (prop explícita ou quando packsClient é false ou quando não há packs ainda)
   const isActuallyLoading = isLoading || !packsClient || packs.length === 0;
 
@@ -80,23 +91,21 @@ export function PackFilter({ packs, selectedPackIds, onTogglePack, onClose, clas
         const adCount = pack.stats?.uniqueAds || 0;
         const sharedSuffix = pack.shared_role ? " · compartilhado" : "";
 
-        // Conflito só desabilita quem está FORA da seleção; quem está dentro
-        // precisa continuar clicável para poder ser desmarcado.
-        let disabled = false;
-        let disabledHint: string | undefined;
-        if (conflictMap && !selectedPackIds.has(pack.id)) {
-          const enemies = conflictMap.get(pack.id);
-          if (enemies) {
-            for (const selectedId of selectedPackIds) {
-              if (enemies.has(selectedId)) {
-                const conflictName = nameById.get(selectedId) ?? "um pack selecionado";
-                disabled = true;
-                disabledHint = `Conflita com «${conflictName}»: os dois têm os mesmos anúncios nos mesmos dias. Desmarque um para usar o outro.`;
-                break;
-              }
-            }
-          }
-        }
+        // A regra vive em `packConflictGate` — a mesma que o "Selecionar todos" e
+        // o bloqueio da área usam. Aqui só se traduz o veto em texto.
+        const veto = vetoForPack({
+          packId: pack.id,
+          selected: selectedPackIds,
+          conflicts: conflictMap ?? EMPTY_CONFLICTS,
+          graphUnavailable: conflictUnknown,
+        });
+        const disabled = veto !== null;
+        const disabledHint =
+          veto === null
+            ? undefined
+            : veto.kind === "conflict"
+              ? `Conflita com «${nameById.get(veto.withPackId) ?? "um pack selecionado"}»: os dois têm os mesmos anúncios nos mesmos dias. Desmarque um para usar o outro.`
+              : "Não foi possível verificar conflito entre packs agora. Enquanto isso, só um pack por vez — somar packs que compartilham anúncios daria totais errados.";
 
         return {
           id: pack.id,
@@ -106,7 +115,7 @@ export function PackFilter({ packs, selectedPackIds, onTogglePack, onClose, clas
           disabledHint,
         };
       }),
-    [packs, sortKey, sortDirection, conflictMap, selectedPackIds, nameById],
+    [packs, sortKey, sortDirection, conflictMap, conflictUnknown, selectedPackIds, nameById],
   );
 
   if (hasNoPacks) {

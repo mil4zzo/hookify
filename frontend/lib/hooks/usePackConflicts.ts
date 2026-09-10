@@ -42,8 +42,25 @@ import { usePacksLoading } from "@/components/layout/PacksLoader";
  *      precisa ser invalidado, ele só deixa de ser encontrável.
  *   3. Teto de 30 min, ao montar uma tela. Cinto e suspensório para o caso que
  *      o carimbo não cobre: ninguém sai e volta para a aba, então nem o carimbo
- *      é relido. Se o grafo ainda assim envelhecer, a camada 2 (sinal `overlap`
- *      no read-path) bloqueia a tela — nunca se mostra número impreciso.
+ *      é relido.
+ *
+ * NÃO EXISTE CAMADA 2 (corrigido em 2026-09-09)
+ * ---------------------------------------------
+ * Este comentário afirmava que, se o grafo envelhecesse, "a camada 2 (sinal
+ * `overlap` no read-path) bloqueia a tela". Isso deixou de ser verdade na
+ * migration 145 — e por decisão deliberada, não por descuido: a 145 tirou o
+ * `GROUP BY` do ramo por pack da RPC do Manager justamente porque o BLOQUEIO
+ * passou a ser o mecanismo ("Por que bloquear e não deduplicar",
+ * documentation/decisoes-tecnicas.md). Foi de lá que veio o −12% do Manager.
+ * `x_cross_silo` ficou como constante `false`: o sinal `overlap` nunca é emitido.
+ *
+ * Consequência para quem mexer aqui: ESTE GRAFO É A ÚNICA PROTEÇÃO. Não há rede
+ * atrás dele. Duas coisas seguem dessa afirmação:
+ *   - reduzir a frequência da busca alarga a janela de grafo velho, e isso é
+ *     decisão de segurança, não de performance;
+ *   - e o grafo tem de FALHAR FECHADO. Mapa vazio não significa "sem conflito",
+ *     significa "não sei" — por isso `isUnavailable` existe e é separado de
+ *     `conflictMap.size === 0`.
  *
  * O gate em `packsLoading` existe pelo mesmo motivo que em `useAdPerformance`: o
  * store é persistido e rehidrata packs com `updated_at` ANTIGO antes do /packs
@@ -92,5 +109,20 @@ export function usePackConflicts() {
     conflictMap,
     pairs: query.data?.pairs ?? [],
     isLoading: query.isLoading,
+    /**
+     * O grafo NÃO pôde ser obtido (a busca falhou e o retry esgotou).
+     *
+     * Distinto de `conflictMap.size === 0`, que significa "olhei e não há
+     * conflito". Aqui é "não sei" — e como este grafo é a única proteção (ver o
+     * bloco acima), "não sei" tem de fechar a porta, não abri-la: os
+     * consumidores desabilitam a seleção de um SEGUNDO pack enquanto isto
+     * estiver ligado.
+     *
+     * `isLoading` de propósito NÃO entra aqui: durante a primeira busca a tela
+     * piscaria bloqueada em toda carga de página, e o risco real só existe
+     * depois que a busca falha em definitivo. Se o grafo chegar com conflito, o
+     * `PackConflictGuard` bloqueia na sequência.
+     */
+    isUnavailable: query.isError,
   };
 }

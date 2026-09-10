@@ -4333,6 +4333,36 @@ Memória: `manager_table_memo_signal_prop_for_cell_rerender.md` (atualizada, nã
 
 **Por que bloquear e não deduplicar.** O dedup (`row_number() over (partition by ad_id, date)`) já existia para o caso cross-silo e não pode sair: é a rede de segurança da janela entre um refresh criar sobreposição e o grafo de conflito (cache de 5 min) perceber. O que muda é que ele deixa de ser o mecanismo e vira sentinela. Bloquear é decisão de produto: analisar packs sobrepostos juntos não é o uso esperado — recortes que se cruzam se comparam separados, ou num pack que junte os dois. Pré-filtro por conta de anúncios e por janela de datas antes do EXISTS caro: 649 pares → 53 avaliados, 538 → 40 ms.
 
+> **CORREÇÃO (2026-09-09): a sentinela do parágrafo acima nunca existiu no código.** O
+> parágrafo diz que o dedup "não pode sair" e "vira sentinela". O que foi entregue não tem
+> dedup **nem** sentinela no ramo por pack: `x_cross_silo` ficou como constante `false`
+> (migration 145, linhas 666 e 684), então `overlap` nunca é emitido, `serverOverlapRows` é
+> sempre `null` e o ramo do `PackConflictGuard` que o consome é inalcançável. Foi exatamente
+> essa promessa não cumprida que, ao ser lida meses depois, gerou uma proposta de "restaurar
+> a camada 2" — proposta **rejeitada pelo dono**, e com razão: restaurar a detecção no
+> read-path é refazer o `GROUP BY` que a 145 tirou de propósito, ou seja, devolver o −12% do
+> Manager. Medido em 09/09: a detecção como consulta separada sobre 3 packs selecionados
+> custa 295 ms estáveis, num Manager de 907 ms.
+>
+> **A decisão fica como está: prevenir, não deduplicar.** O que mudou é a consequência
+> assumida — **o grafo de conflito é a única proteção, sem rede atrás**. Duas coisas seguem:
+>
+> 1. **Reduzir a frequência da busca do grafo é decisão de segurança, não de performance.**
+>    Ela alarga a janela de grafo velho. Relevante porque editar a data de um pack (feature
+>    em construção) é a única ação capaz de criar sobreposição onde não havia.
+> 2. **O bloqueio precisava falhar fechado, e não falhava.** Se a busca do grafo falhasse
+>    (`retry: 1`, depois desiste), `conflictMap` vinha vazio — e mapa vazio era lido como
+>    "sem conflito". Nada era desabilitado, o `PackConflictGuard` não bloqueava, e
+>    "Selecionar todos" marcava tudo. Ou seja: na única situação em que o app não sabia se
+>    havia conflito, ele liberava. Corrigido em 09/09 — a regra virou uma função pura
+>    (`components/common/packConflictGate.ts`) compartilhada pelo veto por item, pelo atalho
+>    bulk e pelo bloqueio da área, porque escrita três vezes ela já havia divergido uma.
+>
+> **Dano verificado: nenhum.** Zero anúncio-dia em 2+ packs em **qualquer** silo (medido em
+> 09/09), zero na época da 145, e nenhum pack criado ou editado desde então (`pack_action_log`
+> só tem refresh, sync de planilha, status, orçamento e share) — e sobreposição só nasce
+> quando a *definição* de dois packs passa a se cruzar. O risco nunca se materializou.
+
 **Por que NÃO é uma jogada de performance de leitura — e as três correções que custou saber.** As primeiras medições diziam "leitura 3–7× mais rápida". Eram reproduções minhas do *formato* de consulta (escopo → dedup → join), que é ~13% do tempo do Manager; o resto é agregação por grupo, igual nos dois. A forma 4 nem usava o índice por nome que a rota de detalhe real usa. Medidas as RPCs reais, com JSON idêntico no diferencial: Manager 1,59 s → 1,38–1,41 s (−12%, só porque o `keys` perdeu um `GROUP BY` que o bloqueio tornou desnecessário); detalhe ~70 ms → ~68 ms por nome, 48 → 69 ms por adset (o índice de adset saiu; o prefixo do pack varre o pack e filtra em memória). O que a re-chaveagem compra: correção (acima), `delete_pack` trivial, índices 233 → ~101 MB (desenhados pelas `pg_stat_user_indexes` de produção, não traduzidos: dois índices carregavam 99,9% do uso; o maior, 99 MB, foi usado 445 vezes na vida), escrita 3–7× mais barata (3 índices em vez de 8), gatilho do rollup idêntico (o custo mora em `derive_row`).
 
 **Por que o mapa fica (fase 1).** Continua escrito pelo refresh e lido por `detect_pack_conflicts` e por leitores do backend; ganhou FK para a chave nova e virou derivável de `ad_metrics.pack_id`. Sai na fase 2, junto com o índice de compatibilidade `(id, user_id)`, quando nenhum consumidor casar por `id` (hoje: `batch_update_ad_metrics_enrichment` e `calculate_pack_stats_essential`). Trocar armazenamento e todo o caminho de leitura no mesmo cutover era superfície demais para validar de uma vez.

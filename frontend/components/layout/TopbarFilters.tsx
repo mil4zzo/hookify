@@ -50,13 +50,18 @@ export function TopbarFilters() {
   const packsRef = useRef(packs)
 
   // Camada 1 do bloqueio de conflito: grafo de conflito (qualquer dono, desde a 145) p/ desabilitar na selecao.
-  const { conflictMap } = usePackConflicts()
+  // `isUnavailable` = a busca do grafo falhou. Como o bloqueio e a UNICA protecao
+  // (a 145 tirou o dedup do read-path de proposito), sem grafo o app fecha a porta:
+  // so um pack por vez. Ver usePackConflicts.
+  const { conflictMap, isUnavailable: conflictUnknown } = usePackConflicts()
   const conflictMapRef = useRef(conflictMap)
+  const conflictUnknownRef = useRef(conflictUnknown)
   const isDirtyRef = useRef(false) // tracks whether pending differs from committed
 
   useEffect(() => { packPreferencesRef.current = packPreferences }, [packPreferences])
   useEffect(() => { packsRef.current = packs }, [packs])
   useEffect(() => { conflictMapRef.current = conflictMap }, [conflictMap])
+  useEffect(() => { conflictUnknownRef.current = conflictUnknown }, [conflictUnknown])
 
   // Sync pending state when the store changes externally (initial load, syncPacksOnLoad)
   // Only sync when the popover is closed (isDirty=false means no pending local edits)
@@ -88,7 +93,18 @@ export function TopbarFilters() {
   // visual do popover não pega esse caso — ver selectVisibleRespectingConflicts). Avisamos
   // no toast: pular calado se lê como bug.
   const handleSelectAllPacks = useCallback((visibleIds: string[]) => {
-    const { next, skipped } = selectVisibleRespectingConflicts(pendingPackIdsRef.current, visibleIds, conflictMapRef.current)
+    // FALHA FECHADA: "selecionar todos" e a porta larga — ela nao passa pelo veto
+    // visual de item nenhum. Sem grafo, marcar todos e exatamente o estado que o
+    // bloqueio existe para impedir, so que de uma vez.
+    //
+    // Recuso o clique INTEIRO em vez de deixar passar o primeiro (que e o que a
+    // regra pura permitiria, e ela segue valendo como rede): "selecionar todos"
+    // que marca um pack arbitrario da lista se le como bug, nao como protecao.
+    if (conflictUnknownRef.current) {
+      showInfo("Não foi possível verificar conflito entre packs agora. Selecione um pack por vez — somar packs que compartilham anúncios daria totais errados.")
+      return
+    }
+    const { next, skipped } = selectVisibleRespectingConflicts(pendingPackIdsRef.current, visibleIds, conflictMapRef.current, { graphUnavailable: conflictUnknownRef.current })
     pendingPackIdsRef.current = next
     isDirtyRef.current = true
     setPendingPackIds(new Set(next))
@@ -130,6 +146,7 @@ export function TopbarFilters() {
       <PackFilter
         packs={packs}
         conflictMap={conflictMap}
+        conflictUnknown={conflictUnknown}
         selectedPackIds={pendingPackIds}
         onTogglePack={handleTogglePack}
         onSelectAll={handleSelectAllPacks}

@@ -6,32 +6,51 @@ import { Button } from "@/components/ui/button";
 import { usePackConflicts } from "@/lib/hooks/usePackConflicts";
 import { useClientPacks } from "@/lib/hooks/useClientSession";
 import { useFiltersStore } from "@/lib/store/filters";
+import { selectionIsUnverifiable } from "@/components/common/packConflictGate";
 
 interface PackConflictGuardProps {
   /**
-   * Sinal do servidor (camada 2, `overlap` no payload do rankings): linhas
-   * dedupadas porque o mesmo anúncio existia em mais de um silo. Gatilho
-   * reserva para quando o grafo client-side está defasado (staleTime) — o
-   * servidor viu o conflito acontecer de fato.
+   * Sinal do servidor (`overlap` no payload do rankings): linhas dedupadas
+   * porque o mesmo anúncio existia em mais de um silo.
+   *
+   * INERTE desde a migration 145, e por decisão: ao tornar o BLOQUEIO o
+   * mecanismo, a 145 tirou o `GROUP BY` do ramo por pack da RPC e deixou
+   * `x_cross_silo` como constante `false` (ver "Por que bloquear e não
+   * deduplicar" em documentation/decisoes-tecnicas.md — foi de lá que veio o
+   * −12% do Manager). Logo `overlap` nunca é emitido e este valor é sempre null.
+   *
+   * A fiação fica para o dia em que a detecção server-side voltar. Até então,
+   * NÃO é gatilho reserva de nada: quem cobre o grafo defasado/indisponível é o
+   * `conflictUnknown` abaixo.
    */
   serverOverlapRows?: number | null;
   children: React.ReactNode;
 }
 
 /**
- * Camada 3 do bloqueio de conflito: a rede de segurança.
+ * A última barreira do bloqueio de conflito.
  *
- * A camada 1 impede ENTRAR no estado ruim (packs conflitantes desabilitados na
- * seleção). Mas há caminhos que não passam pelo clique: a seleção persistida
- * reidrata depois de um refresh que criou o conflito, ou um grant novo chega
- * com a seleção já montada. Aqui, em vez de renderizar uma análise imprecisa,
- * a área inteira vira um bloqueio que EXPLICA e oferece a saída — desmarcar um
- * dos packs. Sem modal: o estado é da página, não um aviso por cima dela.
+ * A camada 1 (`PackFilter`) impede ENTRAR no estado ruim: pack conflitante fica
+ * desabilitado na seleção. Mas há caminhos que não passam pelo clique — a
+ * seleção é persistida e reidrata depois de um refresh que criou o conflito, ou
+ * um grant novo chega com a seleção já montada. Aqui, em vez de renderizar uma
+ * análise imprecisa, a área inteira vira um bloqueio que EXPLICA e oferece a
+ * saída — desmarcar um dos packs. Sem modal: o estado é da página, não um aviso
+ * por cima dela.
  *
  * "Impreciso é impreciso": não existe versão degradada da análise.
+ *
+ * DOIS MOTIVOS PARA BLOQUEAR, e o segundo é o que faz isto FALHAR FECHADO
+ * ----------------------------------------------------------------------
+ *   1. O grafo aponta um par conflitante dentro da seleção — nomeia os packs.
+ *   2. O grafo NÃO PÔDE SER OBTIDO e há 2+ packs somando (`conflictUnknown`).
+ *      Mapa vazio por falha não é "sem conflito", é "não sei"; e desde a
+ *      migration 145 não existe nada atrás deste bloqueio (o read-path deixou
+ *      de deduplicar, de propósito — ver `serverOverlapRows`). Liberar no
+ *      "não sei" era abrir justamente a porta que este componente fecha.
  */
 export function PackConflictGuard({ serverOverlapRows, children }: PackConflictGuardProps) {
-  const { conflictMap } = usePackConflicts();
+  const { conflictMap, isUnavailable: conflictUnknown } = usePackConflicts();
   const { packs } = useClientPacks();
   const packPreferences = useFiltersStore((s) => s.packPreferences);
   const setPackPreferences = useFiltersStore((s) => s.setPackPreferences);
@@ -56,7 +75,15 @@ export function PackConflictGuard({ serverOverlapRows, children }: PackConflictG
     return pairs;
   }, [selectedIds, conflictMap]);
 
-  const blocked = conflictingPairs.length > 0 || (serverOverlapRows ?? 0) > 0;
+  // FALHA FECHADA: o grafo não pôde ser obtido E há 2+ packs somando na tela.
+  // A camada 1 (PackFilter) impede ADICIONAR um segundo pack nessa situação, mas
+  // não desfaz uma seleção que já estava montada quando a busca falhou — seleção
+  // é persistida e rehidrata. Sem grafo não há como nomear o par, então a saída
+  // é revisar a seleção.
+  const unknownWithMultiple = selectionIsUnverifiable(selectedIds, conflictUnknown);
+
+  const blocked =
+    conflictingPairs.length > 0 || (serverOverlapRows ?? 0) > 0 || unknownWithMultiple;
   if (!blocked) return <>{children}</>;
 
   const unselect = (packId: string) => {
@@ -68,11 +95,15 @@ export function PackConflictGuard({ serverOverlapRows, children }: PackConflictG
       <div className="flex max-w-xl flex-col items-center gap-4 text-center">
         <IconAlertTriangle className="h-8 w-8 text-warning" />
         <div className="space-y-1">
-          <h2 className="text-lg font-semibold text-text">Packs em conflito na seleção</h2>
+          <h2 className="text-lg font-semibold text-text">
+            {unknownWithMultiple && conflictingPairs.length === 0
+              ? "Não foi possível verificar conflito entre packs"
+              : "Packs em conflito na seleção"}
+          </h2>
           <p className="text-sm text-muted-foreground">
-            Os packs abaixo contêm os mesmos anúncios nos mesmos dias. Analisá-los juntos
-            duplicaria (ou descartaria) dados — os totais deixariam de ser exatos. Desmarque
-            um pack de cada par para continuar, ou crie um pack que junte os dois recortes.
+            {unknownWithMultiple && conflictingPairs.length === 0
+              ? "A verificação de packs que compartilham anúncios falhou. Com mais de um pack somando, não há como garantir que os totais estejam exatos — então preferimos não mostrá-los. Deixe um pack selecionado, ou recarregue a página para tentar de novo."
+              : "Os packs abaixo contêm os mesmos anúncios nos mesmos dias. Analisá-los juntos duplicaria (ou descartaria) dados — os totais deixariam de ser exatos. Desmarque um pack de cada par para continuar, ou crie um pack que junte os dois recortes."}
           </p>
         </div>
 
@@ -97,9 +128,24 @@ export function PackConflictGuard({ serverOverlapRows, children }: PackConflictG
               </div>
             ))}
           </div>
+        ) : unknownWithMultiple ? (
+          // Sem grafo não há par para nomear: ofereço desmarcar qualquer um dos
+          // selecionados, o que já basta para sair do estado (1 pack nunca soma
+          // em duplicidade).
+          <div className="flex w-full flex-wrap items-center justify-center gap-2">
+            {selectedIds.map((id) => (
+              <Button key={id} variant="outline" size="sm" onClick={() => unselect(id)}>
+                Desmarcar «{nameById.get(id) ?? id}»
+              </Button>
+            ))}
+          </div>
         ) : (
-          // Grafo local ainda não viu o par, mas o SERVIDOR dedupou linhas nesta
-          // resposta (camada 2). Sem nomes para apontar, a saída é revisar a seleção.
+          // Sinal `overlap` do servidor. INERTE hoje: a migration 145 fixou
+          // `x_cross_silo` em `false` ao tornar o bloqueio o mecanismo (ver
+          // "Por que bloquear e não deduplicar" em decisoes-tecnicas.md), então
+          // `serverOverlapRows` é sempre null e este ramo não é alcançado. A
+          // fiação fica para o dia em que a detecção server-side voltar; não
+          // confie nela como rede de segurança enquanto isto estiver escrito.
           <p className="text-2xs text-muted-foreground">
             O servidor detectou {serverOverlapRows} linha{(serverOverlapRows ?? 0) === 1 ? "" : "s"} em
             conflito na seleção atual. Revise os packs selecionados no filtro acima.
