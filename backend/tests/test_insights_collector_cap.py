@@ -49,7 +49,7 @@ def _pages(n_pages, rows_per_page=2, endless=False):
 
 @pytest.fixture(autouse=True)
 def _sem_delay_nem_usage(monkeypatch):
-    monkeypatch.setattr(ic, "PAGE_DELAY_S", 0)
+    monkeypatch.setattr(ic, "_page_delay", lambda headers: 0)
     monkeypatch.setattr(ic, "log_meta_usage", lambda *a, **k: None)
 
 

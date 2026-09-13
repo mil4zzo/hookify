@@ -9,22 +9,43 @@ from typing import Any, Callable, Dict, List, Optional, TYPE_CHECKING
 import requests
 
 from app.core.config import META_GRAPH_BASE_URL
-from app.services.meta_usage_logger import log_meta_usage
+from app.services.meta_usage_logger import (
+    _max_buc_metric,
+    _max_buc_regain,
+    _parse_app_usage,
+    _parse_json_header,
+    log_meta_usage,
+)
 
 if TYPE_CHECKING:
     from app.services.job_tracker import JobTracker
 
 logger = logging.getLogger(__name__)
 
-# Limite de paginas para evitar loops infinitos
-MAX_PAGES = 100
-# Limite de registros por pagina
-PAGE_LIMIT = 500
-# Retry config
+# Teto: MAX_PAGES x PAGE_LIMIT = 50.000 linhas. E protecao contra gravar recorte como se
+# fosse o relatorio inteiro (ver `collection_is_complete`), nao detalhe de paginacao: ao
+# mexer num, ajustar o outro para o teto continuar em 50.000.
+MAX_PAGES = 50
+# Registros por pagina. 1000 medido em 2026-09-13: o mesmo relatorio (3.758 linhas) veio
+# identico ao de 500, em ~40% menos tempo (15-17 s contra 25-28 s). 2000 devolveu HTTP 500
+# em 2026-09-07.
+PAGE_LIMIT = 1000
+# Retry de falha transitoria (rede, 5xx)
 MAX_RETRIES = 3
 RETRY_DELAYS = [2, 4, 8]
-# Delay entre paginas para evitar rate limit
-PAGE_DELAY_S = 1
+# Espera quando a Meta responde "limite atingido". Somadas (105 s) ficam abaixo do lease de
+# processamento do job (300 s): o job nao perde a posse enquanto espera.
+RATE_LIMIT_DELAYS = [15, 30, 60]
+# Codigos de limite da Graph/Marketing API: #4 app, #17 usuario, #32 pagina, #613 chamadas,
+# 80000-80014 business use case.
+_RATE_LIMIT_CODES = {4, 17, 32, 613}
+_BUC_RATE_LIMIT_CODES = range(80000, 80015)
+# Espera entre paginas. O 1 s fixo nao protegia contra nada medido: em 14 dias (4.291
+# paginas) o uso informado pela Meta nunca passou de 1%, e o bloqueio #4 de 2026-09-07 veio
+# de 40+ relatorios criados no dia, nao da leitura de paginas. A espera agora e curta e cresce
+# com o uso que a propria resposta informa; sem cabecalho legivel, fica como era.
+PAGE_DELAY_S = 0.25
+PAGE_DELAY_NO_HEADER_S = 1.0
 # HTTP status codes que justificam retry
 _RETRYABLE_STATUS_CODES = {429, 500, 502, 503}
 
@@ -45,17 +66,89 @@ def _is_retryable(exc: Exception) -> bool:
     return False
 
 
+def _rate_limit_code(exc: Exception) -> Optional[int]:
+    """Codigo de erro da Meta quando a excecao e "limite atingido"; senao None."""
+    if not isinstance(exc, requests.exceptions.HTTPError) or exc.response is None:
+        return None
+    try:
+        code = int(((exc.response.json() or {}).get("error") or {}).get("code"))
+    except Exception:
+        return None
+    if code in _RATE_LIMIT_CODES or code in _BUC_RATE_LIMIT_CODES:
+        return code
+    return None
+
+
+def _page_delay(headers) -> float:
+    """Quanto esperar antes da proxima pagina, pelo uso que a Meta informou nesta resposta.
+
+    Cresce com o maior uso visto entre x-business-use-case-usage, x-app-usage e
+    x-ad-account-usage. Conta ja bloqueada (estimated_time_to_regain_access > 0) espera o
+    primeiro degrau do limite. Sem nenhum valor legivel, mantem o 1 s de antes: sem sinal,
+    nao acelera.
+    """
+    if headers is None:
+        return PAGE_DELAY_NO_HEADER_S
+    buc = _parse_json_header(headers, "x-business-use-case-usage")
+    app = _parse_app_usage(headers)
+    acc = _parse_json_header(headers, "x-ad-account-usage")
+
+    values: List[float] = []
+    if isinstance(buc, dict):
+        if _max_buc_regain(buc):
+            return float(RATE_LIMIT_DELAYS[0])
+        for metric in ("call_count", "total_cputime", "total_time"):
+            value = _max_buc_metric(buc, metric)
+            if value is not None:
+                values.append(value)
+    if isinstance(app, dict):
+        values.extend(
+            float(app[m]) for m in ("call_count", "total_cputime", "total_time")
+            if isinstance(app.get(m), (int, float))
+        )
+    if isinstance(acc, dict) and isinstance(acc.get("acc_id_util_pct"), (int, float)):
+        values.append(float(acc["acc_id_util_pct"]))
+
+    if not values:
+        return PAGE_DELAY_NO_HEADER_S
+    usage = max(values)
+    if usage >= 90:
+        return 15.0
+    if usage >= 75:
+        return 5.0
+    if usage >= 50:
+        return 2.0
+    return PAGE_DELAY_S
+
+
 def _fetch_with_retry(url: str, timeout: int = 60) -> requests.Response:
-    """Faz GET com retry e backoff exponencial para erros transientes."""
-    last_exc: Optional[Exception] = None
-    for attempt in range(MAX_RETRIES):
+    """GET com retry: backoff curto para falha transitoria, espera longa para limite da Meta.
+
+    Antes, "limite atingido" (HTTP 400 com codigo #4/#17/#613/800xx) nao era retentado e
+    derrubava o job inteiro. Agora espera RATE_LIMIT_DELAYS e tenta de novo; se o limite
+    persistir depois de todas as esperas, levanta como antes.
+    """
+    attempt = 0
+    rate_limit_waits = 0
+    while True:
         try:
             response = requests.get(url, timeout=timeout)
             response.raise_for_status()
             log_meta_usage(response, "InsightsCollector")
             return response
         except Exception as exc:
-            last_exc = exc
+            code = _rate_limit_code(exc)
+            if code is not None:
+                if rate_limit_waits >= len(RATE_LIMIT_DELAYS):
+                    raise
+                delay = RATE_LIMIT_DELAYS[rate_limit_waits]
+                rate_limit_waits += 1
+                logger.warning(
+                    "[InsightsCollector] Meta informou limite atingido (#%s); esperando %ds (%d/%d)",
+                    code, delay, rate_limit_waits, len(RATE_LIMIT_DELAYS),
+                )
+                time.sleep(delay)
+                continue
             if not _is_retryable(exc) or attempt >= MAX_RETRIES - 1:
                 raise
             delay = RETRY_DELAYS[attempt]
@@ -63,8 +156,8 @@ def _fetch_with_retry(url: str, timeout: int = 60) -> requests.Response:
                 "[InsightsCollector] Tentativa %d/%d falhou (%s), retry em %ds...",
                 attempt + 1, MAX_RETRIES, exc, delay,
             )
+            attempt += 1
             time.sleep(delay)
-    raise last_exc  # type: ignore[misc]
 
 
 class InsightsCollector:
@@ -158,8 +251,8 @@ class InsightsCollector:
                         ),
                     }
 
-                # Delay entre paginas para evitar rate limit
-                time.sleep(PAGE_DELAY_S)
+                # Espera guiada pelo uso que a pagina anterior informou
+                time.sleep(_page_delay(getattr(response, "headers", None)))
 
                 page_count += 1
                 next_url = insights_data["paging"]["next"]

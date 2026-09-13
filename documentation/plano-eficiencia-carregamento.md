@@ -54,7 +54,7 @@ Herdadas da filosofia do projeto (`CLAUDE.md`) e do que já custou caro neste ap
 | **F2a** | **Bloqueio falha fechado** — grafo indisponível liberava tudo em silêncio | ~1 tarde | **correção**, custo zero no caminho normal | baixo | ✅ **falta só o deploy** |
 | **F2b** | Grafo de conflito: 6 s a frio, 79×/dia. Incremental por pack custa 196 ms | ~2 dias | −1,2 a 6 s de disputa, 79×/dia | **decisão de segurança** — alarga a janela de grafo velho | ⏸️ depois da feature de editar data |
 | **F3** | Linha-zero sintética nunca sobrescreve linha real | ~2 h | fecha a classe de bug dos R$ 12 mil | baixo | ⏸️ **absorvido pelo F5** (a linha sintética deixa de existir) — só fazer se o F5 atrasar |
-| **F4** | Página de 1.000 + espera guiada pelo cabeçalho da Meta | ~meio dia | −5% no refresh incremental, −14% na recarga completa | baixo | ⬜ |
+| **F4** | Página de 1.000 + espera curta guiada pelo uso + espera e nova tentativa no limite da Meta | ~meio dia | −10 a −12 s num refresh de ~3,8 mil linhas (medido); limite da Meta deixa de derrubar o job | baixo | ✅ **falta só o deploy** |
 | **F5** | Inventário fora de `ad_metrics` (fim das linhas-zero gravadas) | ~1 semana | −550 mil linhas (−78% em `ad_metrics`, rollup e mapa); refresh grava menos; F2 fica leve | médio — mapeado item a item (§8) | ✅ **modelo aprovado 13/09** · ⬜ não iniciado · 1 decisão pendente (§8.7) |
 | **M1** | `thumbnail-cache` devolvendo 404 — 267× em 10 h | ? | ruído + requisição inútil em laço | ? | ⬜ |
 | **M2** | `AD_METRICS_IMPORT` falha ao parsear data — 230× em 10 h | ? | dado da planilha possivelmente perdido | ? | ⬜ |
@@ -64,7 +64,7 @@ Herdadas da filosofia do projeto (`CLAUDE.md`) e do que já custou caro neste ap
 | **F6** | Tooltip no card da planilha: leads por situação, com nº e % (§8-bis) | ~meio dia | descarte hoje é silencioso | baixo | ⬜ aprovado 13/09 |
 | **M6** | Filtros `CPM / CTR de link / Connect rate / Page conv < X` casam com anúncio sem impressão (0 fabricado) | ? | filtro, Board e Critério errados | ? | ⬜ |
 
-**Ordem recomendada (revista em 13/09):** deploy de F1 + F2a → **F5** (absorve o F3) → F6 → F4 → F2b → M1/M2/M3/M6.
+**Ordem recomendada (revista em 13/09):** deploy de F1 + F2a + F4 → **F5** (absorve o F3) → F6 → F2b → M1/M2/M3/M6.
 
 F1 (feito) e F2b são os que atacam a queixa de lentidão de 09/09. Mas o **F2a entrou na
 frente do F2b**: a investigação do F2 descobriu que o grafo de conflito é a única proteção
@@ -614,58 +614,87 @@ ramificações `if sintética` no meio do pipeline — a marca é só um campo q
 
 ---
 
-## 7. F4 — página de 1.000 e espera guiada pelo cabeçalho
+## 7. F4 — página de 1.000, espera curta e limite da Meta com nova tentativa
 
-**Estado:** ⬜
+**Estado:** ✅ implementado, testado e medido em 2026-09-13 — **falta só o deploy** (sem
+migration). O desenho original ("espera guiada pelo cabeçalho") **caiu por medição** e foi
+trocado; o registro do porquê está abaixo.
 
-### O que acontece
+### O que a medição derrubou
 
-O coletor lê o relatório da Meta em páginas de 500 e **dorme 1 segundo cego** entre uma e
-outra. Quanto isso pesa, no job inteiro:
+O plano dizia que a espera de 1 s entre páginas era proteção e que guiá-la pelo cabeçalho de
+uso da Meta seria mais seguro. Os dados de `meta_api_usage` mostram outra coisa:
 
-| Tipo de job | Duração | Linhas | Páginas | **Espera cega** | % do job |
-|---|---|---|---|---|---|
-| Incremental típico | 131 s | 3.566 | 8 | 8 s | 6% |
-| Incremental pesado (CA4) | 256 s | 8.634 | 18 | 18 s | 7% |
-| Todo o período | 289 s | 19.810 | 40 | 40 s | **14%** |
+| Medida | Resultado |
+|---|---|
+| Uso informado nas 4.291 páginas de relatório dos últimos 14 dias | **nunca passou de 1%** |
+| Maior uso informado em qualquer chamada no dia 07/09, quando deu `(#4)` | **2%** — o cabeçalho não avisou |
+| Origem do `(#4)` de 07/09 | **40+ relatórios criados** no dia de experimentos (decisoes-tecnicas.md:1457), não leitura de páginas |
+| Erros de limite da Meta nos logs de produção, 7 dias | **0** |
+| Tempo de resposta de uma página (500 linhas) | mediana 1,5 s, p90 2,4 s |
 
-### O que fazer
+Conclusão: a espera guiada escolheria sempre a mínima, e o cabeçalho não teria evitado o
+incidente. A proteção real contra limite é **reagir ao erro**, não dormir às cegas.
 
-1. **`PAGE_LIMIT` 500 → 1.000.** Testado contra a Meta em 07/09: 1.000 funciona; 2.000
-   devolve HTTP 500. Ajustar `MAX_PAGES` de 100 → 50 para **preservar o teto de 50.000
-   linhas** — o teto é proteção contra corromper dado, não um detalhe de paginação.
-2. **Trocar `PAGE_DELAY_S` por espera guiada** pelos cabeçalhos de uso
-   (`x-business-use-case-usage` / `x-ad-account-usage`) que o `meta_usage_logger` já lê e
-   grava em `meta_api_usage`. Recuar de verdade acima de ~75% de uso; quase não esperar
-   abaixo de ~25%.
+### Diferencial contra a Meta (mesmo relatório, 13/09)
 
-### Ganho esperado
+Relatório `28505175629078202` (EI.31 - CA8, 3.758 linhas), lido com página de 500 e de 1.000:
 
-−5% no refresh do dia a dia, −14% na recarga completa. **Real, mas modesto** — não é aqui
-que mora a lentidão de 09/09.
+- **Linhas idênticas**: mesmo multiconjunto de linhas com valores, 0 só num lado, 0 chaves
+  duplicadas.
+- **Tempo, com a ordem alternada** (a 1ª rodada, 1.000 depois de 500, deu 29,8 s × 22,8 s por
+  uma página de 15,7 s — acaso da Meta; a regra 2 deste plano existe por isso):
 
-### O revés, que é o ponto importante deste item
+| rodada | 1.000 | 500 |
+|---|---|---|
+| 1 | 17,3 s (4 páginas) | 28,0 s (8 páginas) |
+| 2 | 15,4 s (4 páginas) | 25,5 s (8 páginas) |
 
-A espera de 1 s **é proteção**. Em 07/09 batemos no limite de requisições **no nível do
-app** (`(#4) Application request limit reached`) depois de 40+ relatórios num dia.
+### O que foi feito (`insights_collector.py`)
 
-Simplesmente remover a espera aumenta esse risco. A versão guiada pelo cabeçalho é
-**mais segura** que a atual — ela recua quando a Meta avisa que está carregada, coisa que o
-sleep cego não faz (espera de menos quando precisa e de mais quando não precisa). Mas
-"só tirar a espera" seria um erro, e não é isso que este item propõe.
+1. **`PAGE_LIMIT` 500 → 1.000** e **`MAX_PAGES` 100 → 50**: o teto continua em 50.000 linhas.
+2. **Espera entre páginas `_page_delay`**: 0,25 s com folga; 2 s a partir de 50% de uso, 5 s a
+   partir de 75%, 15 s a partir de 90% ou com conta já bloqueada. Olha o maior valor entre
+   `x-business-use-case-usage`, `x-app-usage` e `x-ad-account-usage`. **Sem cabecalho legível,
+   1 s, como antes**: sem sinal, não acelera.
+3. **Limite da Meta com espera e nova tentativa**: antes, `(#4)`, `(#17)`, `(#32)`, `(#613)` e
+   800xx derrubavam o job na hora. Agora espera 15, 30 e 60 s e tenta de novo; se persistir,
+   desiste e a coleta sai **incompleta** (nunca vira sucesso). As esperas somadas (105 s)
+   cabem no lease de processamento do job (300 s).
 
-### Teste de aceitação
+### O que foi testado
 
-1. **Diferencial:** coletar o **mesmo** `report_run_id` com página de 500 e de 1.000 e
-   afirmar que o conjunto de linhas é idêntico (chave `{date}-{ad_id}`, e os valores).
-2. O teste de teto existente (`backend/tests/test_insights_collector_cap.py`) tem que
-   continuar passando **com os números novos** — 50 páginas × 1.000 = as mesmas 50.000
-   linhas. Ajustar as constantes do teste, jamais o significado.
-3. Teste da espera: alimentar cabeçalhos sintéticos (5%, 50%, 90% de uso) e afirmar que a
-   espera cresce monotonicamente. Sabotar: com o cabeçalho a 90%, se a espera não crescer,
-   o teste falha.
-4. Não medir contra a conta `act_375919623592885` em horário comercial enquanto houver
-   risco de throttle. Preferir fora do expediente.
+`backend/tests/test_insights_collector_pacing.py` (22 testes) e o teste de teto existente.
+
+**4 sabotagens rodadas**, cada uma falhando nos testes da regra correspondente:
+
+| sabotagem | falha em |
+|---|---|
+| espera fixa, ignorando o uso | degraus, monotonia, uso do app, "coleta usa o uso da página anterior" (6) |
+| sem nova tentativa no limite | reconhecimento dos 7 códigos, espera e nova tentativa, limite no meio da paginação, limite persistente (10) |
+| página de 2.000 | `teto de produção continua em 50 mil linhas` |
+| acelerar sem cabeçalho | `sem cabeçalho não acelera`, `cabeçalho ilegível` |
+
+**Suíte completa do backend: 672 passando.**
+
+### Ganho
+
+Num refresh do tamanho do CA8 (3,8 mil linhas): **−10 a −12 s** na coleta. Recarga completa
+(~20 mil linhas, 40 → 20 páginas): estimado **−40 a −55 s**. Com o resto do refresh intacto
+(inventário, enriquecimento, gravação), o refresh do dia a dia continua dominado por outras etapas.
+
+### Riscos
+
+- **Mais leituras por segundo na mesma conta.** Mitigado: cada página já leva ~1,5–4 s para
+  responder, a fila de refresh é serial por usuário, e o limite agora é tratado com espera.
+- **A espera reativa não cobre a criação de relatórios** (`start_ads_job`), que foi a origem do
+  `(#4)` de 07/09. Fora do escopo do F4; é o assunto do M5 (quantos refreshes por dia).
+
+### Como comprovar em produção
+
+Depois de 24 h: em `meta_api_usage`, as linhas `InsightsCollector` por job devem cair pela
+metade; a duração média dos jobs de refresh (consulta 10.6) deve cair; e nenhum job deve
+falhar com erro de limite.
 
 ---
 
@@ -1018,3 +1047,4 @@ Uma linha por passo concluído: data, item, o que mudou, o número antes e depoi
 | 2026-09-09 | **F2** | Investigação. Passo 1 confirmado (16 buscas p/ 7 refreshes). Passo 2 **derrubado**: não há `Sort`; recorte por dia inútil (99,7% compartilhados); duas passadas com ganho zero (1.392 × 1.314 ms — o "10,7→4,8 s" era cache). Achado: `x_cross_silo` fixo em `false` desde a 145 → camada 2 morta e soma duplicada silenciosa. F2 vira F2a (correção) + F2b (performance) | grafo 6 s a frio, 79×/dia | *diagnóstico corrigido; nada implementado* |
 | 2026-09-09 | **F1** | Migration 149 + `_fetch_present_parent_ids` pela RPC. Ideia original (filtrar por ids) **descartada** — teto de 1.000 linhas do PostgREST truncaria em silêncio. Diferencial em 5 silos + 4 sabotagens + 10 testes Python; 650 na suíte | 47 idas, ~1.400 ms, 358 s/dia | 1 ida, **84 ms** — *aguardando deploy* |
 | 2026-09-13 | **F5** | Revisão de colaterais: 549.625 linhas sintéticas (78%, não 81,6%); 94% de anúncios hoje não entregáveis; 162.960 anteriores à criação (noite 06→07/09); mapa de leitores em SQL/backend/frontend. **Modelo aprovado**: métricas só com dado real + inventário com primeira/última vez ativo. F3 absorvido. Planilha não cria linha nesta versão (CRM grava data anterior); 49 leads em aberto (§8.7). F6 (tooltip) e M6 (filtros com 0 fabricado) abertos | 550 mil linhas-zero | *aprovado, não iniciado* |
+| 2026-09-13 | **F4** | Espera guiada **caiu por medição** (uso ≤ 1% em 4.291 páginas; 2% no dia do `(#4)`, que veio de relatórios criados). Página de 1.000 (diferencial contra a Meta: linhas idênticas; 15–17 s × 25–28 s com ordem alternada) + espera curta crescente com o uso + espera e nova tentativa no limite da Meta. 22 testes, 4 sabotagens, 672 na suíte | 8 páginas, ~27 s, limite derruba o job | 4 páginas, ~16 s, limite espera — *aguardando deploy* |
