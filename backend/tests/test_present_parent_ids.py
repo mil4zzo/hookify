@@ -1,7 +1,7 @@
 """
 `_fetch_present_parent_ids` le o escopo do inventario de UMA chamada a RPC.
 
-O QUE ISTO TRAVA (migration 149, 2026-09-09)
+O QUE ISTO TRAVA (migration 151, 2026-09-09)
 --------------------------------------------
 Antes, isto paginava a tabela `ads` inteira do usuario (46.581 linhas de mil em mil)
 para aproveitar duas colunas. Medido em producao, era o MAIOR consumidor do banco:
@@ -10,7 +10,7 @@ entao cada pagina custava mais que a anterior (2 ms na primeira, 59 ms na quadra
 
 Agora e `present_parent_ids(p_user_id)`, que agrega no servidor e devolve dois arrays.
 A equivalencia do RESULTADO esta provada no lado SQL, contra todo silo real do
-laboratorio, em `supabase/tests/149_escopo_de_pais.test.sql`. Aqui se trava o lado
+laboratorio, em `supabase/tests/151_escopo_de_pais.test.sql`. Aqui se trava o lado
 Python: a forma da chamada e a traducao da resposta em conjuntos.
 
 POR QUE NAO FILTRAR PELOS IDS QUE O CHAMADOR JA TEM
@@ -48,7 +48,7 @@ class _FakeSB:
     def table(self, nome):
         # Nenhuma tabela deve ser tocada por este caminho.
         self.tabelas_tocadas.append(nome)
-        raise AssertionError(f"tabela `{nome}` tocada — o escopo vem da RPC (149)")
+        raise AssertionError(f"tabela `{nome}` tocada — o escopo vem da RPC (151)")
 
 
 def _run(sb, user_id="u1"):

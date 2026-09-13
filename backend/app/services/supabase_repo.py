@@ -677,7 +677,7 @@ def upsert_ads(
 def _fetch_present_parent_ids(sb: "Client", user_id: str) -> Tuple[set, set]:
     """(campaign_ids, adset_ids) com linhas em `ads` para o usuário — escopo real do inventário.
 
-    UMA chamada à RPC `present_parent_ids` (migration 149), que agrega no servidor e
+    UMA chamada à RPC `present_parent_ids` (migration 151), que agrega no servidor e
     devolve dois arrays.
 
     Antes daqui isto era uma varredura paginada da tabela `ads` inteira do usuário
@@ -691,7 +691,7 @@ def _fetch_present_parent_ids(sb: "Client", user_id: str) -> Tuple[set, set]:
     o PostgREST devolveria uma linha por ANÚNCIO (não por campanha) e o teto silencioso
     de 1.000 linhas cortaria a resposta sem erro — campanhas sumiriam do escopo e ficariam
     com orçamento e status por gravar. Com a agregação no servidor não há linha para
-    truncar. O teste `supabase/tests/149_escopo_de_pais.test.sql` trava isso com um silo
+    truncar. O teste `supabase/tests/151_escopo_de_pais.test.sql` trava isso com um silo
     de 1.200 campanhas.
 
     O filtro de vazio continua aqui, e não só no SQL: a RPC descarta NULL, este laço
@@ -930,7 +930,7 @@ def write_parent_entity_statuses(
     payload estreito preserva o resto da linha.
 
     Sem `_fetch_present_parent_ids` de proposito, e o motivo mudou de natureza na
-    migration 149: aquele filtro deixou de ser caro (era uma varredura paginada de
+    migration 151: aquele filtro deixou de ser caro (era uma varredura paginada de
     `ads`, 47 paginas; virou uma RPC de 84 ms), mas continua sem cabimento AQUI.
     Ele existe para podar snapshots de conta inteira, que trazem milhares de pais
     fora do escopo. Neste caminho os ids vem de uma acao explicita do usuario sobre

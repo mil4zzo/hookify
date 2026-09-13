@@ -1,4 +1,4 @@
--- Teste da 149: `present_parent_ids` tem de devolver EXATAMENTE o mesmo escopo
+-- Teste da 151: `present_parent_ids` tem de devolver EXATAMENTE o mesmo escopo
 -- que a varredura paginada de `ads` que ela substitui — nos casos de borda e em
 -- todo silo do laboratorio.
 --
@@ -46,15 +46,15 @@ END $$;
 \set u_vizin  '''00000000-0000-4000-8000-00000000014c'''
 
 INSERT INTO public.ads (ad_id, user_id, campaign_id, adset_id) VALUES
-  ('t149-nulo-1', :u_nulos::uuid, NULL, NULL),
-  ('t149-nulo-2', :u_nulos::uuid, NULL, 'adset-real-149');
+  ('t151-nulo-1', :u_nulos::uuid, NULL, NULL),
+  ('t151-nulo-2', :u_nulos::uuid, NULL, 'adset-real-151');
 
 INSERT INTO public.ads (ad_id, user_id, campaign_id, adset_id)
-SELECT 't149-g-' || i, :u_grande::uuid, 'camp-' || lpad(i::text, 5, '0'), 'adset-' || lpad(i::text, 5, '0')
+SELECT 't151-g-' || i, :u_grande::uuid, 'camp-' || lpad(i::text, 5, '0'), 'adset-' || lpad(i::text, 5, '0')
 FROM generate_series(1, 1200) i;
 
 INSERT INTO public.ads (ad_id, user_id, campaign_id, adset_id) VALUES
-  ('t149-vizinho', :u_vizin::uuid, 'camp-do-vizinho', 'adset-do-vizinho');
+  ('t151-vizinho', :u_vizin::uuid, 'camp-do-vizinho', 'adset-do-vizinho');
 
 -- B5 PRIMEIRO: silo nao vaza para silo. Vem antes de B4 porque a sabotagem que
 -- tira o `where user_id` tambem quebraria a contagem de B4 — com B4 na frente,
@@ -103,7 +103,7 @@ SELECT pg_temp.expect(
 SELECT pg_temp.expect(
   'B2.nulos-fora-do-array',
   (SELECT campaign_ids::text || ' / ' || adset_ids::text FROM public.present_parent_ids(:u_nulos::uuid)),
-  '{} / {adset-real-149}');
+  '{} / {adset-real-151}');
 
 -- B1: silo sem ads devolve UMA linha com dois arrays vazios (nao zero linhas).
 --     Guarda de FORMA, nao de logica: agregacao sem GROUP BY sempre devolve uma
@@ -162,6 +162,6 @@ SELECT pg_temp.expect(
   (SELECT (count(*) >= 1)::text FROM t_dif WHERE cardinality(c_new) > 0 AND cardinality(a_new) > 0),
   'true');
 
-SELECT '149 OK — 8 bordas + diferencial em todos os silos' AS resultado;
+SELECT '151 OK — 8 bordas + diferencial em todos os silos' AS resultado;
 
 ROLLBACK;

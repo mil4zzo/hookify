@@ -149,7 +149,7 @@ PAGE_DELAY_S = 1     # espera cega entre páginas
 ## 4. F1 — a varredura de `ads` por OFFSET
 
 **Estado:** ✅ implementado e testado em 2026-09-09 — **falta aplicar a migration em
-produção e fazer o deploy**. Migration `149_escopo_de_pais_sem_varredura.sql`.
+produção e fazer o deploy**. Migration `151_escopo_de_pais_sem_varredura.sql`.
 
 ### O que acontece
 
@@ -196,7 +196,7 @@ interpretada como "não existe".
 
 ### O que foi feito
 
-**Migration 149** cria `public.present_parent_ids(p_user_id uuid)`, que agrega no servidor
+**Migration 151** cria `public.present_parent_ids(p_user_id uuid)`, que agrega no servidor
 e devolve **dois arrays** — não há linha para truncar. O backend faz **uma** chamada.
 
 A forma da consulta também foi medida antes de escolher:
@@ -219,7 +219,7 @@ mas `ads` é upsertada em massa a cada refresh e todo índice novo é imposto a 
 
 ### O que foi testado
 
-**SQL — `supabase/tests/149_escopo_de_pais.test.sql`**, no laboratório (5 silos reais,
+**SQL — `supabase/tests/151_escopo_de_pais.test.sql`**, no laboratório (5 silos reais,
 60.645 ads):
 
 - **Diferencial** contra a lógica da varredura antiga, conjunto a conjunto, em **todo**
@@ -261,7 +261,7 @@ contrato do chamador não mudar. Medido em produção: **zero** strings vazias h
 
 ### Deploy — nesta ordem
 
-1. `psql "$DB" -f supabase/migrations/149_escopo_de_pais_sem_varredura.sql`
+1. `psql "$DB" -f supabase/migrations/151_escopo_de_pais_sem_varredura.sql`
 2. Só então o backend. **A ordem importa:** o backend novo chama uma função que precisa
    existir. O backend antigo convive com a função nova sem problema (não a chama).
 
@@ -1045,6 +1045,6 @@ Uma linha por passo concluído: data, item, o que mudou, o número antes e depoi
 | 2026-09-09 | — | Linha de base medida; plano aberto; worktree `perf/eficiencia-carregamento` criado | — | — |
 | 2026-09-09 | **F2a** | Proposta de restaurar a detecção **rejeitada pelo dono** (seria desfazer o −12% da 145; medido: 295 ms num Manager de 907 ms). Dano verificado: **nenhum**. O que ficou: o bloqueio **falhava aberto** — grafo indisponível liberava seleção múltipla e "Selecionar todos". Regra extraída em `packConflictGate.ts`, compartilhada pelos 3 caminhos; 13 testes + 4 sabotagens; 446 na suíte | grafo indisponível ⇒ **libera tudo** | grafo indisponível ⇒ **1 pack por vez** — *aguardando deploy* |
 | 2026-09-09 | **F2** | Investigação. Passo 1 confirmado (16 buscas p/ 7 refreshes). Passo 2 **derrubado**: não há `Sort`; recorte por dia inútil (99,7% compartilhados); duas passadas com ganho zero (1.392 × 1.314 ms — o "10,7→4,8 s" era cache). Achado: `x_cross_silo` fixo em `false` desde a 145 → camada 2 morta e soma duplicada silenciosa. F2 vira F2a (correção) + F2b (performance) | grafo 6 s a frio, 79×/dia | *diagnóstico corrigido; nada implementado* |
-| 2026-09-09 | **F1** | Migration 149 + `_fetch_present_parent_ids` pela RPC. Ideia original (filtrar por ids) **descartada** — teto de 1.000 linhas do PostgREST truncaria em silêncio. Diferencial em 5 silos + 4 sabotagens + 10 testes Python; 650 na suíte | 47 idas, ~1.400 ms, 358 s/dia | 1 ida, **84 ms** — *aguardando deploy* |
+| 2026-09-09 | **F1** | Migration 151 + `_fetch_present_parent_ids` pela RPC. Ideia original (filtrar por ids) **descartada** — teto de 1.000 linhas do PostgREST truncaria em silêncio. Diferencial em 5 silos + 4 sabotagens + 10 testes Python; 650 na suíte | 47 idas, ~1.400 ms, 358 s/dia | 1 ida, **84 ms** — *aguardando deploy* |
 | 2026-09-13 | **F5** | Revisão de colaterais: 549.625 linhas sintéticas (78%, não 81,6%); 94% de anúncios hoje não entregáveis; 162.960 anteriores à criação (noite 06→07/09); mapa de leitores em SQL/backend/frontend. **Modelo aprovado**: métricas só com dado real + inventário com primeira/última vez ativo. F3 absorvido. Planilha não cria linha nesta versão (CRM grava data anterior); 49 leads em aberto (§8.7). F6 (tooltip) e M6 (filtros com 0 fabricado) abertos | 550 mil linhas-zero | *aprovado, não iniciado* |
 | 2026-09-13 | **F4** | Espera guiada **caiu por medição** (uso ≤ 1% em 4.291 páginas; 2% no dia do `(#4)`, que veio de relatórios criados). Página de 1.000 (diferencial contra a Meta: linhas idênticas; 15–17 s × 25–28 s com ordem alternada) + espera curta crescente com o uso + espera e nova tentativa no limite da Meta. 22 testes, 4 sabotagens, 672 na suíte | 8 páginas, ~27 s, limite derruba o job | 4 páginas, ~16 s, limite espera — *aguardando deploy* |

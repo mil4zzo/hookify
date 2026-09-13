@@ -47,11 +47,11 @@ class _Query:
     def execute(self):
         if self.op == "select":
             if self.table == "ads":
-                # Desde a migration 149 o escopo vem da RPC `present_parent_ids`, não de
+                # Desde a migration 151 o escopo vem da RPC `present_parent_ids`, não de
                 # uma varredura paginada de `ads`. Se alguém reintroduzir a varredura,
                 # este teste tem de quebrar em vez de passar silenciosamente.
                 raise AssertionError(
-                    "varredura de `ads` reintroduzida — o escopo é da RPC present_parent_ids (149)"
+                    "varredura de `ads` reintroduzida — o escopo é da RPC present_parent_ids (151)"
                 )
             ids = set(self.filtros.get("entity_id", []))
             rows = [dict(r, entity_id=eid) for eid, r in self.db["parent_entities"].items() if eid in ids]
@@ -81,7 +81,7 @@ class _FakeSB:
         return _Query(nome, self.db, self.registro)
 
     def rpc(self, nome, params):
-        """`present_parent_ids` (migration 149): o servidor agrega e devolve dois arrays."""
+        """`present_parent_ids` (migration 151): o servidor agrega e devolve dois arrays."""
         self.rpcs.append((nome, dict(params)))
         assert nome == "present_parent_ids", f"RPC inesperada: {nome}"
         campanhas = sorted({r["campaign_id"] for r in self.db["ads"] if r.get("campaign_id")})

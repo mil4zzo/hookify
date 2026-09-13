@@ -1,5 +1,5 @@
 -- ===========================================================================
--- 149. O escopo de pais deixa de ser uma varredura de `ads`.
+-- 151. O escopo de pais deixa de ser uma varredura de `ads`.
 --
 -- POR QUE
 -- -------
@@ -91,7 +91,7 @@ COMMENT ON FUNCTION public.present_parent_ids(uuid) IS
   'Campanhas e conjuntos com anúncio importado no silo do usuário, como dois arrays. '
   'Filtro de escopo de upsert_parent_entities. SECURITY INVOKER de propósito: a RLS de '
   '`ads` vale para o cliente com JWT, e o service role usa p_user_id como silo explícito '
-  '(convenção P3.3b). Ver migration 149.';
+  '(convenção P3.3b). Ver migration 151.';
 
 GRANT EXECUTE ON FUNCTION public.present_parent_ids(uuid) TO authenticated, service_role;
 

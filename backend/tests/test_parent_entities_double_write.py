@@ -55,11 +55,11 @@ class _FakeQuery:
     def execute(self):
         if self.op == "select":
             if self.table == "ads":
-                # Desde a migration 149 o escopo do inventario vem da RPC
+                # Desde a migration 151 o escopo do inventario vem da RPC
                 # `present_parent_ids`, agregada no servidor. Reintroduzir a varredura
                 # paginada de `ads` tem de quebrar o teste, nao passar em silencio.
                 raise AssertionError(
-                    "varredura de `ads` reintroduzida - o escopo e da RPC present_parent_ids (149)"
+                    "varredura de `ads` reintroduzida - o escopo e da RPC present_parent_ids (151)"
                 )
             inicio, fim = self._range or (0, 999)
             dados = self._linhas_select[inicio : fim + 1]
@@ -91,7 +91,7 @@ class _FakeSB:
 
     def __init__(self, ads_presentes=None):
         self.registro = []
-        # Escopo real do inventario. Desde a migration 149 ele vem da RPC
+        # Escopo real do inventario. Desde a migration 151 ele vem da RPC
         # `present_parent_ids` (agregada no servidor), nao de uma varredura de `ads`.
         self._linhas_ads = ads_presentes or []
         self.rpcs = []
@@ -185,7 +185,7 @@ class TestWriteParentEntityStatuses(unittest.TestCase):
     def test_nao_consulta_o_escopo(self):
         # O toggle age sobre entidades que o usuario esta vendo na tela: por construcao
         # ja sao do escopo dele. Consultar o escopo aqui e perguntar o que ja se sabe.
-        # (Ate a migration 149 isso tambem custava 47 paginas sobre `ads`; hoje custa uma
+        # (Ate a migration 151 isso tambem custava 47 paginas sobre `ads`; hoje custa uma
         # RPC de 84 ms — o motivo mudou de natureza, a conclusao nao.)
         sb = _FakeSB(ads_presentes=[{"campaign_id": "c1", "adset_id": "a1"}])
         with patch.object(
