@@ -4751,3 +4751,14 @@ lenta por causa de uma única página de 15,7 s. Com a ordem alternada, 1.000 fi
 
 **Nota:** chamadas que falham não aparecem em `meta_api_usage`, porque o registro só acontece
 depois de `raise_for_status()`.
+
+## Esperar o deploy pela trava, não por `pgrep -f` (2026-09-13)
+
+Um vigia `ssh "while pgrep -f deploy.sh; do sleep 10; done; ..."` **nunca termina**: o `bash -c`
+do próprio vigia contém o texto `deploy.sh`, e o `pgrep -f` casa consigo mesmo. No deploy de
+13/09 isso deixou o vigia girando depois de um deploy bem-sucedido, e havia mais dois vigias
+órfãos de sessões anteriores, com o mesmo defeito, em loop no servidor.
+
+O `deploy.sh` já segura `flock /tmp/hookify_deploy.lock` durante toda a execução. Esperar essa
+trava (`flock /tmp/hookify_deploy.lock true`) termina exatamente quando o deploy termina, sem
+casar com nada.
