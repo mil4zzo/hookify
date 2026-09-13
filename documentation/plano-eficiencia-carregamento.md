@@ -62,9 +62,10 @@ Herdadas da filosofia do projeto (`CLAUDE.md`) e do que já custou caro neste ap
 | **M4** | Quedas transitórias de HTTP/2 — 69× em 10 h | — | já absorvidas pelo retry; só monitorar | — | 📊 |
 | **M5** | 7–9 refreshes por pack por dia | decisão | −60% de leitura da Meta se cair para 3–4 | — | ⏸️ |
 | **F6** | Tooltip no card da planilha: leads por situação, com nº e % (§8-bis) | ~meio dia | descarte hoje é silencioso | baixo | ⬜ aprovado 13/09 |
+| **F7** | `upsert_ads` regrava todos os anúncios do pack a cada refresh, sem conferir se mudaram (§4-bis) | ~meio dia | 8,7 GB de WAL em 18 dias numa tabela de 276 MB; as regravações desfazem parte do ganho da 152 | baixo | ⬜ |
 | **M6** | Filtros `CPM / CTR de link / Connect rate / Page conv < X` casam com anúncio sem impressão (0 fabricado) | ? | filtro, Board e Critério errados | ? | ⬜ |
 
-**Ordem recomendada (revista em 13/09):** deploy de F1 + F2a + F4 → **F5** (absorve o F3) → F6 → F2b → M1/M2/M3/M6.
+**Ordem recomendada (revista em 13/09):** ~~deploy de F1 + F2a + F4~~ ✅ → **F5** (absorve o F3) → F7 → F6 → F2b → M1/M2/M3/M6.
 
 F1 (feito) e F2b são os que atacam a queixa de lentidão de 09/09. Mas o **F2a entrou na
 frente do F2b**: a investigação do F2 descobriu que o grafo de conflito é a única proteção
@@ -270,6 +271,52 @@ contrato do chamador não mudar. Medido em produção: **zero** strings vazias h
 Depois de 24 h em produção, repetir a consulta 10.2 do apêndice: a linha
 `SELECT campaign_id, adset_id FROM ads ...` deve **parar de crescer** em `calls`, e
 `present_parent_ids` deve aparecer com ~1 chamada por refresh e média perto de 84 ms.
+
+---
+
+## 4-bis. F1 no ar: os 0,6 s eram cache frio — migration 152 (13/09)
+
+No ar, `present_parent_ids` levou média de ~0,6 s pelo PostgREST (usuário logado: 563 ms,
+mínimo 69 ms; refresh com service role: **1.786 ms**, mínimo 78 ms). Não os 84 ms do lab.
+
+**O que NÃO era:** RLS. A policy de `ads` já usa `(select auth.uid())`, avaliado uma vez, e o
+caminho **sem** RLS era justamente o mais lento.
+
+**O que era:** o plano usava `ads_user_idx (user_id)` e ia à tabela buscar `campaign_id` e
+`adset_id` de cada um dos 54.009 anúncios do silo. Isso tocava **23.034 das 35.364 páginas**
+de `ads`. A frio, 1.387 ms e 18.921 blocos (~150 MB) lidos do disco; a quente, 110 ms. Com
+`shared_buffers` de 256 MB, cada refresh expulsava do cache os dados que o Manager lê em seguida.
+
+**Correção (migration 152, aplicada em 13/09, 5,8 s, sem travar a tabela):**
+`ads_user_adset_idx (user_id, adset_id)` virou `(user_id, adset_id) INCLUDE (campaign_id)`.
+Não há índice a mais: o antigo saiu no mesmo passo.
+
+| Estado | Páginas lidas | Visitas à tabela | Tempo |
+|---|---|---|---|
+| Antes da 152 | 23.034 | todas | 1.387 ms frio / 110 ms quente |
+| Depois da 152, logo após 7 refreshes | 11.016 | 10.788 | 63 ms |
+| Depois da 152 + `VACUUM` (100% visível) | **593** | **0** | **38 ms** |
+| Laboratório, antes → depois | 14.222 → 415 | → 0 | resultado idêntico |
+
+**O ganho do dia a dia fica entre 2× e 39×**, conforme quanto os refreshes regravam `ads` entre
+um autovacuum e outro. É isso que o **F7** ataca.
+
+### F7 — `upsert_ads` regrava o que não mudou ⬜
+
+`supabase_repo.upsert_ads` (`:566`) faz `upsert` de **todos** os anúncios do pack a cada refresh.
+`upsert_parent_entities` já grava só o que mudou (`:845`, "nenhuma mudou"); `ads` não.
+
+- `pg_stat_statements` desde 26/08 (18 dias): o upsert de `ads` fez 5.587 chamadas, 663 s de
+  banco e **8,7 GB de WAL**. A tabela tem 276 MB de heap e 173 MB de TOAST. O upsert do cache de
+  miniaturas somou mais 3,1 GB.
+- Cada regravação tira a página do mapa de visibilidade (desfaz o index-only scan da 152), gera
+  tupla morta e reescreve o TOAST do `creative`.
+
+A fazer: aplicar o mesmo padrão "grava só o que mudou" em `upsert_ads`. Cuidado conhecido
+(memória `optimization_select_must_include_trigger_field`): o SELECT de comparação precisa trazer
+todo campo que decide a gravação. Teste de aceitação: diferencial do conteúdo de `ads` antes e
+depois de um refresh (tem de ser idêntico), sabotagem (campo esquecido na comparação tem de
+fazer o teste falhar) e medição de WAL por refresh.
 
 ---
 
@@ -1049,3 +1096,4 @@ Uma linha por passo concluído: data, item, o que mudou, o número antes e depoi
 | 2026-09-13 | **F5** | Revisão de colaterais: 549.625 linhas sintéticas (78%, não 81,6%); 94% de anúncios hoje não entregáveis; 162.960 anteriores à criação (noite 06→07/09); mapa de leitores em SQL/backend/frontend. **Modelo aprovado**: métricas só com dado real + inventário com primeira/última vez ativo. F3 absorvido. Planilha não cria linha nesta versão (CRM grava data anterior); 49 leads em aberto (§8.7). F6 (tooltip) e M6 (filtros com 0 fabricado) abertos | 550 mil linhas-zero | *aprovado, não iniciado* |
 | 2026-09-13 | **F4** | Espera guiada **caiu por medição** (uso ≤ 1% em 4.291 páginas; 2% no dia do `(#4)`, que veio de relatórios criados). Página de 1.000 (diferencial contra a Meta: linhas idênticas; 15–17 s × 25–28 s com ordem alternada) + espera curta crescente com o uso + espera e nova tentativa no limite da Meta. 22 testes, 4 sabotagens, 672 na suíte | 8 páginas, ~27 s, limite derruba o job | 4 páginas, ~16 s, limite espera — *aguardando deploy* |
 | 2026-09-13 | **deploy** | F1 (migration renumerada 149→151, aplicada antes do backend) + F2a + F4 + leadscore 147/148 no ar (`095e04f`). 7 refreshes depois do deploy, todos ok, 0 erro de limite. Mesmo pack, tamanho parecido: CA8 135 s → 89 s; CA6 79 s → 57 s. **A observar:** `present_parent_ids` via PostgREST com média ~0,6 s (algumas ~1,8 s), não os 84 ms do lab — suspeita: RLS por linha com JWT do usuário | CA8 135 s · CA6 79 s | CA8 89 s · CA6 57 s — *confirmar em 24 h* |
+| 2026-09-13 | **F1 / 152** | Os 0,6 s do F1 no ar eram cache frio, não RLS: o plano tocava 23 mil das 35 mil páginas de `ads`. Migration 152 (índice com `INCLUDE (campaign_id)`, no lugar do antigo) aplicada em produção: 593 páginas e 38 ms com a tabela limpa; 11 mil páginas logo após refreshes. Aberto o F7: `upsert_ads` regrava tudo (8,7 GB de WAL em 18 dias) | 23.034 páginas · 1.387 ms frio | 593–11.016 páginas · 38–63 ms |

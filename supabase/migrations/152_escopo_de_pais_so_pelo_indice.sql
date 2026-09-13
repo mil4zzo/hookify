@@ -1,0 +1,56 @@
+-- ===========================================================================
+-- 152. O escopo de pais passa a ser respondido só pelo índice.
+--
+-- POR QUE
+-- -------
+-- A 151 trocou 47 páginas de OFFSET por uma chamada a `present_parent_ids`. No ar
+-- (13/09) a função levou ~0,6 s em média pelo PostgREST, e não os 84 ms do
+-- laboratório. O RLS NÃO era a causa (a policy de `ads` já usa `(select auth.uid())`,
+-- avaliado uma vez). A causa é cache:
+--
+--   produção, silo com 54.009 anúncios:
+--     1ª execução ... 1.387 ms, 18.921 blocos lidos do disco (~150 MB)
+--     2ª execução ...   110 ms
+--   pg_stat_statements: service_role (refresh) média 1.786 ms, 92.185 blocos lidos
+--   em 7 chamadas; mínimo 78 ms quando quente.
+--
+-- O plano usava `ads_user_idx (user_id)` e ia à tabela buscar `campaign_id` e
+-- `adset_id` de cada anúncio: 23 mil das 35 mil páginas de `ads` por chamada. Num
+-- banco com shared_buffers de 256 MB, cada refresh puxava ~180 MB para o cache e
+-- expulsava de lá os dados que o Manager lê em seguida.
+--
+-- O QUE MUDA
+-- ----------
+-- `ads_user_adset_idx (user_id, adset_id)` vira `(user_id, adset_id) INCLUDE
+-- (campaign_id)`. Com as duas colunas no índice, a consulta vira Index Only Scan.
+--
+--   laboratório (silo de 43.903 anúncios, visibilidade 100%):
+--     antes ... 14.222 páginas tocadas
+--     depois ...   415 páginas, Heap Fetches 0, resultado idêntico
+--   Em produção a tabela está 89,5% visível e o refresh acabou de reescrever parte
+--   das linhas, então haverá algumas visitas à tabela: esperado 10x ou mais, não 34x.
+--
+-- CUSTO DE ESCRITA: nenhum índice a mais. O antigo sai no mesmo passo, e
+-- `campaign_id` já é indexado (`ads_campaign_idx`), então as atualizações que hoje
+-- são HOT continuam HOT. O índice passa de 3,5 MB para ~4,5 MB. A busca por
+-- (user_id, adset_id) continua usando o índice (conferido no plano do laboratório).
+--
+-- COMO APLICAR
+-- ------------
+-- CONCURRENTLY não roda dentro de transação: este arquivo NÃO tem BEGIN/COMMIT, e
+-- deve ser aplicado com `psql -f`, sem `-1`. A tabela não trava para escrita.
+-- Se a criação falhar no meio, sobra um índice INVALID. Conferir com:
+--   select indexrelid::regclass, indisvalid from pg_index
+--   where indrelid = 'public.ads'::regclass;
+-- e, se inválido, `DROP INDEX CONCURRENTLY ads_user_adset_campaign_idx` e reaplicar.
+--
+-- ROLLBACK
+-- --------
+--   CREATE INDEX CONCURRENTLY ads_user_adset_idx ON public.ads (user_id, adset_id);
+--   DROP INDEX CONCURRENTLY public.ads_user_adset_campaign_idx;
+-- ===========================================================================
+
+CREATE INDEX CONCURRENTLY IF NOT EXISTS ads_user_adset_campaign_idx
+  ON public.ads USING btree (user_id, adset_id) INCLUDE (campaign_id);
+
+DROP INDEX CONCURRENTLY IF EXISTS public.ads_user_adset_idx;
