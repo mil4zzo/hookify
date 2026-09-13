@@ -4582,3 +4582,172 @@ semântica (`text-text` ≡ `text-foreground` em 107 arquivos, e no claro nem co
 `brand` ≡ `primary`; `secondary` ≡ `card`), 5 raios, 189 textos em 10px. Plano em 5 fases
 (F0 contrato + checker → F1 aliases → F2 cortar alpha p/ 3 degraus → F3 repintar por tela
 → F4 forma), aguardando aprovação. Artefato: "Auditoria de Tokens do Hookify".
+
+---
+
+## A planilha de leadscore é UM arquivo renomeado a cada lançamento — o nome guardado envelhece por desenho
+
+**Data:** 2026-09-09 · status: **implementado (migrations 147 e 148 APLICADAS; revalidação passiva na listagem de packs + marca de renomeação com "estou ciente")**
+
+**Contexto:** um pack antigo continuava exibindo "EI.30 - PTRAFEGO DADOS" no card e no dialog
+depois de a planilha ter sido renomeada para "EI.31". A conferência em produção mostrou que
+não são três planilhas: as 25 linhas de `ad_sheet_integrations` apontam para o **mesmo**
+`spreadsheet_id` — 6 dizem EI.29, 12 dizem EI.30, 7 dizem EI.31. É um único arquivo do Drive,
+renomeado a cada lançamento, com o conteúdo trocado.
+
+**Como funciona hoje.** `ad_sheet_integrations.spreadsheet_name` é texto persistido, não é lido
+do Google a cada tela. É escrito em dois momentos: na criação do vínculo
+(`google_integration.py`) e, desde `ba8e4f9`, no início de cada sync
+(`_refresh_spreadsheet_name`, em `ad_metrics_sheet_importer.py`) — que reconfere no Drive,
+grava o nome novo e devolve o antigo para a mensagem de resumo. Os read-paths
+(`list_packs`, `get_pack`, `GET /ad-sheet-integrations`) usam o valor guardado; a listagem só
+vai ao Drive quando o campo está NULL. **Nenhuma tela revalida sozinha.**
+
+**Consequência prática.** Pack que não sincroniza desde a renomeação fica com o nome velho
+para sempre — e o caso concreto foi pior: aqueles packs sincronizaram pela última vez em
+07/09 às 14:0x local, poucas horas **antes** do commit que introduziu o refresh. Nunca rodaram
+um sync com o mecanismo ativo.
+
+**O risco que isso esconde.** O vínculo antigo não aponta para uma planilha morta: aponta para
+o arquivo vivo do lançamento atual. Um sync disparado nele (manual ou pelo "Manter atualizado")
+lê os leads do EI.31 dentro de um pack EI.30. O que segura hoje é o match por `ad_id`+data mais
+o escopo de pack — o sync sai como `warning`/"nenhuma linha aplicada" em vez de contaminar.
+Isso é coincidência de que os ads não se repetem entre lançamentos, não uma trava.
+
+**Regra derivada.** Nome defasado é o estado normal de pack encerrado, não anomalia. E
+revalidar custa pouco se deduplicado: **um** `get_spreadsheet_name` por `spreadsheet_id`
+distinto resolve todos os vínculos (≈1–5 chamadas ao Drive, não 25). Memória:
+`sheet_same_file_renamed_each_launch.md`.
+
+### O que foi construído
+
+`POST /integrations/google/ad-sheet-integrations/revalidate-names`
+(`sheet_name_revalidation.py`), chamado em segundo plano pela listagem de packs
+(`useRevalidateSheetNames`, montado no `PacksLoader`) depois que a carga termina.
+
+- **Dedupe por (conexão, `spreadsheet_id`)** — é o que torna a rota barata o bastante para
+  viver num read-path. Sem ele seria uma chamada por vínculo e a ideia inteira cairia.
+- **Sem skeleton, de propósito.** Já temos um nome e ele está certo em quase todo
+  carregamento; trocar um nome correto por uma barra cinza na tela de entrada do app
+  pagaria custo visual garantido para consertar um caso raro. *Stale-while-revalidate*:
+  pinta o guardado na hora, troca no lugar se voltar diferente.
+- **Marca persistente `spreadsheet_renamed_from` (migration 147).** Consertar o nome em
+  silêncio APAGARIA A EVIDÊNCIA da troca — que é justamente o que o usuário não quer
+  esquecer. Sai sozinha no primeiro sync que aplica linhas; num sync que não aplicou nada
+  ela FICA, porque renomeação + nenhuma linha é a combinação que conta a história do
+  arquivo trocado.
+- **Silêncio é requisito.** `get_spreadsheet_name` levanta `GOOGLE_TOKEN_EXPIRED` no 401, e
+  esse código chegando ao front dispara o evento global `google-token-expired` — o app
+  pediria "reconecte sua conta Google" sozinho, no meio de uma navegação qualquer. A rota
+  engole tudo e devolve 200 com lista vazia. Falha nunca sobrescreve o nome guardado.
+- **Escopo: só o que o chamador é dono.** A credencial do Google é do dono
+  (`google_shared_pack_credential_owner_silo`); gastar a cota dele porque um convidado
+  abriu uma tela seria cobrar de quem não pediu.
+- **Piso de 15 min** por usuário no cliente (chave de localStorage com escopo por
+  `user_id`): F5 seguido não reconfere.
+
+### Revisão de 148: o penúltimo nome, e uma saída barata
+
+Duas correções de produto sobre a 147, ambas do idealizador:
+
+**A marca guarda o penúltimo nome, não o original.** A 147 gravava só na primeira
+renomeação, para preservar o nome com que o vínculo nasceu. A pergunta que o aviso
+responde, porém, é "o que mudou desde a última vez que olhei?" — e num arquivo renomeado
+a cada lançamento o nome de nascimento envelhece até virar trivia: depois de três
+lançamentos, "era EI.29" não ajuda a decidir nada, enquanto "antes era EI.30" descreve o
+salto que acabou de acontecer. Consequência obrigatória na cópia: "era X **originalmente**"
+virou "**antes era** X" — mantida a primeira, a frase passaria a mentir.
+
+**"Estou ciente" (`POST .../dismiss-rename`).** A marca só saía por um sync que aplicasse
+linhas. Mas quem renomeou a planilha costuma ser o próprio usuário: obrigá-lo a rodar um
+sync só para calar o aviso transforma o aviso em ruído — e **ruído permanente é ignorado
+justamente no dia em que ele estiver certo**. Só o dono dispensa (é a linha do silo dele);
+um convidado editor já tem a saída pelo sync.
+
+**Por que popover e não um "X".** O pedido era um botão discreto tipo "X". Um X solto ao
+lado do nome custa o mesmo pixel do ícone que já existe, mas deixa o usuário adivinhando
+o que ele dispensa — e some no toque, onde não há hover para revelar o contexto. O ícone
+de alerta virou um botão que abre um popover com a frase, a razão e o "Estou ciente":
+mesma pegada visual, a ação ganha rótulo, e o aviso deixa de depender de hover (o tooltip
+anterior nem era clicável, então não teria onde pendurar o botão).
+
+**Armadilha que quase passou.** `useLoadPacks` põe `isLoading` em `false` **também na fase
+pré-auth**, então `!packsLoading` não significa "packs no store". Gatear só nisso fazia o
+efeito rodar com a lista vazia, cair na guarda de "nenhuma planilha conectada" e nunca
+mais reavaliar. Por isso `packs.length` entra nas dependências — e o cancelamento foi
+amarrado ao desmonte (ref), não à lista de deps, senão cada reavaliação abortaria a
+requisição em voo.
+
+## Worktrees paralelos: número de migration colide, e sessão aberta dentro deles some do histórico (2026-09-11)
+
+Dois efeitos colaterais do trabalho em paralelo (`Hookify-chat`, `Hookify-ds`,
+`.claude/worktrees/perf-carregamento`), descobertos ao procurar uma conversa "perdida":
+
+**1. Duas migrations 149 diferentes.** Cada worktree escolheu o "próximo número" olhando só a
+própria pasta: `149_escopo_de_pais_sem_varredura` (perf) e
+`149_execute_de_funcoes_deixa_de_ser_public` + `150_chat_schema` (chat). Conferido em produção
+no mesmo dia: **nenhuma das duas foi aplicada** (a função `present_parent_ids` não existe; PUBLIC
+ainda executa `fetch_manager_rankings_core_v2`; não há tabela de chat). Como as migrations são
+aplicadas à mão via psql, sem tabela de controle, a colisão não daria erro — daria ordem ambígua e
+rollback trocado.
+
+Regra: antes de numerar uma migration, listar `supabase/migrations` de **todos** os worktrees
+(`git worktree list`) e usar o maior + 1. No merge, quem entra em segundo lugar renumera (arquivo,
+rollback, teste SQL e as referências nos docs). Como a 149 do chat revoga EXECUTE de PUBLIC, quando
+ela entrar é preciso conferir que as funções criadas por outros branches continuam executáveis por
+`authenticated`/`service_role`.
+
+**2. A conversa some do histórico.** O Claude Code arquiva cada conversa pela pasta de trabalho. A
+sessão do perf entrou no worktree e passou a ser listada só com aquela pasta aberta — com o Hookify
+aberto, o usuário não a encontrava. Os worktrees chat/ds foram trabalhados a partir da pasta
+principal (caminhos absolutos + `git -C`) e não tiveram o problema. Regra: trabalhar sempre da
+pasta principal; não mover a sessão para dentro do worktree.
+
+## Leads "sem match" da planilha não são falha do Hookify — e a planilha não cria linha (2026-09-13)
+
+Investigado ao revisar o F5 do plano de eficiência. A cada sincronização, ~138 pares
+anúncio + dia davam "não encontrado". A hipótese inicial ("lead em dia sem gasto, sem linha")
+**caiu por medição**: esse caso tem 0 leads no meio da vida do anúncio.
+
+Leitura completa da aba DADOS (60.308 leads, 7 packs do EI.31), sem gravar nada:
+
+| Situação | Leads | Natureza |
+|---|---|---|
+| `AD_ID = indefinido` | 2.845 | Orgânico (bio do IG, WhatsApp, popup), WhatsApp do comercial, YouTube. Só 3 pagos da Meta |
+| `AD_ID = {{ad.id}}` | 218 | Todas as UTMs sem preencher: clique pela Biblioteca de Anúncios (bots e espiões) |
+| Captura anterior à criação do anúncio | 129 | Data gravada pela automação do CRM, que às vezes pega data anterior; as UTMs batem com o anúncio |
+| ID real fora de qualquer pack | 46 | Metade é do próprio dia (o refresh resolve) |
+| Sem ID / sem data | 115 / 89 | Células vazias |
+
+**Decisão do idealizador:** a planilha **não cria linha** em `ad_metrics`. Criar linha para um
+lead com data fora da vida do anúncio inventaria uma entrega que não houve. Se um dia for
+necessário, a regra segura é criar só dentro de `[criação do anúncio, última vez visto ativo]`.
+
+**Consequência para o F5:** sem linha-zero, os ~49 leads que hoje caem em dia ativo sem entrega
+ficam sem destino. A decisão está em aberto no plano (§8.7). O descarte ganha visibilidade num
+tooltip do card da integração (F6).
+
+## O cabeçalho de uso da Meta não avisa antes do limite — proteção só reativa (2026-09-13)
+
+O F4 do plano de eficiência previa trocar a espera fixa de 1 s entre páginas do relatório
+por uma "espera guiada pelo cabeçalho de uso", tratada como mais segura. **A medição derrubou
+a ideia:**
+
+| Medida | Resultado |
+|---|---|
+| Uso informado em 4.291 páginas de relatório (14 dias) | nunca passou de 1% |
+| Maior uso informado em qualquer chamada no dia do `(#4)` (07/09) | 2% |
+| Origem do `(#4)` | 40+ relatórios **criados** no mesmo dia, não leitura de páginas |
+| Erros de limite nos logs de produção (7 dias) | 0 |
+
+**Decisão:** página de 1.000 (diferencial contra a Meta: linhas idênticas, ~40% mais rápido),
+espera curta (0,25 s) crescente com o uso quando ele aparecer e, principalmente, **espera e
+nova tentativa ao receber o erro de limite** (#4/#17/#32/#613/800xx: 15/30/60 s). Antes, esse
+erro derrubava o job.
+
+**Armadilha de medição:** a primeira comparação (1.000 lida depois de 500) deu 1.000 mais
+lenta por causa de uma única página de 15,7 s. Com a ordem alternada, 1.000 ficou em 15–17 s e
+500 em 25–28 s.
+
+**Nota:** chamadas que falham não aparecem em `meta_api_usage`, porque o registro só acontece
+depois de `raise_for_status()`.

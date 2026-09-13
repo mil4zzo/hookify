@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict ncRi7C9jdUhR2u5aYR8RV4YLG81L4IYRywcPMaMPatYgNZvm5kh6yxBZdxydIgp
+\restrict ePTf4BMCth4loboedcSN3ezOrDo6i07583uNqotwbYPff2XZHmkxxDhAhMfnoWM
 
 -- Dumped from database version 17.6
 -- Dumped by pg_dump version 17.6
@@ -4066,7 +4066,8 @@ CREATE TABLE public.ad_sheet_integrations (
     ad_id_column_index integer,
     date_column_index integer,
     leadscore_column_index integer,
-    spreadsheet_name text
+    spreadsheet_name text,
+    spreadsheet_renamed_from text
 );
 
 
@@ -4098,6 +4099,13 @@ COMMENT ON COLUMN public.ad_sheet_integrations.last_successful_sync_at IS 'Times
 --
 
 COMMENT ON COLUMN public.ad_sheet_integrations.ad_id_column_index IS 'Índice da coluna quando há headers duplicados (0-based). Usado apenas quando ad_id_column aparece mais de uma vez.';
+
+
+--
+-- Name: COLUMN ad_sheet_integrations.spreadsheet_renamed_from; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON COLUMN public.ad_sheet_integrations.spreadsheet_renamed_from IS 'Nome imediatamente anterior da planilha, quando uma renomeacao foi detectada no Drive. NULL = nunca renomeada, ja reconciliada por um sync que aplicou linhas, ou dispensada pelo usuario ("estou ciente"). Alimenta o aviso "Renomeada: antes era X." no card do pack.';
 
 
 --
@@ -6890,5 +6898,5 @@ ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA public GRANT ALL ON T
 -- PostgreSQL database dump complete
 --
 
-\unrestrict ncRi7C9jdUhR2u5aYR8RV4YLG81L4IYRywcPMaMPatYgNZvm5kh6yxBZdxydIgp
+\unrestrict ePTf4BMCth4loboedcSN3ezOrDo6i07583uNqotwbYPff2XZHmkxxDhAhMfnoWM
 

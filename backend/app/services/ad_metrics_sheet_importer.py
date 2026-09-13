@@ -184,6 +184,7 @@ def _load_sheet_config(sb: Any, integration_id: str, user_id: str) -> Dict[str, 
         .select(
             "id, spreadsheet_id, worksheet_title, ad_id_column, date_column, "
             "leadscore_column, date_format, pack_id, connection_id, spreadsheet_name, "
+            "spreadsheet_renamed_from, "
             "ad_id_column_index, date_column_index, leadscore_column_index"
         )
         .eq("id", integration_id)
@@ -495,8 +496,15 @@ def _refresh_spreadsheet_name(sb, user_jwt, user_id, integration_id, cfg):
         "[AD_METRICS_IMPORT] Planilha renomeada na origem: '%s' -> '%s' (integracao %s)",
         stored, current, integration_id,
     )
+    # 147/148: a marca sobrevive ao sync e alimenta o aviso no card do pack, e
+    # guarda sempre o nome imediatamente ANTERIOR — o aviso responde "o que
+    # mudou desde a ultima vez que olhei?", nao "como se chamava no inicio".
+    payload = {"spreadsheet_name": current}
+    if stored:
+        payload["spreadsheet_renamed_from"] = stored
+
     try:
-        sb.table("ad_sheet_integrations").update({"spreadsheet_name": current}).eq(
+        sb.table("ad_sheet_integrations").update(payload).eq(
             "id", integration_id
         ).eq("owner_id", user_id).execute()
     except Exception as e:
@@ -504,6 +512,8 @@ def _refresh_spreadsheet_name(sb, user_jwt, user_id, integration_id, cfg):
         return stored
 
     cfg["spreadsheet_name"] = current
+    if "spreadsheet_renamed_from" in payload:
+        cfg["spreadsheet_renamed_from"] = payload["spreadsheet_renamed_from"]
     return stored
 
 
@@ -530,6 +540,11 @@ def _persist_integration_status(sb, integration_id, user_id, stats):
     }
     if applied_rows:
         payload["last_successful_sync_at"] = now_iso
+        # 147: sync que APLICOU linhas depois da renomeacao e a prova de que o
+        # conteudo novo casa com este pack — o aviso ja cumpriu o papel dele.
+        # Num sync que nao aplicou nada a marca fica: renomeacao + nenhuma linha
+        # e exatamente a combinacao que conta a historia do arquivo trocado.
+        payload["spreadsheet_renamed_from"] = None
     try:
         sb.table("ad_sheet_integrations").update(payload).eq("id", integration_id).eq(
             "owner_id", user_id

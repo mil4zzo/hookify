@@ -7,6 +7,8 @@ import { ToggleSwitch } from "@/components/common/ToggleSwitch";
 import { PackActivityDialog } from "@/components/packs/PackActivityDialog";
 import { PackShareDialog } from "@/components/packs/PackShareDialog";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Button } from "@/components/ui/button";
 import { IconLogout, IconUsers, IconFilter, IconTrash, IconLoader2, IconRotateClockwise, IconPencil, IconTableExport, IconAlertTriangle, IconAlertCircle, IconMicrophone, IconTargetArrow, IconHistory } from "@tabler/icons-react";
 import { MetaIcon, GoogleSheetsIcon } from "@/components/icons";
 import { FilterRule } from "@/lib/api/schemas";
@@ -83,6 +85,33 @@ export function PackCard({ pack, adAccountName, formatCurrency, formatDate, onRe
   const [isShareDialogOpen, setIsShareDialogOpen] = useState(false);
   const [isActivityDialogOpen, setIsActivityDialogOpen] = useState(false);
   const [isLeaving, setIsLeaving] = useState(false);
+  const [isRenameNoticeOpen, setIsRenameNoticeOpen] = useState(false);
+  const [isDismissingRename, setIsDismissingRename] = useState(false);
+
+  /**
+   * "Estou ciente": some com o aviso sem exigir um sync.
+   *
+   * Quem renomeou a planilha costuma ser o próprio usuário. Obrigá-lo a rodar um
+   * sync só para calar o aviso transformaria o aviso em ruído — e ruído
+   * permanente é ignorado justamente no dia em que ele estiver certo.
+   */
+  const handleDismissRename = async () => {
+    const integrationId = pack.sheet_integration?.id;
+    if (!integrationId || isDismissingRename) return;
+    setIsDismissingRename(true);
+    try {
+      await api.integrations.google.dismissSheetRename(integrationId);
+      // Patch local em vez de recarregar a lista: o que mudou é um campo só.
+      updatePack(pack.id, {
+        sheet_integration: { ...pack.sheet_integration, spreadsheet_renamed_from: null },
+      } as any);
+      setIsRenameNoticeOpen(false);
+    } catch (e: any) {
+      showError(e);
+    } finally {
+      setIsDismissingRename(false);
+    }
+  };
 
   const handleLeavePack = async () => {
     if (!confirm(`Sair do pack "${pack.name}"? Você deixará de ver os dados dele.`)) return;
@@ -259,6 +288,15 @@ export function PackCard({ pack, adAccountName, formatCurrency, formatDate, onRe
   const leadscoreSyncEmpty = pack.sheet_integration?.last_sync_status === "warning";
   const leadscoreSyncNotOk = leadscoreSyncFailed || leadscoreSyncEmpty;
   const leadscoreTitle = pack.sheet_integration?.spreadsheet_name || "Leadscore";
+  // 147/148: o arquivo foi renomeado no Drive desde a última conferência. A
+  // revalidação passiva já corrigiu o nome exibido — esta marca é o que impede o
+  // conserto de APAGAR A EVIDÊNCIA de que a planilha pode não ser mais a mesma.
+  // Guarda o nome imediatamente ANTERIOR: o aviso responde "o que mudou desde a
+  // última vez que olhei?". Sai por um sync que aplique linhas ou pelo "estou ciente".
+  const spreadsheetRenamedFrom = pack.sheet_integration?.spreadsheet_renamed_from || null;
+  const renameNotice = spreadsheetRenamedFrom
+    ? `Renomeada: antes era ${spreadsheetRenamedFrom}.`
+    : null;
   const hasAnyLeadscoreSyncInfo = !!(lastSuccessfulSyncAt || lastSyncAttemptAt);
   // Nos dois estados ruins o tempo mostrado é o do último SUCESSO: exibir o da
   // tentativa leria como "atualizado agora" logo depois de não atualizar nada.
@@ -536,13 +574,51 @@ export function PackCard({ pack, adAccountName, formatCurrency, formatDate, onRe
                             falta quando alguem esquece qual arquivo alimenta este pack —
                             justamente o esquecimento que faz uma planilha trocada entrar
                             sem ninguem notar. Sem integracao, volta a ser o rotulo. */}
-                        <label
-                          htmlFor={`leadscore-${pack.id}`}
-                          title={leadscoreTitle}
-                          className="font-medium text-sm text-foreground cursor-pointer truncate max-w-[13rem]"
-                        >
-                          {leadscoreTitle}
-                        </label>
+                        <div className="flex items-center gap-1 min-w-0">
+                          <label
+                            htmlFor={`leadscore-${pack.id}`}
+                            title={leadscoreTitle}
+                            className="font-medium text-sm text-foreground cursor-pointer truncate max-w-[13rem]"
+                          >
+                            {leadscoreTitle}
+                          </label>
+                          {/* Popover, não tooltip: o aviso precisa carregar uma AÇÃO
+                              ("estou ciente"), e conteúdo de hover não é clicável nem
+                              existe no toque. Um "X" solto ao lado do nome custaria o
+                              mesmo pixel e ainda deixaria o usuário adivinhando o que
+                              ele dispensa — aqui a frase e o botão vêm juntos. */}
+                          {renameNotice && (
+                            <Popover open={isRenameNoticeOpen} onOpenChange={setIsRenameNoticeOpen}>
+                              <PopoverTrigger asChild>
+                                <button
+                                  type="button"
+                                  aria-label="Planilha renomeada — ver detalhes"
+                                  className="flex-shrink-0 leading-none cursor-pointer"
+                                >
+                                  <IconAlertTriangle className="w-3.5 h-3.5 text-warning" />
+                                </button>
+                              </PopoverTrigger>
+                              <PopoverContent align="start" className="w-64 p-3">
+                                <p className="text-xs text-foreground">{renameNotice}</p>
+                                <p className="text-2xs text-muted-foreground mt-1">
+                                  Renomear costuma acompanhar troca de conteúdo. Confira se a
+                                  planilha ainda é a mesma que você vinculou.
+                                </p>
+                                {!isSharedGuest && (
+                                  <Button
+                                    size="sm"
+                                    variant="secondary"
+                                    className="w-full mt-3"
+                                    disabled={isDismissingRename}
+                                    onClick={handleDismissRename}
+                                  >
+                                    {isDismissingRename ? "Dispensando..." : "Estou ciente"}
+                                  </Button>
+                                )}
+                              </PopoverContent>
+                            </Popover>
+                          )}
+                        </div>
                         {!pack.sheet_integration ? (
                           <span className="text-2xs text-muted-foreground">Não conectado</span>
                         ) : hasAnyLeadscoreSyncInfo ? (
@@ -625,6 +701,14 @@ export function PackCard({ pack, adAccountName, formatCurrency, formatDate, onRe
                   <span className="text-xs text-muted-foreground">
                     {pack.sheet_integration.spreadsheet_name || "Planilha"} • {pack.sheet_integration.worksheet_title || "Aba"}
                   </span>
+                  {/* Largura travada: o nome antigo é texto do usuário e pode ser
+                      longo — sem isto ele esticaria o menu inteiro. A frase completa
+                      fica no title e no tooltip da face do card. */}
+                  {renameNotice && (
+                    <span title={renameNotice} className="text-2xs text-warning block max-w-[15rem] truncate">
+                      {renameNotice}
+                    </span>
+                  )}
                 </div>
               </DropdownMenuItem>
               {onEditSheetIntegration && !isSharedGuest && (

@@ -13,6 +13,7 @@ from app.core.supabase_client import get_supabase_service
 from app.services.pack_access import assert_pack_role
 from app.services import pack_action_log
 from app.services import sheet_column_mappings
+from app.services import sheet_name_revalidation
 from app.core.config import (
     GOOGLE_OAUTH_CLIENT_ID,
     GOOGLE_OAUTH_CLIENT_SECRET,
@@ -1010,6 +1011,71 @@ def sync_ad_sheet_integration(
         status_code=410,
         detail="Endpoint legado descontinuado. Utilize o fluxo assíncrono de sync-job.",
     )
+
+
+@router.post("/ad-sheet-integrations/revalidate-names")
+def revalidate_ad_sheet_names(user=Depends(get_current_user)):
+    """Reconfere no Drive o nome das planilhas vinculadas do usuario.
+
+    Existe porque o nome guardado so era reconferido dentro do sync: pack que
+    parou de sincronizar exibia para sempre o nome do ultimo sync — e como o
+    arquivo do Drive costuma ser UM SO, renomeado a cada lancamento, o vinculo
+    antigo aponta para o conteudo NOVO sem ninguem notar.
+
+    Chamada em segundo plano pela listagem de packs, entao: nunca falha (200 com
+    lista vazia no pior caso) e devolve SO os vinculos que mudaram, para a tela
+    aplicar um patch cirurgico em vez de repintar a lista inteira.
+    """
+    alterados = sheet_name_revalidation.revalidate_sheet_names(
+        user_jwt=user["token"], user_id=user["user_id"]
+    )
+    return {"integrations": alterados}
+
+
+@router.post("/ad-sheet-integrations/{integration_id}/dismiss-rename")
+def dismiss_sheet_rename(
+    integration_id: str,
+    user=Depends(get_current_user),
+):
+    """"Estou ciente": apaga a marca de renomeacao sem exigir um sync (148).
+
+    Ate aqui o aviso so saia por um sync que aplicasse linhas. Mas quem renomeou
+    a planilha costuma ser o proprio usuario: obriga-lo a rodar um sync so para
+    calar um aviso transforma o aviso em ruido — e ruido permanente e ignorado
+    justamente no dia em que ele estiver certo.
+
+    SO O DONO, como o DELETE da integracao: e uma acao sobre a linha do silo
+    dele. Um convidado editor ja tem a saida pelo sync (P3.3b), entao nada fica
+    inalcancavel; o que se evita e uma escrita cruzada de silo por um aviso.
+
+    Idempotente: dispensar duas vezes nao e erro. So a ausencia da integracao e.
+    """
+    sb = get_supabase_for_user(user["token"])
+
+    res = (
+        sb.table("ad_sheet_integrations")
+        .select("id, pack_id")
+        .eq("id", integration_id)
+        .eq("owner_id", user["user_id"])
+        .limit(1)
+        .execute()
+    )
+    if not res.data:
+        raise HTTPException(status_code=404, detail="Integração não encontrada")
+
+    try:
+        (
+            sb.table("ad_sheet_integrations")
+            .update({"spreadsheet_renamed_from": None})
+            .eq("id", integration_id)
+            .eq("owner_id", user["user_id"])
+            .execute()
+        )
+    except Exception as e:
+        logger.exception("[AD_SHEET_INTEGRATION] Falha ao dispensar aviso de renomeacao %s", integration_id)
+        raise HTTPException(status_code=500, detail=f"Falha ao dispensar o aviso: {e}")
+
+    return {"success": True, "integration_id": integration_id}
 
 
 @router.get("/ad-sheet-integrations")

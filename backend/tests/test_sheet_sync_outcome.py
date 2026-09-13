@@ -191,9 +191,51 @@ def _run_rename(monkeypatch, current_name, cfg=None, boom=False):
 def test_renomeada_devolve_o_nome_antigo_e_grava_o_novo(monkeypatch):
     old, sb, cfg = _run_rename(monkeypatch, "Planilha NOVA")
     assert old == "Planilha antiga"
-    assert sb.sink["payload"] == {"spreadsheet_name": "Planilha NOVA"}
+    # 147: além do nome novo, a marca persistente — é ela que mantém a troca
+    # visível no card depois que o nome já foi corrigido.
+    assert sb.sink["payload"] == {
+        "spreadsheet_name": "Planilha NOVA",
+        "spreadsheet_renamed_from": "Planilha antiga",
+    }
     # A config em memória segue para o resto do sync já com o nome certo.
     assert cfg["spreadsheet_name"] == "Planilha NOVA"
+    assert cfg["spreadsheet_renamed_from"] == "Planilha antiga"
+
+
+def test_marca_avanca_para_o_penultimo_a_cada_renomeacao(monkeypatch):
+    """148: a marca é sempre o nome imediatamente anterior, nunca o de nascimento.
+
+    Presa no primeiro nome, ela envelheceria até virar trivia: depois de três
+    lançamentos "era EI.29" não ajuda a decidir nada, enquanto "antes era EI.30"
+    descreve o salto que acabou de acontecer.
+    """
+    cfg = _cfg("EI.30")
+    cfg["spreadsheet_renamed_from"] = "EI.29"
+    old, sb, cfg = _run_rename(monkeypatch, "EI.31", cfg=cfg)
+    assert old == "EI.30"
+    assert sb.sink["payload"] == {
+        "spreadsheet_name": "EI.31",
+        "spreadsheet_renamed_from": "EI.30",
+    }
+    assert cfg["spreadsheet_renamed_from"] == "EI.30"
+
+
+def test_sync_que_aplicou_linhas_limpa_a_marca(monkeypatch):
+    """Sync bem-sucedido depois da renomeação = o conteúdo novo casa com o pack.
+
+    O aviso já cumpriu o papel dele. Num sync que NÃO aplicou nada a marca fica:
+    renomeação + nenhuma linha é a combinação que conta a história do arquivo
+    trocado, e apagá-la ali seria apagar justamente o alerta que importa.
+    """
+    import app.services.ad_metrics_sheet_importer as mod
+
+    sb = _FakeSBIntegrations()
+    mod._persist_integration_status(sb, "integ-1", "user-1", {"updated_rows": 7})
+    assert sb.sink["payload"]["spreadsheet_renamed_from"] is None
+
+    sb_vazio = _FakeSBIntegrations()
+    mod._persist_integration_status(sb_vazio, "integ-1", "user-1", {"updated_rows": 0})
+    assert "spreadsheet_renamed_from" not in sb_vazio.sink["payload"]
 
 
 def test_mesmo_nome_nao_escreve_no_banco(monkeypatch):
