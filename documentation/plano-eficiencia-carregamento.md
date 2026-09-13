@@ -53,16 +53,18 @@ Herdadas da filosofia do projeto (`CLAUDE.md`) e do que já custou caro neste ap
 | ~~**F2a-v1**~~ | ~~Restaurar a detecção no read-path (a "camada 2")~~ | — | — | — | ❌ **rejeitado pelo dono** — seria desfazer o −12% da 145 de propósito. Ver §5-bis |
 | **F2a** | **Bloqueio falha fechado** — grafo indisponível liberava tudo em silêncio | ~1 tarde | **correção**, custo zero no caminho normal | baixo | ✅ **falta só o deploy** |
 | **F2b** | Grafo de conflito: 6 s a frio, 79×/dia. Incremental por pack custa 196 ms | ~2 dias | −1,2 a 6 s de disputa, 79×/dia | **decisão de segurança** — alarga a janela de grafo velho | ⏸️ depois da feature de editar data |
-| **F3** | Linha-zero sintética nunca sobrescreve linha real | ~2 h | zero de velocidade — fecha a classe de bug dos R$ 12 mil | baixo | ⬜ |
+| **F3** | Linha-zero sintética nunca sobrescreve linha real | ~2 h | fecha a classe de bug dos R$ 12 mil | baixo | ⏸️ **absorvido pelo F5** (a linha sintética deixa de existir) — só fazer se o F5 atrasar |
 | **F4** | Página de 1.000 + espera guiada pelo cabeçalho da Meta | ~meio dia | −5% no refresh incremental, −14% na recarga completa | baixo | ⬜ |
-| **F5** | Inventário fora de `ad_metrics` (fim das linhas-zero gravadas) | ~1 semana | tabela 4× menor; resolve o F2 de graça | **alto** | ⏸️ |
+| **F5** | Inventário fora de `ad_metrics` (fim das linhas-zero gravadas) | ~1 semana | −550 mil linhas (−78% em `ad_metrics`, rollup e mapa); refresh grava menos; F2 fica leve | médio — mapeado item a item (§8) | ✅ **modelo aprovado 13/09** · ⬜ não iniciado · 1 decisão pendente (§8.7) |
 | **M1** | `thumbnail-cache` devolvendo 404 — 267× em 10 h | ? | ruído + requisição inútil em laço | ? | ⬜ |
 | **M2** | `AD_METRICS_IMPORT` falha ao parsear data — 230× em 10 h | ? | dado da planilha possivelmente perdido | ? | ⬜ |
 | **M3** | `deque mutated during iteration` no logger de uso — 5× em 10 h | ? | perde registro de uso da API da Meta | ? | ⬜ |
 | **M4** | Quedas transitórias de HTTP/2 — 69× em 10 h | — | já absorvidas pelo retry; só monitorar | — | 📊 |
 | **M5** | 7–9 refreshes por pack por dia | decisão | −60% de leitura da Meta se cair para 3–4 | — | ⏸️ |
+| **F6** | Tooltip no card da planilha: leads por situação, com nº e % (§8-bis) | ~meio dia | descarte hoje é silencioso | baixo | ⬜ aprovado 13/09 |
+| **M6** | Filtros `CPM / CTR de link / Connect rate / Page conv < X` casam com anúncio sem impressão (0 fabricado) | ? | filtro, Board e Critério errados | ? | ⬜ |
 
-**Ordem recomendada:** F1 ✅ → F2a ✅ → F3 → F4 → F2b → (decisão sobre F5) → M1/M2/M3.
+**Ordem recomendada (revista em 13/09):** deploy de F1 + F2a → **F5** (absorve o F3) → F6 → F4 → F2b → M1/M2/M3/M6.
 
 F1 (feito) e F2b são os que atacam a queixa de lentidão de 09/09. Mas o **F2a entrou na
 frente do F2b**: a investigação do F2 descobriu que o grafo de conflito é a única proteção
@@ -542,7 +544,8 @@ continuam somáveis — falhar fechado não pode virar "só um pack, sempre".
 
 ## 6. F3 — linha-zero sintética nunca sobrescreve linha real
 
-**Estado:** ⬜
+**Estado:** ⏸️ **absorvido pelo F5** (13/09). Com o modelo aprovado a linha sintética deixa de
+existir, e com ela a classe de bug. Só vale fazer se o F5 atrasar. O texto abaixo fica como registro.
 
 ### O que acontece
 
@@ -666,43 +669,172 @@ sleep cego não faz (espera de menos quando precisa e de mais quando não precis
 
 ---
 
-## 8. F5 — inventário fora de `ad_metrics`
+## 8. F5 — inventário fora de `ad_metrics` (fim das linhas-zero gravadas)
 
-**Estado:** ⏸️ **aguardando decisão do idealizador**
+**Estado:** ✅ **modelo aprovado pelo idealizador em 2026-09-13** · ⬜ não iniciado · ⏸️ uma
+decisão pendente (§8.7)
 
-### O problema
+Revisão completa em 2026-09-13: medições em produção e mapa de todos os leitores das
+linhas-zero no SQL, no backend e no frontend. Os números abaixo substituem a estimativa de 09/09.
 
-**81,6% de `ad_metrics` são zeros sintéticos** — 567.351 de 695.089 linhas. Elas são
-regravadas por inteiro a cada "todo o período" e varridas por toda RPC de leitura.
+### 8.1 O que a linha-zero faz de verdade
 
-### A proposta
+Regra atual (`ad_inventory.py:73`, `job_processor.py:404-417`): a cada refresh, o anúncio com
+status **entregável agora** e **nenhuma atividade na janela inteira do job** ganha uma linha
+zerada por dia da janela, a partir do `created_time`.
 
-Guardar o inventário do pack como **uma linha por anúncio** (não uma por anúncio-por-dia) e
-deixar a leitura completar com zero, que é onde o zero de fato importa.
+Na tela, **dia com linha-zero e dia sem linha dão o mesmo resultado**. Séries e histórico já
+preenchem o eixo, e as médias são soma sobre soma. A única função real da linha-zero é
+**presença**, isto é, fazer o anúncio existir no período:
+- lista do Manager, `active_count` e `ad_count`;
+- detalhe (sem linha, a rota devolve 404);
+- Boards, Explorer, G.O.L.D., Plano e Oportunidades;
+- stats do pack.
 
-| | hoje | depois (estimado) |
+Ela também é a porta de entrada do anúncio que nunca entregou em `ads`, `ad_metric_pack_map`,
+`get_ads_for_pack` (transcrição), miniaturas, `parent_entities` e status-sync.
+
+### 8.2 Medido em produção (13/09)
+
+| Medida | Valor |
+|---|---|
+| `ad_metrics`, total | 705.075 linhas |
+| Totalmente vazias (sintéticas) | **549.625 (78%)**. Não são 81,6%: ~22 mil linhas "zeradas" são reais da Meta (conversão ou lpv sem entrega) e ficam |
+| Linhas de anúncios hoje **não** entregáveis (PAUSED 39%, CAMPAIGN_PAUSED 31%, ARCHIVED 12%, ADSET_PAUSED 12%) | **94%** |
+| Depois do último gasto do anúncio | 310.437 |
+| Antes do primeiro gasto | 198.912 |
+| **Antes de o anúncio existir** (2 a 26 dias antes de `meta_created_time`). Todas gravadas na noite 06→07/09; não se repetiu | **162.960** |
+| Anúncio que nunca entregou no pack (6.114 anúncios só existem por elas) | 22.274 |
+| Compressão em intervalos contínuos | 549.625 → **61.250**, nenhum com nome ou pai mudando |
+| Rollup `ad_performance_daily` | espelha 1:1 (549.625 vazias) |
+| Leadscore gravado em cima de linha sintética | 49 linhas, 8 packs |
+
+`meta_created_time` é confiável: em 2.796 casos, a entrega real nunca antecede a criação em mais
+de 1 dia, e esse dia é só a diferença de fuso (UTC × conta).
+
+### 8.3 O que está errado hoje
+
+1. **Status de agora aplicado ao passado.**
+   - Anúncio pausado de 03 a 05 e reativado depois ganha zeros nos dias em que estava pausado.
+   - Anúncio ativo de 01 a 05 e pausado depois não ganha os zeros desses dias no refresh seguinte.
+2. **Dois tratamentos para a mesma situação.**
+   - Se gastou em 1 dia da janela, os outros dias ficam sem linha (24.344 dias assim).
+   - Se não gastou nenhum dia, ganha zero em todos (18.002 dias no meio da vida do anúncio).
+3. **Acumula para sempre.** O anúncio ativo sem entrega ganha um zero por dia; quando é pausado,
+   as linhas ficam.
+4. **Zeros antes de o anúncio existir:** 162.960 linhas, evento único.
+5. **Teto silencioso.** O limite de 25 mil linhas-zero por job corta anúncios antigos sem aviso.
+
+### 8.4 O modelo aprovado
+
+1. **`ad_metrics` guarda só dia com dado real da Meta.** A síntese (FASE 1.5) sai do pipeline.
+2. **Inventário do pack, com 1 linha por (pack, anúncio):**
+   - identidade: nome, conjunto, campanha e conta;
+   - `meta_created_time` e status atual;
+   - **`primeira_vez_ativo`** e **`ultima_vez_ativo`**: as datas em que algum refresh viu o
+     anúncio entregável, atualizadas a cada refresh.
+3. **Presença no período P:** o anúncio aparece, com zero onde não há dado, se teve dado real em
+   P **ou** se o intervalo `[max(primeira_vez_ativo, criação), ultima_vez_ativo]` cruza P.
+4. **Contagem de ativos:** vem direto do inventário (status atual), sem depender de gasto nem de
+   linha.
+5. **Portas laterais continuam alimentadas pelo inventário:** `ads` (criativo, miniatura, status,
+   criação), lista do pack e transcrição, `parent_entities` e status-sync.
+6. **Migração do histórico:**
+   - `primeira_vez_ativo` e `ultima_vez_ativo` saem das linhas-zero existentes, **descartando as
+     162.960 anteriores à criação**;
+   - só então as linhas sintéticas são apagadas de `ad_metrics`, e com elas as do rollup e as do
+     mapa.
+
+**Diferença consciente em relação a hoje:** um anúncio pausado e reativado sem nunca gastar
+aparece com zero também nos dias em que ficou pausado, porque o modelo guarda um intervalo único.
+Na prática o gasto é 0; está aceito.
+
+### 8.5 Onde a completude precisa entrar (mapa de 13/09)
+
+| Leitor | Depende? | O que muda |
 |---|---|---|
-| Linhas em `ad_metrics` | 695 mil | ~130 mil |
-| `ad_metrics` | 1.018 MB | ~250 MB |
-| `ad_performance_daily` | 581 MB | ~140 MB |
-| `ad_metric_pack_map` | 270 MB | ~65 MB |
-| Linhas gravadas por refresh | 3.500–20.000 | ~1.000–4.000 |
-| Varredura do Manager | 695 mil linhas | ~130 mil |
-| `detect_pack_conflicts` | 660 mil linhas | ~130 mil |
+| `fetch_manager_performance_base_v145` (+ `core_v2`) | **sim** | UNION das chaves com o inventário; `ad_count`, `active_count`, `has_active`, `pack_ids`, arrays de procedência, `meta_created_min` |
+| `fetch_entity_performance_v145` | **sim** | detalhe e filhos de anúncio que só existe no inventário (senão 404); `ad_count` |
+| `fetch_manager_performance_series_v145` | não | zero e ausência já geram o mesmo JSON; só precisa aceitar os `group_keys` novos |
+| `fetch_manager_rankings_retention_v2` | não | a curva só usa linhas com `plays > 0` |
+| `calculate_pack_stats_essential`, `get_ads_for_pack` | **sim** | contar e listar pelo inventário |
+| `detect_pack_conflicts` | sim (hoje gera falso-positivo) | **não** levar o inventário à detecção: somar zero duas vezes não altera nada |
+| `batch_update_ad_metrics_enrichment` (planilha) | **sim** | ver §8.7 |
+| Médias, números do diagnóstico, rankings, gráficos | não | — |
 
-**F2 e F5 são o mesmo problema visto de dois ângulos:** a função de conflito é lenta porque
-varre um mapa inflado por zeros. Encolher o mapa a resolve sem tocá-la.
+### 8.6 Teste de aceitação
 
-### Por que está parado
+1. **Diferencial de JSON por tela**, contra a versão atual, no laboratório com o dump de produção
+   e vários períodos. Telas: Manager (todas as abas), detalhe, séries, stats do pack e lista do
+   pack.
+   - Divergências **aceitas e listadas de antemão**:
+     - (a) somem os dias anteriores à criação;
+     - (b) passam a aparecer os anúncios que o teto de 25 mil cortava;
+     - (c) o caso pausa-e-reativa sem gasto (§8.4);
+     - (d) conflitos formados só por linha-zero deixam de bloquear.
+   - Qualquer outra divergência bloqueia o cutover.
+2. **Sabotagens:** cada uma precisa fazer o teste falhar.
+   - Tirar o UNION do inventário: o anúncio ativo sem gasto some.
+   - Ignorar `ultima_vez_ativo`: um pausado antigo aparece.
+   - Ignorar a criação: aparece dia anterior à criação.
+3. **Contagem de ativos batendo com o Gerenciador** num conjunto real que tenha anúncios ativos
+   sem gasto (o caso 16 + 8 = 24 de junho).
+4. **Antes e depois:** tamanho de `ad_metrics`, rollup e mapa; tempo do Manager a frio e a quente;
+   duração do refresh.
 
-É mudar o **read model do app inteiro**: o que a leitura recebe passa a ser montado, não
-lido. Toda RPC do Manager, do detalhe, das séries e do diagnóstico precisa aprender a
-completar o zero.
+### 8.7 Leads da planilha em dia sem linha — decisão parcial
 
-Merece o mesmo tratamento do rollup: laboratório com o dump de produção, diferencial de
-JSON contra a versão atual, cutover só depois. **~1 semana**, conversa própria.
+A planilha só **atualiza** linha existente. Sem as linhas-zero, o lead de anúncio ativo num dia
+sem entrega fica sem onde cair. Hoje são **49 linhas, em 8 packs**.
 
-**Não começar sem decisão explícita.**
+**Decisão do idealizador (13/09): a planilha NÃO cria linha nesta versão.** Motivo: quem preenche a
+data é uma automação do CRM, que às vezes grava data anterior. Foram medidos 129 leads com captura
+anterior à criação do anúncio. Criar linha nesses casos inventaria entrega que não houve.
+
+**Em aberto:** aceitar a perda desses ~49 leads, ou criar linha **só** quando a data estiver
+dentro da vida do anúncio (`[criação, ultima_vez_ativo]`). É a regra que o idealizador descreveu
+como segura, e ela exclui exatamente os casos do CRM.
+
+### 8.8 Riscos
+
+- **Esquecer um leitor:** a tela afetada perde anúncios sem dar erro. O diferencial do §8.6 cobre
+  cada rota.
+- **`ultima_vez_ativo` depende de o refresh continuar lendo o inventário.** Uma falha do inventário
+  (fail-open) não pode **zerar** as datas; elas só deixam de avançar.
+- **Custo do UNION nas RPCs do Manager:** medir a frio e a quente. O inventário tem ~60 mil linhas,
+  contra as 550 mil que saem.
+
+---
+
+## 8-bis. F6 — descarte da planilha visível num tooltip
+
+**Estado:** ⬜ **aprovado em 2026-09-13**, entra junto com o F5
+
+### O que acontece
+
+A sincronização da planilha diz "sucesso" mesmo quando parte dos leads não entra, e o descarte é
+silencioso. Medido em 13/09 na aba DADOS (7 packs do EI.31): 60.308 leads válidos.
+
+| Situação | Leads | Natureza |
+|---|---|---|
+| `AD_ID = indefinido` | 2.845 | ~2.700 orgânicos (bio do IG, WhatsApp, popup), 95 do WhatsApp do comercial, 34 do YouTube. **Só 3 pagos da Meta** (linhas 3802, 12198, 12641) |
+| `AD_ID = {{ad.id}}` | 218 | Todas as variáveis sem preencher: clique pela Biblioteca de Anúncios (bots e espiões) |
+| Captura anterior à criação do anúncio | 129 | Data do CRM anterior à real; os UTMs batem com o anúncio |
+| ID real que não está em nenhum pack | 46 | 22 de hoje (o próximo refresh resolve); 24 de anúncios fora dos filtros |
+| Linha sem ID | 115 | Sem origem rastreável |
+| Linha com ID e sem data | 89 | Célula vazia |
+| Em outro pack | milhares por pack | Normal: a planilha serve 7 packs |
+
+### O que fazer
+
+Um **tooltip discreto no card da integração**, sem mudar o layout do card, com cada situação,
+número e porcentagem. O caso mais crítico, que precisa se destacar, é **ID real ausente dos
+packs**.
+
+- Hoje o RPC só separa `not_found` e `out_of_pack`.
+- `indefinido`, `{{ad.id}}`, ID vazio e data vazia são classificáveis no Python, antes do RPC.
+- "Data fora da vida do anúncio" usa o inventário do F5.
+- Seguir o contrato de design (Tooltip do shadcn, `text-2xs`, sem altura por className).
 
 ---
 
@@ -757,6 +889,19 @@ Com o campo inflador (`attribution_setting`) removido isso já custa ~4× menos.
 **pergunta de produto**, que é do idealizador: o dado da Meta muda o suficiente para
 justificar 9 leituras por dia, ou 3–4 dariam o mesmo? Trocar o intervalo é uma linha de
 código; qual intervalo é a decisão.
+
+### M6 — filtros que casam com anúncio sem impressão ⬜
+
+Achado na revisão do F5 (13/09). Para anúncio sem impressão, a RPC fabrica **0** em CPM, CTR de
+link, connect rate e page conv (`schema.sql:2338-2344`). O frontend usa esse valor como veio
+(`calculations.ts:148-219`), então uma regra como `CPM < R$ 20` ou `CTR de link < 1%` **inclui
+anúncios que nunca rodaram**. Isso afeta os filtros do Manager, os grupos de Board e o Critério.
+
+As outras taxas (hook, CTR, CPR, CPC, CPMQL) já tratam o caso como "sem dado" e não casam com
+nada (`evaluate.ts:19-29`).
+
+É independente do F5, mas o F5 **não pode** carregar o erro para os anúncios completados pelo
+inventário. Conferir a memória `rule_engine_offered_field_must_be_answerable` antes de mexer.
 
 ---
 
@@ -872,3 +1017,4 @@ Uma linha por passo concluído: data, item, o que mudou, o número antes e depoi
 | 2026-09-09 | **F2a** | Proposta de restaurar a detecção **rejeitada pelo dono** (seria desfazer o −12% da 145; medido: 295 ms num Manager de 907 ms). Dano verificado: **nenhum**. O que ficou: o bloqueio **falhava aberto** — grafo indisponível liberava seleção múltipla e "Selecionar todos". Regra extraída em `packConflictGate.ts`, compartilhada pelos 3 caminhos; 13 testes + 4 sabotagens; 446 na suíte | grafo indisponível ⇒ **libera tudo** | grafo indisponível ⇒ **1 pack por vez** — *aguardando deploy* |
 | 2026-09-09 | **F2** | Investigação. Passo 1 confirmado (16 buscas p/ 7 refreshes). Passo 2 **derrubado**: não há `Sort`; recorte por dia inútil (99,7% compartilhados); duas passadas com ganho zero (1.392 × 1.314 ms — o "10,7→4,8 s" era cache). Achado: `x_cross_silo` fixo em `false` desde a 145 → camada 2 morta e soma duplicada silenciosa. F2 vira F2a (correção) + F2b (performance) | grafo 6 s a frio, 79×/dia | *diagnóstico corrigido; nada implementado* |
 | 2026-09-09 | **F1** | Migration 149 + `_fetch_present_parent_ids` pela RPC. Ideia original (filtrar por ids) **descartada** — teto de 1.000 linhas do PostgREST truncaria em silêncio. Diferencial em 5 silos + 4 sabotagens + 10 testes Python; 650 na suíte | 47 idas, ~1.400 ms, 358 s/dia | 1 ida, **84 ms** — *aguardando deploy* |
+| 2026-09-13 | **F5** | Revisão de colaterais: 549.625 linhas sintéticas (78%, não 81,6%); 94% de anúncios hoje não entregáveis; 162.960 anteriores à criação (noite 06→07/09); mapa de leitores em SQL/backend/frontend. **Modelo aprovado**: métricas só com dado real + inventário com primeira/última vez ativo. F3 absorvido. Planilha não cria linha nesta versão (CRM grava data anterior); 49 leads em aberto (§8.7). F6 (tooltip) e M6 (filtros com 0 fabricado) abertos | 550 mil linhas-zero | *aprovado, não iniciado* |
