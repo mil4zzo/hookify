@@ -62,7 +62,7 @@ Herdadas da filosofia do projeto (`CLAUDE.md`) e do que já custou caro neste ap
 | **M4** | Quedas transitórias de HTTP/2 — 69× em 10 h | — | já absorvidas pelo retry; só monitorar | — | 📊 |
 | **M5** | 7–9 refreshes por pack por dia | decisão | −60% de leitura da Meta se cair para 3–4 | — | ⏸️ |
 | **F6** | Tooltip no card da planilha: leads por situação, com nº e % (§8-bis) | ~meio dia | descarte hoje é silencioso | baixo | ⬜ aprovado 13/09 |
-| **F7** | `upsert_ads` regrava todos os anúncios do pack a cada refresh, sem conferir se mudaram (§4-bis) | ~meio dia | 8,7 GB de WAL em 18 dias numa tabela de 276 MB; as regravações desfazem parte do ganho da 152 | baixo | ⬜ |
+| **F7** | Refresh grava em `ads` só o que mudou: anúncios, vínculo com o pack (migration 153), transcrições e miniaturas (§4-bis) | ~meio dia | −15 a −20 s num refresh grande; ~−90% dos ~12 GB de escrita a cada 18 dias; mantém o ganho da 152 | baixo | ✅ implementado, testado e revisado — *falta o deploy* |
 | **M6** | Filtros `CPM / CTR de link / Connect rate / Page conv < X` casam com anúncio sem impressão (0 fabricado) | ? | filtro, Board e Critério errados | ? | ⬜ |
 
 **Ordem recomendada (revista em 13/09):** ~~deploy de F1 + F2a + F4~~ ✅ → **F5** (absorve o F3) → F7 → F6 → F2b → M1/M2/M3/M6.
@@ -301,22 +301,98 @@ Não há índice a mais: o antigo saiu no mesmo passo.
 **O ganho do dia a dia fica entre 2× e 39×**, conforme quanto os refreshes regravam `ads` entre
 um autovacuum e outro. É isso que o **F7** ataca.
 
-### F7 — `upsert_ads` regrava o que não mudou ⬜
+### F7 — o refresh grava em `ads` só o que mudou ✅ (implementado e revisado em 13/09)
 
-`supabase_repo.upsert_ads` (`:566`) faz `upsert` de **todos** os anúncios do pack a cada refresh.
-`upsert_parent_entities` já grava só o que mudou (`:845`, "nenhuma mudou"); `ads` não.
+**Diagnóstico.** Num refresh real (CA4, 13/09, 229 s): 8 s gravando 4.348 anúncios idênticos e
+12 s entre vínculo com o pack, transcrições e escopo de pais. Em `pg_stat_statements` desde
+26/08 (18 dias), o upsert de `ads` gerou 8,7 GB de WAL numa tabela de 276 MB, e o cache de
+miniaturas mais 3,1 GB. Nada lê `ads.updated_at` (conferido em backend, SQL e frontend).
 
-- `pg_stat_statements` desde 26/08 (18 dias): o upsert de `ads` fez 5.587 chamadas, 663 s de
-  banco e **8,7 GB de WAL**. A tabela tem 276 MB de heap e 173 MB de TOAST. O upsert do cache de
-  miniaturas somou mais 3,1 GB.
-- Cada regravação tira a página do mapa de visibilidade (desfaz o index-only scan da 152), gera
-  tupla morta e reescreve o TOAST do `creative`.
+**Invariante.** O conteúdo de `ads` e `ad_transcriptions` depois do F7 é o mesmo que o código
+antigo produziria. O F7 só deixa de gravar o que já está igual.
 
-A fazer: aplicar o mesmo padrão "grava só o que mudou" em `upsert_ads`. Cuidado conhecido
-(memória `optimization_select_must_include_trigger_field`): o SELECT de comparação precisa trazer
-todo campo que decide a gravação. Teste de aceitação: diferencial do conteúdo de `ads` antes e
-depois de um refresh (tem de ser idêntico), sabotagem (campo esquecido na comparação tem de
-fazer o teste falhar) e medição de WAL por refresh.
+**O que foi feito, em 4 partes:**
+
+1. **Anúncios** (`supabase_repo.upsert_ads`).
+   - O refresh já lia `ads` antes de enriquecer (`get_existing_ads_map`). Uma **cópia profunda**
+     dessa leitura, tirada antes do enriquecimento, vai até `upsert_ads`.
+   - `_ads_row_changed` compara **todo campo gravado**, sem lista manual. `meta_created_time` é
+     comparado como instante (a Meta manda `-0300`, o banco devolve `+00:00`), e NULL na linha
+     nova não conta como mudança (o trigger da 115 preserva). O resto é igualdade estrita.
+   - Só vai ao banco quem é novo ou mudou.
+   - `EXISTING_ADS_SELECT_FIELDS` virou constante e ganhou `pack_ids`. Um teste de guarda falha
+     se alguém gravar um campo que a leitura não traz.
+   - Criação de pack (sem leitura prévia) grava e vincula tudo, como antes.
+2. **Vínculo com o pack** (migration 153). `batch_add_pack_id_to_arrays` só regrava as linhas que
+   ainda não têm o pack, e o backend nem chama a RPC para quem a leitura prévia já mostra no pack.
+3. **Transcrições** (`_sync_ads_transcription_links`). Antes, uma consulta por nome de anúncio;
+   agora, uma por lote limitado pelo **tamanho da URL** (4.000 caracteres codificados). A lista
+   vai com todo nome entre aspas e `"`/`\` escapados (`_postgrest_in_list`); se um lote falhar,
+   cai para a consulta nome a nome, como antes. `ad_ids` só é regravado quando há anúncio novo
+   no nome, e `ads.transcription_id` só nas linhas em que ele é nulo ou diferente (filtro `or_`).
+4. **Miniaturas** (`update_ads_thumbnail_cache`). Lê os campos atuais e grava só onde diferem.
+   Se a leitura falhar, grava tudo, como antes.
+
+**Testes.**
+- `backend/tests/test_ads_write_changed_only.py`: **32 testes**. **14 sabotagens rodadas**, cada
+  uma falhando nos testes da sua regra:
+  - status fora da comparação;
+  - criativo fora da leitura (pego pelo teste de guarda);
+  - data comparada como texto;
+  - data nula contando como mudança;
+  - vincular todos sempre;
+  - sem o filtro `or_` (rodada duas vezes);
+  - miniatura sempre "diferente";
+  - falha na leitura de miniatura interrompendo a gravação;
+  - lista sem escapar aspas e barra (pega pelo builder REAL do postgrest-py);
+  - sem a queda para nome a nome;
+  - custo do lote ignorando a codificação da URL;
+  - `_persist_data` sem repassar a leitura prévia.
+  - Uma sabotagem inicial (leitura falha devolve `{}`) **não** falhou e estava certa: é
+    equivalente ao comportamento correto, porque anúncio ausente também grava.
+- `supabase/tests/153_vinculo_pack_so_quem_falta.test.sql`, no laboratório: 6 asserções sobre 5
+  anúncios, incluindo `pack_ids = {NULL}`.
+  - Controle com a função antiga falha em A1 (5 em vez de 4).
+  - Filtro sem `COALESCE` falha em A1 (2).
+  - `COALESCE` só no array (a primeira versão da 153) falha em A1 (3).
+  - Sem filtro de silo falha em A4.
+  - A2 (segunda vinculação não regrava nada) é guarda do caso do refresh.
+- `_parse_instant` conferido no Python 3.11.16 do container de produção, com os formatos da Meta
+  e do PostgREST.
+- Suíte do backend: **717 passando**.
+
+**Revisão independente (13/09).** Nada bloqueante. Procedentes e corrigidos:
+1. **Nomes com `"` ou `\` quebravam a busca de transcrições em lote.** O `in_` do postgrest-py
+   não escapa esses caracteres; o `.eq` por nome de antes não tinha o problema. Em produção hoje
+   há 0 nomes assim (conferido), então era latente. Correção: lista escapada à mão, lote por
+   tamanho de URL e queda para nome a nome. Uma consulta real ao PostgREST de produção aceitou a
+   lista escapada com aspas e parênteses.
+2. **Tamanho da URL.** Lote agora é por tamanho. Dado de apoio: a busca de miniaturas usa lotes
+   de 200 nomes e teve só 2 erros em 7 dias, ambos quedas de HTTP/2.
+3. **A ligação no job não tinha teste.** Agora há teste do repasse em `_persist_data`. A cópia
+   profunda em `process()` continua sem teste de ponta a ponta.
+4. **Elemento NULL dentro de `pack_ids`.** O filtro virou `NOT COALESCE(p_pack_id = ANY(pack_ids), false)`.
+
+Notas da revisão, sem ação:
+- Com escrita concorrente durante o refresh (usuário pausa um anúncio), o F7 preserva o valor
+  verdadeiro que o código antigo sobrescrevia com um valor velho.
+- A normalização NULL≡"" nas miniaturas não é observável por nenhum leitor.
+- `True == 1` dentro de `creative` não conta como mudança (irrelevante).
+- Continua existindo um UPDATE por nome com transcrição, que toca 0 linhas quando já está
+  vinculado. Dá para eliminar trazendo `transcription_id` na leitura prévia.
+
+**Simulação com dados reais (somente leitura, 13/09).** Pack CA4, 8.207 anúncios de produção:
+depois da hidratação que o refresh faz, **0 anúncios considerados mudados** e **8.207 já
+vinculados**. Num refresh sem mudança, o F7 grava 0 linhas e faz 0 vínculos, em vez de 8.207
+regravações e 42 lotes de RPC.
+
+**Deploy.** A migration 153 é compatível com o backend atual e com o novo, então pode ir antes.
+Depois, o backend.
+
+**Como comprovar em produção.** Primeiro refresh depois do deploy: o log mostra
+"[UPSERT_ADS] X de Y anúncios novos ou mudados". Depois de 24 h: WAL do upsert de `ads` em
+`pg_stat_statements` perto de zero, visitas à tabela no plano da 152 perto de zero logo após os
+refreshes, e duração dos refreshes grandes 15–20 s menor.
 
 ---
 
@@ -1097,3 +1173,5 @@ Uma linha por passo concluído: data, item, o que mudou, o número antes e depoi
 | 2026-09-13 | **F4** | Espera guiada **caiu por medição** (uso ≤ 1% em 4.291 páginas; 2% no dia do `(#4)`, que veio de relatórios criados). Página de 1.000 (diferencial contra a Meta: linhas idênticas; 15–17 s × 25–28 s com ordem alternada) + espera curta crescente com o uso + espera e nova tentativa no limite da Meta. 22 testes, 4 sabotagens, 672 na suíte | 8 páginas, ~27 s, limite derruba o job | 4 páginas, ~16 s, limite espera — *aguardando deploy* |
 | 2026-09-13 | **deploy** | F1 (migration renumerada 149→151, aplicada antes do backend) + F2a + F4 + leadscore 147/148 no ar (`095e04f`). 7 refreshes depois do deploy, todos ok, 0 erro de limite. Mesmo pack, tamanho parecido: CA8 135 s → 89 s; CA6 79 s → 57 s. **A observar:** `present_parent_ids` via PostgREST com média ~0,6 s (algumas ~1,8 s), não os 84 ms do lab — suspeita: RLS por linha com JWT do usuário | CA8 135 s · CA6 79 s | CA8 89 s · CA6 57 s — *confirmar em 24 h* |
 | 2026-09-13 | **F1 / 152** | Os 0,6 s do F1 no ar eram cache frio, não RLS: o plano tocava 23 mil das 35 mil páginas de `ads`. Migration 152 (índice com `INCLUDE (campaign_id)`, no lugar do antigo) aplicada em produção: 593 páginas e 38 ms com a tabela limpa; 11 mil páginas logo após refreshes. Aberto o F7: `upsert_ads` regrava tudo (8,7 GB de WAL em 18 dias) | 23.034 páginas · 1.387 ms frio | 593–11.016 páginas · 38–63 ms |
+| 2026-09-13 | **F7** | Refresh grava em `ads` só o que mudou: anúncios (comparação genérica contra cópia profunda da leitura prévia), vínculo com o pack (migration 153 + pular quem já está), transcrições (lotes de nomes, grava só o que falta) e miniaturas (lê e grava só onde difere). 23 testes + 9 sabotagens; teste SQL da 153 com controle e 2 sabotagens; 708 na suíte. Simulação com 8.207 anúncios reais do CA4: 0 mudados, 8.207 já vinculados | 8.207 regravações + 42 RPCs por refresh sem mudança | 0 regravações + 0 RPCs — *revisado; aguardando deploy* |
+| 2026-09-13 | **F7 / revisão** | Revisão independente: nada bloqueante. Corrigidos: nomes com `"`/`\` na busca de transcrições em lote (lista escapada + lote por tamanho de URL + queda para nome a nome), elemento NULL em `pack_ids` na 153, teste do repasse no job. 32 testes + 14 sabotagens; teste SQL da 153 com controle e 3 sabotagens; `_parse_instant` conferido no Python 3.11 de produção; 717 na suíte | — | *pronto para deploy* |

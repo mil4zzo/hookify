@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import logging
+import re
 import time
 import random
 from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple, TYPE_CHECKING
 from datetime import datetime, timedelta, date, timezone
+from urllib.parse import quote
 
 from app.core.supabase_client import get_supabase_for_user, get_supabase_service
 from app.core.client_disconnect import ClientGone, abort_if_client_gone
@@ -444,6 +446,76 @@ def _delete_unreferenced_thumb_paths(
     return deleted_count
 
 
+# Campos que `_build_ads_rows` NÃO compara: chave e carimbo. Todo o resto do que se grava
+# entra na comparação de `_ads_row_changed` — de propósito sem lista manual, para que um
+# campo novo gravado não possa ser esquecido na comparação.
+_ADS_ROW_UNCOMPARED_KEYS = frozenset({"ad_id", "user_id", "updated_at"})
+
+_TZ_OFFSET_WITHOUT_COLON = re.compile(r"^(.*\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?)([+-]\d{2})(\d{2})$")
+
+
+def _parse_instant(value: Any) -> Optional[datetime]:
+    """Instante de um timestamp em qualquer um dos formatos que chegam aqui.
+
+    A Meta manda `2026-09-05T23:52:32-0300`; o PostgREST devolve
+    `2026-09-06T02:52:32+00:00`. São o MESMO instante e não podem contar como mudança.
+    Normaliza `Z` e offset sem dois-pontos à mão (produção roda Python 3.11).
+    """
+    if value in (None, ""):
+        return None
+    text = str(value).strip().replace("Z", "+00:00")
+    match = _TZ_OFFSET_WITHOUT_COLON.match(text)
+    if match:
+        text = f"{match.group(1)}{match.group(2)}:{match.group(3)}"
+    try:
+        parsed = datetime.fromisoformat(text)
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+
+
+def _ads_row_changed(existing: Optional[Dict[str, Any]], row: Dict[str, Any]) -> bool:
+    """A linha montada para `ads` difere do que já está gravado?
+
+    Invariante do F7: pular a gravação só quando ela não mudaria NADA além de
+    `updated_at`. Por isso compara todo campo gravado, com duas regras que espelham o banco:
+    - `meta_created_time` é comparado como instante; e NULL na linha nova não é mudança,
+      porque o trigger `trg_ads_preserve_meta_created_time` (migration 115) preserva o
+      valor gravado.
+    - o resto é igualdade estrita (NULL ≠ "" ≠ {} — o código antigo gravaria a diferença).
+    """
+    if not existing:
+        return True
+    for key, new_value in row.items():
+        if key in _ADS_ROW_UNCOMPARED_KEYS:
+            continue
+        old_value = existing.get(key)
+        if key == "meta_created_time":
+            if new_value in (None, ""):
+                continue
+            new_instant, old_instant = _parse_instant(new_value), _parse_instant(old_value)
+            if new_instant is None or old_instant is None:
+                if str(new_value) != str(old_value or ""):
+                    return True
+                continue
+            if new_instant != old_instant:
+                return True
+            continue
+        if new_value != old_value:
+            return True
+    return False
+
+
+def _ad_already_in_pack(
+    existing_ads_map: Optional[Dict[str, Dict[str, Any]]], ad_id: str, pack_id: str
+) -> bool:
+    """O anúncio já tem o pack em `ads.pack_ids` segundo a leitura prévia do refresh?"""
+    if not existing_ads_map:
+        return False
+    existing = existing_ads_map.get(ad_id) or {}
+    return str(pack_id) in {str(p) for p in (existing.get("pack_ids") or [])}
+
+
 def upsert_ads(
     user_jwt: str,
     formatted_ads: List[Dict[str, Any]],
@@ -452,6 +524,7 @@ def upsert_ads(
     on_batch_progress: Optional[Callable[[int, int], None]] = None,
     *,
     sb_client: Optional["Client"] = None,
+    existing_ads_map: Optional[Dict[str, Dict[str, Any]]] = None,
 ) -> None:
     """Upsert de identidade + creative dos anúncios na tabela ads.
 
@@ -460,6 +533,13 @@ def upsert_ads(
     - Campos de fallback: adcreatives_videos_ids, adcreatives_videos_thumbs (arrays JSONB)
     - Campo rico: creative (jsonb)
     - NOTA: Deduplica por ad_id (mantém apenas um registro por anúncio, independente da data)
+
+    `existing_ads_map` (F7, 2026-09-13): a leitura que o refresh já fez de `ads`
+    (`get_existing_ads_map`), numa cópia tirada ANTES do enriquecimento. Quando vem, grava
+    só os anúncios novos ou que mudaram e só vincula ao pack quem ainda não o tem. Antes, o
+    refresh regravava todos os anúncios idênticos (8,7 GB de WAL em 18 dias numa tabela de
+    276 MB), o que também desfazia o index-only scan da migration 152. `None` (criação de
+    pack) mantém o comportamento antigo: grava e vincula tudo.
     """
     if not user_id:
         logger.warning("Supabase upsert_ads skipped: missing user_id")
@@ -467,6 +547,40 @@ def upsert_ads(
     if not formatted_ads:
         return
 
+    rows = _build_ads_rows(formatted_ads, user_id)
+    if not rows:
+        return
+
+    rows_to_write = rows
+    if existing_ads_map is not None:
+        rows_to_write = [r for r in rows if _ads_row_changed(existing_ads_map.get(r["ad_id"]), r)]
+        logger.info(
+            "[UPSERT_ADS] %d de %d anúncios novos ou mudados serão gravados (os demais já estão iguais)",
+            len(rows_to_write), len(rows),
+        )
+
+    sb = _get_sb(user_jwt, sb_client)
+    _write_ads_rows(sb, rows_to_write, on_batch_progress)
+
+    if pack_id and rows:
+        ad_ids = [r["ad_id"] for r in rows if not _ad_already_in_pack(existing_ads_map, r["ad_id"], pack_id)]
+        if len(ad_ids) < len(rows):
+            logger.info(
+                "[UPSERT_ADS] %d de %d anúncios já vinculados ao pack %s; vinculando só os demais",
+                len(rows) - len(ad_ids), len(rows), pack_id,
+            )
+        _attach_pack_to_ads(sb, user_id, pack_id, ad_ids)
+
+    # Sync transcription_id em ads e ad_ids em ad_transcriptions (best-effort)
+    try:
+        ad_id_name_pairs = [(str(r.get("ad_id") or ""), str(r.get("ad_name") or "")) for r in rows]
+        _sync_ads_transcription_links(user_jwt, user_id, ad_id_name_pairs, sb_client=sb)
+    except Exception as e:
+        logger.warning(f"[UPSERT_ADS] Erro ao sync transcription links (best-effort): {e}")
+
+
+def _build_ads_rows(formatted_ads: List[Dict[str, Any]], user_id: str) -> List[Dict[str, Any]]:
+    """Monta as linhas de `ads` (uma por ad_id) exatamente como serão gravadas."""
     # Deduplicar por ad_id (manter apenas um registro por anúncio)
     # Se houver duplicatas, mantém a última ocorrência (mais recente)
     rows_dict: Dict[str, Dict[str, Any]] = {}
@@ -533,18 +647,22 @@ def upsert_ads(
                 row["primary_video_id"] = prev["primary_video_id"]
         rows_dict[ad_id] = row
 
-    if not rows_dict:
-        return
-
     rows = list(rows_dict.values())
-    
-    # Log para debug se houver deduplicação
     if len(formatted_ads) > len(rows):
         logger.info(f"[UPSERT_ADS] Deduplicados {len(formatted_ads) - len(rows)} registros duplicados de ads. Total único: {len(rows)}")
+    return rows
 
-    sb = _get_sb(user_jwt, sb_client)
-    
+
+def _write_ads_rows(
+    sb: "Client",
+    rows: List[Dict[str, Any]],
+    on_batch_progress: Optional[Callable[[int, int], None]] = None,
+) -> None:
+    """Grava as linhas de `ads` em lotes (upsert por ad_id,user_id)."""
     total_rows = len(rows)
+    if not total_rows:
+        logger.info("[UPSERT_ADS] Nenhum anúncio para gravar")
+        return
     logger.info(f"[UPSERT_ADS] Processando {total_rows} registros de ads")
 
     # Cache de thumbnails movido para background (run_pack_background_tasks).
@@ -555,11 +673,11 @@ def upsert_ads(
     # Alinhado à estratégia de ad_metrics; JSONB (creative, etc.) e concorrência exigem lotes menores
     batch_size = 200
     total_batches = (total_rows + batch_size - 1) // batch_size
-    
+
     for batch_idx in range(0, total_rows, batch_size):
         batch = rows[batch_idx:batch_idx + batch_size]
         batch_num = (batch_idx // batch_size) + 1
-        
+
         try:
             with_postgrest_retry(
                 f"upsert_ads[{len(batch)}]",
@@ -616,63 +734,58 @@ def upsert_ads(
                 # Re-lançar para que o caller possa tratar o erro
                 raise
 
-    if pack_id and rows:
-        ad_ids = [r["ad_id"] for r in rows]
-        batch_size_attach = 200
-        total_attach_batches = (len(ad_ids) + batch_size_attach - 1) // batch_size_attach
-        failed_attach_ids: List[str] = []
-
-        for attach_idx in range(0, len(ad_ids), batch_size_attach):
-            batch_ids = ad_ids[attach_idx:attach_idx + batch_size_attach]
-            batch_num = (attach_idx // batch_size_attach) + 1
-            for attempt in range(3):
-                try:
-                    sb.rpc(
-                        "batch_add_pack_id_to_arrays",
-                        {
-                            "p_user_id": user_id,
-                            "p_pack_id": pack_id,
-                            "p_table_name": "ads",
-                            "p_ids_to_update": batch_ids,
-                        },
-                    ).execute()
-                    logger.debug(
-                        f"[UPSERT_ADS] pack_id anexado ao lote {batch_num}/{total_attach_batches} "
-                        f"({len(batch_ids)} registros)"
-                    )
-                    break
-                except Exception as e:
-                    if attempt < 2:
-                        delay = 0.5 * (attempt + 1)
-                        logger.warning(
-                            f"[UPSERT_ADS] Tentativa {attempt + 1}/3 para attach pack_id lote {batch_num}: {e}"
-                        )
-                        time.sleep(delay)
-                    else:
-                        logger.critical(
-                            f"[UPSERT_ADS] Falha definitiva ao anexar pack_id no lote {batch_num}/{total_attach_batches}. "
-                            f"pack_id={pack_id}, ad_ids afetados={batch_ids}. Erro: {e}"
-                        )
-                        failed_attach_ids.extend(batch_ids)
-
-        if failed_attach_ids:
-            logger.error(
-                f"[UPSERT_ADS] {len(failed_attach_ids)} ads ficaram sem pack_id={pack_id} vinculado. "
-                f"Necessario cleanup manual."
-            )
-            raise RuntimeError(
-                f"Falha ao vincular {len(failed_attach_ids)} ads ao pack {pack_id} apos retries"
-            )
-
     logger.info(f"[UPSERT_ADS] ✓ Todos os {total_rows} registros processados com sucesso em {total_batches} lote(s)")
 
-    # Sync transcription_id em ads e ad_ids em ad_transcriptions (best-effort)
-    try:
-        ad_id_name_pairs = [(str(r.get("ad_id") or ""), str(r.get("ad_name") or "")) for r in rows]
-        _sync_ads_transcription_links(user_jwt, user_id, ad_id_name_pairs, sb_client=sb)
-    except Exception as e:
-        logger.warning(f"[UPSERT_ADS] Erro ao sync transcription links (best-effort): {e}")
 
+def _attach_pack_to_ads(sb: "Client", user_id: str, pack_id: str, ad_ids: List[str]) -> None:
+    """Anexa `pack_id` a `ads.pack_ids` em lotes (RPC idempotente). Falha definitiva levanta."""
+    if not ad_ids:
+        return
+    batch_size_attach = 200
+    total_attach_batches = (len(ad_ids) + batch_size_attach - 1) // batch_size_attach
+    failed_attach_ids: List[str] = []
+
+    for attach_idx in range(0, len(ad_ids), batch_size_attach):
+        batch_ids = ad_ids[attach_idx:attach_idx + batch_size_attach]
+        batch_num = (attach_idx // batch_size_attach) + 1
+        for attempt in range(3):
+            try:
+                sb.rpc(
+                    "batch_add_pack_id_to_arrays",
+                    {
+                        "p_user_id": user_id,
+                        "p_pack_id": pack_id,
+                        "p_table_name": "ads",
+                        "p_ids_to_update": batch_ids,
+                    },
+                ).execute()
+                logger.debug(
+                    f"[UPSERT_ADS] pack_id anexado ao lote {batch_num}/{total_attach_batches} "
+                    f"({len(batch_ids)} registros)"
+                )
+                break
+            except Exception as e:
+                if attempt < 2:
+                    delay = 0.5 * (attempt + 1)
+                    logger.warning(
+                        f"[UPSERT_ADS] Tentativa {attempt + 1}/3 para attach pack_id lote {batch_num}: {e}"
+                    )
+                    time.sleep(delay)
+                else:
+                    logger.critical(
+                        f"[UPSERT_ADS] Falha definitiva ao anexar pack_id no lote {batch_num}/{total_attach_batches}. "
+                        f"pack_id={pack_id}, ad_ids afetados={batch_ids}. Erro: {e}"
+                    )
+                    failed_attach_ids.extend(batch_ids)
+
+    if failed_attach_ids:
+        logger.error(
+            f"[UPSERT_ADS] {len(failed_attach_ids)} ads ficaram sem pack_id={pack_id} vinculado. "
+            f"Necessario cleanup manual."
+        )
+        raise RuntimeError(
+            f"Falha ao vincular {len(failed_attach_ids)} ads ao pack {pack_id} apos retries"
+        )
 
 def _fetch_present_parent_ids(sb: "Client", user_id: str) -> Tuple[set, set]:
     """(campaign_ids, adset_ids) com linhas em `ads` para o usuário — escopo real do inventário.
@@ -1211,6 +1324,46 @@ def _is_transient_supabase_error(error: Exception) -> bool:
     return bool(transient_types and isinstance(error, tuple(transient_types)))
 
 
+def _fetch_ads_thumb_fields(
+    sb: "Client", user_id: str, ad_ids: List[str]
+) -> Optional[Dict[str, Dict[str, Any]]]:
+    """Campos de miniatura atuais por ad_id, ou None se a leitura falhar."""
+    current: Dict[str, Dict[str, Any]] = {}
+    try:
+        for i in range(0, len(ad_ids), 200):
+            batch = ad_ids[i : i + 200]
+            res = with_postgrest_retry(
+                f"fetch_ads_thumb_fields[{len(batch)}]",
+                lambda b=batch: (
+                    sb.table("ads")
+                    .select("ad_id,thumb_storage_path,thumb_cached_at,thumb_source_url")
+                    .eq("user_id", user_id)
+                    .in_("ad_id", b)
+                    .execute()
+                ),
+            )
+            for row in res.data or []:
+                current[str(row.get("ad_id"))] = row
+    except Exception as e:
+        logger.warning(f"[UPDATE_ADS_THUMB_CACHE] Falha ao ler miniaturas atuais; gravando todas: {e}")
+        return None
+    return current
+
+
+def _thumb_fields_differ(current: Optional[Dict[str, Any]], row: Dict[str, Any]) -> bool:
+    """A miniatura a gravar difere da gravada? Anúncio ausente conta como diferente (grava)."""
+    if current is None:
+        return True
+    for key in ("thumb_storage_path", "thumb_source_url"):
+        if str(current.get(key) or "") != str(row.get(key) or ""):
+            return True
+    new_instant = _parse_instant(row.get("thumb_cached_at"))
+    old_instant = _parse_instant(current.get("thumb_cached_at"))
+    if new_instant is None or old_instant is None:
+        return str(row.get("thumb_cached_at") or "") != str(current.get("thumb_cached_at") or "")
+    return new_instant != old_instant
+
+
 def update_ads_thumbnail_cache(
     user_id: str,
     ad_id_to_cached: Dict[str, "CachedThumb"],
@@ -1239,6 +1392,21 @@ def update_ads_thumbnail_cache(
         }
         for ad_id, c in ad_id_to_cached.items()
     ]
+
+    # F7 (2026-09-13): o refresh regravava os campos de miniatura de TODOS os anúncios cujo
+    # nome já estava em cache (3,1 GB de WAL em 18 dias). Lê o valor atual e grava só onde
+    # difere. Se a leitura falhar, grava tudo, como antes (fail-open para o comportamento
+    # antigo, nunca para "não grava").
+    current = _fetch_ads_thumb_fields(sb, user_id, [r["ad_id"] for r in rows])
+    if current is not None:
+        before = len(rows)
+        rows = [r for r in rows if _thumb_fields_differ(current.get(r["ad_id"]), r)]
+        skipped_unchanged = before - len(rows)
+        if skipped_unchanged:
+            logger.info(
+                f"[UPDATE_ADS_THUMB_CACHE] {skipped_unchanged} de {before} anúncios já tinham a miniatura; "
+                f"gravando {len(rows)}"
+            )
 
     batch_size = 100
     max_attempts = 4
@@ -1825,6 +1993,21 @@ def update_pack_ad_ids(
     )
 
 
+# Colunas que o refresh relê de `ads` antes de gravar. Servem a dois usos: hidratar os
+# anúncios existentes (ads_enricher) e, desde o F7, comparar com a linha nova em
+# `upsert_ads`. Todo campo que `_build_ads_rows` grava tem de estar aqui — um campo fora
+# da leitura faria a comparação achar "igual" e perder a mudança (memória
+# optimization_select_must_include_trigger_field). test_ads_write_changed_only trava isso.
+# `pack_ids` só existe para pular o vínculo de quem já está no pack.
+EXISTING_ADS_SELECT_FIELDS = (
+    "ad_id,account_id,campaign_id,campaign_name,adset_id,adset_name,ad_name,"
+    "effective_status,creative,creative_video_id,thumbnail_url,"
+    "instagram_permalink_url,primary_video_id,media_type,"
+    "adcreatives_videos_ids,adcreatives_videos_thumbs,"
+    "video_owner_page_id,meta_created_time,pack_ids"
+)
+
+
 def get_existing_ads_map(
     user_jwt: str,
     ad_ids: List[str],
@@ -1841,13 +2024,7 @@ def get_existing_ads_map(
     if not unique_ad_ids:
         return {}
 
-    select_fields = (
-        "ad_id,account_id,campaign_id,campaign_name,adset_id,adset_name,ad_name,"
-        "effective_status,creative,creative_video_id,thumbnail_url,"
-        "instagram_permalink_url,primary_video_id,media_type,"
-        "adcreatives_videos_ids,adcreatives_videos_thumbs,"
-        "video_owner_page_id,meta_created_time"
-    )
+    select_fields = EXISTING_ADS_SELECT_FIELDS
     batch_size = 200  # Reduzido de 400 para evitar timeout/URL longa
     existing_ads: Dict[str, Dict[str, Any]] = {}
 
@@ -3496,6 +3673,42 @@ def get_existing_transcriptions(
     return result
 
 
+def _postgrest_in_list(values: List[str]) -> str:
+    """Lista para o filtro `in` do PostgREST com TODO valor entre aspas e `\\`/`"` escapados.
+
+    O `in_` do postgrest-py só põe aspas quando o valor tem `,:()` e nunca escapa `"` nem
+    `\\`: um nome de anúncio com aspas ou barra invertida quebraria a lista (revisão do F7,
+    13/09). O `.eq` por nome, usado antes, não tinha esse problema.
+    """
+    backslash = chr(92)
+    quoted = (
+        '"' + str(v).replace(backslash, backslash + backslash).replace('"', backslash + '"') + '"'
+        for v in values
+    )
+    return "(" + ",".join(quoted) + ")"
+
+
+def _batches_by_url_length(values: List[str], max_chars: int = 4000) -> Iterable[List[str]]:
+    """Lotes cujo pedaço de URL (valores codificados) cabe em `max_chars`.
+
+    Nome de anúncio varia de 10 a 70+ caracteres com colchetes, barras e espaços, que viram
+    `%XX` na URL: lote por contagem fixa não garante tamanho (memória
+    supabase_in_clause_url_limit). Um valor maior que o limite vai sozinho.
+    """
+    batch: List[str] = []
+    size = 0
+    for value in values:
+        # Custo exato do elemento como vai na URL: entre aspas, escapado, com a vírgula.
+        cost = len(quote(_postgrest_in_list([value])[1:-1] + ",", safe=""))
+        if batch and size + cost > max_chars:
+            yield batch
+            batch, size = [], 0
+        batch.append(value)
+        size += cost
+    if batch:
+        yield batch
+
+
 def _sync_ads_transcription_links(
     user_jwt: str,
     user_id: str,
@@ -3503,7 +3716,13 @@ def _sync_ads_transcription_links(
     *,
     sb_client: Optional["Client"] = None,
 ) -> None:
-    """Atualiza ads.transcription_id e ad_transcriptions.ad_ids quando ads são upsertados."""
+    """Atualiza ads.transcription_id e ad_transcriptions.ad_ids quando ads são upsertados.
+
+    F7 (2026-09-13): antes fazia UMA consulta por ad_name e regravava o vínculo de todos os
+    anúncios daquele nome a cada refresh, mesmo já vinculados. Agora busca as transcrições
+    em lotes de nomes e grava só o que falta: `ad_ids` só quando há anúncio novo no nome, e
+    `ads.transcription_id` só nas linhas em que ele é nulo ou diferente.
+    """
     if not user_id or not ad_id_name_pairs:
         return
     sb = _get_sb(user_jwt, sb_client)
@@ -3513,40 +3732,70 @@ def _sync_ads_transcription_links(
         aname = str(ad_name).strip()
         if not aid or not aname:
             continue
-        ad_name_to_ad_ids.setdefault(aname, []).append(aid)
+        ids = ad_name_to_ad_ids.setdefault(aname, [])
+        if aid not in ids:
+            ids.append(aid)
     if not ad_name_to_ad_ids:
         return
+    names = sorted(ad_name_to_ad_ids)
     try:
-        for ad_name, batch_ad_ids in ad_name_to_ad_ids.items():
-            tr = (
-                sb.table("ad_transcriptions")
-                .select("id, ad_ids")
-                .eq("user_id", user_id)
-                .eq("ad_name", ad_name)
-                .limit(1)
-                .execute()
-            )
-            if not tr.data or len(tr.data) == 0:
-                continue
-            rec = tr.data[0]
-            transcription_id = rec.get("id")
-            if not transcription_id:
-                continue
-            existing = rec.get("ad_ids") or []
-            merged = list(set(existing + batch_ad_ids))
-            sb.table("ad_transcriptions").update(
-                {"ad_ids": merged, "updated_at": _now_iso()}
-            ).eq("id", transcription_id).eq("user_id", user_id).execute()
-            for i in range(0, len(batch_ad_ids), 200):
-                batch = batch_ad_ids[i : i + 200]
-                sb.table("ads").update(
-                    {"transcription_id": str(transcription_id), "updated_at": _now_iso()}
-                ).eq("user_id", user_id).in_("ad_id", batch).execute()
+        for batch_names in _batches_by_url_length(names):
+            try:
+                records = (
+                    sb.table("ad_transcriptions")
+                    .select("id, ad_name, ad_ids")
+                    .eq("user_id", user_id)
+                    .filter("ad_name", "in", _postgrest_in_list(batch_names))
+                    .execute()
+                ).data or []
+            except Exception as e:
+                # Um lote ruim não pode derrubar os outros: cai para a consulta por nome,
+                # que é o que o código antigo sempre fez.
+                logger.warning(
+                    f"[UPSERT_ADS] Lote de {len(batch_names)} nomes falhou na busca de transcrições "
+                    f"({e}); consultando nome a nome"
+                )
+                records = []
+                for name in batch_names:
+                    records.extend(
+                        (
+                            sb.table("ad_transcriptions")
+                            .select("id, ad_name, ad_ids")
+                            .eq("user_id", user_id)
+                            .eq("ad_name", name)
+                            .limit(1)
+                            .execute()
+                        ).data
+                        or []
+                    )
+            seen_names: set = set()
+            for rec in records:
+                ad_name = str(rec.get("ad_name") or "").strip()
+                transcription_id = rec.get("id")
+                # Um registro por nome, como o `.limit(1)` de antes.
+                if not transcription_id or ad_name not in ad_name_to_ad_ids or ad_name in seen_names:
+                    continue
+                seen_names.add(ad_name)
+                batch_ad_ids = ad_name_to_ad_ids[ad_name]
+                existing = [str(x) for x in (rec.get("ad_ids") or [])]
+                existing_set = set(existing)
+                missing = [aid for aid in batch_ad_ids if aid not in existing_set]
+                if missing:
+                    sb.table("ad_transcriptions").update(
+                        {"ad_ids": existing + missing, "updated_at": _now_iso()}
+                    ).eq("id", transcription_id).eq("user_id", user_id).execute()
+                tid = str(transcription_id)
+                for j in range(0, len(batch_ad_ids), 200):
+                    chunk = batch_ad_ids[j : j + 200]
+                    sb.table("ads").update(
+                        {"transcription_id": tid, "updated_at": _now_iso()}
+                    ).eq("user_id", user_id).in_("ad_id", chunk).or_(
+                        f"transcription_id.is.null,transcription_id.neq.{tid}"
+                    ).execute()
         logger.debug(f"[UPSERT_ADS] Sync transcription links para {len(ad_name_to_ad_ids)} ad_names")
     except Exception as e:
         logger.warning(f"[UPSERT_ADS] Erro em _sync_ads_transcription_links: {e}")
         raise
-
 
 def _sync_transcription_links_after_upsert(
     user_jwt: Optional[str],

@@ -9,6 +9,7 @@ Responsável por:
 
 Executa fora do request de polling para não bloquear.
 """
+import copy
 import logging
 import threading
 from typing import Any, Dict, List, Optional
@@ -460,6 +461,11 @@ class JobProcessor:
                 )
             
             existing_ads_map = {}
+            # F7: cópia da leitura de `ads` tirada ANTES do enriquecimento, para `upsert_ads`
+            # gravar só o que mudou. Cópia profunda de propósito: o enriquecimento hidrata os
+            # anúncios a partir destes dicts (cópia rasa do `creative`), e qualquer mutação
+            # aninhada contaminaria a comparação fazendo "mudado" parecer "igual".
+            existing_ads_snapshot = None
             if is_refresh:
                 refresh_ad_ids = [
                     str(ad.get("ad_id")).strip()
@@ -472,6 +478,7 @@ class JobProcessor:
                     self.user_id,
                     sb_client=self._sb,
                 )
+                existing_ads_snapshot = copy.deepcopy(existing_ads_map)
                 ad_ids = list(existing_ads_map.keys()) if existing_ads_map else refresh_ad_ids
                 if not ad_ids:
                     logger.warning("[JobProcessor] Nenhum ad_id para enriquecer após get_existing_ads_map")
@@ -545,6 +552,7 @@ class JobProcessor:
                 parent_entities=enrich_result.get("parent_entities") or {},
                 adset_ads_counts=count_ads_by_adset(inventory_rows) if inventory_rows else None,
                 attribution_window=attribution_window,
+                existing_ads_map=existing_ads_snapshot,
             )
 
             # ===== CONCLUSÃO =====
@@ -703,8 +711,13 @@ class JobProcessor:
         parent_entities: Optional[Dict[str, Any]] = None,
         adset_ads_counts: Optional[Dict[str, int]] = None,
         attribution_window: Optional[tuple] = None,
+        existing_ads_map: Optional[Dict[str, Dict[str, Any]]] = None,
     ) -> Optional[str]:
-        """Persiste dados no Supabase."""
+        """Persiste dados no Supabase.
+
+        `existing_ads_map`: cópia da leitura de `ads` feita no refresh (None na criação de
+        pack). Com ela, `upsert_ads` grava só os anúncios novos ou mudados (F7).
+        """
         # Heartbeat limiter: evita spam de updates no jobs durante loops longos
         last_hb_ts = 0.0
         hb_min_interval_s = 1.0
@@ -810,6 +823,7 @@ class JobProcessor:
                         pack_id=pack_id,
                         on_batch_progress=lambda b, t: hb(f"Salvando anúncios: bloco {b}/{t}..."),
                         sb_client=self._sb,
+                        existing_ads_map=existing_ads_map,
                     )
                 except Exception as e:
                     if pack_created_in_this_run and created_pack_id:
