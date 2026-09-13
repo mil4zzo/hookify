@@ -4762,3 +4762,23 @@ do próprio vigia contém o texto `deploy.sh`, e o `pgrep -f` casa consigo mesmo
 O `deploy.sh` já segura `flock /tmp/hookify_deploy.lock` durante toda a execução. Esperar essa
 trava (`flock /tmp/hookify_deploy.lock true`) termina exatamente quando o deploy termina, sem
 casar com nada.
+
+## F7: gravar em `ads` só o que mudou — e o `in_` do PostgREST não escapa texto livre (2026-09-13)
+
+**Problema.** Todo refresh regravava idênticos todos os anúncios do pack: 8,7 GB de WAL em 18 dias
+numa tabela de 276 MB. Também vinculava de novo ao pack quem já estava nele, consultava
+transcrição nome a nome e regravava miniaturas já em cache (mais 3,1 GB). Cada regravação desfaz o
+index-only scan da migration 152.
+
+**Decisão.** Comparar com a leitura que o refresh já fazia (`get_existing_ads_map`), numa cópia
+profunda tirada antes do enriquecimento, e gravar só o novo ou mudado. A comparação é **genérica**
+(todo campo gravado), com um teste de guarda que falha se um campo gravado não estiver na leitura.
+A data de criação é comparada como instante. A migration 153 filtra o vínculo com
+`NOT COALESCE(p_pack_id = ANY(pack_ids), false)`: sem o COALESCE, um elemento NULL no array faria a
+linha nunca ganhar o pack. Simulação com 8.207 anúncios reais: 0 mudados.
+
+**Armadilha que a revisão pegou.** Trocar `.eq` por nome por um `.in_` em lote é regressão para
+texto livre: o postgrest-py só põe aspas em valores com `,:()` e nunca escapa `"` nem `\`. A lista
+passou a ser montada à mão (`_postgrest_in_list`), com lote por tamanho de URL e queda para `.eq`
+se o lote falhar. `get_cached_thumbs_by_ad_names` ainda usa `in_` com nomes (latente: 0 nomes com
+esses caracteres em produção).
