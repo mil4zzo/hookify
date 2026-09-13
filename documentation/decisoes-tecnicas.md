@@ -4616,3 +4616,77 @@ efeito rodar com a lista vazia, cair na guarda de "nenhuma planilha conectada" e
 mais reavaliar. Por isso `packs.length` entra nas dependências — e o cancelamento foi
 amarrado ao desmonte (ref), não à lista de deps, senão cada reavaliação abortaria a
 requisição em voo.
+
+## Worktrees paralelos: número de migration colide, e sessão aberta dentro deles some do histórico (2026-09-11)
+
+Dois efeitos colaterais do trabalho em paralelo (`Hookify-chat`, `Hookify-ds`,
+`.claude/worktrees/perf-carregamento`), descobertos ao procurar uma conversa "perdida":
+
+**1. Duas migrations 149 diferentes.** Cada worktree escolheu o "próximo número" olhando só a
+própria pasta: `149_escopo_de_pais_sem_varredura` (perf) e
+`149_execute_de_funcoes_deixa_de_ser_public` + `150_chat_schema` (chat). Conferido em produção
+no mesmo dia: **nenhuma das duas foi aplicada** (a função `present_parent_ids` não existe; PUBLIC
+ainda executa `fetch_manager_rankings_core_v2`; não há tabela de chat). Como as migrations são
+aplicadas à mão via psql, sem tabela de controle, a colisão não daria erro — daria ordem ambígua e
+rollback trocado.
+
+Regra: antes de numerar uma migration, listar `supabase/migrations` de **todos** os worktrees
+(`git worktree list`) e usar o maior + 1. No merge, quem entra em segundo lugar renumera (arquivo,
+rollback, teste SQL e as referências nos docs). Como a 149 do chat revoga EXECUTE de PUBLIC, quando
+ela entrar é preciso conferir que as funções criadas por outros branches continuam executáveis por
+`authenticated`/`service_role`.
+
+**2. A conversa some do histórico.** O Claude Code arquiva cada conversa pela pasta de trabalho. A
+sessão do perf entrou no worktree e passou a ser listada só com aquela pasta aberta — com o Hookify
+aberto, o usuário não a encontrava. Os worktrees chat/ds foram trabalhados a partir da pasta
+principal (caminhos absolutos + `git -C`) e não tiveram o problema. Regra: trabalhar sempre da
+pasta principal; não mover a sessão para dentro do worktree.
+
+## Leads "sem match" da planilha não são falha do Hookify — e a planilha não cria linha (2026-09-13)
+
+Investigado ao revisar o F5 do plano de eficiência. A cada sincronização, ~138 pares
+anúncio + dia davam "não encontrado". A hipótese inicial ("lead em dia sem gasto, sem linha")
+**caiu por medição**: esse caso tem 0 leads no meio da vida do anúncio.
+
+Leitura completa da aba DADOS (60.308 leads, 7 packs do EI.31), sem gravar nada:
+
+| Situação | Leads | Natureza |
+|---|---|---|
+| `AD_ID = indefinido` | 2.845 | Orgânico (bio do IG, WhatsApp, popup), WhatsApp do comercial, YouTube. Só 3 pagos da Meta |
+| `AD_ID = {{ad.id}}` | 218 | Todas as UTMs sem preencher: clique pela Biblioteca de Anúncios (bots e espiões) |
+| Captura anterior à criação do anúncio | 129 | Data gravada pela automação do CRM, que às vezes pega data anterior; as UTMs batem com o anúncio |
+| ID real fora de qualquer pack | 46 | Metade é do próprio dia (o refresh resolve) |
+| Sem ID / sem data | 115 / 89 | Células vazias |
+
+**Decisão do idealizador:** a planilha **não cria linha** em `ad_metrics`. Criar linha para um
+lead com data fora da vida do anúncio inventaria uma entrega que não houve. Se um dia for
+necessário, a regra segura é criar só dentro de `[criação do anúncio, última vez visto ativo]`.
+
+**Consequência para o F5:** sem linha-zero, os ~49 leads que hoje caem em dia ativo sem entrega
+ficam sem destino. A decisão está em aberto no plano (§8.7). O descarte ganha visibilidade num
+tooltip do card da integração (F6).
+
+## O cabeçalho de uso da Meta não avisa antes do limite — proteção só reativa (2026-09-13)
+
+O F4 do plano de eficiência previa trocar a espera fixa de 1 s entre páginas do relatório
+por uma "espera guiada pelo cabeçalho de uso", tratada como mais segura. **A medição derrubou
+a ideia:**
+
+| Medida | Resultado |
+|---|---|
+| Uso informado em 4.291 páginas de relatório (14 dias) | nunca passou de 1% |
+| Maior uso informado em qualquer chamada no dia do `(#4)` (07/09) | 2% |
+| Origem do `(#4)` | 40+ relatórios **criados** no mesmo dia, não leitura de páginas |
+| Erros de limite nos logs de produção (7 dias) | 0 |
+
+**Decisão:** página de 1.000 (diferencial contra a Meta: linhas idênticas, ~40% mais rápido),
+espera curta (0,25 s) crescente com o uso quando ele aparecer e, principalmente, **espera e
+nova tentativa ao receber o erro de limite** (#4/#17/#32/#613/800xx: 15/30/60 s). Antes, esse
+erro derrubava o job.
+
+**Armadilha de medição:** a primeira comparação (1.000 lida depois de 500) deu 1.000 mais
+lenta por causa de uma única página de 15,7 s. Com a ordem alternada, 1.000 ficou em 15–17 s e
+500 em 25–28 s.
+
+**Nota:** chamadas que falham não aparecem em `meta_api_usage`, porque o registro só acontece
+depois de `raise_for_status()`.
