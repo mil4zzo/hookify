@@ -1042,12 +1042,50 @@ da janela.**
 
 #### Diferencial (fase 2)
 
-Dois bancos no laboratório com os mesmos dados: **A** no estado atual e **B** com 154, 155 e a
-limpeza das sintéticas aplicadas. `diff_rankings_rollup.py` ganha `--old-url`/`--new-url` e roda a
-entrada antiga em A e a nova em B, na mesma matriz do rollup (pack sozinho e todos os packs × 4
-agrupamentos × evento, paginação, filtros de nome, conta, compartilhamento).
-`diff_entity_routes.py` faz o mesmo para as 7 telas de detalhe. Divergência fora de (a)–(e)
-bloqueia.
+Dois bancos no laboratório com os mesmos dados: **A** (`hookify_lab`) no estado atual e **B**
+(`hookify_lab_b`, cópia) com 154, 155 e a limpeza das sintéticas aplicadas.
+`backend/scripts/diff_inventario_f5.py` roda a leitura antiga em A e a nova em B:
+- **Manager:** a matriz do rollup (reaproveita `diff_rankings_rollup.py`) mais janelas curtas por pack
+  (últimos 7 dias e 5 dias no meio). Buraco e pré-criação só aparecem em janela curta.
+- **Detalhe:** as entidades mais cheias de cada pack e anúncios só de inventário, em período
+  inteiro e janelas curtas, filhos e entidade, ramo legado e compartilhamento. A comparação é do
+  JSON da RPC. Dia zerado não conta, porque o backend já preenche com zero o dia sem dado.
+
+Números têm de ser exatos. Quem aparece só pode mudar por anúncio classificado no próprio banco A
+em (a), (c/e) ou nome diferente. Divergência não explicada bloqueia. Com as duas URLs iguais, o
+mesmo script prova a convivência (155 no ar com as linhas-zero ainda no banco).
+
+**Medido na limpeza do B (14/09):** `DELETE` das sintéticas numa instrução só apagou 543.622
+linhas (688.485 → 144.863) em 2 min 16 s, com cascata para rollup e mapa. Em produção a 156 terá
+de apagar **em lotes**. `VACUUM` simples não devolve disco: `ad_metrics` continuou com 517 MB,
+rollup com 299 MB e mapa com 202 MB. O espaço fica livre para reúso. Devolver ao disco exige
+`VACUUM FULL` (trava a tabela) ou reescrita; decidir na 156.
+
+#### Fase 3: o que o backend precisa mudar (mapa de 14/09)
+
+Hoje nada marca a linha sintética depois de gravada. No Python, só `known_ad_ids` (o que voltou
+do /insights) separa real de inventário, e só antes da formatação.
+
+- **Continua igual para o anúncio só de inventário:** `upsert_ads` (criativo, status, mídia),
+  pack em `ads.pack_ids` e `packs.ad_ids`, miniaturas, vínculo de transcrição, escopo de pais
+  (`present_parent_ids` lê `ads`). Ele só não vai para `upsert_ad_metrics` nem para o mapa. O
+  intervalo vai para `merge_ad_pack_inventory`.
+- **Retorno antecipado do job** (`job_processor.py`, "Nenhum anúncio encontrado"): hoje as
+  sintéticas deixam `raw_data` não vazio quando todos os anúncios estão ativos sem entrega. Sem
+  elas, criar esse pack falharia e o refresh sairia sem atualizar o status. A condição passa a
+  considerar o inventário.
+- **`calculate_pack_stats_essential`:** `uniqueAds`, `uniqueAdNames`, `uniqueCampaigns` e
+  `uniqueAdsets` contam anúncios de linhas-zero (`PackCard`, `Topbar`, filtro de packs). A
+  contagem passa a unir o inventário. O gasto não muda.
+- **`get_ads_for_pack`** lê o mapa. Alimenta a lista de anúncios do pack, a transcrição do pack
+  (`start_pack_transcription`) e o status dela. Passa a unir o inventário.
+- **`delete_pack`** e a exclusão de dados do usuário (`routes/user.py`) passam a apagar
+  `ad_pack_inventory`, que não tem FK.
+- **`entity_performance.RPC_NAME`** passa para `fetch_entity_performance_v155`.
+- **Aceitos, sem mudança:** `detect_pack_conflicts` deixa de acusar conflito só de dia zerado
+  (divergência d). Painel, séries e retenção não mudam de número.
+- **Planilha:** lead com data num dia ativo sem entrega hoje cai na linha-zero. Sem ela, entra em
+  "não encontrados". É a decisão pendente abaixo.
 
 #### Planilha (§8.7)
 
