@@ -1,15 +1,21 @@
 """
-Seleção de ads sem entrega a partir do inventário (/act_X/ads) e síntese de linhas-zero.
+Seleção de ads sem entrega a partir do inventário (/act_X/ads) e intervalo de atividade.
 
 O endpoint /insights da Meta é de performance, não de inventário: ads sem atividade
 (impressions/spend = 0) no time_range simplesmente não retornam. O inventário do /ads
-edge define o universo real do pack; ads presentes nele mas ausentes do insights
-entram no pipeline como linhas-zero diárias — dado factual ("entregou 0 neste dia")
-que materializa o ad em ad_metrics, de onde todo o read path (RPCs do Manager,
-pack stats, ad_metric_pack_map) parte.
+edge define o universo real do pack.
+
+Até a F5 (documentation/plano-eficiencia-carregamento.md, §8) os ads entregáveis
+ausentes do insights viravam linhas-zero diárias em ad_metrics — 79% da tabela. Agora:
+  - todo ad entregável do inventário grava o INTERVALO em que esteve ativo em
+    ad_pack_inventory (migration 154), e as leituras do Manager completam a lista por ele
+    (migration 155);
+  - o ad só de inventário ainda passa pelo pipeline como UMA linha (não uma por dia),
+    para ganhar registro em `ads`, lista do pack e miniatura — mas fica fora de
+    ad_metrics e do mapa (job_processor._persist_data).
 """
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Any, Dict, List, Optional, Set
 
 logger = logging.getLogger(__name__)
@@ -26,9 +32,11 @@ DELIVERABLE_STATUSES: Set[str] = {
     "PREAPPROVED",
 }
 
-# Teto de segurança para packs sem filtro em contas gigantes: evita explodir
-# formatted_data/upserts. Ads mais recentes têm prioridade; o corte é logado.
-MAX_SYNTH_ROWS = 25000
+# Teto de segurança para packs sem filtro em contas gigantes: ads só de inventário que
+# passam pelo enriquecimento (criativo, miniatura) num job. Ads mais recentes têm
+# prioridade; o corte é logado. Não limita o INTERVALO: todo ad entregável vai para
+# ad_pack_inventory e aparece nas leituras, com ou sem enriquecimento.
+MAX_INVENTORY_ONLY_ADS = 5000
 
 
 def _parse_date(value: Any) -> Optional[datetime]:
@@ -89,28 +97,85 @@ def select_zero_delivery_ads(
     return zero_ads
 
 
-def synthesize_zero_raw_rows(
-    zero_ads: List[Dict[str, Any]],
-    date_start: str,
-    date_stop: str,
-    *,
-    max_rows: int = MAX_SYNTH_ROWS,
-) -> List[Dict[str, Any]]:
-    """Gera linhas raw diárias zeradas no shape do /insights para os ads do inventário.
+def _active_start(ad: Dict[str, Any], range_start: datetime) -> datetime:
+    """Primeiro dia ativo do ad dentro da janela: a janela ou a criação, o que vier depois."""
+    created = _parse_date(ad.get("created_time"))
+    return max(range_start, created) if created else range_start
 
-    Uma linha por dia em [max(date_start, created_time), date_stop] — ad criado no
-    meio do range não ganha zeros de antes de existir. Métricas ficam ausentes de
-    propósito: format_ads_for_api default-a tudo para 0.
-    """
+
+def _window(date_start: str, date_stop: str) -> Optional[tuple]:
     range_start = _parse_date(date_start)
     range_stop = _parse_date(date_stop)
     if not range_start or not range_stop or range_start > range_stop:
         logger.warning(
-            "[AdInventory] Range inválido para síntese (%s → %s); nenhuma linha-zero gerada",
+            "[AdInventory] Range inválido (%s → %s); nada de inventário neste job",
             date_start,
             date_stop,
         )
+        return None
+    return range_start, range_stop
+
+
+def build_active_intervals(
+    inventory: List[Dict[str, Any]],
+    date_start: str,
+    date_stop: str,
+    account_id: str,
+) -> List[Dict[str, Any]]:
+    """Linhas para `merge_ad_pack_inventory`: todo ad ENTREGÁVEL do inventário, com o
+    intervalo [max(date_start, criação), date_stop] desta janela.
+
+    Inclui quem teve entrega (veio do insights): é isso que faz o ad ativo que gastou num
+    trecho aparecer com zero nos outros dias do período (divergência (e) do plano). O
+    merge no banco só ESTENDE o intervalo — um refresh que não vê o ad não o apaga.
+    """
+    window = _window(date_start, date_stop)
+    if not window:
         return []
+    range_start, range_stop = window
+    out: Dict[str, Dict[str, Any]] = {}
+    for ad in inventory or []:
+        ad_id = str(ad.get("id") or "").strip()
+        if not ad_id:
+            continue
+        if str(ad.get("effective_status") or "").upper() not in DELIVERABLE_STATUSES:
+            continue
+        start = _active_start(ad, range_start)
+        if start > range_stop:
+            continue  # criado depois do fim da janela
+        adset = ad.get("adset") or {}
+        campaign = ad.get("campaign") or {}
+        out[ad_id] = {
+            "ad_id": ad_id,
+            "account_id": str(account_id or ""),
+            "ad_name": str(ad.get("name") or ""),
+            "adset_id": str(ad.get("adset_id") or ""),
+            "adset_name": str(adset.get("name") or ""),
+            "campaign_id": str(ad.get("campaign_id") or ""),
+            "campaign_name": str(campaign.get("name") or ""),
+            "first_active_date": start.strftime("%Y-%m-%d"),
+            "last_active_date": range_stop.strftime("%Y-%m-%d"),
+        }
+    return list(out.values())
+
+
+def inventory_only_raw_rows(
+    zero_ads: List[Dict[str, Any]],
+    date_start: str,
+    date_stop: str,
+    *,
+    max_ads: int = MAX_INVENTORY_ONLY_ADS,
+) -> List[Dict[str, Any]]:
+    """UMA linha raw por ad só de inventário, no shape do /insights, para o pipeline
+    enriquecer e gravar em `ads` (criativo, status, miniatura) e na lista do pack.
+
+    Métricas ficam ausentes de propósito (format_ads_for_api default-a tudo para 0). A
+    linha NÃO vai para ad_metrics: quem a separa é o job, pelo ad_id.
+    """
+    window = _window(date_start, date_stop)
+    if not window:
+        return []
+    range_start, range_stop = window
 
     # Prioriza ads mais recentes se o teto for atingido (corte determinístico e logado)
     ordered = sorted(
@@ -125,20 +190,16 @@ def synthesize_zero_raw_rows(
         ad_id = str(ad.get("id") or "").strip()
         if not ad_id:
             continue
-
-        created = _parse_date(ad.get("created_time"))
-        start = max(range_start, created) if created else range_start
+        start = _active_start(ad, range_start)
         if start > range_stop:
-            continue  # criado depois do fim do range
-
-        n_days = (range_stop - start).days + 1
-        if len(rows) + n_days > max_rows:
+            continue
+        if len(rows) >= max_ads:
             truncated_ads += 1
             continue
-
         adset = ad.get("adset") or {}
         campaign = ad.get("campaign") or {}
-        identity = {
+        day = start.strftime("%Y-%m-%d")
+        rows.append({
             "ad_id": ad_id,
             "ad_name": str(ad.get("name") or ""),
             "adset_id": str(ad.get("adset_id") or ""),
@@ -146,25 +207,20 @@ def synthesize_zero_raw_rows(
             "campaign_id": str(ad.get("campaign_id") or ""),
             "campaign_name": str(campaign.get("name") or ""),
             "effective_status": str(ad.get("effective_status") or "").upper() or None,
-        }
-        for offset in range(n_days):
-            day = (start + timedelta(days=offset)).strftime("%Y-%m-%d")
-            row = dict(identity)
-            row["date_start"] = day
-            row["date_stop"] = day
-            rows.append(row)
+            "date_start": day,
+            "date_stop": day,
+        })
 
     if truncated_ads:
         logger.warning(
-            "[AdInventory] Teto de %d linhas-zero atingido: %d ads zerados ficaram de fora "
-            "(priorizados os mais recentes)",
-            max_rows,
+            "[AdInventory] Teto de %d ads só de inventário atingido: %d ficaram sem "
+            "enriquecimento neste job (continuam no inventário; priorizados os mais recentes)",
+            max_ads,
             truncated_ads,
         )
     logger.info(
-        "[AdInventory] Síntese: %d linhas-zero para %d ads zerados (%s → %s)",
+        "[AdInventory] %d ads só de inventário (%s → %s)",
         len(rows),
-        len(ordered) - truncated_ads,
         date_start,
         date_stop,
     )

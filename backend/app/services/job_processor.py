@@ -29,7 +29,12 @@ from app.services.job_tracker import (
 )
 from app.services.insights_collector import collection_is_complete, get_insights_collector
 from app.services.graph_api import GraphAPI
-from app.services.ad_inventory import count_ads_by_adset, select_zero_delivery_ads, synthesize_zero_raw_rows
+from app.services.ad_inventory import (
+    build_active_intervals,
+    count_ads_by_adset,
+    inventory_only_raw_rows,
+    select_zero_delivery_ads,
+)
 from app.services.ads_enricher import get_ads_enricher
 from app.services.dataformatter import format_ads_for_api
 from app.core.supabase_client import get_supabase_service
@@ -369,10 +374,14 @@ class JobProcessor:
 
             # ===== FASE 1.5: INVENTÁRIO =====
             # /insights omite ads sem entrega no range; o /ads edge define o universo
-            # real do pack. Ads entregáveis ausentes do insights entram como linhas-zero
-            # diárias (dado factual: "entregou 0 neste dia"). Fail-open: falha aqui não
-            # derruba o job — o pipeline segue com o comportamento antigo.
+            # real do pack. F5: todo ad entregável grava o intervalo ativo em
+            # ad_pack_inventory (as leituras completam a lista por ele); o ad que não veio
+            # do insights passa pelo pipeline como UMA linha, só para `ads`/lista/miniatura,
+            # e fica fora de ad_metrics. Fail-open: sem inventário, o job segue só com o
+            # insights e o intervalo gravado antes não é tocado.
             inventory_rows = None
+            inventory_intervals: List[Dict[str, Any]] = []
+            inventory_only_ad_ids: set = set()
             try:
                 self._heartbeat_or_raise(
                     job_id,
@@ -400,26 +409,29 @@ class JobProcessor:
                 )
                 inventory_rows = None
 
-            # Trava explícita, independente do `return` acima: linha-zero só existe
-            # se o relatório veio inteiro. Ausência num recorte não é ausência.
+            # Trava explícita, independente do `return` acima: o inventário só completa a
+            # lista se o relatório veio inteiro. Ausência num recorte não é ausência.
             if inventory_rows and collection_is_complete(collect_result):
+                window_start = str(payload.get("date_start") or "")
+                window_stop = str(payload.get("date_stop") or "")
                 known_ad_ids = {
                     str(ad.get("ad_id") or "").strip()
                     for ad in raw_data
                     if str(ad.get("ad_id") or "").strip()
                 }
-                zero_ads = select_zero_delivery_ads(inventory_rows, known_ad_ids)
-                synth_rows = synthesize_zero_raw_rows(
-                    zero_ads,
-                    str(payload.get("date_start") or ""),
-                    str(payload.get("date_stop") or ""),
+                inventory_intervals = build_active_intervals(
+                    inventory_rows, window_start, window_stop, act_id
                 )
-                if synth_rows:
-                    raw_data.extend(synth_rows)
+                zero_ads = select_zero_delivery_ads(inventory_rows, known_ad_ids)
+                only_rows = inventory_only_raw_rows(zero_ads, window_start, window_stop)
+                if only_rows:
+                    raw_data.extend(only_rows)
+                    inventory_only_ad_ids = {str(r["ad_id"]) for r in only_rows}
                     logger.info(
-                        "[JobProcessor] Universo expandido: +%d ads zerados (%d linhas-zero)",
-                        len(zero_ads),
-                        len(synth_rows),
+                        "[JobProcessor] Universo expandido: +%d ads só de inventário; "
+                        "%d intervalos ativos",
+                        len(only_rows),
+                        len(inventory_intervals),
                     )
 
             if not raw_data:
@@ -553,6 +565,8 @@ class JobProcessor:
                 adset_ads_counts=count_ads_by_adset(inventory_rows) if inventory_rows else None,
                 attribution_window=attribution_window,
                 existing_ads_map=existing_ads_snapshot,
+                inventory_intervals=inventory_intervals,
+                inventory_only_ad_ids=inventory_only_ad_ids,
             )
 
             # ===== CONCLUSÃO =====
@@ -712,12 +726,19 @@ class JobProcessor:
         adset_ads_counts: Optional[Dict[str, int]] = None,
         attribution_window: Optional[tuple] = None,
         existing_ads_map: Optional[Dict[str, Dict[str, Any]]] = None,
+        inventory_intervals: Optional[List[Dict[str, Any]]] = None,
+        inventory_only_ad_ids: Optional[set] = None,
     ) -> Optional[str]:
         """Persiste dados no Supabase.
 
         `existing_ads_map`: cópia da leitura de `ads` feita no refresh (None na criação de
         pack). Com ela, `upsert_ads` grava só os anúncios novos ou mudados (F7).
+
+        `inventory_intervals` / `inventory_only_ad_ids` (F5): o intervalo ativo de cada ad
+        entregável vai para ad_pack_inventory; os ads só de inventário vão para `ads`, lista
+        do pack e miniaturas, mas NÃO para ad_metrics nem para o mapa.
         """
+        inventory_only_ad_ids = inventory_only_ad_ids or set()
         # Heartbeat limiter: evita spam de updates no jobs durante loops longos
         last_hb_ts = 0.0
         hb_min_interval_s = 1.0
@@ -864,10 +885,14 @@ class JobProcessor:
 
                 ensure_not_cancelled("before_metrics")
                 hb("Salvando métricas...", force=True)
+                metric_rows = [
+                    a for a in formatted_data
+                    if str(a.get("ad_id") or "") not in inventory_only_ad_ids
+                ]
                 try:
                     supabase_repo.upsert_ad_metrics(
                         self.user_jwt,
-                        formatted_data,
+                        metric_rows,
                         user_id=self.user_id,
                         pack_id=pack_id,
                         on_batch_progress=lambda b, t: hb(f"Salvando métricas: bloco {b}/{t}..."),
@@ -877,6 +902,23 @@ class JobProcessor:
                     if pack_created_in_this_run and created_pack_id:
                         self._cleanup_new_pack(created_pack_id, job_id, "falha em metrics_upsert")
                     raise PersistStageError("metrics_upsert", f"Erro ao salvar métricas: {e}") from e
+
+                # Sem o intervalo, o ad ativo sem entrega some da lista: é etapa obrigatória,
+                # como as métricas. O merge só estende (least/greatest) e não regrava igual.
+                if inventory_intervals:
+                    hb("Salvando inventário...", force=True)
+                    try:
+                        supabase_repo.merge_pack_inventory(
+                            self.user_jwt,
+                            inventory_intervals,
+                            user_id=self.user_id,
+                            pack_id=pack_id,
+                            sb_client=self._sb,
+                        )
+                    except Exception as e:
+                        if pack_created_in_this_run and created_pack_id:
+                            self._cleanup_new_pack(created_pack_id, job_id, "falha em inventory_merge")
+                        raise PersistStageError("inventory_merge", f"Erro ao salvar inventário: {e}") from e
 
                 ad_ids = sorted(list({str(a.get("ad_id")) for a in formatted_data if a.get("ad_id")}))
                 hb("Otimizando tudo...", force=True)

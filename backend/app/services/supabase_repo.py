@@ -1981,6 +1981,55 @@ def upsert_ad_metrics(
 
 
 
+INVENTORY_MERGE_BATCH = 2000
+
+
+def merge_pack_inventory(
+    user_jwt: str,
+    intervals: List[Dict[str, Any]],
+    user_id: Optional[str],
+    pack_id: Optional[str],
+    *,
+    sb_client: Optional["Client"] = None,
+) -> int:
+    """Grava o intervalo ativo dos ads em ad_pack_inventory (RPC da migration 154).
+
+    O merge no banco só ESTENDE o intervalo (least/greatest), não apaga nome com texto
+    vazio e não regrava o que está igual. Devolve quantas linhas mudaram.
+    """
+    if not user_id or not pack_id or not intervals:
+        return 0
+    sb = _get_sb(user_jwt, sb_client)
+    changed = 0
+    total_batches = (len(intervals) + INVENTORY_MERGE_BATCH - 1) // INVENTORY_MERGE_BATCH
+    for i in range(0, len(intervals), INVENTORY_MERGE_BATCH):
+        batch = intervals[i:i + INVENTORY_MERGE_BATCH]
+        batch_num = i // INVENTORY_MERGE_BATCH + 1
+        res = with_postgrest_retry(
+            f"merge_ad_pack_inventory[{batch_num}/{total_batches}]",
+            lambda b=batch: sb.rpc(
+                "merge_ad_pack_inventory",
+                {"p_user_id": user_id, "p_pack_id": pack_id, "p_rows": b},
+            ).execute(),
+        )
+        try:
+            changed += int(res.data or 0)
+        except (TypeError, ValueError):
+            pass
+    logger.info(
+        f"[MERGE_PACK_INVENTORY] pack {pack_id}: {len(intervals)} intervalos, {changed} mudaram"
+    )
+    return changed
+
+
+def _fetch_pack_inventory(sb, user_id: str, pack_id: str, select_fields: str) -> List[Dict[str, Any]]:
+    """Linhas de ad_pack_inventory de um pack (paginado: o PostgREST corta em 1000)."""
+    def _filters(q):
+        return q.eq("user_id", user_id).eq("pack_id", pack_id).order("ad_id")
+
+    return _fetch_all_paginated(sb, "ad_pack_inventory", select_fields, _filters)
+
+
 def update_pack_stats(
     user_jwt: str,
     pack_id: str,
@@ -2144,14 +2193,9 @@ def calculate_pack_stats_essential(
             _map_filters,
         )
 
-        if not map_rows:
-            return {
-                "totalSpend": 0.0,
-                "uniqueAds": 0,
-                "uniqueAdNames": 0,
-                "uniqueCampaigns": 0,
-                "uniqueAdsets": 0,
-            }
+        # F5: o ad ativo sem entrega não tem linha de métrica — só o intervalo no
+        # inventário. Ele conta nos totais de anúncios, nomes, campanhas e conjuntos.
+        inventory_rows = _fetch_pack_inventory(sb, user_id, pack_id, "ad_id, ad_name, campaign_id, adset_id")
 
         # Reconstrói ids compostos de ad_metrics. Formato gerado em upsert_ad_metrics:
         # `{day}-{ad_id}` onde day é YYYY-MM-DD (10 chars) e ad_id ~18 chars.
@@ -2162,15 +2206,6 @@ def calculate_pack_stats_essential(
             if ad_id_v and date_v:
                 metric_ids.append(f"{date_v}-{ad_id_v}")
         metric_ids = list(set(metric_ids))
-
-        if not metric_ids:
-            return {
-                "totalSpend": 0.0,
-                "uniqueAds": 0,
-                "uniqueAdNames": 0,
-                "uniqueCampaigns": 0,
-                "uniqueAdsets": 0,
-            }
 
         # IDs compostos têm ~30 chars. `.in_()` na URL do PostgREST tem limite de
         # ~32KB; lotes de 200 ids = ~6KB. Mesmo padrão de batching usado em
@@ -2194,16 +2229,7 @@ def calculate_pack_stats_essential(
     except Exception as e:
         logger.warning(f"[CALCULATE_PACK_STATS_ESSENTIAL] Erro ao buscar métricas para pack {pack_id}: {e}")
         return {}
-    
-    if not metrics:
-        return {
-            "totalSpend": 0.0,
-            "uniqueAds": 0,
-            "uniqueAdNames": 0,
-            "uniqueCampaigns": 0,
-            "uniqueAdsets": 0,
-        }
-    
+
     unique_ad_ids = set()
     unique_ad_names = set()
     unique_campaign_ids = set()
@@ -2220,7 +2246,17 @@ def calculate_pack_stats_essential(
         if metric.get("adset_id"):
             unique_adset_ids.add(str(metric["adset_id"]))
         total_spend += float(metric.get("spend", 0) or 0)
-    
+
+    for inv in inventory_rows:
+        if inv.get("ad_id"):
+            unique_ad_ids.add(str(inv["ad_id"]))
+        if inv.get("ad_name"):
+            unique_ad_names.add(str(inv["ad_name"]))
+        if inv.get("campaign_id"):
+            unique_campaign_ids.add(str(inv["campaign_id"]))
+        if inv.get("adset_id"):
+            unique_adset_ids.add(str(inv["adset_id"]))
+
     return {
         "totalSpend": round(total_spend, 2),
         "uniqueAds": len(unique_ad_ids),
@@ -2729,6 +2765,13 @@ def delete_pack(
             sb.table("ad_metric_pack_map").delete().eq("user_id", user_id).eq("pack_id", pack_id).execute()
         except Exception as e:
             logger.warning(f"Erro ao remover vínculos de ad_metric_pack_map para pack {pack_id}: {e}")
+
+        # 1.2 (F5) Inventário do pack: sem FK para packs nem para ad_metrics, nada o
+        #     leva junto. Uma requisição pelo prefixo (user, pack) da PK.
+        try:
+            sb.table("ad_pack_inventory").delete().eq("user_id", user_id).eq("pack_id", pack_id).execute()
+        except Exception as e:
+            logger.warning(f"Erro ao remover ad_pack_inventory do pack {pack_id}: {e}")
 
         # 2. (145) A linha de ad_metrics pertence ao pack: não há "exclusivas" para
         #    classificar — era essa classificação, com try/except que só logava, que
@@ -3522,6 +3565,8 @@ def get_ads_for_pack(
                 return q.eq("user_id", user_id).eq("pack_id", pack_id)
 
             map_rows = _fetch_all_paginated(sb, "ad_metric_pack_map", "ad_id", _map_filters)
+            # F5: mais os ads só de inventário (ativos sem entrega não têm linha no mapa).
+            map_rows += _fetch_pack_inventory(sb, user_id, pack_id, "ad_id")
             ad_ids = list({str(r.get("ad_id") or "").strip() for r in map_rows if r.get("ad_id")})
             ad_ids = [a for a in ad_ids if a]
 

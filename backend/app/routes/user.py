@@ -53,6 +53,7 @@ def _delete_user_data(user_id: str) -> Dict[str, Any]:
         ("jobs", "user_id"),
         ("ad_sheet_integrations", "owner_id"),
         ("ad_metrics", "user_id"),
+        ("ad_pack_inventory", "user_id"),
         ("ads", "user_id"),
         ("packs", "user_id"),
         ("ad_accounts", "user_id"),
