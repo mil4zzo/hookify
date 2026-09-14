@@ -381,6 +381,49 @@ Notas da revisão, sem ação:
 - Continua existindo um UPDATE por nome com transcrição, que toca 0 linhas quando já está
   vinculado. Dá para eliminar trazendo `transcription_id` na leitura prévia.
 
+**Pendências fechadas depois da revisão (13/09).**
+
+1. **Vigias órfãos no servidor.** Dois laços de espera de deploy, de sessões anteriores, rodavam
+   havia 6 dias: o `pgrep -f deploy.sh` casava com o próprio comando. Foram encerrados depois de
+   conferir o comando de cada processo. Lição registrada: esperar o deploy pela trava
+   `flock /tmp/hookify_deploy.lock`.
+2. **UPDATE de transcrição por nome.** A leitura prévia passou a trazer `transcription_id`, e o
+   UPDATE só vai para anúncio não vinculado à transcrição daquele nome. No CA4, os 188 nomes com
+   transcrição já estavam todos vinculados: **188 idas ao banco a menos por refresh**.
+3. **Busca de miniatura por nome (`get_cached_thumbs_by_ad_names`).** Além das aspas (latente),
+   apareceu um **problema real em produção**:
+   - cada nome tem ~30 anúncios, e o lote de 200 nomes batia no teto silencioso de 1.000 linhas;
+   - no CA4, a busca direta achava 33 de 276 nomes e a varredura de reserva (20 mil linhas, com
+     OFFSET) chegava a 89;
+   - por isso cada refresh **reenviava 17–22 miniaturas ao Storage** que já existiam (logs de
+     produção).
+
+   Agora a busca é paginada por lote, só com anúncios que têm miniatura, em ordem estável, e a
+   página só termina vazia ou quando todos os nomes do lote apareceram. A varredura ficou só
+   para nome que casa depois de normalizar, com cursor por `ad_id`. Fila do banco cheia
+   interrompe a busca. Um log de resumo mostra quantos nomes cada etapa resolveu.
+   **Com dados reais: 276 de 276 em 4 lotes e 20 páginas, sem varredura.**
+4. **Conferência no Storage em paralelo.** Achando todos os nomes, o processo em segundo plano
+   passaria a conferir 276 objetos no Storage um a um (~100 ms cada no servidor, ~28 s). Agora são
+   8 conferências de cada vez, uma por nome. Medido da máquina local: **111 s em série → 36 s em
+   paralelo** (~3×, não 8×). A regra continua a mesma: objeto sumido é refeito.
+
+**Segunda revisão independente.** Nada bloqueante. Corrigidos:
+- o efeito colateral da conferência em série (item 4);
+- a varredura com OFFSET e sem log;
+- o fim da paginação dependendo de o teto ser exatamente 1.000;
+- a fila do banco cheia esperando 20 s por lote.
+
+Anotado, sem ação:
+- **Regravação única.** A miniatura escolhida por nome passa a ser a do menor `ad_id` com
+  miniatura. O primeiro refresh depois do deploy regrava uma vez `thumb_cached_at` e
+  `thumb_source_url` onde divergirem. O caminho no Storage é o mesmo para o nome inteiro.
+- **Limite dos testes.** Eles provam que a paginação termina, mas não simulam um servidor com
+  teto menor que 1.000.
+
+**Testes:** 49 no arquivo do F7 e 1 da conferência paralela, **15 sabotagens** nesta rodada;
+**734 na suíte**.
+
 **Simulação com dados reais (somente leitura, 13/09).** Pack CA4, 8.207 anúncios de produção:
 depois da hidratação que o refresh faz, **0 anúncios considerados mudados** e **8.207 já
 vinculados**. Num refresh sem mudança, o F7 grava 0 linhas e faz 0 vínculos, em vez de 8.207
@@ -1175,3 +1218,4 @@ Uma linha por passo concluído: data, item, o que mudou, o número antes e depoi
 | 2026-09-13 | **F1 / 152** | Os 0,6 s do F1 no ar eram cache frio, não RLS: o plano tocava 23 mil das 35 mil páginas de `ads`. Migration 152 (índice com `INCLUDE (campaign_id)`, no lugar do antigo) aplicada em produção: 593 páginas e 38 ms com a tabela limpa; 11 mil páginas logo após refreshes. Aberto o F7: `upsert_ads` regrava tudo (8,7 GB de WAL em 18 dias) | 23.034 páginas · 1.387 ms frio | 593–11.016 páginas · 38–63 ms |
 | 2026-09-13 | **F7** | Refresh grava em `ads` só o que mudou: anúncios (comparação genérica contra cópia profunda da leitura prévia), vínculo com o pack (migration 153 + pular quem já está), transcrições (lotes de nomes, grava só o que falta) e miniaturas (lê e grava só onde difere). 23 testes + 9 sabotagens; teste SQL da 153 com controle e 2 sabotagens; 708 na suíte. Simulação com 8.207 anúncios reais do CA4: 0 mudados, 8.207 já vinculados | 8.207 regravações + 42 RPCs por refresh sem mudança | 0 regravações + 0 RPCs — *revisado; aguardando deploy* |
 | 2026-09-13 | **F7 / revisão** | Revisão independente: nada bloqueante. Corrigidos: nomes com `"`/`\` na busca de transcrições em lote (lista escapada + lote por tamanho de URL + queda para nome a nome), elemento NULL em `pack_ids` na 153, teste do repasse no job. 32 testes + 14 sabotagens; teste SQL da 153 com controle e 3 sabotagens; `_parse_instant` conferido no Python 3.11 de produção; 717 na suíte | — | *pronto para deploy* |
+| 2026-09-13 | **F7 / pendências** | Vigias órfãos encerrados; UPDATE de transcrição só para anúncio não vinculado (CA4: −188 idas/refresh); busca de miniatura por nome paginada (achava 33 de 276 por causa do teto de 1.000 e reenviava 17–22 miniaturas/refresh; agora 276/276 sem varredura); conferência no Storage 8 em paralelo (111 s → 36 s, medido local). Segunda revisão: nada bloqueante, achados corrigidos. 734 na suíte | 89/276 miniaturas achadas · 17–22 reenvios · 188 UPDATEs vazios | 276/276 · 0 reenvios · 0 UPDATEs vazios — *pronto para deploy* |

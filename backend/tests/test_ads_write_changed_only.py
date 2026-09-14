@@ -72,6 +72,48 @@ class _Query:
         self.filters["limit"] = n
         return self
 
+    def range(self, a, b):
+        self.filters["range"] = (a, b)
+        return self
+
+    @property
+    def not_(self):
+        self._negate = True
+        return self
+
+    def is_(self, col, val):
+        prefix = "not." if getattr(self, "_negate", False) else ""
+        self.filters[f"{prefix}{col}.is"] = val
+        self._negate = False
+        return self
+
+    def order(self, col, desc=False):
+        self.filters["order"] = col
+        return self
+
+    def gt(self, col, val):
+        self.filters[f"{col}.gt"] = val
+        return self
+
+    def _ads_rows_with_effect(self, rows):
+        """Aplica o que o banco aplicaria: miniatura não nula, cursor por ad_id, ordem."""
+        if "not.thumb_storage_path.is" in self.filters:
+            rows = [r for r in rows if r.get("thumb_storage_path")]
+        if "ad_id.gt" in self.filters:
+            rows = [r for r in rows if r["ad_id"] > self.filters["ad_id.gt"]]
+        if self.filters.get("order") == "ad_id":
+            rows = sorted(rows, key=lambda r: r["ad_id"])
+        if "limit" in self.filters and "range" not in self.filters:
+            return rows[: self.filters["limit"]]
+        return self._page(rows)
+
+    def _page(self, rows):
+        """Como o PostgREST: com range devolve a faixa; sem range, corta em 1000 sem erro."""
+        if "range" in self.filters:
+            a, b = self.filters["range"]
+            return rows[a : b + 1]
+        return rows[:1000]
+
     def execute(self):
         self.sb.calls.append((self.table, self.op, self.payload, dict(self.filters)))
         if self.op == "select" and self.table == "ad_transcriptions":
@@ -83,6 +125,18 @@ class _Query:
                              if supabase_repo._postgrest_in_list([t["ad_name"]])[1:-1] in raw])
             name = self.filters.get("ad_name")
             return _Res([t for t in self.sb.transcriptions if t["ad_name"] == name][:1])
+        if self.op == "select" and self.table == "ads" and "ad_name.in" in self.filters:
+            self.sb.name_queries += 1
+            if self.sb.db_timeout_on_name_query == self.sb.name_queries:
+                raise supabase_repo.DBConcurrencyTimeout("fila cheia")
+            if self.sb.fail_on_name_query == self.sb.name_queries:
+                raise RuntimeError("queda na página")
+            raw = self.filters["ad_name.in"]
+            rows = [dict(r) for r in self.sb.ads_by_name
+                    if supabase_repo._postgrest_in_list([r["ad_name"]])[1:-1] in raw]
+            return _Res(self._ads_rows_with_effect(rows))
+        if self.op == "select" and self.table == "ads" and "order" in self.filters and "ad_id" not in self.filters:
+            return _Res(self._ads_rows_with_effect([dict(r) for r in self.sb.ads_by_name]))
         if self.op == "select" and self.table == "ads":
             if self.sb.fail_thumb_read:
                 raise RuntimeError("queda de rede")
@@ -101,8 +155,13 @@ class _Rpc:
 
 
 class _FakeSB:
-    def __init__(self, transcriptions=None, thumbs=None, fail_thumb_read=False, fail_transcription_batch=False):
+    def __init__(self, transcriptions=None, thumbs=None, fail_thumb_read=False, fail_transcription_batch=False,
+                 ads_by_name=None, fail_on_name_query=None, db_timeout_on_name_query=None):
         self.calls, self.rpcs = [], []
+        self.ads_by_name = [dict(r, ad_id=r.get("ad_id") or f"{i:08d}") for i, r in enumerate(ads_by_name or [])]
+        self.name_queries = 0
+        self.fail_on_name_query = fail_on_name_query
+        self.db_timeout_on_name_query = db_timeout_on_name_query
         self.transcriptions = transcriptions or []
         self.thumbs = thumbs or {}
         self.fail_thumb_read = fail_thumb_read
@@ -227,6 +286,17 @@ class TestUpsertAdsGravaSoOQueMudou(_Base):
         self._upsert(sb, [_ad("1", campaign_name="")], existing)
         self.assertEqual(sb.upserted_ad_ids(), ["1"])
 
+    def test_refresh_sem_mudanca_com_transcricao_vinculada_nao_envia_nada_a_ads(self):
+        formatted = [_ad("1"), _ad("2")]
+        existing = _gravado(formatted)
+        for snap in existing.values():
+            snap["transcription_id"] = "t1"
+        sb = _FakeSB(transcriptions=[{"id": "t1", "ad_name": "AD 1", "ad_ids": ["1"]},
+                                     {"id": "t1", "ad_name": "AD 2", "ad_ids": ["2"]}])
+        self._upsert(sb, formatted, existing)
+        self.assertEqual([c for c in sb.calls if c[0] == "ads" and c[1] in ("upsert", "update")], [])
+        self.assertEqual(sb.attached_ad_ids(), [])
+
     def test_ja_vinculado_nao_chama_vinculo_mas_quem_nao_esta_sim(self):
         formatted = [_ad("1"), _ad("2")]
         existing = _gravado(formatted)
@@ -263,6 +333,7 @@ class TestUpsertAdsGravaSoOQueMudou(_Base):
         faltando = gravados - supabase_repo._ADS_ROW_UNCOMPARED_KEYS - lidos
         self.assertEqual(faltando, set())
         self.assertIn("pack_ids", lidos)
+        self.assertIn("transcription_id", lidos)
 
     def test_sabotagem_sem_comparacao_grava_todos(self):
         formatted = [_ad("1"), _ad("2")]
@@ -302,8 +373,40 @@ class TestParseInstant(unittest.TestCase):
 # ------------------------------------------------------------------ transcrições
 
 class TestTranscricaoSoOQueFalta(_Base):
-    def _sync(self, sb, pairs):
-        supabase_repo._sync_ads_transcription_links(None, "u1", pairs, sb_client=sb)
+    def _sync(self, sb, pairs, existing=None):
+        supabase_repo._sync_ads_transcription_links(None, "u1", pairs, sb_client=sb, existing_ads_map=existing)
+
+    def _ads_updates(self, sb):
+        return [c for c in sb.calls if c[0] == "ads" and c[1] == "update"]
+
+    def test_leitura_previa_com_todos_vinculados_nao_envia_update(self):
+        sb = _FakeSB(transcriptions=[{"id": "t1", "ad_name": "AD X", "ad_ids": ["1", "2"]}])
+        existing = {"1": {"transcription_id": "t1"}, "2": {"transcription_id": "t1"}}
+        self._sync(sb, [("1", "AD X"), ("2", "AD X")], existing)
+        self.assertEqual(self._ads_updates(sb), [])
+
+    def test_so_o_pendente_recebe_update(self):
+        sb = _FakeSB(transcriptions=[{"id": "t1", "ad_name": "AD X", "ad_ids": ["1", "2"]}])
+        existing = {"1": {"transcription_id": "t1"}, "2": {"transcription_id": None}}
+        self._sync(sb, [("1", "AD X"), ("2", "AD X")], existing)
+        updates = self._ads_updates(sb)
+        self.assertEqual(len(updates), 1)
+        self.assertEqual(updates[0][3]["ad_id"], ["2"])
+
+    def test_vinculado_a_outra_transcricao_recebe_update(self):
+        sb = _FakeSB(transcriptions=[{"id": "t1", "ad_name": "AD X", "ad_ids": ["1"]}])
+        self._sync(sb, [("1", "AD X")], {"1": {"transcription_id": "t-recriada-antes"}})
+        self.assertEqual(self._ads_updates(sb)[0][3]["ad_id"], ["1"])
+
+    def test_anuncio_fora_da_leitura_previa_recebe_update(self):
+        sb = _FakeSB(transcriptions=[{"id": "t1", "ad_name": "AD X", "ad_ids": []}])
+        self._sync(sb, [("9", "AD X")], {"1": {"transcription_id": "t1"}})
+        self.assertEqual(self._ads_updates(sb)[0][3]["ad_id"], ["9"])
+
+    def test_sem_leitura_previa_envia_para_todos(self):
+        sb = _FakeSB(transcriptions=[{"id": "t1", "ad_name": "AD X", "ad_ids": ["1", "2"]}])
+        self._sync(sb, [("1", "AD X"), ("2", "AD X")], None)
+        self.assertEqual(self._ads_updates(sb)[0][3]["ad_id"], ["1", "2"])
 
     def test_consulta_por_lote_de_nomes_e_nao_por_nome(self):
         pairs = [(str(i), f"AD [{i}] | teste") for i in range(120)]
@@ -459,6 +562,139 @@ class TestJobEntregaALeituraPrevia(unittest.TestCase):
 
     def test_criacao_de_pack_nao_recebe_leitura(self):
         self.assertIsNone(self._persist(False, None))
+
+
+# ------------------------------------------------------------------ miniatura por nome
+
+class TestMiniaturaPorNome(_Base):
+    def _thumb_row(self, name):
+        return {"ad_name": name, "thumb_storage_path": f"thumbs/{len(name)}.jpg",
+                "thumb_cached_at": "2026-09-10T12:00:00+00:00", "thumb_source_url": "https://src"}
+
+    def test_nome_com_aspas_e_barra_resolvido_na_busca_direta_sem_varredura(self):
+        nomes = ['VIDEO "DEPOIMENTO" (v2), final', "barra" + chr(92) + "invertida"]
+        sb = _FakeSB(ads_by_name=[self._thumb_row(n) for n in nomes])
+        achados = supabase_repo.get_cached_thumbs_by_ad_names("u1", nomes, sb_client=sb)
+        self.assertEqual(len(achados), 2)
+        self.assertEqual(self._varreduras(sb), [])
+
+    def _paginas_diretas(self, sb):
+        return [c for c in sb.calls if c[0] == "ads" and "ad_name.in" in c[3]]
+
+    def _varreduras(self, sb):
+        return [c for c in sb.calls if c[0] == "ads" and c[1] == "select" and "ad_name.in" not in c[3] and "order" in c[3]]
+
+    def test_linhas_sem_miniatura_nao_ocupam_a_pagina(self):
+        # Efeito, não formato: 1.000 anúncios do nome sem miniatura antes do único com miniatura.
+        sem = [dict(self._thumb_row("AD A"), thumb_storage_path=None) for _ in range(1000)]
+        sb = _FakeSB(ads_by_name=sem + [self._thumb_row("AD A")])
+        achados = supabase_repo.get_cached_thumbs_by_ad_names("u1", ["AD A"], sb_client=sb)
+        self.assertEqual(len(achados), 1)
+        self.assertEqual(len(self._paginas_diretas(sb)), 1)
+        self.assertEqual(self._varreduras(sb), [])
+
+    def test_termina_com_nome_sem_miniatura_e_pagina_cheia(self):
+        # 1.000 linhas exatas de um nome + um nome sem miniatura: página cheia, página vazia, fim.
+        sb = _FakeSB(ads_by_name=[self._thumb_row("AD A") for _ in range(1000)])
+        achados = supabase_repo.get_cached_thumbs_by_ad_names("u1", ["AD A", "AD SEM"], sb_client=sb)
+        self.assertEqual(set(achados), {"ad a"})
+        self.assertEqual(len(self._paginas_diretas(sb)), 2)
+
+    def test_erro_na_segunda_pagina_mantem_a_primeira_e_varre_o_resto(self):
+        linhas = [self._thumb_row("AD A") for _ in range(1000)] + [self._thumb_row("AD B")]
+        sb = _FakeSB(ads_by_name=linhas, fail_on_name_query=2)
+        achados = supabase_repo.get_cached_thumbs_by_ad_names("u1", ["AD A", "AD B"], sb_client=sb)
+        self.assertEqual(set(achados), {"ad a", "ad b"})
+        self.assertGreaterEqual(len(self._varreduras(sb)), 1)
+
+    def test_fila_do_banco_cheia_interrompe_sem_varrer(self):
+        sb = _FakeSB(ads_by_name=[self._thumb_row("AD A")], db_timeout_on_name_query=1)
+        achados = supabase_repo.get_cached_thumbs_by_ad_names("u1", ["AD A"], sb_client=sb)
+        self.assertEqual(achados, {})
+        self.assertEqual(self._varreduras(sb), [])
+
+    def test_varredura_usa_cursor_e_respeita_o_teto(self):
+        outros = [self._thumb_row(f"OUTRO {i}") for i in range(25000)]
+        sb = _FakeSB(ads_by_name=outros)
+        achados = supabase_repo.get_cached_thumbs_by_ad_names("u1", ["AD QUE NAO EXISTE"], sb_client=sb)
+        self.assertEqual(achados, {})
+        varreduras = self._varreduras(sb)
+        self.assertEqual(len(varreduras), 20)          # 20.000 linhas de teto, 1.000 por pedido
+        self.assertNotIn("ad_id.gt", varreduras[0][3])
+        self.assertTrue(all("ad_id.gt" in c[3] for c in varreduras[1:]))
+
+    def test_lote_com_mais_de_mil_linhas_pagina_ate_achar_todos(self):
+        # ~30 anúncios por nome: 50 nomes = 1.500 linhas. Sem paginação o PostgREST
+        # devolveria 1.000 e ~17 nomes pareceriam sem miniatura (o bug de 13/09 no CA4).
+        nomes = [f"AD {i:02d}" for i in range(50)]
+        linhas = [self._thumb_row(n) for n in nomes for _ in range(30)]
+        sb = _FakeSB(ads_by_name=linhas)
+        achados = supabase_repo.get_cached_thumbs_by_ad_names("u1", nomes, sb_client=sb)
+        self.assertEqual(len(achados), 50)
+        self.assertEqual(len(self._paginas_diretas(sb)), 2)
+        # Só anúncios com miniatura e em ordem estável.
+        self.assertTrue(all("not.thumb_storage_path.is" in c[3] and c[3].get("order") for c in self._paginas_diretas(sb)))
+
+    def test_para_de_paginar_quando_todos_os_nomes_do_lote_foram_achados(self):
+        nomes = [f"AD {i}" for i in range(10)]
+        linhas = [self._thumb_row(n) for _ in range(300) for n in nomes]  # intercalado
+        sb = _FakeSB(ads_by_name=linhas)
+        achados = supabase_repo.get_cached_thumbs_by_ad_names("u1", nomes, sb_client=sb)
+        self.assertEqual(len(achados), 10)
+        self.assertEqual(len(self._paginas_diretas(sb)), 1)  # 3.000 linhas, mas 1 página basta
+
+    def test_varredura_so_para_nome_que_so_bate_sem_diferenciar_maiusculas(self):
+        pedido = "AD Espaços Extras"
+        gravado = "ad espaços extras"
+        sb = _FakeSB(ads_by_name=[self._thumb_row(gravado)])
+        achados = supabase_repo.get_cached_thumbs_by_ad_names("u1", [pedido], sb_client=sb)
+        self.assertEqual(len(achados), 1)
+        varreduras = self._varreduras(sb)
+        self.assertEqual(len(varreduras), 1)
+        self.assertIn("not.thumb_storage_path.is", varreduras[0][3])
+        self.assertNotIn("range", varreduras[0][3])  # cursor por ad_id, não OFFSET
+
+    def test_nomes_longos_vao_em_varios_lotes_por_tamanho(self):
+        nomes = [f"ADNV{i:03d} - [ONGOING] [EUINVESTIDOR31] [CAPTACAO] | teste / variação {i}" for i in range(300)]
+        sb = _FakeSB(ads_by_name=[self._thumb_row(n) for n in nomes])
+        achados = supabase_repo.get_cached_thumbs_by_ad_names("u1", nomes, sb_client=sb)
+        self.assertEqual(len(achados), 300)
+        lotes = [c for c in sb.calls if c[0] == "ads" and "ad_name.in" in c[3]]
+        self.assertGreater(len(lotes), 1)
+
+
+# ------------------------------------------------------------------ conferência no Storage
+
+class TestConferenciaNoStorageEmParalelo(unittest.TestCase):
+    def test_confere_em_paralelo_e_uma_vez_por_chave(self):
+        import threading
+        import time as _time
+
+        from app.services import background_tasks as bt
+
+        ativos = {"agora": 0, "max": 0}
+        chamadas = []
+        trava = threading.Lock()
+
+        def classify(cached, *, pack_id, thumb_key):
+            with trava:
+                chamadas.append(thumb_key)
+                ativos["agora"] += 1
+                ativos["max"] = max(ativos["max"], ativos["agora"])
+            _time.sleep(0.03)
+            with trava:
+                ativos["agora"] -= 1
+            return "missing_object" if thumb_key == "k3" else "valid"
+
+        existentes = {f"k{i}": object() for i in range(16)}
+        chaves = [f"k{i}" for i in range(16)] + ["k1", "k2", "sem-cache"]
+        status = bt._validate_existing_cached_thumbs(existentes, chaves, pack_id="p", classify=classify)
+
+        self.assertEqual(sorted(chamadas), sorted(existentes))      # uma vez por chave; sem-cache fora
+        self.assertEqual(status["k3"], "missing_object")
+        self.assertEqual(status["k0"], "valid")
+        self.assertGreater(ativos["max"], 1)                         # de fato em paralelo
+        self.assertLessEqual(ativos["max"], bt.THUMB_VALIDATION_MAX_WORKERS)
 
 
 if __name__ == "__main__":

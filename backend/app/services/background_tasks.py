@@ -8,7 +8,8 @@ from __future__ import annotations
 import logging
 import threading
 import time
-from typing import Any, Dict, Optional
+from concurrent.futures import ThreadPoolExecutor
+from typing import Any, Callable, Dict, Iterable, Optional
 
 from app.services import supabase_repo
 from app.core.config import THUMB_CACHE_ENABLED, THUMB_CACHE_MIN_TTL_SECONDS
@@ -67,6 +68,37 @@ def _classify_existing_cached_thumb(
         storage_path,
     )
     return "missing_object"
+
+
+# Conferência de miniatura no Storage: uma requisição HTTP por nome. Em série eram ~100 ms
+# cada (medido do servidor de produção em 13/09): 276 nomes do CA4 = ~28 s por refresh.
+THUMB_VALIDATION_MAX_WORKERS = 8
+
+
+def _validate_existing_cached_thumbs(
+    existing_cache_by_key: Dict[str, Any],
+    thumb_keys: Iterable[str],
+    *,
+    pack_id: str,
+    classify: Callable[..., CachedThumbReuseStatus] = None,
+    max_workers: int = THUMB_VALIDATION_MAX_WORKERS,
+) -> Dict[str, CachedThumbReuseStatus]:
+    """Classifica as miniaturas já em cache em paralelo, uma vez por chave.
+
+    Mesma regra de `_classify_existing_cached_thumb` (objeto sumido do Storage é refeito);
+    muda só a forma: até `max_workers` conferências ao mesmo tempo, em vez de uma a uma.
+    """
+    classify = classify or _classify_existing_cached_thumb
+    keys = [k for k in dict.fromkeys(thumb_keys) if existing_cache_by_key.get(k)]
+    if not keys:
+        return {}
+
+    def _one(key: str):
+        return key, classify(existing_cache_by_key[key], pack_id=pack_id, thumb_key=key)
+
+    with ThreadPoolExecutor(max_workers=max(1, min(max_workers, len(keys))),
+                            thread_name_prefix="thumb-validate") as pool:
+        return dict(pool.map(_one, keys))
 
 
 def _cleanup_stale_entries() -> None:
@@ -165,6 +197,16 @@ def run_pack_background_tasks(
                 ad_name_to_thumb_url: Dict[str, str] = {}
                 ad_name_to_ad_ids: Dict[str, list[str]] = {}
 
+                cache_statuses = _validate_existing_cached_thumbs(
+                    existing_cache_by_key,
+                    (
+                        str(group.get("thumb_key") or normalize_ad_name(str(group.get("ad_name") or "").strip()))
+                        for group in ad_name_groups.values()
+                        if str(group.get("ad_name") or "").strip()
+                    ),
+                    pack_id=pack_id,
+                )
+
                 for group in ad_name_groups.values():
                     ad_name = str(group.get("ad_name") or "").strip()
                     if not ad_name:
@@ -181,11 +223,7 @@ def run_pack_background_tasks(
                     existing_cached = existing_cache_by_key.get(thumb_key)
                     if existing_cached:
                         cache_validated += 1
-                        cache_status = _classify_existing_cached_thumb(
-                            existing_cached,
-                            pack_id=pack_id,
-                            thumb_key=thumb_key,
-                        )
+                        cache_status = cache_statuses.get(thumb_key, "validation_error")
                         if cache_status == "valid":
                             already_cached += 1
                             reused_for_new_ad_ids += len(ad_ids)

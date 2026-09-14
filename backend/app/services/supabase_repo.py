@@ -11,6 +11,7 @@ from urllib.parse import quote
 from app.core.supabase_client import get_supabase_for_user, get_supabase_service
 from app.core.client_disconnect import ClientGone, abort_if_client_gone
 from app.core.supabase_retry import with_postgrest_retry
+from app.core.db_concurrency import DBConcurrencyTimeout
 from app.services import sheet_column_mappings
 from app.services.ad_media import resolve_media_type, resolve_primary_video_id
 from app.services.thumbnail_cache import CachedThumb, DEFAULT_BUCKET, build_public_storage_url, normalize_ad_name
@@ -574,7 +575,9 @@ def upsert_ads(
     # Sync transcription_id em ads e ad_ids em ad_transcriptions (best-effort)
     try:
         ad_id_name_pairs = [(str(r.get("ad_id") or ""), str(r.get("ad_name") or "")) for r in rows]
-        _sync_ads_transcription_links(user_jwt, user_id, ad_id_name_pairs, sb_client=sb)
+        _sync_ads_transcription_links(
+            user_jwt, user_id, ad_id_name_pairs, sb_client=sb, existing_ads_map=existing_ads_map
+        )
     except Exception as e:
         logger.warning(f"[UPSERT_ADS] Erro ao sync transcription links (best-effort): {e}")
 
@@ -1230,42 +1233,78 @@ def get_cached_thumbs_by_ad_names(
             source_url=thumb_source_url,
         )
 
-    # Passo 1 (rápido): busca direta por nomes exatos.
-    batch_size = 200
-    for i in range(0, len(unique_names), batch_size):
-        batch_names = unique_names[i : i + batch_size]
+    select_fields = "ad_id,ad_name,thumb_storage_path,thumb_cached_at,thumb_source_url"
+    page_size = 1000
+    batches = pages = 0
+    db_queue_full = False
+
+    # Passo 1: busca direta por nomes exatos, SÓ de anúncios com miniatura, PAGINADA.
+    #
+    # Sem paginação, cada lote batia no teto silencioso de 1.000 linhas do PostgREST (memória
+    # supabase_silent_1000_row_cap): um nome tem em média ~30 anúncios, então um lote de 200
+    # nomes (~6.000 linhas) devolvia só 1.000. Medido no CA4 em 13/09: o passo 1 achava 33
+    # de 276 nomes, a varredura chegava a 89, e o refresh reenviava ao Storage 17–22
+    # miniaturas que já existiam. Paginado: 276 de 276, sem varredura.
+    #
+    # Lista escapada à mão e lote por tamanho de URL: o `in_` do postgrest-py não escapa `"`
+    # nem barra invertida (memória supabase_in_clause_url_limit). A página só termina vazia
+    # ou quando todos os nomes do lote apareceram — não depende do teto ser exatamente 1.000.
+    for batch_names in _batches_by_url_length(unique_names):
+        batches += 1
+        batch_keys = {normalize_ad_name(n) for n in batch_names} & target_keys
+        offset = 0
         try:
-            response = (
-                sb.table("ads")
-                .select("ad_name,thumb_storage_path,thumb_cached_at,thumb_source_url")
-                .eq("user_id", user_id)
-                .in_("ad_name", batch_names)
-                .execute()
-            )
+            while True:
+                pages += 1
+                response = with_postgrest_retry(
+                    f"get_cached_thumbs_by_ad_names[{len(batch_names)}]",
+                    lambda b=batch_names, o=offset: (
+                        sb.table("ads")
+                        .select(select_fields)
+                        .eq("user_id", user_id)
+                        .not_.is_("thumb_storage_path", "null")
+                        .filter("ad_name", "in", _postgrest_in_list(b))
+                        .order("ad_id")
+                        .range(o, o + page_size - 1)
+                        .execute()
+                    ),
+                )
+                rows = response.data or []
+                for row in rows:
+                    _register_row(row)
+                if not rows or batch_keys <= set(cached_by_key):
+                    break
+                offset += len(rows)
+        except DBConcurrencyTimeout as e:
+            # Fila de banco cheia: esperar 20 s por lote e depois varrer só pioraria a fila.
+            logger.warning(f"[GET_CACHED_THUMBS_BY_AD_NAMES] Fila do banco cheia; interrompendo a busca: {e}")
+            db_queue_full = True
+            break
         except Exception as e:
             logger.warning(f"[GET_CACHED_THUMBS_BY_AD_NAMES] Erro ao buscar lote de nomes: {e}")
-            continue
 
-        for row in response.data or []:
-            _register_row(row)
-
+    found_direct = len(cached_by_key)
+    scanned = 0
     missing_keys = target_keys - set(cached_by_key.keys())
-    if missing_keys:
-        # Passo 2 (fallback): varrer ads do usuário para cobrir diferenças de caixa/whitespace.
-        page_size = 1000
-        offset = 0
-        scanned = 0
+    if missing_keys and not db_queue_full:
+        # Passo 2 (fallback): nomes que só batem depois de normalizar (maiúsculas, ou espaço nas
+        # pontas: `ads.ad_name` é gravado sem strip e o chamador manda o nome já cortado). Só anúncios com
+        # miniatura, cursor por ad_id (OFFSET relia tudo o que veio antes a cada página) e teto
+        # de linhas para não virar varredura da conta inteira.
+        last_ad_id: Optional[str] = None
         max_scan_rows = 20000
 
         while missing_keys and scanned < max_scan_rows:
             try:
-                response = (
+                query = (
                     sb.table("ads")
-                    .select("ad_name,thumb_storage_path,thumb_cached_at,thumb_source_url")
+                    .select(select_fields)
                     .eq("user_id", user_id)
-                    .range(offset, offset + page_size - 1)
-                    .execute()
+                    .not_.is_("thumb_storage_path", "null")
                 )
+                if last_ad_id is not None:
+                    query = query.gt("ad_id", last_ad_id)
+                response = query.order("ad_id").limit(page_size).execute()
             except Exception as e:
                 logger.warning(f"[GET_CACHED_THUMBS_BY_AD_NAMES] Erro no fallback paginado: {e}")
                 break
@@ -1279,10 +1318,14 @@ def get_cached_thumbs_by_ad_names(
             missing_keys = target_keys - set(cached_by_key.keys())
 
             scanned += len(rows)
-            offset += page_size
-            if len(rows) < page_size:
-                break
+            last_ad_id = str(rows[-1].get("ad_id"))
 
+    logger.info(
+        "[GET_CACHED_THUMBS_BY_AD_NAMES] %d de %d nomes com miniatura | busca direta: %d (%d lotes, %d páginas) "
+        "| varredura: +%d (%d linhas)%s",
+        len(cached_by_key), len(target_keys), found_direct, batches, pages,
+        len(cached_by_key) - found_direct, scanned, " | fila do banco cheia" if db_queue_full else "",
+    )
     return cached_by_key
 
 
@@ -1998,13 +2041,14 @@ def update_pack_ad_ids(
 # `upsert_ads`. Todo campo que `_build_ads_rows` grava tem de estar aqui — um campo fora
 # da leitura faria a comparação achar "igual" e perder a mudança (memória
 # optimization_select_must_include_trigger_field). test_ads_write_changed_only trava isso.
-# `pack_ids` só existe para pular o vínculo de quem já está no pack.
+# `pack_ids` e `transcription_id` não são comparados: servem para pular o vínculo com o
+# pack e o UPDATE de transcrição de quem já está vinculado.
 EXISTING_ADS_SELECT_FIELDS = (
     "ad_id,account_id,campaign_id,campaign_name,adset_id,adset_name,ad_name,"
     "effective_status,creative,creative_video_id,thumbnail_url,"
     "instagram_permalink_url,primary_video_id,media_type,"
     "adcreatives_videos_ids,adcreatives_videos_thumbs,"
-    "video_owner_page_id,meta_created_time,pack_ids"
+    "video_owner_page_id,meta_created_time,pack_ids,transcription_id"
 )
 
 
@@ -3709,12 +3753,27 @@ def _batches_by_url_length(values: List[str], max_chars: int = 4000) -> Iterable
         yield batch
 
 
+def _ad_already_linked_to_transcription(
+    existing_ads_map: Optional[Dict[str, Dict[str, Any]]], ad_id: str, transcription_id: str
+) -> bool:
+    """A leitura prévia do refresh mostra o anúncio já vinculado a ESTA transcrição?
+
+    Só pula quando o id bate. Transcrição recriada ganha outro id (o anúncio conta como
+    pendente); transcrição excluída não volta na busca, então nada é pulado por engano.
+    """
+    if not existing_ads_map:
+        return False
+    existing = existing_ads_map.get(ad_id) or {}
+    return str(existing.get("transcription_id") or "") == str(transcription_id)
+
+
 def _sync_ads_transcription_links(
     user_jwt: str,
     user_id: str,
     ad_id_name_pairs: List[Tuple[str, str]],
     *,
     sb_client: Optional["Client"] = None,
+    existing_ads_map: Optional[Dict[str, Dict[str, Any]]] = None,
 ) -> None:
     """Atualiza ads.transcription_id e ad_transcriptions.ad_ids quando ads são upsertados.
 
@@ -3722,6 +3781,11 @@ def _sync_ads_transcription_links(
     anúncios daquele nome a cada refresh, mesmo já vinculados. Agora busca as transcrições
     em lotes de nomes e grava só o que falta: `ad_ids` só quando há anúncio novo no nome, e
     `ads.transcription_id` só nas linhas em que ele é nulo ou diferente.
+
+    `existing_ads_map` (leitura prévia do refresh, com `transcription_id`): o UPDATE em `ads`
+    só é enviado para os anúncios que ela não mostra vinculados a esta transcrição. No CA4
+    (13/09), os 188 nomes com transcrição já estavam todos vinculados: eram 188 idas ao banco
+    por refresh que não gravavam nada. Sem leitura (criação de pack), envia para todos.
     """
     if not user_id or not ad_id_name_pairs:
         return
@@ -3785,8 +3849,12 @@ def _sync_ads_transcription_links(
                         {"ad_ids": existing + missing, "updated_at": _now_iso()}
                     ).eq("id", transcription_id).eq("user_id", user_id).execute()
                 tid = str(transcription_id)
-                for j in range(0, len(batch_ad_ids), 200):
-                    chunk = batch_ad_ids[j : j + 200]
+                pending = [
+                    aid for aid in batch_ad_ids
+                    if not _ad_already_linked_to_transcription(existing_ads_map, aid, tid)
+                ]
+                for j in range(0, len(pending), 200):
+                    chunk = pending[j : j + 200]
                     sb.table("ads").update(
                         {"transcription_id": tid, "updated_at": _now_iso()}
                     ).eq("user_id", user_id).in_("ad_id", chunk).or_(
