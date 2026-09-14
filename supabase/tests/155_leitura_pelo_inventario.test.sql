@@ -11,6 +11,8 @@
 --   6. Detalhe sem os packs do inventário em packs_by_ad                 -> falha em E1
 --   7. Detalhe com os nomes do representante só de ad_metrics             -> falha em E2
 --   8. Detalhe com o anti-join por `keys` (a entidade) e não pelo rollup  -> falha em E3
+--   9. Base buscando o representante por `pack_id = any(packs)`          -> falha em Q8
+--  10. Detalhe buscando o representante por `pack_id = any(packs)`       -> falha em E4
 \set ON_ERROR_STOP on
 \timing off
 BEGIN;
@@ -145,5 +147,21 @@ SELECT pg_temp.expect('E3.renomeado-nao-duplica',
   (SELECT count(*)::text FROM jsonb_array_elements(pg_temp.ent('ad_name', 'Both novo', 'entity')->'groups')),
   '0');
 
-SELECT '155 OK — 13 asserções';
+-- Q8: o mesmo anúncio-dia em dois packs (no fim: o detalhe desempata esse dia sem ordem
+--     definida, e as asserções E1-E3 não podem depender disso). Representante com o pack: um grupo.
+INSERT INTO public.ad_metrics (id, user_id, pack_id, ad_id, date, ad_name, account_id, campaign_id, campaign_name,
+                               adset_id, adset_name, spend, impressions, clicks)
+VALUES ('2026-09-05-t155-r', :u::uuid, :p2::uuid, 't155-r', '2026-09-05', 'Real', 'act_1', 'c1', 'Camp Um', 's1', 'Conj Um', 2, 20, 0);
+SELECT pg_temp.expect('Q8.anuncio-dia-em-dois-packs',
+  pg_temp.linhas(pg_temp.base('ad_id', ARRAY[:p1::uuid, :p2::uuid])),
+  't155-b=1,t155-i=0,t155-r=17,t155-z=0');
+
+-- E4: o mesmo anúncio-dia em dois packs (linha do Q8) não duplica o grupo do detalhe.
+--     (O gasto não entra aqui: o detalhe guarda UMA linha por anúncio-dia desde a v130 — regra
+--     anterior à F5 — e a seleção de packs sobrepostos é bloqueada em produção.)
+SELECT pg_temp.expect('E4.anuncio-dia-em-dois-packs',
+  (SELECT count(*)::text FROM jsonb_array_elements(pg_temp.ent('ad_id', 't155-r', 'entity')->'groups') g),
+  '1');
+
+SELECT '155 OK — 15 asserções';
 ROLLBACK;

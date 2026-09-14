@@ -134,6 +134,16 @@ BASE_SEL_UNION = """      )
   ),
   -- `coalesce(x,'') <> ''`"""
 
+# O representante carrega o PACK do dia escolhido (posição 6 da chave): a busca dos nomes
+# em ad_metrics vira igualdade na PK. Com `pack_id = any(packs)` o planner trocou o índice
+# por ad_id (0,09 ms) por um BitmapAnd de 1 ms quando a estimativa de grupos subiu com o
+# union do inventário: 13.988 grupos, +15 s no laboratório. E um anúncio-dia em dois packs
+# deixa de duplicar o grupo (a junção por `any` devolvia uma linha por pack).
+REP_DATE_E_PACK = (
+    "nullif(split_part(g.rep_enc, e'\\x1f', 5), '')::date as rep_date,\n"
+    "      nullif(split_part(g.rep_enc, e'\\x1f', 6), '')::uuid as rep_pack_id"
+)
+
 BASE_REP_OLD = """      am.ad_name as rep_ad_name,
       am.account_id as rep_account_id,
       am.campaign_id as rep_campaign_id,
@@ -152,7 +162,7 @@ BASE_REP_NEW = """      -- (v155) representante sem dia (só inventário): nomes
       case when g.rep_date is null then ri.adset_id else am.adset_id end as rep_adset_id,
       case when g.rep_date is null then ri.adset_name else am.adset_name end as rep_adset_name
     from grp_dec g
-    left join public.ad_metrics am on am.user_id = g.rep_user_id and am.pack_id = any(coalesce(p_pack_ids, v_pack_universe)) and am.ad_id = g.rep_ad_id and am.date = g.rep_date
+    left join public.ad_metrics am on am.user_id = g.rep_user_id and am.pack_id = g.rep_pack_id and am.ad_id = g.rep_ad_id and am.date = g.rep_date
     left join lateral (
       -- O anúncio pode estar no inventário de mais de um pack da seleção: vale o que
       -- esteve ativo por último (a mesma regra da linha-zero mais recente de antes).
@@ -178,9 +188,8 @@ def base_v155() -> str:
         # Linha sem dia: '' em vez de NULL (NULL anularia a chave inteira e o max a
         # ignoraria; '' ordena abaixo de qualquer data com as mesmas impressões).
         ("max((lpad(f.impressions::text, 12, '0') || e'\\x1f' || f.date::text) collate \"C\") as rep_enc",
-         "max((lpad(f.impressions::text, 12, '0') || e'\\x1f' || coalesce(f.date::text, '')) collate \"C\") as rep_enc"),
-        ("(split_part(g.rep_enc, e'\\x1f', 5))::date as rep_date",
-         "nullif(split_part(g.rep_enc, e'\\x1f', 5), '')::date as rep_date"),
+         "max((lpad(f.impressions::text, 12, '0') || e'\\x1f' || coalesce(f.date::text, '') || e'\\x1f' || f.pack_id::text) collate \"C\") as rep_enc"),
+        ("(split_part(g.rep_enc, e'\\x1f', 5))::date as rep_date", REP_DATE_E_PACK),
         (BASE_REP_OLD, BASE_REP_NEW),
     ], "base")
 
@@ -271,7 +280,7 @@ ENT_REP_NEW = """      -- (v155) representante sem dia (só inventário): nomes 
 ENT_REP_JOIN_OLD = """    left join public.ad_metrics am on am.user_id = g.rep_user_id and (p_pack_ids is null or am.pack_id = any(p_pack_ids)) and am.ad_id = g.rep_ad_id and am.date = g.rep_date
 """
 
-ENT_REP_JOIN_NEW = """    left join public.ad_metrics am on am.user_id = g.rep_user_id and (p_pack_ids is null or am.pack_id = any(p_pack_ids)) and am.ad_id = g.rep_ad_id and am.date = g.rep_date
+ENT_REP_JOIN_NEW = """    left join public.ad_metrics am on am.user_id = g.rep_user_id and am.pack_id = g.rep_pack_id and am.ad_id = g.rep_ad_id and am.date = g.rep_date
     left join lateral (
       select i.ad_name, i.account_id, i.campaign_id, i.campaign_name, i.adset_id, i.adset_name
       from public.ad_pack_inventory i
@@ -297,9 +306,8 @@ def entity_v155() -> str:
          "    group by d.ad_id"),
         (ENT_ROWS_OLD, ENT_ROWS_NEW),
         ("max((lpad(r.impressions::text, 12, '0') || e'\\x1f' || r.date::text) collate \"C\") as rep_enc",
-         "max((lpad(r.impressions::text, 12, '0') || e'\\x1f' || coalesce(r.date::text, '')) collate \"C\") as rep_enc"),
-        ("(split_part(g.rep_enc, e'\\x1f', 5))::date as rep_date",
-         "nullif(split_part(g.rep_enc, e'\\x1f', 5), '')::date as rep_date"),
+         "max((lpad(r.impressions::text, 12, '0') || e'\\x1f' || coalesce(r.date::text, '') || e'\\x1f' || r.pack_id::text) collate \"C\") as rep_enc"),
+        ("(split_part(g.rep_enc, e'\\x1f', 5))::date as rep_date", REP_DATE_E_PACK),
         (ENT_REP_OLD, ENT_REP_NEW),
         (ENT_REP_JOIN_OLD, ENT_REP_JOIN_NEW),
     ], "entity")

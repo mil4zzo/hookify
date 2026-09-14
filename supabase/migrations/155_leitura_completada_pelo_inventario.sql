@@ -304,7 +304,7 @@ begin
       min(nullif(f.campaign_id, '')) as campaign_id,
       bit_or(f.pack_mask) as pack_mask,
       -- dia representante deste anúncio: max impressões (desempate: dia mais recente)
-      max((lpad(f.impressions::text, 12, '0') || e'\x1f' || coalesce(f.date::text, '')) collate "C") as rep_enc
+      max((lpad(f.impressions::text, 12, '0') || e'\x1f' || coalesce(f.date::text, '') || e'\x1f' || f.pack_id::text) collate "C") as rep_enc
     from filtered f
     group by f.group_key, f.user_id, f.ad_id
   ),
@@ -474,7 +474,8 @@ begin
       g.*,
       (split_part(g.rep_enc, e'\x1f', 2) collate "default") as rep_ad_id,
       (split_part(g.rep_enc, e'\x1f', 3))::uuid as rep_user_id,
-      nullif(split_part(g.rep_enc, e'\x1f', 5), '')::date as rep_date
+      nullif(split_part(g.rep_enc, e'\x1f', 5), '')::date as rep_date,
+      nullif(split_part(g.rep_enc, e'\x1f', 6), '')::uuid as rep_pack_id
     from grp g
   ),
   grp_rep as (
@@ -488,7 +489,7 @@ begin
       case when g.rep_date is null then ri.adset_id else am.adset_id end as rep_adset_id,
       case when g.rep_date is null then ri.adset_name else am.adset_name end as rep_adset_name
     from grp_dec g
-    left join public.ad_metrics am on am.user_id = g.rep_user_id and am.pack_id = any(coalesce(p_pack_ids, v_pack_universe)) and am.ad_id = g.rep_ad_id and am.date = g.rep_date
+    left join public.ad_metrics am on am.user_id = g.rep_user_id and am.pack_id = g.rep_pack_id and am.ad_id = g.rep_ad_id and am.date = g.rep_date
     left join lateral (
       -- O anúncio pode estar no inventário de mais de um pack da seleção: vale o que
       -- esteve ativo por último (a mesma regra da linha-zero mais recente de antes).
@@ -1318,7 +1319,7 @@ begin
       r.group_key,
       r.user_id,
       r.ad_id,
-      max((lpad(r.impressions::text, 12, '0') || e'\x1f' || coalesce(r.date::text, '')) collate "C") as rep_enc
+      max((lpad(r.impressions::text, 12, '0') || e'\x1f' || coalesce(r.date::text, '') || e'\x1f' || r.pack_id::text) collate "C") as rep_enc
     from rows_ r
     group by r.group_key, r.user_id, r.ad_id
   ),
@@ -1341,7 +1342,8 @@ begin
       g.*,
       (split_part(g.rep_enc, e'\x1f', 2) collate "default") as rep_ad_id,
       (split_part(g.rep_enc, e'\x1f', 3))::uuid as rep_user_id,
-      nullif(split_part(g.rep_enc, e'\x1f', 5), '')::date as rep_date
+      nullif(split_part(g.rep_enc, e'\x1f', 5), '')::date as rep_date,
+      nullif(split_part(g.rep_enc, e'\x1f', 6), '')::uuid as rep_pack_id
     from grp g
   ),
   grp_rep as (
@@ -1363,7 +1365,7 @@ begin
       coalesce(nullif(a.thumb_storage_path, ''), g.any_thumb_storage_path) as thumb_storage_path
     from grp_dec g
     left join packs_by_ad pba on pba.ad_id = g.rep_ad_id
-    left join public.ad_metrics am on am.user_id = g.rep_user_id and (p_pack_ids is null or am.pack_id = any(p_pack_ids)) and am.ad_id = g.rep_ad_id and am.date = g.rep_date
+    left join public.ad_metrics am on am.user_id = g.rep_user_id and am.pack_id = g.rep_pack_id and am.ad_id = g.rep_ad_id and am.date = g.rep_date
     left join lateral (
       select i.ad_name, i.account_id, i.campaign_id, i.campaign_name, i.adset_id, i.adset_name
       from public.ad_pack_inventory i

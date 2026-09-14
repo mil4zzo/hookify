@@ -1008,7 +1008,11 @@ linhas, o detalhe 407 e as séries 239. Três fatos simplificam o desenho:
   anúncio antes do grupo.
 - **Uma linha de inventário zerada por (pack, anúncio) no período basta.** Somar zero não muda
   soma; contagem é `count(distinct ad_id)`; o representante é o de maior impressão, então a linha
-  zerada nunca vence uma real. Não é preciso anti-join com as linhas reais.
+  zerada nunca vence uma real.
+  - *Corrigido na implementação:* é preciso **anti-join** com as linhas reais do mesmo (silo,
+    pack) no período. Sem ele, um anúncio renomeado abria um grupo zerado com o nome novo, ao lado
+    do grupo real com o nome antigo. O anti-join vai ao read model pela PK. No detalhe, ele não
+    pode ir à seleção (`keys`), que só tem as linhas que casam com a entidade.
 - **`ad_metrics` apaga em cascata** o rollup e o mapa (`ON DELETE CASCADE`): a limpeza final é um
   DELETE só, em lotes.
 
@@ -1061,6 +1065,49 @@ de apagar **em lotes**. `VACUUM` simples não devolve disco: `ad_metrics` contin
 rollup com 299 MB e mapa com 202 MB. O espaço fica livre para reúso. Devolver ao disco exige
 `VACUUM FULL` (trava a tabela) ou reescrita; decidir na 156.
 
+#### Resultado da fase 2 (14/09)
+
+**Diferencial A × B: 3.125 de 3.125 cenários sem divergência não explicada** (849 do Manager,
+2.276 do detalhe).
+- Números exatos em todos os cenários.
+- Quem aparece mudou só por motivo classificado:
+  - (a) anúncio que só aparecia antes da própria criação: 24.700 ocorrências na matriz;
+  - (c) anúncio que passou a aparecer com zero num buraco: 752;
+  - nome diferente: 0 (nenhum anúncio muda de nome entre as linhas-zero do laboratório);
+  - 2 linhas de gasto 0 empurradas para a página seguinte em listas com mais de 500 linhas.
+- Buraco de verdade (dia dentro do intervalo sem linha nenhuma) é raro: 454 de 425 mil dias. A
+  matriz ganhou 12 janelas de propósito nesses dias.
+
+**Convivência (155 no ar, linhas-zero ainda no banco): 3.125 de 3.125.** Nenhum anúncio some;
+só entram os dos buracos.
+
+**O próprio diferencial foi sabotado.** Rodar a leitura antiga como se fosse a nova no banco
+limpo:
+- no Manager, foi acusado;
+- no detalhe, **passou** na primeira versão, porque a comparação só olhava o que aparecia dos
+  dois lados. O detalhe ganhou a checagem de conjunto por entidade (quem entra e quem sai tem de
+  ser exatamente o classificado), e aí foi acusado.
+
+**Velocidade (laboratório, usuário com 37 packs, 3 telas):**
+
+| Tela | Antiga, com linhas-zero | 155 na convivência | 155 com o banco limpo |
+|---|---|---|---|
+| Por criativo, ano inteiro | ~19,5 s | ~20 s | **~3,1 s** |
+| Por anúncio, 7 dias | ~12,7 s | **~4,2 s** | **~1,9 s** |
+| Por conjunto, 30 dias | ~5,4 s | ~4,4 s | **~1,35 s** |
+
+O laboratório é várias vezes mais lento que produção; vale a proporção.
+
+- **A primeira versão da 155 ficou mais lenta na convivência** (7 dias por anúncio: 12,7 s →
+  23 s).
+  - Causa: o `union` do inventário mudou a estimativa de grupos de 1 para 200, e o planner trocou
+    a busca do representante em `ad_metrics` (índice por `ad_id`, 0,09 ms) por um `BitmapAnd` de
+    1 ms, × 13.988 grupos.
+  - Correção: o representante carrega o **pack** do dia escolhido e a busca vira igualdade na PK.
+    Não depende mais de estimativa. De quebra, o mesmo anúncio-dia em dois packs deixa de duplicar
+    o grupo (testes Q8 e E4).
+- **Teste 155:** 15 asserções; as 10 sabotagens falham cada uma na sua.
+
 #### Fase 3: o que o backend precisa mudar (mapa de 14/09)
 
 Hoje nada marca a linha sintética depois de gravada. No Python, só `known_ad_ids` (o que voltou
@@ -1086,6 +1133,24 @@ do /insights) separa real de inventário, e só antes da formatação.
   (divergência d). Painel, séries e retenção não mudam de número.
 - **Planilha:** lead com data num dia ativo sem entrega hoje cai na linha-zero. Sem ela, entra em
   "não encontrados". É a decisão pendente abaixo.
+
+**Implementado (14/09, sem deploy):**
+- `ad_inventory.build_active_intervals`: todo anúncio **entregável** do /ads, inclusive o que
+  gastou, com o intervalo `[max(início da janela, criação), fim da janela]`. É a mesma régua das
+  linhas-zero de hoje, só que guardada uma vez por anúncio. O merge no banco só estende. É o que
+  produz a divergência (e).
+- `ad_inventory.inventory_only_raw_rows`: **uma** linha por anúncio que não veio do /insights, só
+  para `ads`, lista do pack e miniatura. Teto de 5.000 anúncios por job para o enriquecimento; o
+  intervalo não tem teto.
+- `_persist_data`: métricas e mapa sem os anúncios só de inventário; `merge_pack_inventory`
+  obrigatório logo depois das métricas e antes da contagem. Se falhar, o job falha e o pack novo é
+  limpo.
+- Contagem do pack, lista do pack, exclusão do pack e dos dados do usuário unem ou apagam o
+  inventário. O detalhe chama `fetch_entity_performance_v155`.
+- Testes: `test_inventario_do_pack.py` (10) e `test_ad_inventory.py` reescrito (17). As 9
+  sabotagens foram pegas; a suíte tem 746 testes passando.
+- **Não coberto:** refresh real no laboratório. O laboratório não tem PostgREST na frente do
+  banco; o merge foi provado pelo teste SQL da 154.
 
 #### Planilha (§8.7)
 
