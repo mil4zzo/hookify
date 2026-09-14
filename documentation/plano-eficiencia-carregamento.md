@@ -55,7 +55,7 @@ Herdadas da filosofia do projeto (`CLAUDE.md`) e do que já custou caro neste ap
 | **F2b** | Grafo de conflito: 6 s a frio, 79×/dia. Incremental por pack custa 196 ms | ~2 dias | −1,2 a 6 s de disputa, 79×/dia | **decisão de segurança** — alarga a janela de grafo velho | ⏸️ depois da feature de editar data |
 | **F3** | Linha-zero sintética nunca sobrescreve linha real | ~2 h | fecha a classe de bug dos R$ 12 mil | baixo | ⏸️ **absorvido pelo F5** (a linha sintética deixa de existir) — só fazer se o F5 atrasar |
 | **F4** | Página de 1.000 + espera curta guiada pelo uso + espera e nova tentativa no limite da Meta | ~meio dia | −10 a −12 s num refresh de ~3,8 mil linhas (medido); limite da Meta deixa de derrubar o job | baixo | 🚢 **no ar desde 13/09** — confirmar ganho em 24 h |
-| **F5** | Inventário fora de `ad_metrics` (fim das linhas-zero gravadas) | ~1 semana | −550 mil linhas (−78% em `ad_metrics`, rollup e mapa); refresh grava menos; F2 fica leve | médio — mapeado item a item (§8) | ✅ **modelo aprovado 13/09** · ⬜ não iniciado · 1 decisão pendente (§8.7) |
+| **F5** | Inventário fora de `ad_metrics` (fim das linhas-zero gravadas) | ~1 semana | −550 mil linhas (−78% em `ad_metrics`, rollup e mapa); refresh grava menos; F2 fica leve | médio — mapeado item a item (§8) | ✅ **modelo aprovado 13/09** · 🟡 **em andamento** (fase 1, §8.9) · 1 decisão pendente (§8.7) |
 | **M1** | `thumbnail-cache` devolvendo 404 — 267× em 10 h | ? | ruído + requisição inútil em laço | ? | ⬜ |
 | **M2** | `AD_METRICS_IMPORT` falha ao parsear data — 230× em 10 h | ? | dado da planilha possivelmente perdido | ? | ⬜ |
 | **M3** | `deque mutated during iteration` no logger de uso — 5× em 10 h | ? | perde registro de uso da API da Meta | ? | ⬜ |
@@ -999,6 +999,61 @@ como segura, e ela exclui exatamente os casos do CRM.
 - **Custo do UNION nas RPCs do Manager:** medir a frio e a quente. O inventário tem ~60 mil linhas,
   contra as 550 mil que saem.
 
+### 8.9 Execução (aberta em 2026-09-14)
+
+Leitura das funções vivas em produção (`pg_get_functiondef`, 14/09): a base do Manager tem 859
+linhas, o detalhe 407 e as séries 239. Três fatos simplificam o desenho:
+
+- **A presença nasce num lugar só:** o CTE `keys` da base (anúncio × dia). A agregação é por
+  anúncio antes do grupo.
+- **Uma linha de inventário zerada por (pack, anúncio) no período basta.** Somar zero não muda
+  soma; contagem é `count(distinct ad_id)`; o representante é o de maior impressão, então a linha
+  zerada nunca vence uma real. Não é preciso anti-join com as linhas reais.
+- **`ad_metrics` apaga em cascata** o rollup e o mapa (`ON DELETE CASCADE`): a limpeza final é um
+  DELETE só, em lotes.
+
+**Pontos da base que dependem de `ad_metrics` e mudam:**
+- os nomes do representante (`grp_rep`);
+- os filtros por nome de campanha e conjunto (`EXISTS` em `ad_metrics`);
+- o ramo legado sem `p_pack_ids`.
+
+A linha de inventário traz a própria identidade (conta, campanha, conjunto e nomes).
+
+#### Divergência nova, que precisa ser aceita
+
+**(e) O anúncio ativo que gastou em outro trecho do período passa a aparecer nos dias sem gasto
+da janela.**
+- Hoje, se ele gastou 1 dia na janela do refresh, os outros dias ficam sem linha. Numa visão de
+  período que só pega esses dias, ele some.
+- No modelo novo, ele está ativo no intervalo e aparece com zero.
+- É o comportamento que o modelo aprovado descreve ("aparece se estava ativo no período"), mas
+  **muda o que a tela mostra**: entra na lista de divergências aceitas do diferencial junto de
+  (a)–(d).
+
+#### Fases e portões
+
+| Fase | O quê | Portão para seguir |
+|---|---|---|
+| **1** | Migration 154: tabela `ad_pack_inventory` (PK user/pack/ad; identidade; `first_active_date`, `last_active_date`); RLS; RPC `merge_ad_pack_inventory` (least/greatest, não regrava igual); backfill a partir das linhas sintéticas, descartando as anteriores à criação | Teste SQL com sabotagem; contagem do backfill conferida contra a medição de 13/09 |
+| **2** | Migration 155: base e detalhe completados pelo inventário (versões novas + wrappers) | Diferencial lab A (atual) × lab B (154+155+limpeza) com zero divergência fora de (a)–(e) |
+| **3** | Backend: FASE 1.5 grava inventário; o anúncio zerado continua indo para `ads`, lista do pack e miniaturas, marcado "só inventário" e fora de `ad_metrics`/mapa; stats do pack e `get_ads_for_pack` leem o inventário; `delete_pack` apaga o inventário | Testes com sabotagem; refresh real no lab |
+| **4** | Produção, nesta ordem: 154 → 155 → deploy do backend → 156 (DELETE em lotes das sintéticas + VACUUM) | Cada passo verificado antes do seguinte; 156 só depois de um dia de refreshes com o backend novo |
+| **5** | Medir: tamanho das tabelas, Manager a frio e a quente, duração do refresh | Antes × depois registrado |
+
+#### Diferencial (fase 2)
+
+Dois bancos no laboratório com os mesmos dados: **A** no estado atual e **B** com 154, 155 e a
+limpeza das sintéticas aplicadas. `diff_rankings_rollup.py` ganha `--old-url`/`--new-url` e roda a
+entrada antiga em A e a nova em B, na mesma matriz do rollup (pack sozinho e todos os packs × 4
+agrupamentos × evento, paginação, filtros de nome, conta, compartilhamento).
+`diff_entity_routes.py` faz o mesmo para as 7 telas de detalhe. Divergência fora de (a)–(e)
+bloqueia.
+
+#### Planilha (§8.7)
+
+As 49 linhas com leadscore **não são sintéticas pelo critério da limpeza** (têm leadscore) e
+ficam. A decisão pendente vale só para leads futuros em dia ativo sem entrega.
+
 ---
 
 ## 8-bis. F6 — descarte da planilha visível num tooltip
@@ -1220,3 +1275,4 @@ Uma linha por passo concluído: data, item, o que mudou, o número antes e depoi
 | 2026-09-13 | **F7 / revisão** | Revisão independente: nada bloqueante. Corrigidos: nomes com `"`/`\` na busca de transcrições em lote (lista escapada + lote por tamanho de URL + queda para nome a nome), elemento NULL em `pack_ids` na 153, teste do repasse no job. 32 testes + 14 sabotagens; teste SQL da 153 com controle e 3 sabotagens; `_parse_instant` conferido no Python 3.11 de produção; 717 na suíte | — | *pronto para deploy* |
 | 2026-09-13 | **F7 / pendências** | Vigias órfãos encerrados; UPDATE de transcrição só para anúncio não vinculado (CA4: −188 idas/refresh); busca de miniatura por nome paginada (achava 33 de 276 por causa do teto de 1.000 e reenviava 17–22 miniaturas/refresh; agora 276/276 sem varredura); conferência no Storage 8 em paralelo (111 s → 36 s, medido local). Segunda revisão: nada bloqueante, achados corrigidos. 734 na suíte | 89/276 miniaturas achadas · 17–22 reenvios · 188 UPDATEs vazios | 276/276 · 0 reenvios · 0 UPDATEs vazios — *pronto para deploy* |
 | 2026-09-14 | **deploy** | F7 + migration 153 + pendências no ar (`c75370a`); a 153 foi aplicada antes do backend, a 152 já estava. Health checks verdes, 0 erro no log. Nenhum refresh na primeira hora (madrugada). A conferir no primeiro refresh: `[UPSERT_ADS] X de Y anúncios novos ou mudados`, `[GET_CACHED_THUMBS_BY_AD_NAMES] N de N nomes`, `uploads_requested` ≈ 0 no resumo de miniaturas | — | *confirmar em 24 h* |
+| 2026-09-14 | **F5 / início** | Funções vivas lidas; desenho simplificado: presença só no CTE `keys`, uma linha de inventário zerada por anúncio no período, sem anti-join; cascata de `ad_metrics` para rollup e mapa confirmada; formatador descarta campo extra (marca "só inventário" entra explícita). Fases 1–5 e diferencial com dois bancos A/B. Divergência nova (e): ativo que gastou em outro trecho aparece com zero nos dias sem gasto | — | *fase 1 em andamento* |
