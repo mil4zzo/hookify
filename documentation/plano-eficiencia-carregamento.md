@@ -1065,6 +1065,26 @@ de apagar **em lotes**. `VACUUM` simples não devolve disco: `ad_metrics` contin
 rollup com 299 MB e mapa com 202 MB. O espaço fica livre para reúso. Devolver ao disco exige
 `VACUUM FULL` (trava a tabela) ou reescrita; decidir na 156.
 
+**Decisão do idealizador (14/09):** devolver o espaço ao disco, com aviso prévio do horário para o
+time.
+
+**156 ensaiada numa cópia do banco com linhas-zero (`hookify_lab_c`, 14/09):**
+
+| Etapa | Tempo | Trava |
+|---|---|---|
+| 1. Inventário de novo (pega linhas-zero gravadas entre a 154 e o deploy) | 17 s | não |
+| 2. Contagem antes | 23 s | não |
+| 3. Apagar por pack, `COMMIT` a cada pack (32 packs com linhas-zero) | 1 min 42 s | não (só as linhas apagadas) |
+| 4. `VACUUM FULL` de `ad_metrics`, rollup e mapa | 16 s + 7 s + 6 s | **sim, uma tabela de cada vez** |
+| **Total** | **3 min** | **~30 s de trava** |
+
+- Tamanho: `ad_metrics` 517 → **194 MB**, rollup 299 → **79 MB**, mapa 202 → **43 MB**. Libera
+  ~700 MB.
+- Na etapa 4, Manager, detalhe e refresh esperam a tabela liberar; o resto do app não é afetado.
+  Produção roda em outro disco: janela a avisar de 5 minutos.
+- Primeira versão falhou no ensaio sem apagar nada: procedure com `SET search_path` não pode dar
+  `COMMIT`. Corrigido (nomes qualificados com `public.`).
+
 #### Resultado da fase 2 (14/09)
 
 **Diferencial A × B: 3.125 de 3.125 cenários sem divergência não explicada** (849 do Manager,
