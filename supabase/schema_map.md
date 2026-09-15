@@ -90,6 +90,26 @@ Métricas diárias de performance de cada anúncio, importadas da Meta API.
 
 ---
 
+### ad_pack_inventory
+
+| Coluna | Tipo | Flags |
+|--------|------|-------|
+| user_id | uuid | NOT NULL |
+| pack_id | uuid | NOT NULL |
+| ad_id | text | NOT NULL |
+| account_id | text |  |
+| campaign_id | text |  |
+| campaign_name | text |  |
+| adset_id | text |  |
+| adset_name | text |  |
+| ad_name | text |  |
+| first_active_date | date | NOT NULL |
+| last_active_date | date | NOT NULL |
+| created_at | timestamp | NOT NULL, DEFAULT |
+| updated_at | timestamp | NOT NULL, DEFAULT |
+
+---
+
 ### ad_performance_daily
 
 | Coluna | Tipo | Flags |
@@ -581,4 +601,4 @@ Preferências e configurações personalizadas por usuário.
 
 ---
 
-*Gerado em: 2026-09-09 — via `supabase/generate_schema_map.py`*
+*Gerado em: 2026-09-14 — via `supabase/generate_schema_map.py`*

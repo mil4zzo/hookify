@@ -55,7 +55,7 @@ Herdadas da filosofia do projeto (`CLAUDE.md`) e do que já custou caro neste ap
 | **F2b** | Grafo de conflito: 6 s a frio, 79×/dia. Incremental por pack custa 196 ms | ~2 dias | −1,2 a 6 s de disputa, 79×/dia | **decisão de segurança** — alarga a janela de grafo velho | ⏸️ depois da feature de editar data |
 | **F3** | Linha-zero sintética nunca sobrescreve linha real | ~2 h | fecha a classe de bug dos R$ 12 mil | baixo | ⏸️ **absorvido pelo F5** (a linha sintética deixa de existir) — só fazer se o F5 atrasar |
 | **F4** | Página de 1.000 + espera curta guiada pelo uso + espera e nova tentativa no limite da Meta | ~meio dia | −10 a −12 s num refresh de ~3,8 mil linhas (medido); limite da Meta deixa de derrubar o job | baixo | 🚢 **no ar desde 13/09** — confirmar ganho em 24 h |
-| **F5** | Inventário fora de `ad_metrics` (fim das linhas-zero gravadas) | ~1 semana | −550 mil linhas (−78% em `ad_metrics`, rollup e mapa); refresh grava menos; F2 fica leve | médio — mapeado item a item (§8) | ✅ **modelo aprovado 13/09** · 🟡 **em andamento** (fase 1, §8.9) · 1 decisão pendente (§8.7) |
+| **F5** | Inventário fora de `ad_metrics` (fim das linhas-zero gravadas) | ~1 semana | −550 mil linhas (−78% em `ad_metrics`, rollup e mapa); refresh grava menos; F2 fica leve | médio — mapeado item a item (§8) | 🚢 **154 + 155 + backend no ar (15/09, `3167fee`)** · ⬜ 156 (limpeza) no dia seguinte, com aviso ao time · §8.7 decidida |
 | **M1** | `thumbnail-cache` devolvendo 404 — 267× em 10 h | ? | ruído + requisição inútil em laço | ? | ⬜ |
 | **M2** | `AD_METRICS_IMPORT` falha ao parsear data — 230× em 10 h | ? | dado da planilha possivelmente perdido | ? | ⬜ |
 | **M3** | `deque mutated during iteration` no logger de uso — 5× em 10 h | ? | perde registro de uso da API da Meta | ? | ⬜ |
@@ -986,9 +986,11 @@ sem entrega fica sem onde cair. Hoje são **49 linhas, em 8 packs**.
 data é uma automação do CRM, que às vezes grava data anterior. Foram medidos 129 leads com captura
 anterior à criação do anúncio. Criar linha nesses casos inventaria entrega que não houve.
 
-**Em aberto:** aceitar a perda desses ~49 leads, ou criar linha **só** quando a data estiver
-dentro da vida do anúncio (`[criação, ultima_vez_ativo]`). É a regra que o idealizador descreveu
-como segura, e ela exclui exatamente os casos do CRM.
+**Decidido (14/09): aceitar, sem regra nova.** Medido no laboratório: dos 211 leads em dia sem
+gasto (em 210.304 nos packs afetados), 139 caem no dia seguinte ao último gasto, e **a própria
+Meta registra a conversão nesse dia**. A linha é real, não é apagada, e o lead fica. 27 são
+anteriores à criação do anúncio (data do CRM) e somem, o que é correto. Sobram **11 leads** em
+linha-zero de verdade, que passam a "não encontrados".
 
 ### 8.8 Riscos
 
@@ -1127,6 +1129,35 @@ O laboratório é várias vezes mais lento que produção; vale a proporção.
     Não depende mais de estimativa. De quebra, o mesmo anúncio-dia em dois packs deixa de duplicar
     o grupo (testes Q8 e E4).
 - **Teste 155:** 15 asserções; as 10 sabotagens falham cada uma na sua.
+
+#### Fase 4 em produção (15/09, ~00:30–00:50 UTC)
+
+- **Pré-checagem:**
+  - funções vivas de produção idênticas às do laboratório (base e detalhe por md5; `core_v2` igual
+    ao lido em 14/09);
+  - nenhum número 154–156 em outro branch ou worktree;
+  - nenhum job ativo; um refresh abandonado desde 21:48 UTC.
+  - Conexão: o host direto `db.*` só tem IPv6. Usar o **session pooler**
+    `aws-1-sa-east-1.pooler.supabase.com:5432`, usuário `postgres.<projeto>` (aceita `VACUUM FULL`
+    e procedure com `COMMIT`).
+- **154:** 40 s; 36.574 intervalos em 32 packs; 0 intervalo inválido; RLS ligada.
+  - Achado: em produção os *default privileges* do Supabase deram EXECUTE de
+    `ad_metrics_is_synthetic_zero` a `anon`/`authenticated`. A 155 ganhou o `REVOKE` antes de
+    ser aplicada (`3167fee`).
+- **155:** 1,2 s. Permissões conferidas.
+  - Teste real no maior usuário (37 packs, 7 dias por anúncio): médias, cabeçalho, tipos de
+    conversão e total de linhas (15.210) idênticos à leitura antiga, JSON do mesmo tamanho.
+  - Tempo: 51,7 s → **21,6 s**; 30 dias por criativo: 33,6 s → 29,9 s.
+- **Backend:** `main` avançou para `3167fee` e o deploy terminou com health checks verdes e
+  0 erro no log.
+  - Pelo PostgREST, de dentro do container: tabela lida; `fetch_entity_performance_v155` exposta
+    (recusou sem usuário com 42501); `merge_ad_pack_inventory` respondeu 0 para lista vazia.
+- **Falta:**
+  - conferir o primeiro refresh real (inventário gravado, nenhuma linha-zero nova, sem erro);
+  - a 156 no dia seguinte, com aviso ao time (ensaio: 3 min, ~30 s de trava).
+- **Atenção (M6):** a correção dos filtros que casam com anúncio sem impressão (`b70bbf9`) está no
+  branch `feat/chat-analista`, **fora de produção**. Não é regressão da F5: a linha-zero já tinha
+  o mesmo efeito. Com a divergência (e), porém, aparecem mais anúncios zerados em janelas curtas.
 
 #### Fase 3: o que o backend precisa mudar (mapa de 14/09)
 
@@ -1399,3 +1430,4 @@ Uma linha por passo concluído: data, item, o que mudou, o número antes e depoi
 | 2026-09-13 | **F7 / pendências** | Vigias órfãos encerrados; UPDATE de transcrição só para anúncio não vinculado (CA4: −188 idas/refresh); busca de miniatura por nome paginada (achava 33 de 276 por causa do teto de 1.000 e reenviava 17–22 miniaturas/refresh; agora 276/276 sem varredura); conferência no Storage 8 em paralelo (111 s → 36 s, medido local). Segunda revisão: nada bloqueante, achados corrigidos. 734 na suíte | 89/276 miniaturas achadas · 17–22 reenvios · 188 UPDATEs vazios | 276/276 · 0 reenvios · 0 UPDATEs vazios — *pronto para deploy* |
 | 2026-09-14 | **deploy** | F7 + migration 153 + pendências no ar (`c75370a`); a 153 foi aplicada antes do backend, a 152 já estava. Health checks verdes, 0 erro no log. Nenhum refresh na primeira hora (madrugada). A conferir no primeiro refresh: `[UPSERT_ADS] X de Y anúncios novos ou mudados`, `[GET_CACHED_THUMBS_BY_AD_NAMES] N de N nomes`, `uploads_requested` ≈ 0 no resumo de miniaturas | — | *confirmar em 24 h* |
 | 2026-09-14 | **F5 / início** | Funções vivas lidas; desenho simplificado: presença só no CTE `keys`, uma linha de inventário zerada por anúncio no período, sem anti-join; cascata de `ad_metrics` para rollup e mapa confirmada; formatador descarta campo extra (marca "só inventário" entra explícita). Fases 1–5 e diferencial com dois bancos A/B. Divergência nova (e): ativo que gastou em outro trecho aparece com zero nos dias sem gasto | — | *fase 1 em andamento* |
+| 2026-09-15 | **F5 / produção** | 154 (40 s, 36.574 intervalos) → 155 (1,2 s; teste real no maior usuário: números idênticos, 51,7 s → 21,6 s) → deploy `3167fee` verde, 0 erro; PostgREST enxerga tabela e RPCs. REVOKE extra na 155 (default privileges do Supabase). 156 no dia seguinte com aviso | ad_metrics 722.857 linhas (552.947 zero) | *aguardando primeiro refresh e 156* |
