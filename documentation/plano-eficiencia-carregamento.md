@@ -55,7 +55,7 @@ Herdadas da filosofia do projeto (`CLAUDE.md`) e do que já custou caro neste ap
 | **F2b** | Grafo de conflito: 6 s a frio, 79×/dia. Incremental por pack custa 196 ms | ~2 dias | −1,2 a 6 s de disputa, 79×/dia | **decisão de segurança** — alarga a janela de grafo velho | ⏸️ depois da feature de editar data |
 | **F3** | Linha-zero sintética nunca sobrescreve linha real | ~2 h | fecha a classe de bug dos R$ 12 mil | baixo | ⏸️ **absorvido pelo F5** (a linha sintética deixa de existir) — só fazer se o F5 atrasar |
 | **F4** | Página de 1.000 + espera curta guiada pelo uso + espera e nova tentativa no limite da Meta | ~meio dia | −10 a −12 s num refresh de ~3,8 mil linhas (medido); limite da Meta deixa de derrubar o job | baixo | 🚢 **no ar desde 13/09** — confirmar ganho em 24 h |
-| **F5** | Inventário fora de `ad_metrics` (fim das linhas-zero gravadas) | ~1 semana | −550 mil linhas (−78% em `ad_metrics`, rollup e mapa); refresh grava menos; F2 fica leve | médio — mapeado item a item (§8) | 🚢 **154 + 155 + backend no ar (15/09, `3167fee`)** · ⬜ 156 (limpeza) no dia seguinte, com aviso ao time · §8.7 decidida |
+| **F5** | Inventário fora de `ad_metrics` (fim das linhas-zero gravadas) | ~1 semana | −550 mil linhas (−78% em `ad_metrics`, rollup e mapa); refresh grava menos; F2 fica leve | médio — mapeado item a item (§8) | 🚢 **no ar e limpo (15/09)**: 154 + 155 + backend `3167fee` + 156 · 1,9 GB → 371 MB · ⬜ conferir o primeiro refresh real |
 | **M1** | `thumbnail-cache` devolvendo 404 — 267× em 10 h | ? | ruído + requisição inútil em laço | ? | ⬜ |
 | **M2** | `AD_METRICS_IMPORT` falha ao parsear data — 230× em 10 h | ? | dado da planilha possivelmente perdido | ? | ⬜ |
 | **M3** | `deque mutated during iteration` no logger de uso — 5× em 10 h | ? | perde registro de uso da API da Meta | ? | ⬜ |
@@ -1152,9 +1152,20 @@ O laboratório é várias vezes mais lento que produção; vale a proporção.
   0 erro no log.
   - Pelo PostgREST, de dentro do container: tabela lida; `fetch_entity_performance_v155` exposta
     (recusou sem usuário com 42501); `merge_ad_pack_inventory` respondeu 0 para lista vazia.
-- **Falta:**
-  - conferir o primeiro refresh real (inventário gravado, nenhuma linha-zero nova, sem erro);
-  - a 156 no dia seguinte, com aviso ao time (ensaio: 3 min, ~30 s de trava).
+- **156 (limpeza), 15/09 01:10–01:14 UTC (22:10 BRT), com o time avisado:**
+  - Antecipada a pedido do idealizador, sem esperar um dia de refreshes. A limpeza não depende
+    deles: a etapa 1 refaz o inventário a partir das próprias linhas-zero (0 intervalo novo).
+  - Pré-checagem: 0 job ativo, 0 consulta longa. Rodou com `lock_timeout = 15s`, para desistir em
+    vez de enfileirar o app atrás de uma trava.
+  - Resultado: 552.947 linhas-zero apagadas em 32 packs, em 2 min 17 s sem trava.
+  - `VACUUM FULL`: 17 s + 6 s + 2 s = **26 s de trava**, uma tabela de cada vez.
+  - Tamanho: `ad_metrics` 1.021 → **228 MB**, rollup 581 → **93 MB**, mapa 285 → **50 MB**
+    (1,9 GB → 371 MB). Produção tinha mais espaço morto que o laboratório.
+  - Depois: Manager 7 dias por anúncio com JSON **byte a byte igual** ao de antes da limpeza
+    (15.210 linhas, 977.198 bytes). 30 dias por criativo igual e **29,9 s → 9,7 s**. Detalhe de
+    conjunto em 0,2 s. 0 erro no backend; API 200.
+- **Falta:** conferir o primeiro refresh real: inventário gravado, nenhuma linha-zero nova, sem
+  erro. Não houve refresh entre o deploy e a limpeza.
 - **Atenção (M6):** a correção dos filtros que casam com anúncio sem impressão (`b70bbf9`) está no
   branch `feat/chat-analista`, **fora de produção**. Não é regressão da F5: a linha-zero já tinha
   o mesmo efeito. Com a divergência (e), porém, aparecem mais anúncios zerados em janelas curtas.
@@ -1431,3 +1442,4 @@ Uma linha por passo concluído: data, item, o que mudou, o número antes e depoi
 | 2026-09-14 | **deploy** | F7 + migration 153 + pendências no ar (`c75370a`); a 153 foi aplicada antes do backend, a 152 já estava. Health checks verdes, 0 erro no log. Nenhum refresh na primeira hora (madrugada). A conferir no primeiro refresh: `[UPSERT_ADS] X de Y anúncios novos ou mudados`, `[GET_CACHED_THUMBS_BY_AD_NAMES] N de N nomes`, `uploads_requested` ≈ 0 no resumo de miniaturas | — | *confirmar em 24 h* |
 | 2026-09-14 | **F5 / início** | Funções vivas lidas; desenho simplificado: presença só no CTE `keys`, uma linha de inventário zerada por anúncio no período, sem anti-join; cascata de `ad_metrics` para rollup e mapa confirmada; formatador descarta campo extra (marca "só inventário" entra explícita). Fases 1–5 e diferencial com dois bancos A/B. Divergência nova (e): ativo que gastou em outro trecho aparece com zero nos dias sem gasto | — | *fase 1 em andamento* |
 | 2026-09-15 | **F5 / produção** | 154 (40 s, 36.574 intervalos) → 155 (1,2 s; teste real no maior usuário: números idênticos, 51,7 s → 21,6 s) → deploy `3167fee` verde, 0 erro; PostgREST enxerga tabela e RPCs. REVOKE extra na 155 (default privileges do Supabase). 156 no dia seguinte com aviso | ad_metrics 722.857 linhas (552.947 zero) | *aguardando primeiro refresh e 156* |
+| 2026-09-15 | **F5 / limpeza** | 156 com o time avisado: 552.947 linhas-zero apagadas, 26 s de trava no VACUUM FULL; Manager byte a byte igual depois; 30 d por criativo 29,9 s → 9,7 s | ad_metrics+rollup+mapa 1,9 GB | **371 MB** |
