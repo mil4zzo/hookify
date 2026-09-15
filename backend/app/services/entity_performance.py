@@ -24,7 +24,9 @@ from app.core.client_disconnect import abort_if_client_gone
 from app.core.supabase_retry import with_postgrest_retry
 
 # 155: completado pelo inventário do pack (anúncio ativo sem entrega, sem linha de métrica)
-RPC_NAME = "fetch_entity_performance_v155"
+# 157: mesma saída, montagem linear no número de anúncios (a v155 era N² nos filhos de um
+#      criativo repetido em centenas de anúncios). Rollback: voltar para _v155.
+RPC_NAME = "fetch_entity_performance_v157"
 
 # Campos inteiros e somas ponderadas que a RPC devolve em `totals` e em cada dia.
 INT_FIELDS = ("impressions", "clicks", "inline_link_clicks", "lpv", "plays", "thruplays", "reach")

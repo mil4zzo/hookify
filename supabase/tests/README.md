@@ -81,3 +81,25 @@ Sabotagens provadas em 2026-09-03 (o teste TEM de falhar com cada uma):
 - `ad_performance_rollup_consistency_check` com `NULL::jsonb` no lugar de `d.custom_hist` no CTE `stored` → falha em C1
   (a função da 128 nem roda: `EXCEPT` com número de colunas diferente da `derive_row` nova);
 - `fetch_manager_performance_base_v140` com `max(v.value::bigint)` em vez de `sum(...)` no `custom_by_group` → falha em D1.
+
+## Migration 157 (detalhe de entidade linear)
+
+```bash
+psql -d hookify_lab -X -v ON_ERROR_STOP=1 -f supabase/tests/157_detalhe_linear.test.sql
+# → "157 OK — 515 telas idênticas à v155 + escala linear" (~2 min; exige 154, 155 e 157 no lab)
+psql -d hookify_lab -X -v ON_ERROR_STOP=1 -v alvo=fetch_entity_performance_v155 -f supabase/tests/157_detalhe_linear.test.sql
+# → TEM de falhar em B1 (a v155 é N²; ~2 min a mais)
+```
+
+Sabotagens provadas em 2026-09-15 (cada uma aplicada como `CREATE OR REPLACE` da v157 no lab):
+- alvo v155 → falha em B1 (razão 1600/200 = 137,7; a v157 deu 9,7 e 12,3);
+- `pack_ids` dos totais também no modo `entity` → falha em A;
+- nomes do representante só de `ad_metrics` (sem o inventário) → falha em A;
+- dia sem o histograma de leads → falha em A;
+- `days` sem o filtro da janela de série → falha em A;
+- histogramas da planilha fora da dobra final → falha em A.
+
+A primeira calibração da escala (300 × 1.200 anúncios, 3 dias, razão < 8) **passava com a v155**
+(razão 6,6): nesse tamanho a parte quadrática ainda não domina. Teste de escala só vale num
+tamanho em que a versão ruim já é visivelmente ruim — e com folga larga, porque a máquina do lab
+varia ±40% entre rodadas.

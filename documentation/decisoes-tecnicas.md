@@ -4791,3 +4791,29 @@ passa a usar o **session pooler** do Supabase, `aws-1-sa-east-1.pooler.supabase.
 **5432**, usuário `postgres.<projeto>`. A porta 5432 do pooler é modo *sessão*: aceita
 `VACUUM FULL`, procedure com `COMMIT`, `SET` de sessão e `pg_dump`. A 6543 é modo transação e
 quebra migration. Credencial: memória `db_connection` (nunca em código ou commit).
+
+## Detalhe de entidade: juntar etapa com etapa vira N² — montar por agregação (2026-09-15)
+
+**Sintoma.** "Erro ao carregar variações." no modal do Manager, para criativos que o cliente
+repete em centenas de anúncios. A rota de filhos chama `fetch_entity_performance` com um grupo
+por anúncio. Medido na v145: 326 anúncios num dia = 19 s (o backend corta em 15 s → 500); 616
+anúncios na semana = 2 min 26 s. Na v155 (depois da 156) caiu para 0,3–2,4 s só porque o plano
+sorteado mudou; a forma quadrática continuou no plano.
+
+**Causa.** Toda etapa derivada do filtro por nome/conjunto sai com estimativa de 1 linha. Com isso,
+cada junção entre duas etapas (representante × totais × packs, dias por subconsulta) vira laço
+aninhado, e o lado de dentro roda uma vez por anúncio. Com ~77 grupos (Manager por criativo) não
+aparece; com 600 explode.
+
+**Rejeitado (medido).** `MATERIALIZED` só na etapa cara: 13,6 s, e 2,4 s noutro período (depende do
+plano). `MATERIALIZED` em todas: 0,73 s, ainda N². Lista de chaves pronta via `unnest` para a
+estimativa acertar: 15,5 s. `SET work_mem = '32MB'`: sem ganho.
+
+**Decisão (migration 157).** As partes de cada grupo são calculadas uma vez e empilhadas numa lista
+marcada pelo tipo; uma agregação por grupo monta o objeto. Linear: 0,3 s nos maiores casos, saída
+byte a byte idêntica à v155 em 14 telas de produção e 515 combinações sintéticas. Escala no lab:
+200 → 1.600 anúncios cresce ~10× (v155: 138×).
+
+**Armadilha do teste.** A primeira calibração da escala (300 × 1.200 anúncios) deixava a v155
+passar: nesse tamanho a parte quadrática ainda não dominava. Teste de escala só prova algo num
+tamanho em que a versão ruim já é claramente ruim.

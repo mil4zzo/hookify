@@ -601,4 +601,4 @@ Preferências e configurações personalizadas por usuário.
 
 ---
 
-*Gerado em: 2026-09-14 — via `supabase/generate_schema_map.py`*
+*Gerado em: 2026-09-15 — via `supabase/generate_schema_map.py`*
