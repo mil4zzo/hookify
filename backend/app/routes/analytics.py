@@ -1244,7 +1244,10 @@ def _sort_children(items: List[Dict[str, Any]], order_by: Optional[str]) -> None
         items.sort(key=lambda x: (x.get(order) or 0), reverse=(order != "cpr"))
 
 
-@router.get("/rankings/ad-name/{ad_name}/details")
+# `:path` porque nome de anúncio pode ter "/": o servidor decodifica %2F antes de
+# escolher a rota, e `{ad_name}` não casa com barra (404 e "Erro ao carregar variações.").
+# O sufixo fixo (/details, /children, /history) desfaz a ambiguidade.
+@router.get("/rankings/ad-name/{ad_name:path}/details")
 def get_ad_name_details(
     ad_name: str,
     date_start: str,
@@ -1302,7 +1305,7 @@ def get_ad_name_details(
     }
 
 
-@router.get("/rankings/ad-name/{ad_name}/children")
+@router.get("/rankings/ad-name/{ad_name:path}/children")
 def get_rankings_children(
     ad_name: str,
     date_start: str,
@@ -1621,7 +1624,7 @@ def get_ad_history(
     return {"data": EP.history_rows(EP.single_group(payload), axis, payload["mql_leadscore_min"])}
 
 
-@router.get("/rankings/ad-name/{ad_name}/history")
+@router.get("/rankings/ad-name/{ad_name:path}/history")
 def get_ad_name_history(
     ad_name: str,
     date_start: str,
