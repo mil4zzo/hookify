@@ -4782,3 +4782,12 @@ texto livre: o postgrest-py só põe aspas em valores com `,:()` e nunca escapa 
 passou a ser montada à mão (`_postgrest_in_list`), com lote por tamanho de URL e queda para `.eq`
 se o lote falhar. `get_cached_thumbs_by_ad_names` ainda usa `in_` com nomes (latente: 0 nomes com
 esses caracteres em produção).
+
+## Banco de produção pelo session pooler, não pelo host direto (2026-09-15)
+
+Na hora de aplicar a migration 154, o host direto `db.<projeto>.supabase.co` não resolveu nesta
+máquina: ele só tem endereço IPv6, e a rede não tinha. Manutenção (psql, pg_dump, migrations)
+passa a usar o **session pooler** do Supabase, `aws-1-sa-east-1.pooler.supabase.com`, porta
+**5432**, usuário `postgres.<projeto>`. A porta 5432 do pooler é modo *sessão*: aceita
+`VACUUM FULL`, procedure com `COMMIT`, `SET` de sessão e `pg_dump`. A 6543 é modo transação e
+quebra migration. Credencial: memória `db_connection` (nunca em código ou commit).
