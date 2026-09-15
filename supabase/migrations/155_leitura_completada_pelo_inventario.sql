@@ -40,6 +40,12 @@ CREATE INDEX IF NOT EXISTS ad_pack_inventory_user_adset_idx
 CREATE INDEX IF NOT EXISTS ad_pack_inventory_user_ad_idx
   ON public.ad_pack_inventory (user_id, ad_id);
 
+-- A 154 revogou PUBLIC, mas em produção os default privileges do Supabase dão EXECUTE
+-- a anon e authenticated em função nova (verificado após aplicar a 154, 15/09). A
+-- função não lê tabela nenhuma — só avalia a linha que recebe —, mas não há por que
+-- ficar aberta: quem a usa é a migration e o laboratório.
+REVOKE ALL ON FUNCTION public.ad_metrics_is_synthetic_zero(public.ad_metrics) FROM anon, authenticated;
+
 CREATE OR REPLACE FUNCTION public.fetch_manager_performance_base_v155(p_user_id uuid, p_date_start date, p_date_stop date, p_group_by text DEFAULT 'ad_name'::text, p_pack_ids uuid[] DEFAULT NULL::uuid[], p_account_ids text[] DEFAULT NULL::text[], p_campaign_name_contains text DEFAULT NULL::text, p_adset_name_contains text DEFAULT NULL::text, p_ad_name_contains text DEFAULT NULL::text, p_action_type text DEFAULT NULL::text, p_include_leadscore boolean DEFAULT true, p_include_available_conversion_types boolean DEFAULT true, p_limit integer DEFAULT 500, p_offset integer DEFAULT 0, p_order_by text DEFAULT 'spend'::text, p_campaign_id text DEFAULT NULL::text, p_include_custom boolean DEFAULT false)
  RETURNS jsonb
  LANGUAGE plpgsql

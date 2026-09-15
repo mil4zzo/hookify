@@ -376,6 +376,11 @@ def main() -> None:
         "  ON public.ad_pack_inventory (user_id, adset_id);\n",
         "CREATE INDEX IF NOT EXISTS ad_pack_inventory_user_ad_idx\n"
         "  ON public.ad_pack_inventory (user_id, ad_id);\n\n",
+        "-- A 154 revogou PUBLIC, mas em produção os default privileges do Supabase dão EXECUTE\n"
+        "-- a anon e authenticated em função nova (verificado após aplicar a 154, 15/09). A\n"
+        "-- função não lê tabela nenhuma — só avalia a linha que recebe —, mas não há por que\n"
+        "-- ficar aberta: quem a usa é a migration e o laboratório.\n",
+        "REVOKE ALL ON FUNCTION public.ad_metrics_is_synthetic_zero(public.ad_metrics) FROM anon, authenticated;\n\n",
         base.rstrip("\n") + ";\n\n",
         f"REVOKE ALL ON FUNCTION public.fetch_manager_performance_base_v155({BASE_ARGS}) FROM PUBLIC, anon;\n",
         f"GRANT EXECUTE ON FUNCTION public.fetch_manager_performance_base_v155({BASE_ARGS}) TO authenticated, service_role;\n\n",
