@@ -76,13 +76,41 @@ LOG_SUPPRESS_HTTPX = os.getenv("LOG_SUPPRESS_HTTPX", "true").lower() in ("true",
 #   Use para observar consumo de quota antes de atingir rate limit.
 LOG_META_USAGE = os.getenv("LOG_META_USAGE", "false").lower() in ("true", "1", "yes")
 
+# ---------------------------------------------------------------------------
+# Tempos de espera: o BANCO desiste antes do CLIENTE
+# ---------------------------------------------------------------------------
+# Espelho, no código, do teto que a migration 159 gravou no banco para leituras
+# feitas com o JWT do usuário (papel `authenticated`). Não é ele quem manda no
+# banco — quem manda é a migration; esta constante existe para o backend
+# conseguir GARANTIR que espera mais que ele.
+#
+# Se o cliente desiste primeiro, a consulta não para: segue rodando no banco sem
+# ninguém para ler o resultado (a "consulta órfã"), e o erro que chega é um
+# ReadTimeout ambíguo em vez do `57014` inequívoco do banco.
+#
+# Mudou o teto no banco? Mude aqui junto — e `tests/test_timeout_alinhado.py`
+# confere que a ordem continua de pé.
+DB_READ_STATEMENT_TIMEOUT_SECONDS = 20.0
+
+# Folga do cliente sobre o banco: fila do PostgREST + serialização do JSON + rede.
+POSTGREST_TIMEOUT_MARGIN_SECONDS = 5.0
+
+# Teto mínimo de qualquer cliente de leitura. Abaixo disso a ordem se inverte.
+MIN_POSTGREST_READ_TIMEOUT_SECONDS = (
+    DB_READ_STATEMENT_TIMEOUT_SECONDS + POSTGREST_TIMEOUT_MARGIN_SECONDS
+)
+
 try:
     ANALYTICS_MANAGER_POSTGREST_TIMEOUT_SECONDS = float(
         os.getenv("ANALYTICS_MANAGER_POSTGREST_TIMEOUT_SECONDS", "35")
     )
 except ValueError:
     ANALYTICS_MANAGER_POSTGREST_TIMEOUT_SECONDS = 35.0
-ANALYTICS_MANAGER_POSTGREST_TIMEOUT_SECONDS = max(1.0, ANALYTICS_MANAGER_POSTGREST_TIMEOUT_SECONDS)
+# Piso pela REGRA, não por sanidade genérica: um `max(1.0, ...)` aceitava 2 s
+# vindos do .env e invertia a ordem em produção sem ninguém notar.
+ANALYTICS_MANAGER_POSTGREST_TIMEOUT_SECONDS = max(
+    MIN_POSTGREST_READ_TIMEOUT_SECONDS, ANALYTICS_MANAGER_POSTGREST_TIMEOUT_SECONDS
+)
 
 # Supabase Auth (Frontend JWT validation and RLS usage)
 SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY")

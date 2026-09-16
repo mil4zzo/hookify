@@ -44,47 +44,48 @@ def _get_analytics_supabase(jwt_token: str):
 
 
 def _is_transient_analytics_rpc_error(error: Exception) -> bool:
-    # 57014 (statement timeout) NÃO é transitório: a retentativa cai na mesma
-    # conexão do pool e re-executa a mesma query, só dobrando a carga no banco.
+    """Repetir esta RPC recuperaria alguma coisa?
+
+    Mesma regra de `app/core/supabase_retry.py` (a tabela está lá): só repete
+    quando o trabalho NÃO aconteceu. Timeout de leitura significa que o banco
+    recebeu o pedido e está trabalhando — repetir não cancela a consulta
+    anterior, só empilha uma cópia. Aqui isso doía o dobro: as RPCs do Manager
+    são as mais pesadas do app.
+
+    Duas armadilhas que esta versão fecha, e que a anterior tinha:
+    - o marcador de texto `"Timeout"` casava com QUALQUER timeout, ReadTimeout
+      incluído, antes mesmo de olhar o tipo da exceção;
+    - `httpx.TimeoutException` é a classe-MÃE de ReadTimeout — listá-la trazia
+      o ReadTimeout de volta por herança.
+    """
+    # O banco desistiu sozinho (statement timeout): repetir cai na mesma conexão
+    # do pool e re-executa a mesma consulta, só dobrando a carga.
     if getattr(error, "code", None) == "57014":
         return False
 
+    # Nome exato da classe — barra antes de qualquer heurística de texto/herança.
+    if type(error).__name__ in ("ReadTimeout", "WriteTimeout", "TimeoutException"):
+        return False
+
     text = str(error or "")
-    transient_markers = (
-        "ReadTimeout",
-        "ConnectTimeout",
-        "Timeout",
-        "timed out",
-        "connection reset",
-        "temporarily unavailable",
-    )
-    if any(marker in text for marker in transient_markers):
+    if "57014" in text or "statement timeout" in text.lower():
+        return False
+    # Sem "Timeout"/"timed out" aqui: eram o caminho pelo qual o ReadTimeout
+    # entrava pelo texto, sem nunca passar pela checagem de tipo abaixo.
+    if any(m in text for m in ("connection reset", "temporarily unavailable", "Server disconnected")):
         return True
 
     transient_types: List[type] = []
-    if httpx is not None:
-        transient_types.extend(
-            [
-                getattr(httpx, "ReadTimeout", tuple()),
-                getattr(httpx, "ConnectTimeout", tuple()),
-                getattr(httpx, "TimeoutException", tuple()),
-                getattr(httpx, "ReadError", tuple()),
-                getattr(httpx, "ConnectError", tuple()),
-                getattr(httpx, "NetworkError", tuple()),
-            ]
-        )
-    if httpcore is not None:
-        transient_types.extend(
-            [
-                getattr(httpcore, "ReadTimeout", tuple()),
-                getattr(httpcore, "ConnectTimeout", tuple()),
-                getattr(httpcore, "TimeoutException", tuple()),
-                getattr(httpcore, "ReadError", tuple()),
-                getattr(httpcore, "ConnectError", tuple()),
-                getattr(httpcore, "NetworkError", tuple()),
-            ]
-        )
-    transient_types = [t for t in transient_types if isinstance(t, type)]
+    for modulo in (httpx, httpcore):
+        if modulo is None:
+            continue
+        # Só folhas de "não aconteceu" — nunca TimeoutException nem NetworkError
+        # (que é mãe de ConnectError, ReadError E WriteError, mas não de timeouts;
+        # fica de fora por simetria: a lista abaixo é a intenção escrita).
+        for nome in ("ConnectError", "ConnectTimeout", "PoolTimeout", "ReadError", "WriteError", "RemoteProtocolError"):
+            cls = getattr(modulo, nome, None)
+            if isinstance(cls, type):
+                transient_types.append(cls)
     return bool(transient_types and isinstance(error, tuple(transient_types)))
 
 

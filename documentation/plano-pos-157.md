@@ -26,9 +26,16 @@ o bloco 5 daqui **é** o F2b de lá.
 
 ---
 
-## Bloco 1 — CI de guardas do banco volta a ficar verde
+## Bloco 1 — CI de guardas do banco volta a ficar verde ✅ FEITO (15/09)
 
-**Por quê.** A migration 154 criou `ad_pack_inventory_backfill(uuid)` com o padrão
+Migration `158_plan_cache_mode_no_backfill_do_inventario.sql` aplicada em produção;
+`check_plan_cache_mode_gaps()` devolve zero linhas; workflow verde no commit `48943c3`.
+Confirmado pelo `gh` que o gate falhava em **todos os 7 pushes** desde a 154 (último verde:
+14/09). A migration carrega a própria prova (bloco `DO`), sabotada no laboratório.
+Armadilha registrada: `pg_get_function_identity_arguments()` devolve o nome do parâmetro
+junto (`p_user_id uuid`) — identificar função por `regprocedure`.
+
+**Por quê (contexto original).** A migration 154 criou `ad_pack_inventory_backfill(uuid)` com o padrão
 `p_x is null or ...` e **sem** `plan_cache_mode = force_custom_plan`. O gate
 `check_plan_cache_mode_gaps()` (workflow `.github/workflows/db-guardrails.yml`) falha o build
 desde então. Risco real baixo (função de manutenção), risco de processo alto: alarme sempre
@@ -46,9 +53,25 @@ vermelho deixa de ser lido.
 
 ---
 
-## Bloco 2 — Repetir só quando o trabalho não aconteceu
+## Bloco 2 — Repetir só quando o trabalho não aconteceu ✅ FEITO (15/09)
 
-**Por quê.** `with_postgrest_retry` repete também em `ReadTimeout`. Medido em produção em
+Migration `159_o_banco_desiste_antes_do_cliente.sql` em produção (papel `authenticated`
+30 s → 20 s; `detect_pack_conflicts` 25 s → 20 s) e backend com teto de cliente de 25 s,
+orçamento separado por fase (connect 5 s, write 15 s, pool 5 s). Retry corrigido nos
+**dois** mecanismos, 796 testes passando, 4 sabotagens provadas.
+
+Três coisas que o plano original não previa e que ficaram sabidas:
+- **Havia um segundo mecanismo de retry**, só para as RPCs do Manager
+  (`analytics._is_transient_analytics_rpc_error`) — e era o pior dos dois: classificava por
+  TEXTO antes do tipo, e o marcador `"Timeout"` casava com ReadTimeout.
+- **O desalinhamento era de dois caminhos, não de um**: o detalhe/variações e o
+  `detect_pack_conflicts`, exatamente os dois que deram problema. As rotas do Manager já
+  estavam certas (cliente 35 s > banco 30 s).
+- **O venv local estava divergente de produção** (postgrest 2.27.0 aqui, 0.16.11 lá),
+  o que fazia 4 testes de `test_db_concurrency.py` falharem localmente sem serem bug.
+  Alinhado com `pip install "supabase>=2.5.1,<2.7.0"`. Ver [[venv_local_divergente]].
+
+**Por quê (contexto original).** `with_postgrest_retry` repete também em `ReadTimeout`. Medido em produção em
 15/09: quando o backend desiste, **a consulta continua rodando no banco por mais de 1 s**
 (teste com cliente desistindo em 0,15 s numa leitura de ~3 s). Resultado no incidente de
 14/09: 4 tentativas de 15 s da mesma consulta de 18 s — 1 minuto de espera para o usuário e

@@ -10,6 +10,7 @@ from app.core.config import (
     SUPABASE_URL,
     SUPABASE_ANON_KEY,
     SUPABASE_SERVICE_ROLE_KEY,
+    MIN_POSTGREST_READ_TIMEOUT_SECONDS,
 )
 from app.core.db_concurrency import db_slot
 
@@ -17,8 +18,38 @@ from app.core.db_concurrency import db_slot
 _logger = logging.getLogger(__name__)
 _service_client: Optional[Client] = None
 
-# Timeout padrao para operacoes PostgREST (upsert em lotes, etc.)
-POSTGREST_TIMEOUT_SECONDS = 15.0
+# Teto de espera do CLIENTE por uma resposta do PostgREST.
+#
+# REGRA (migration 159): este numero fica SEMPRE ACIMA do teto do banco.
+# Hoje o banco corta leitura de usuario em 20 s (`authenticated`) e escrita do
+# refresh em 8 s (`authenticator`/`service_role`). A folga de 5 s cobre fila do
+# PostgREST, serializacao do JSON e rede.
+#
+# POR QUE NAO O CONTRARIO (era 15 s, abaixo dos 30 s do banco)
+# ------------------------------------------------------------
+# Quando o cliente desiste primeiro, a consulta NAO para: segue rodando no banco
+# ate o teto dele, sem ninguem para ler o resultado -- a "consulta orfa". E o
+# erro que chega aqui vira um ReadTimeout ambiguo em vez do `57014` do banco,
+# que diz sem duvida "eu desisti". Ver `app/core/supabase_retry.py`.
+#
+# Mexeu aqui? Confira a migration 159 e mantenha a ordem: banco < cliente.
+POSTGREST_TIMEOUT_SECONDS = MIN_POSTGREST_READ_TIMEOUT_SECONDS  # 20 s + 5 s = 25 s
+
+# Um numero so viraria teto de TUDO -- inclusive 25 s parado tentando abrir
+# conexao. Separado por fase, cada espera tem o tamanho do que ela faz.
+_CONNECT_TIMEOUT_SECONDS = 5.0   # abrir TLS com o Supabase; mais que isso e queda
+_WRITE_TIMEOUT_SECONDS = 15.0    # enviar corpo grande (upsert em lote do refresh)
+_POOL_TIMEOUT_SECONDS = 5.0      # esperar conexao livre do pool LOCAL do httpx
+
+
+def _postgrest_timeout(read_seconds: float) -> Timeout:
+    """Orcamento por fase, com `read` como o unico numero que varia."""
+    return Timeout(
+        read_seconds,
+        connect=_CONNECT_TIMEOUT_SECONDS,
+        write=_WRITE_TIMEOUT_SECONDS,
+        pool=_POOL_TIMEOUT_SECONDS,
+    )
 
 
 def _operation_label(request: "httpx.Request") -> str:
@@ -117,7 +148,7 @@ class _SlottedSupabaseClient(Client):
         rest_url: str,
         headers: Dict[str, str],
         schema: str,
-        timeout: Union[int, float, Timeout] = POSTGREST_TIMEOUT_SECONDS,
+        timeout: Union[int, float, Timeout] = _postgrest_timeout(POSTGREST_TIMEOUT_SECONDS),
         verify: bool = True,
         **kwargs,
     ) -> _SlottedPostgrestClient:
@@ -131,11 +162,16 @@ class _SlottedSupabaseClient(Client):
 
 
 def _coerce_postgrest_timeout(timeout_seconds: Optional[float]) -> float:
-    """Normaliza timeout PostgREST garantindo valor minimo de 1s."""
+    """Normaliza o teto de leitura, nunca abaixo do teto do banco.
+
+    O piso e a REGRA da migration 159 (banco < cliente), nao um minimo de
+    sanidade: o `max(1.0, ...)` anterior aceitava um valor pequeno vindo de
+    quem chama e invertia a ordem, recriando a consulta orfa em silencio.
+    """
     if timeout_seconds is None:
         return POSTGREST_TIMEOUT_SECONDS
     try:
-        return max(1.0, float(timeout_seconds))
+        return max(MIN_POSTGREST_READ_TIMEOUT_SECONDS, float(timeout_seconds))
     except (TypeError, ValueError):
         return POSTGREST_TIMEOUT_SECONDS
 
@@ -153,7 +189,9 @@ def get_supabase_service() -> Client:
     _service_client = _SlottedSupabaseClient(
         SUPABASE_URL,
         SUPABASE_SERVICE_ROLE_KEY,
-        options=ClientOptions(postgrest_client_timeout=POSTGREST_TIMEOUT_SECONDS),
+        options=ClientOptions(
+            postgrest_client_timeout=_postgrest_timeout(POSTGREST_TIMEOUT_SECONDS)
+        ),
     )
     _logger.info("Supabase service client initialized (service role)")
     return _service_client
@@ -177,7 +215,7 @@ def get_supabase_for_user(
     client = _SlottedSupabaseClient(
         SUPABASE_URL,
         SUPABASE_ANON_KEY,
-        options=ClientOptions(postgrest_client_timeout=timeout_seconds),
+        options=ClientOptions(postgrest_client_timeout=_postgrest_timeout(timeout_seconds)),
     )
 
     # Set the JWT token for PostgREST to enable RLS.
