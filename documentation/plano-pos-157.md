@@ -185,6 +185,25 @@ cada 26 mil linhas, CPU) e ler `ads` com cache frio (~7 s). Alavancas, em ordem 
 3. `VACUUM` para marcar páginas visíveis (`ad_metrics` com 0%);
 4. agregado pré-calculado por período (projeto).
 
+Melhorias ENCONTRADAS e ainda NÃO aplicadas (16/09, confirmado em produção pelo idealizador
+que a aba com 7 packs funciona, "não tão rápido"):
+- **Montar o JSON mais barato** (~4 s a cada 26 mil linhas, CPU): converter as razões
+  (hook, ctr, cpm…) para `float8` (menos dígitos, mesmo valor no navegador) e cortar campos
+  que o Manager não lê (`thumb_storage_path`, `adcreatives_videos_thumbs` — conferir Explorer,
+  Insights e Boards antes). Medir antes: o ganho é estimado, não medido.
+- **Índices de cobertura** em `ads`: `(user_id, campaign_id) INCLUDE (campaign_name)` e o
+  equivalente para conjunto (o plano B do dicionário `names` custa ~5 s na aba por criativo com
+  38 packs); e um para os campos do representante (evitaria ler as linhas largas de `ads`).
+  `CREATE INDEX CONCURRENTLY` fora de transação, migration própria.
+- **`VACUUM (ANALYZE)`** em `ads`, `ad_metrics` (0% visível) e `ad_performance_daily` (67%):
+  permitiria leitura só pelo índice. Manutenção em produção — precisa do ok (é o Bloco 4).
+- **Resposta em partes** para o caso extremo: primeiro as linhas de maior gasto, o resto em
+  seguida, cada parte abaixo do limite de tempo. Custo: a agregação roda por parte (medir se a
+  soma cabe) e a tela lida com "ainda carregando".
+- **Aumentar o limite só desta função** (ex.: 60 s na v161 e 70 s no cliente do Manager,
+  mantendo banco < cliente): destrava a tela à custa de espera longa e de prender memória e
+  conexão numa instância pequena. É remendo, não solução.
+
 **A descobrir no mesmo tema:** Explorer e Insights pedem `limit: 1000` — o Igor tem ~3,4 mil
 criativos; o mesmo corte silencioso pode existir lá (decidir se é proposital).
 
