@@ -542,11 +542,12 @@ export function PackCard({ pack, adAccountName, formatCurrency, formatDate, onRe
                 </div>
               </div>
 
-              {/* Footer: Toggles com ícone e timestamp integrados */}
-              <div className="flex flex-col gap-2">
+              {/* Footer: Toggles com ícone e timestamp integrados. Um grupo só, com as linhas
+                  divididas por filete — duas caixas empilhadas eram duas molduras onde cabe uma. */}
+              <div className="flex flex-col divide-y divide-border rounded-md border border-border bg-muted">
                 {/* Manter atualizado */}
                 <div className="relative z-20" onClick={(e) => e.stopPropagation()} onPointerDown={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()}>
-                  <div className="flex items-center px-3 py-2 bg-muted border border-border rounded-md gap-2 w-full justify-between">
+                  <div className="flex items-center px-3 py-2 gap-2 w-full justify-between">
                     <div className="flex gap-2">
                       <div className="flex items-center gap-2">
                         <MetaIcon className="w-4 h-4 flex-shrink-0" />
@@ -564,7 +565,7 @@ export function PackCard({ pack, adAccountName, formatCurrency, formatDate, onRe
 
                 {/* Leadscore */}
                 <div className="relative z-20" onClick={(e) => e.stopPropagation()} onPointerDown={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()}>
-                  <div className="flex items-center px-3 py-2 bg-muted border border-border rounded-md gap-2 w-full justify-between">
+                  <div className="flex items-center px-3 py-2 gap-2 w-full justify-between">
                     <div className="flex gap-2">
                       <div className="flex items-center gap-2">
                         <GoogleSheetsIcon className="w-3.5 h-3.5 flex-shrink-0" />

@@ -1014,20 +1014,25 @@ export default function PacksPage() {
                 </SelectContent>
               </Select>
             ) : (
-              <div className="flex flex-col gap-2 p-4 border border-border rounded-md bg-muted-50">
-                <p className="text-sm text-muted-foreground">Nenhuma conta de anúncios encontrada. Conecte sua conta do Facebook primeiro.</p>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    setIsDialogOpen(false);
-                    // Pode redirecionar para página de conexão se necessário
-                  }}
-                >
-                  Conectar Facebook
-                </Button>
-              </div>
+              <InlineNotice
+                tone="warning"
+                title="Nenhuma conta de anúncios encontrada"
+                action={
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setIsDialogOpen(false);
+                      // Pode redirecionar para página de conexão se necessário
+                    }}
+                  >
+                    Conectar Facebook
+                  </Button>
+                }
+              >
+                Conecte sua conta do Facebook primeiro.
+              </InlineNotice>
             )}
           </div>
 
@@ -1214,7 +1219,7 @@ export default function PacksPage() {
             const fullPeriodRange = isBulkRefresh ? "O período completo de cada pack" : pack?.date_start && pack?.date_stop ? (pack.auto_refresh ? `${formatDateDisplay(pack.date_start)} → ${formatDateDisplay(today)}` : `${formatDateDisplay(pack.date_start)} → ${formatDateDisplay(pack.date_stop)}`) : "—";
             return (
               <div className="w-full space-y-2">
-                <button type="button" onClick={() => setRefreshType("since_last_refresh")} className={`w-full p-3 rounded-lg border-2 text-left transition-all cursor-pointer ${refreshType === "since_last_refresh" ? "border-primary bg-primary-10" : "border-border hover:border-primary-50 bg-input-30"}`}>
+                <button type="button" onClick={() => setRefreshType("since_last_refresh")} className={`w-full p-3 rounded-lg border-2 text-left transition-all cursor-pointer ${refreshType === "since_last_refresh" ? "border-primary bg-primary-10" : "border-border hover:bg-accent"}`}>
                   <div className="flex items-center gap-3">
                     <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${refreshType === "since_last_refresh" ? "border-primary" : "border-border"}`}>{refreshType === "since_last_refresh" && <div className="w-2 h-2 rounded-full bg-primary" />}</div>
                     <div>
@@ -1225,7 +1230,7 @@ export default function PacksPage() {
                   </div>
                 </button>
 
-                <button type="button" onClick={() => setRefreshType("full_period")} className={`w-full p-3 rounded-lg border-2 text-left transition-all cursor-pointer ${refreshType === "full_period" ? "border-primary bg-primary-10" : "border-border hover:border-primary-50 bg-input-30"}`}>
+                <button type="button" onClick={() => setRefreshType("full_period")} className={`w-full p-3 rounded-lg border-2 text-left transition-all cursor-pointer ${refreshType === "full_period" ? "border-primary bg-primary-10" : "border-border hover:bg-accent"}`}>
                   <div className="flex items-center gap-3">
                     <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${refreshType === "full_period" ? "border-primary" : "border-border"}`}>{refreshType === "full_period" && <div className="w-2 h-2 rounded-full bg-primary" />}</div>
                     <div>
@@ -1277,7 +1282,7 @@ export default function PacksPage() {
               </div>
             ) : removeIntegrationPreview && removeIntegrationPreview.rows_matched > 0 ? (
               <>
-                <div className="bg-border p-4 rounded-lg">
+                <div className="bg-muted p-4 rounded-lg">
                   <p className="text-sm text-muted-foreground mb-2">O leadscore importado sai junto:</p>
                   <ul className="text-sm space-y-1">
                     <li>
@@ -1313,7 +1318,7 @@ export default function PacksPage() {
       <ConfirmDialog isOpen={!!packToRemove} onClose={() => !isDeleting && setPackToRemove(null)} title={isDeleting ? "Deletando Pack..." : "Confirmar Remoção"} message={isDeleting ? `Excluindo os dados do pack "${packToRemove?.name}..."` : `Tem certeza que deseja remover o pack "${packToRemove?.name}"?`} onConfirm={confirmRemovePack} onCancel={cancelRemovePack} variant="destructive" confirmText="Remover Pack" isLoading={isDeleting} loadingText="Deletando..." layout="left-aligned" confirmIcon={<IconTrash className="w-4 h-4" />}>
         {!isDeleting && (
           <div className="py-4">
-            <div className="bg-border p-4 rounded-lg">
+            <div className="bg-muted p-4 rounded-lg">
               <p className="text-sm text-muted-foreground mb-2">Esta ação irá remover:</p>
               <ul className="text-sm space-y-1">
                 <li>

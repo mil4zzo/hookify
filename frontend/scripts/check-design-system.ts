@@ -147,8 +147,7 @@ const RULE_ALLOWLIST: RuleAllowlistEntry[] = [
   // allowlist encolher com o checker verde.
   //
   // F3 — em uso hoje (onboarding, packs, manager e modais):
-  { pattern: /^components\/(?:ads|packs)\//, rules: [STRUCTURAL_ALPHA_RULE], reason: "F3 — modais de criativo, planilha e transcricao" },
-  { pattern: /^app\/packs\//, rules: [STRUCTURAL_ALPHA_RULE], reason: "F3 — tela de packs" },
+  { pattern: /^components\/ads\/SurveyPanel\.tsx$/, rules: [STRUCTURAL_ALPHA_RULE], reason: "F3 — detalhe do criativo (vez do Manager)" },
   // Depois — consumidores so em telas fora de uso agora (docs, waitlist, planos, upload):
   { pattern: /^components\/ui\/accordion\.tsx$/, rules: [STRUCTURAL_ALPHA_RULE], reason: "depois — usado so em docs, waitlist e upload" },
   { pattern: /^components\/common\/StandardCard\.tsx$/, rules: [STRUCTURAL_ALPHA_RULE], reason: "depois — variant muted usada so em docs e planos" },

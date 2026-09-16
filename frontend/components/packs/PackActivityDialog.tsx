@@ -12,6 +12,7 @@ import {
 
 import { AppDialog } from "@/components/common/AppDialog";
 import { Button } from "@/components/ui/button";
+import { InlineNotice } from "@/components/common/States";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { usePackActivity } from "@/lib/hooks/usePackActivity";
 import type { PackActionVerb, PackActivityEntry } from "@/lib/api/schemas";
@@ -242,11 +243,11 @@ export function PackActivityDialog({ pack, open, onOpenChange }: PackActivityDia
             Carregando histórico...
           </div>
         ) : isError ? (
-          <p className="rounded-md border border-border bg-background p-4 text-sm text-muted-foreground">
-            Não foi possível carregar o histórico{error instanceof Error ? `: ${error.message}` : ""}.
-          </p>
+          <InlineNotice tone="destructive" title="Não foi possível carregar o histórico">
+            {error instanceof Error ? error.message : "Tente abrir de novo em instantes."}
+          </InlineNotice>
         ) : entries.length === 0 ? (
-          <p className="rounded-md border border-border bg-background p-4 text-sm text-muted-foreground">
+          <p className="py-10 text-center text-sm text-muted-foreground">
             Nenhuma ação registrada neste pack ainda. Pausar um anúncio, mudar um orçamento
             ou atualizar os dados aparece aqui.
           </p>

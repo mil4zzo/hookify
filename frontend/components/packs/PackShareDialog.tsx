@@ -1,10 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { IconLoader2, IconMail, IconTrash, IconUsers } from "@tabler/icons-react";
+import { IconLoader2, IconTrash, IconUsers } from "@tabler/icons-react";
 
 import { AppDialog } from "@/components/common/AppDialog";
 import { Button } from "@/components/ui/button";
+import { InlineNotice } from "@/components/common/States";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { api } from "@/lib/api/endpoints";
@@ -177,14 +178,13 @@ export function PackShareDialog({ pack, open, onOpenChange }: PackShareDialogPro
           </p>
 
           {lookupResult === "not_found" && (
-            <p className="flex items-center gap-2 rounded-md border border-border bg-background p-3 text-xs text-muted-foreground">
-              <IconMail className="h-4 w-4 shrink-0" />
-              Nenhuma conta com este e-mail. A pessoa precisa criar uma conta no Hookify primeiro.
-            </p>
+            <InlineNotice tone="info" title="Nenhuma conta com este e-mail">
+              A pessoa precisa criar uma conta no Hookify primeiro.
+            </InlineNotice>
           )}
 
           {lookupResult && lookupResult !== "not_found" && (
-            <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border bg-background p-3">
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border p-3">
               <span className="text-sm font-medium text-foreground">{lookupResult.display_name || email.trim()}</span>
               <div className="flex items-center gap-2">
                 <Select value={inviteRole} onValueChange={(v) => setInviteRole(v as "editor" | "viewer")}>
@@ -214,9 +214,9 @@ export function PackShareDialog({ pack, open, onOpenChange }: PackShareDialogPro
           ) : shares.length === 0 ? (
             <p className="text-xs text-muted-foreground">Ninguém ainda — só você vê este pack.</p>
           ) : (
-            <div className="space-y-2">
+            <div className="divide-y divide-border rounded-md border border-border">
               {shares.map((share) => (
-                <div key={share.id} className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border bg-background p-3">
+                <div key={share.id} className="flex flex-wrap items-center justify-between gap-2 p-3">
                   <span className="truncate text-sm text-foreground">{share.display_name || share.grantee_id.slice(0, 8)}</span>
                   <div className="flex items-center gap-2">
                     <Select

@@ -39,7 +39,7 @@ export function SummaryStep({ stats, isImporting, onSyncAgain, onClose }: Summar
   return (
     // Fora do sucesso o card fica neutro e quem carrega a cor é o InlineNotice abaixo:
     // um card inteiro amarelo competiria com o próprio aviso que ele contém.
-    <div className={isSuccess ? "border border-success-30 bg-success-10 rounded-lg p-6" : "border border-border bg-card rounded-lg p-6"}>
+    <div className={isSuccess ? "border border-success-30 bg-success-10 rounded-lg p-6" : "border border-border rounded-lg p-6"}>
       <h3 className={isSuccess ? "font-semibold text-lg flex items-center gap-2 text-success mb-4" : "font-semibold text-lg flex items-center gap-2 text-warning mb-4"}>
         {isSuccess ? <IconCheck className="w-5 h-5" /> : <IconAlertTriangle className="w-5 h-5" />}
         {isSuccess
@@ -181,7 +181,7 @@ export function SummaryStep({ stats, isImporting, onSyncAgain, onClose }: Summar
 
         {/* 140: o que o sync fez com cada coluna vinculada */}
         {customColumns.length > 0 && (
-          <div className="rounded-md border border-border bg-background-80 p-3 space-y-1.5">
+          <div className="rounded-md border border-border bg-muted p-3 space-y-1.5">
             <div className="text-xs font-medium text-muted-foreground">Colunas adicionais</div>
             {customColumns.map(([id, report]) => (
               <div key={id} className="flex items-center justify-between gap-3 text-sm">
