@@ -18,6 +18,7 @@ import { useStatusFocusSync } from "@/lib/hooks/useStatusFocusSync";
 import { usePacksLoading } from "@/components/layout/PacksLoader";
 import { useAvailableConversionTypes } from "@/lib/hooks/useAvailableConversionTypes";
 import { mapRankingRow, resolveGroupKey, type ManagerTab } from "@/lib/utils/mapRankingRow";
+import { ANALYTICS_ALL_ROWS_LIMIT } from "@/lib/api/limits";
 import { buildCustomColumnDefs, collectPackMappings } from "@/lib/metrics/customColumns";
 import { setActiveCustomColumns } from "@/lib/metrics/customColumnsRegistry";
 
@@ -241,10 +242,9 @@ function ManagerPageContent() {
       action_type: actionType || undefined,
       // TODAS as linhas (161). Filtros, busca, somas do cabeçalho e seleção em massa
       // rodam no navegador: um corte aqui os faria enxergar só a fatia de maior gasto,
-      // em silêncio (o 10000 de antes cortava 26 mil linhas num caso real). 100 mil é o
-      // teto de segurança da função no banco, não um orçamento; se estourar, a
-      // FilterBar avisa pelo `pagination.total`.
-      limit: 100000,
+      // em silêncio. Se o teto de segurança estourar, a FilterBar avisa pelo
+      // `pagination.total`.
+      limit: ANALYTICS_ALL_ROWS_LIMIT,
       offset: 0,
       filters: {},
       pack_ids: Array.from(selectedPackIds),

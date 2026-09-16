@@ -4894,8 +4894,9 @@ packs: 21,8 s (estourava) → 11,7 s. Criativo e campanha: iguais ou melhores. D
 cenários, 344.605 linhas, zero divergências.
 
 **O que ficou de fora, e por quê.** Por anúncio com 38 packs e 120 dias (51 mil linhas) ainda
-leva 36–45 s: o que sobra é CPU para montar o JSON (~4 s por 26 mil linhas) e a leitura de
-`ads` quando o cache está frio. As alavancas restantes são outra classe de trabalho — mais
+leva 35–54 s: o que sobra é a leitura de `ads` (duas buscas por anúncio, ~16 s com cache
+frio) e da tabela diária (~9 s). (Correção de 16/09, à tarde: a primeira versão desta nota
+atribuía ~4 s a montar o JSON; o plano mostra ~0,5 s a cada 26 mil linhas.) As alavancas restantes são outra classe de trabalho — mais
 memória na instância, índice de cobertura para os nomes, ou agregado pré-calculado — e ficaram
 registradas no plano pós-157 para decisão.
 
@@ -4904,3 +4905,31 @@ JSON de linhas muito bem (objetos iguais compartilham forma); montar linhas a pa
 colunas campo a campo dobra a memória (50 MB contra 23 MB por 10 mil linhas). A cópia de um
 molde criado pelo `JSON.parse` empata com as linhas — e `new Function` (que também empata)
 viola a CSP de produção.
+
+**A memória também é limite — e ela, o laboratório mede bem (16/09, à tarde).** A máquina de
+produção tem ~950 MB de RAM e 1 GB de swap. Medido no laboratório, pelo pico de memória
+privada do processo: a v161 por anúncio com todas as linhas (44 mil, 55 MB de JSON) chega a
+**957 MB**; os 7 packs do Igor (17 MB de resposta), 447 MB. Montar a resposta custa ~11× o
+tamanho dela — cada camada (`json_agg`, blocos, lista, objeto final, CTE, variável do
+plpgsql, retorno) é uma cópia viva até o fim da consulta — e o `work_mem 32MB` da função soma
+~180 MB. A máquina de produção reiniciou inteira (banco e Auth às 12:11:20) no meio de uma
+medição de 38 packs por anúncio e despejou 5,3 GB em swap nas duas horas seguintes. Lição:
+resposta grande num banco pequeno é risco de estabilidade, não só de tempo — medir o pico no
+laboratório antes de soltar, e não repetir o caso pesado em produção para medir.
+
+**A saída (migration 162): devolver em pedaços, não montar o envelope.** A função passou a
+`RETURNS SETOF json` — uma linha de metadados e uma linha `{campo: [valores]}` por campo —
+e os leitores fundem os pedaços. `return query` manda cada linha para o armazenamento da
+função (que vai a disco), e o PostgREST, para SETOF, faz só `json_agg` (sem o `->0` que
+copiava e reanalisava a resposta inteira — conferido no código do PostgREST 14.5). Pico no
+pior caso: 957 → 400 MB; com o `work_mem` de 32 → 16 MB (o tempo de 16 e 32 empatou em
+produção; 8 MB ficou 60% mais lento). E ficou mais RÁPIDO: 7 packs do Igor em produção,
+10,8–25,8 s → 4,6 s — as cópias e o swap eram tempo também. Rejeitado: blocos menores
+dentro do mesmo objeto (cada `json_build_object` por cima continua sendo uma cópia) e
+subir a instância (decisão do idealizador: corrigir o desperdício primeiro).
+
+**Visibilidade das páginas (163).** O Manager lê por índice e só pula a tabela nas páginas
+marcadas como visíveis — e só o VACUUM marca. Com o padrão de 20%, `ad_metrics` estava 0%
+marcada. Depois do VACUUM, as idas à tabela na aba de 7 packs caíram de ~74 mil para 0; com
+cache quente o tempo não muda, o ganho é com cache frio. Autovacuum a 2% nas três tabelas
+para a marca não envelhecer.

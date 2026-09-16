@@ -13,6 +13,7 @@ import { useMqlLeadscore } from "@/lib/hooks/useMqlLeadscore";
 import { buildPackMembershipIndex, isAdInSelectedPacks } from "@/lib/utils/packMembership";
 import { showError } from "@/lib/utils/toast";
 import type { RankingsRequest } from "@/lib/api/schemas";
+import { ANALYTICS_ALL_ROWS_LIMIT } from "@/lib/api/limits";
 
 interface UseAdPerformancePipelineOptions {
   enabled?: boolean;
@@ -27,7 +28,9 @@ export function useAdPerformancePipeline(options: UseAdPerformancePipelineOption
   const {
     enabled: enabledOpt = true,
     groupBy = "ad_name",
-    limit = 1000,
+    // Todos os criativos (GOLD, Insights, Plano validam e ranqueiam no navegador; o
+    // 1000 de antes cortava em silêncio).
+    limit = ANALYTICS_ALL_ROWS_LIMIT,
     filterToSelectedPacks = true,
   } = options;
 

@@ -17,6 +17,11 @@ O que este arquivo trava (nenhum teste cobria esta rota de ponta a ponta antes):
   6. filhos de campanha leem linhas da v161, sem prefixo (como antes);
   7. o leitor de colunas falha alto em coluna desalinhada.
 
+162 (16/09, à tarde): a mesma resposta EM PEDAÇOS (lista de objetos, sem envelope),
+para o banco não montar um JSON gigante na memória. Aqui: a rota chama a v162 por
+padrão e volta à v161 pela configuração; os bytes em pedaços passam intactos; o
+leitor funde os pedaços em qualquer ordem e falha alto sem (ou com dois) metadados.
+
 SABOTAGENS (16/09): `Response(content=json.dumps(json.loads(raw)))` no ramo de
 colunas -> test_colunas_repassa_os_bytes falha; `thumb_prefix=None` na rota ->
 test_chamada_leva_o_prefixo falha; tirar a checagem de tamanho em
@@ -31,7 +36,7 @@ import app.main as main
 from app.core import config
 from app.core.auth import get_current_user
 from app.routes import analytics as A
-from app.services.manager_columns import ColumnarPayloadError, rows_from_columns
+from app.services.manager_columns import ColumnarPayloadError, as_row_payload, from_parts, rows_from_columns
 from app.services.thumbnail_cache import (
     DEFAULT_BUCKET,
     _quote_path,
@@ -46,6 +51,14 @@ RAW = (
     b' "pagination": {"limit": 100000, "offset": 0, "total": 2, "has_more": false},'
     b' "names": {"campaigns": {}, "adsets": {}}, "available_conversion_types": [],'
     b' "header_aggregates": {}}'
+)
+
+# A mesma resposta em pedaços (v162), com os pedaços fora de ordem.
+RAW_PARTS = (
+    b'[{"ad_name" : ["X", "Y"]}, {"row_count": 2, "averages": {"hook": 0.1},'
+    b' "pagination": {"limit": 100000, "offset": 0, "total": 2, "has_more": false},'
+    b' "names": {"campaigns": {}, "adsets": {}}, "available_conversion_types": [],'
+    b' "header_aggregates": {}}, {"group_key": ["a1", "a2"]}, {"spend": [10.50, 3]}]'
 )
 
 
@@ -120,7 +133,7 @@ def test_chamada_leva_o_prefixo(cliente, monkeypatch):
     sb = _com_sb(monkeypatch, _Sb(_ok()))
     cliente.post("/analytics/ad-performance", json=BODY)
     nome, params = sb.rpcs[0]
-    assert nome == "fetch_manager_rankings_v161"
+    assert nome == "fetch_manager_rankings_v162"
     assert params["p_thumb_public_prefix"] == public_storage_prefix(DEFAULT_BUCKET)
     assert params["p_limit"] == 100000
 
@@ -135,6 +148,45 @@ def test_linhas_para_o_javascript_antigo(cliente, monkeypatch):
         {"group_key": "a2", "spend": 3, "ad_name": "Y"},
     ]
     assert corpo["pagination"]["total"] == 2
+
+
+def test_configuracao_volta_para_a_v161(cliente, monkeypatch):
+    monkeypatch.setattr(config, "ANALYTICS_MANAGER_COLUMNS_RPC", "fetch_manager_rankings_v161")
+    sb = _com_sb(monkeypatch, _Sb(_ok()))
+    cliente.post("/analytics/ad-performance", json=BODY)
+    assert sb.rpcs[0][0] == "fetch_manager_rankings_v161"
+
+
+@pytest.mark.parametrize("valor,esperado", [
+    ("", "fetch_manager_rankings_v162"),
+    ("fetch_manager_rankings_v161", "fetch_manager_rankings_v161"),
+    ("drop_tudo", "fetch_manager_rankings_v162"),
+])
+def test_nome_da_funcao_so_aceita_a_lista(monkeypatch, valor, esperado):
+    import importlib
+    monkeypatch.setenv("ANALYTICS_MANAGER_COLUMNS_RPC", valor)
+    try:
+        assert importlib.reload(config).ANALYTICS_MANAGER_COLUMNS_RPC == esperado
+    finally:
+        monkeypatch.delenv("ANALYTICS_MANAGER_COLUMNS_RPC")
+        importlib.reload(config)
+
+
+def test_pedacos_passam_intactos(cliente, monkeypatch):
+    _com_sb(monkeypatch, _Sb(_ok(RAW_PARTS)))
+    r = cliente.post("/analytics/ad-performance", json=BODY)
+    assert r.content == RAW_PARTS
+
+
+def test_pedacos_viram_linhas_para_o_javascript_antigo(cliente, monkeypatch):
+    _com_sb(monkeypatch, _Sb(_ok(RAW_PARTS)))
+    corpo = cliente.post("/analytics/ad-performance", json=dict(BODY, format="rows")).json()
+    assert corpo["data"] == [
+        {"ad_name": "X", "group_key": "a1", "spend": 10.5},
+        {"ad_name": "Y", "group_key": "a2", "spend": 3},
+    ]
+    assert corpo["pagination"]["total"] == 2
+    assert "row_count" not in corpo
 
 
 def test_formato_padrao_e_linhas(cliente, monkeypatch):
@@ -184,7 +236,7 @@ def test_filhos_de_campanha_leem_linhas_sem_prefixo(cliente, monkeypatch):
                     params={"date_start": "2026-08-26", "date_stop": "2026-09-15"})
     assert r.status_code == 200
     nome, params = sb.rpcs[0]
-    assert nome == "fetch_manager_rankings_v161"
+    assert nome == "fetch_manager_rankings_v162"
     assert params["p_thumb_public_prefix"] is None
     assert params["p_group_by"] == "adset_id"
     assert [x["group_key"] for x in r.json()["data"]] == ["a1", "a2"]
@@ -197,6 +249,31 @@ def test_filhos_de_campanha_leem_linhas_sem_prefixo(cliente, monkeypatch):
 def test_colunas_viram_linhas_na_ordem():
     p = {"row_count": 3, "data_columns": [{"a": [1, 2, 3]}, {"b": ["x", None, "z"]}]}
     assert rows_from_columns(p) == [{"a": 1, "b": "x"}, {"a": 2, "b": None}, {"a": 3, "b": "z"}]
+
+
+def test_pedacos_em_qualquer_ordem():
+    meta = {"row_count": 2, "row_order": [2, 1], "names": {}}
+    a, b = {"a": [1, 2]}, {"b": ["x", "y"]}
+    esperado = [{"a": 2, "b": "y"}, {"a": 1, "b": "x"}]
+    assert as_row_payload([meta, a, b])["data"] == esperado
+    assert as_row_payload([b, meta, a])["data"] == esperado
+    assert as_row_payload([b, meta, a])["names"] == {}
+
+
+@pytest.mark.parametrize("partes", [
+    [{"a": [1]}],                                     # sem metadados
+    [{"row_count": 1}, {"row_count": 1}, {"a": [1]}],  # dois metadados
+    [{"row_count": 1}, [1]],                           # pedaço que não é objeto
+    [{"row_count": 1, "data_columns": []}, {"a": [1]}],
+])
+def test_pedacos_malformados_falham_alto(partes):
+    with pytest.raises(ColumnarPayloadError):
+        from_parts(partes)
+
+
+def test_pedaco_desalinhado_falha_alto():
+    with pytest.raises(ColumnarPayloadError):
+        as_row_payload([{"row_count": 2}, {"a": [1, 2]}, {"b": [1]}])
 
 
 def test_zero_linhas():
@@ -261,3 +338,13 @@ _FIXTURE = _Path(__file__).resolve().parents[2] / "frontend" / "lib" / "api" / "
 def test_paridade_com_o_fixture_compartilhado(caso):
     assert caso["linhas"], "fixture sem linhas não prova nada"
     assert rows_from_columns(caso["payload"]) == caso["linhas"]
+
+
+@pytest.mark.parametrize("caso", _json.loads(_FIXTURE.read_text(encoding="utf-8"))["casos"], ids=lambda c: c["nome"])
+def test_paridade_em_pedacos(caso):
+    # o mesmo fixture partido como a v162 entrega: metadados no meio, blocos invertidos
+    p = caso["payload"]
+    meta = {k: v for k, v in p.items() if k != "data_columns"}
+    partes = list(reversed(p["data_columns"]))
+    partes.insert(len(partes) // 2, meta)
+    assert as_row_payload(partes)["data"] == caso["linhas"]

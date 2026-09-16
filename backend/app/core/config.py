@@ -118,6 +118,16 @@ ANALYTICS_MANAGER_POSTGREST_TIMEOUT_SECONDS = max(
 # é a volta atrás da 161. Ligado por padrão.
 ANALYTICS_MANAGER_V161 = os.getenv("ANALYTICS_MANAGER_V161", "true").strip().lower() in ("true", "1", "yes")
 
+# Qual função em colunas o caminho acima chama. A 162 devolve a MESMA resposta em
+# pedaços (uma linha por campo) para não montar um JSON gigante dentro do banco: o
+# pico de memória caiu de ~960 para ~340 MB no pior caso medido. Os leitores aceitam
+# as duas formas, então `fetch_manager_rankings_v161` aqui é a volta atrás da 162
+# sem deploy. Nome fora da lista vira a 162 (não se chama função arbitrária por env).
+_MANAGER_COLUMNS_RPCS = ("fetch_manager_rankings_v161", "fetch_manager_rankings_v162")
+ANALYTICS_MANAGER_COLUMNS_RPC = os.getenv("ANALYTICS_MANAGER_COLUMNS_RPC", "").strip()
+if ANALYTICS_MANAGER_COLUMNS_RPC not in _MANAGER_COLUMNS_RPCS:
+    ANALYTICS_MANAGER_COLUMNS_RPC = "fetch_manager_rankings_v162"
+
 # Supabase Auth (Frontend JWT validation and RLS usage)
 SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY")
 SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")  # NUNCA expor no frontend

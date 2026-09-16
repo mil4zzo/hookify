@@ -308,12 +308,12 @@ export const api = {
     // Ver lib/api/managerColumns.ts.
     getRankings: async (params: RankingsRequest, options?: { signal?: AbortSignal }): Promise<RankingsResponse> =>
       asRowPayload(
-        await apiClient.post<RankingsResponse | ColumnarPayload>('/analytics/rankings', { ...params, format: 'columns' }, { signal: options?.signal }),
+        await apiClient.post<RankingsResponse | ColumnarPayload | unknown[]>('/analytics/rankings', { ...params, format: 'columns' }, { signal: options?.signal }),
       ) as RankingsResponse,
     // Alias semântico para evolução futura: mesma payload, rota nova
     getAdPerformance: async (params: RankingsRequest, options?: { signal?: AbortSignal }): Promise<RankingsResponse> =>
       asRowPayload(
-        await apiClient.post<RankingsResponse | ColumnarPayload>('/analytics/ad-performance', { ...params, format: 'columns' }, { signal: options?.signal }),
+        await apiClient.post<RankingsResponse | ColumnarPayload | unknown[]>('/analytics/ad-performance', { ...params, format: 'columns' }, { signal: options?.signal }),
       ) as RankingsResponse,
     getRankingsSeries: (params: RankingsSeriesRequest, options?: { signal?: AbortSignal }): Promise<RankingsSeriesResponse> =>
       apiClient.post('/analytics/rankings/series', params, { signal: options?.signal }),

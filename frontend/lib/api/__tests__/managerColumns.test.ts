@@ -8,7 +8,9 @@
  *    anúncio com o nome de outro, sem erro na tela);
  *  - a gravação em colunas no IndexedDB volta idêntica, e não empacota o que não
  *    voltaria idêntico (campo ausente, `undefined`);
- *  - entradas gravadas ANTES da 161 (em linhas) continuam sendo lidas.
+ *  - entradas gravadas ANTES da 161 (em linhas) continuam sendo lidas;
+ *  - (162) a resposta EM PEDAÇOS dá as mesmas linhas, em qualquer ordem de pedaços,
+ *    e falha alto sem (ou com dois) pedaços de metadados.
  *
  * SABOTAGENS (16/09): tirar a checagem `valores.length !== n` -> "coluna
  * desalinhada falha alto" falha; em columnsFromRows, tirar o `return null` de
@@ -23,6 +25,7 @@ import {
   ColumnarPayloadError,
   asRowPayload,
   columnsFromRows,
+  fromParts,
   rowsFromColumns,
   type ColumnarPayload,
 } from "../managerColumns";
@@ -40,6 +43,15 @@ for (const caso of fixture.casos) {
   test(`paridade com o leitor Python: ${caso.nome}`, () => {
     assert.ok(caso.linhas.length > 0, "fixture sem linhas não prova nada");
     assert.deepStrictEqual(rowsFromColumns(caso.payload), caso.linhas);
+  });
+
+  test(`paridade em pedaços (162): ${caso.nome}`, () => {
+    const { data_columns, ...meta } = caso.payload;
+    const partes: unknown[] = [...data_columns].reverse();
+    partes.splice(Math.floor(partes.length / 2), 0, meta);
+    const out = asRowPayload(partes) as Record<string, unknown>;
+    assert.deepStrictEqual(out.data, caso.linhas);
+    assert.ok(!("row_count" in out) && !("data_columns" in out));
   });
 
   test(`ida e volta pela gravação: ${caso.nome}`, () => {
@@ -95,6 +107,26 @@ test("asRowPayload: converte colunas e tira os campos do formato", () => {
 test("asRowPayload: resposta que já vem em linhas passa intacta", () => {
   const vazia = { data: [], available_conversion_types: [] };
   assert.equal(asRowPayload(vazia), vazia);
+});
+
+test("pedaços em qualquer ordem dão as mesmas linhas", () => {
+  const meta = { row_count: 2, row_order: [2, 1], names: {} };
+  const a = { a: [1, 2] };
+  const b = { b: ["x", "y"] };
+  const esperado = [{ a: 2, b: "y" }, { a: 1, b: "x" }];
+  assert.deepStrictEqual((asRowPayload([meta, a, b]) as Record<string, unknown>).data, esperado);
+  assert.deepStrictEqual((asRowPayload([b, meta, a]) as Record<string, unknown>).data, esperado);
+});
+
+test("pedaços malformados falham alto", () => {
+  const casos: unknown[][] = [
+    [{ a: [1] }],
+    [{ row_count: 1 }, { row_count: 1 }, { a: [1] }],
+    [{ row_count: 1 }, [1]],
+    [{ row_count: 1, data_columns: [] }, { a: [1] }],
+  ];
+  for (const partes of casos) assert.throws(() => fromParts(partes), ColumnarPayloadError);
+  assert.throws(() => asRowPayload([{ row_count: 2 }, { a: [1, 2] }, { b: [1] }]), ColumnarPayloadError);
 });
 
 test("row_order: as linhas saem na posição indicada", () => {

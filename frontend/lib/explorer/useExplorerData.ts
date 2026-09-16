@@ -10,6 +10,7 @@ import { useSharedAdNameDetail } from "@/lib/ads/sharedAdDetail";
 import { computeWeightedAveragesFromAdPerformance } from "@/lib/utils/weightedAverages";
 import { buildExplorerDetailViewModel, buildExplorerListItemViewModel, compareExplorerAdsByMetric, getExplorerGroupKey, getExplorerMetricAverage } from "./viewModels";
 import type { ExplorerMetricAverages, ExplorerSortState } from "./types";
+import { ANALYTICS_ALL_ROWS_LIMIT } from "@/lib/api/limits";
 
 export type ExplorerDataStatus =
   | { kind: "loading" }
@@ -40,7 +41,9 @@ export function useExplorerData(sortState: ExplorerSortState) {
       date_stop: effectiveDateRange.end || "",
       group_by: "ad_name",
       action_type: actionType || undefined,
-      limit: 1000,
+      // Todos os criativos: a lista e a ordenação rodam no navegador (o 1000 de antes
+      // cortava em silêncio quem tem mais criativos que isso).
+      limit: ANALYTICS_ALL_ROWS_LIMIT,
       offset: 0,
       filters: {},
       pack_ids: Array.from(selectedPackIds),

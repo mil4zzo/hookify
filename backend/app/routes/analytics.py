@@ -523,9 +523,6 @@ def _get_rankings_core_v2_rpc(req: RankingsRequest, user: Dict[str, Any], sb) ->
     return _normalize_rankings_rpc_response(rpc_result.data)
 
 
-RANKINGS_V161_RPC = "fetch_manager_rankings_v161"
-
-
 def _get_rankings_v161_raw(
     req: RankingsRequest,
     user: Dict[str, Any],
@@ -577,7 +574,7 @@ def _get_rankings_v161_raw(
     # desconexão DEPOIS de ganhar a vez e ANTES de disparar a consulta.
     with db_slot("rankings_v161_rpc"):
         abort_if_client_gone("rankings:rpc_principal")
-        rb = sb.rpc(RANKINGS_V161_RPC, params)
+        rb = sb.rpc(_config.ANALYTICS_MANAGER_COLUMNS_RPC, params)
         r = rb.session.request(rb.http_method, rb.path, json=rb.json, params=rb.params, headers=rb.headers)
     if not r.is_success:
         try:
@@ -1033,15 +1030,15 @@ def _get_rankings_v161_response(
 
     if req.format == "columns":
         logger.info(
-            "[rankings] rpc_success v161 format=columns elapsed_ms=%.2f group_by=%s range=%s..%s packs=%s bytes=%s is_probe=%s",
-            rpc_ms, req.group_by, req.date_start, req.date_stop, len(req.pack_ids or []), len(raw), is_probe,
+            "[rankings] rpc_success %s format=columns elapsed_ms=%.2f group_by=%s range=%s..%s packs=%s bytes=%s is_probe=%s",
+            _config.ANALYTICS_MANAGER_COLUMNS_RPC, rpc_ms, req.group_by, req.date_start, req.date_stop, len(req.pack_ids or []), len(raw), is_probe,
         )
         return Response(content=raw, media_type="application/json")
 
     primary = _normalize_rankings_rpc_response(as_row_payload(json.loads(raw)))
     logger.info(
-        "[rankings] rpc_success v161 format=rows elapsed_ms=%.2f total_ms=%.2f group_by=%s range=%s..%s packs=%s rows=%s bytes=%s is_probe=%s",
-        rpc_ms, (time.perf_counter() - started_at) * 1000.0, req.group_by, req.date_start, req.date_stop,
+        "[rankings] rpc_success %s format=rows elapsed_ms=%.2f total_ms=%.2f group_by=%s range=%s..%s packs=%s rows=%s bytes=%s is_probe=%s",
+        _config.ANALYTICS_MANAGER_COLUMNS_RPC, rpc_ms, (time.perf_counter() - started_at) * 1000.0, req.group_by, req.date_start, req.date_stop,
         len(req.pack_ids or []), len(primary.get("data") or []), len(raw), is_probe,
     )
     return JSONResponse(content=primary)

@@ -20,6 +20,12 @@
  * qualquer — ordenar as linhas largas lá custava 75–80 MB em disco por requisição
  * (medido, 16/09) — e este leitor as põe na ordem. Sem `row_order`, a ordem das
  * listas já é a final (é o que a gravação no IndexedDB produz).
+ *
+ * EM PEDAÇOS (162): a mesma resposta chega como `[ {row_count, row_order, names, ...},
+ * {campo: valores[]}, ... ]`, sem o envelope. Montá-lo dentro do banco custava ~11x o
+ * tamanho da resposta em memória (957 MB de pico medidos com 55 MB de resposta, numa
+ * máquina de ~950 MB). O pedaço de metadados é o que tem `row_count`; a ordem dos
+ * pedaços não importa. `fromParts` devolve o formato acima.
  */
 
 export interface ColumnarPayload {
@@ -30,6 +36,27 @@ export interface ColumnarPayload {
 }
 
 export class ColumnarPayloadError extends Error {}
+
+/** Resposta em pedaços (v162) → formato com `data_columns`. Falha alto se malformada. */
+export function fromParts(parts: unknown[]): ColumnarPayload {
+  const metas = parts.filter(
+    (p): p is Record<string, unknown> => typeof p === 'object' && p !== null && !Array.isArray(p) && 'row_count' in p,
+  )
+  if (metas.length !== 1) {
+    throw new ColumnarPayloadError(`esperado 1 pedaço de metadados, vieram ${metas.length}`)
+  }
+  const meta = metas[0]
+  if ('data_columns' in meta) throw new ColumnarPayloadError('pedaço de metadados com data_columns')
+  const blocos: Array<Record<string, unknown[] | null>> = []
+  for (const p of parts) {
+    if (p === meta) continue
+    if (typeof p !== 'object' || p === null || Array.isArray(p)) {
+      throw new ColumnarPayloadError('pedaço da resposta não é objeto')
+    }
+    blocos.push(p as Record<string, unknown[] | null>)
+  }
+  return { ...meta, data_columns: blocos } as ColumnarPayload
+}
 
 export function isColumnarPayload(value: unknown): value is ColumnarPayload {
   return (
@@ -109,9 +136,11 @@ export function rowsFromColumns(payload: ColumnarPayload): Array<Record<string, 
 
 /**
  * A resposta no formato que o resto do app sempre usou (`data` = linhas). Aceita os
- * dois formatos: a resposta sem packs e a de uma rota antiga já vêm em linhas.
+ * três formatos: em pedaços (162), em colunas (161) e em linhas (a resposta sem packs
+ * e a de uma rota antiga).
  */
-export function asRowPayload<T extends Record<string, unknown>>(payload: T | ColumnarPayload): T {
+export function asRowPayload<T extends Record<string, unknown>>(input: T | ColumnarPayload | unknown[]): T {
+  const payload = Array.isArray(input) ? fromParts(input) : input
   if (!isColumnarPayload(payload)) return payload as T
   const { data_columns: _cols, row_count: _n, row_order: _ord, ...topo } = payload
   void _cols

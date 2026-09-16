@@ -204,8 +204,48 @@ que a aba com 7 packs funciona, "não tão rápido"):
   mantendo banco < cliente): destrava a tela à custa de espera longa e de prender memória e
   conexão numa instância pequena. É remendo, não solução.
 
-**A descobrir no mesmo tema:** Explorer e Insights pedem `limit: 1000` — o Igor tem ~3,4 mil
-criativos; o mesmo corte silencioso pode existir lá (decidir se é proposital).
+**Medição dos itens acima (16/09, à tarde) — nada aplicado ainda:**
+- **Memória (achado novo, mais grave que o tempo).** No laboratório, pico de memória do
+  processo: 957 MB (por anúncio, todas as linhas, 55 MB de resposta); 447 MB (7 packs, 17 MB).
+  Montar a resposta custa ~11× o tamanho dela; `work_mem 32MB` soma ~180 MB. Produção tem
+  ~950 MB + 1 GB de swap, reiniciou inteira às 12:11 durante uma medição de 38 packs e
+  despejou 5,3 GB em swap nas 2 h seguintes.
+- **JSON mais barato**, sobre a resposta real dos 38 packs (60,6 MB crus, 4,74 MB na rede):
+  tirar `adcreatives_videos_thumbs` (URL da Meta, que a tela ignora de propósito) e
+  `thumb_storage_path` (já embutido em `thumbnail` quando há prefixo) + razões em `float8`
+  (mesmo número no navegador) → 46,2 MB crus, **3,19 MB na rede (−33%)**. Com 6 algarismos
+  significativos nas razões: 2,57 MB (−46%), mas muda o 7º dígito. Montar o JSON em si custa
+  ~0,5 s a cada 26 mil linhas (não ~4 s, como estava escrito).
+- **Embrulho do PostgREST**: `json_agg(resultado)->0` copia e reanalisa a resposta — 0,3–1,9 s
+  a mais nos 57 MB.
+- **Índices / VACUUM**: estimados pelo plano (38 packs, cache frio): as duas buscas em `ads`
+  por anúncio somam ~16 s de ~50 s (com 22 mil idas à tabela no índice de status); a tabela
+  diária, ~9 s (46 mil idas à tabela por falta de marca de visível: 67%). `ads` já está 82%
+  visível; `ad_metrics` e `ad_metric_pack_map` (0%) não são lidas pela v161.
+
+**Aplicado (16/09, à tarde) — decisão do idealizador: 1a + 3 + memória primeiro; sem
+aumentar a instância.**
+- **Migration 162 (Manager em pedaços):** a mesma resposta da 161 como `SETOF json` (uma
+  linha de metadados + uma por campo), sem o envelope montado no banco; `cols` lida uma
+  vez; item 1a (sem `adcreatives_videos_thumbs`, `thumb_storage_path` só sem prefixo,
+  razões em float8); `work_mem` 32 → 16 MB. Laboratório, pior caso (44 mil linhas): pico
+  **957 → 400 MB**, resposta 55 → 39 MB. Produção, 7 packs: **10,8–25,8 s → 4,6–4,7 s**
+  (8 MB dava 7,3 s; 32 MB, o mesmo que 16). Leitores (Python e navegador) aceitam as duas
+  formas; `ANALYTICS_MANAGER_COLUMNS_RPC=fetch_manager_rankings_v161` volta atrás sem
+  deploy.
+- **Item 3:** `VACUUM (ANALYZE)` em `ad_performance_daily`, `ads` e `ad_metrics` (67%, 82%
+  e 0% visíveis → 100%): idas à tabela na aba de 7 packs ~74 mil → 0. Tempo com cache
+  quente igual; o ganho é com cache frio. **Migration 163**: autovacuum a 2% nessas três
+  tabelas, para a marca não envelhecer.
+- **Item 2 (índices): adiado** — reavaliar com a memória já corrigida.
+- **Explorer, Insights, GOLD e Plano sem o corte de 1.000** (constante única
+  `ANALYTICS_ALL_ROWS_LIMIT` em `frontend/lib/api/limits.ts`).
+- **Ainda fora:** por anúncio com 38 packs e 120 dias continua acima dos 20 s (35–54 s na
+  v161; a 162 não foi medida nesse caso em produção de propósito — era o caso que
+  derrubou a máquina). Próximas alavancas: resposta em partes, agregado pré-calculado.
+
+**A descobrir no mesmo tema:** Explorer e Insights pediam `limit: 1000` — o Igor tem ~3,4 mil
+criativos. Decisão do idealizador (16/09): **não é proposital; nenhuma tela corta nada.**
 
 **Correção deste plano:** a primeira versão desta seção atribuía ~10 s ao invólucro
 `core_v2`. Errado para as abas de anúncio e criativo — nelas ele devolve a base sem tocar.

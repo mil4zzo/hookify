@@ -1,5 +1,5 @@
 """
-Leitor do formato em COLUNAS da `fetch_manager_rankings_v161` (migration 161).
+Leitor do formato em COLUNAS das `fetch_manager_rankings_v161/v162` (migrations 161 e 162).
 
 POR QUE COLUNAS
 ---------------
@@ -26,6 +26,19 @@ banco numa ordem qualquer — ordenar as linhas largas lá custava 75–80 MB em
 por requisição (medido, 16/09) — e o leitor as põe na ordem aqui. Sem `row_order`,
 a ordem das listas já é a final (é o que a gravação no navegador produz).
 
+EM PEDAÇOS (162)
+----------------
+A v162 entrega a MESMA resposta como uma lista de objetos, sem o envelope:
+
+    [ {"row_count": N, "row_order": [...], "names": ..., ...}, {"group_key": [...]},
+      {"spend": [...]}, ... ]
+
+Montar o envelope dentro do banco custava ~11x o tamanho da resposta em memória
+(medido em 16/09: 957 MB de pico com 55 MB de resposta, numa máquina de ~950 MB);
+em pedaços, cada um vai para o disco assim que fica pronto. O pedaço de metadados é o
+que tem `row_count`; os demais são blocos de colunas. A ordem dos pedaços não importa.
+`from_parts` devolve o formato de cima, e o resto do leitor não muda.
+
 O leitor do navegador (`frontend/lib/api/managerColumns.ts`) faz exatamente isto;
 os dois são conferidos contra o mesmo fixture.
 """
@@ -38,6 +51,25 @@ class ColumnarPayloadError(ValueError):
     """A resposta em colunas veio malformada — melhor falhar alto do que mostrar
     linhas trocadas (um campo deslocado casaria o gasto de um anúncio com o nome
     de outro, sem erro nenhum)."""
+
+
+def from_parts(parts: List[Any]) -> Dict[str, Any]:
+    """Resposta em pedaços (v162) -> o formato com `data_columns` (v161)."""
+    metas = [p for p in parts if isinstance(p, dict) and "row_count" in p]
+    if len(metas) != 1:
+        raise ColumnarPayloadError(f"esperado 1 pedaço de metadados, vieram {len(metas)}")
+    blocos = []
+    for p in parts:
+        if p is metas[0]:
+            continue
+        if not isinstance(p, dict):
+            raise ColumnarPayloadError("pedaço da resposta não é objeto")
+        blocos.append(p)
+    out = dict(metas[0])
+    if "data_columns" in out:
+        raise ColumnarPayloadError("pedaço de metadados com data_columns")
+    out["data_columns"] = blocos
+    return out
 
 
 def rows_from_columns(payload: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -74,12 +106,15 @@ def rows_from_columns(payload: Dict[str, Any]) -> List[Dict[str, Any]]:
     return [{nome: valores[i] for nome, valores in campos} for i in indices]
 
 
-def as_row_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
-    """A resposta em colunas no formato ANTIGO (`data` = lista de linhas).
+def as_row_payload(payload: Any) -> Dict[str, Any]:
+    """A resposta em colunas (inteira ou em pedaços) no formato ANTIGO (`data` =
+    lista de linhas).
 
     Para consumidores internos do backend que leem linhas (filhos de campanha) e
-    para o diferencial da 161.
+    para os diferenciais da 161/162.
     """
+    if isinstance(payload, list):
+        payload = from_parts(payload)
     if "data_columns" not in payload:
         return payload
     out = {k: v for k, v in payload.items() if k not in ("data_columns", "row_count", "row_order")}

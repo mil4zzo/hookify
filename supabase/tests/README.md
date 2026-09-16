@@ -172,3 +172,35 @@ Duas armadilhas desta rodada:
    detalhe do novo.
 2. **Um script de sabotagem que falha antes de gravar deixa o arquivo da sabotagem
    ANTERIOR no lugar** — e o psql aplica aquele. Apague o arquivo antes de gerar.
+
+## Migration 162 — Manager em pedaços (memória)
+
+```bash
+# mesmo cenário sintético da 161, sobre os pedaços, + forma da 162 e equivalência à v161
+psql -d hookify_lab -X -v ON_ERROR_STOP=1 -f supabase/tests/162_manager_em_pedacos.test.sql
+
+# diferencial v161 x v162 (linhas montadas pelo leitor), com e sem prefixo de miniatura
+PSQL="C:/Program Files/PostgreSQL/17/bin/psql.exe" py backend/scripts/diff_manager_v162.py --jobs 3
+```
+
+Resultado em 16/09: **1.182 execuções (591 cenários × com/sem prefixo), 689.210 linhas,
+zero divergências**; respostas somadas 955 → 730 MB.
+
+**Memória se mede no laboratório** (o disco não interfere): pico de memória privada do
+processo do banco — `pg_backend_pid()` num arquivo e, no fim, `Get-Process -Id <pid>` →
+`PeakPagedMemorySize64` (controle: uma varredura com resposta pequena fica em ~5 MB).
+Para ver ONDE está a memória: `pg_log_backend_memory_contexts(pid)` de outra sessão durante
+a consulta e ler o log do laboratório (`C:/Program Files/PostgreSQL/17/data/log`).
+
+Sabotagens provadas (16/09):
+- razão de volta a `numeric`: o teste SQL acusa (C9); o diferencial NÃO, e está certo —
+  o número lido pelo navegador é o mesmo; o que muda são os bytes;
+- sem `row_order` nos metadados, campo extra na saída, `thumb_storage_path` com prefixo,
+  `ctr` trocado por `website_ctr`: teste SQL e diferencial acusam (o caminho com prefixo
+  faz o leitor falhar alto: lista nula com linhas);
+- nos leitores (Python e TypeScript): aceitar dois pedaços de metadados derruba
+  "pedaços malformados falham alto".
+
+Armadilha: uma verificação "razão sem as 20 casas do numeric" por quantidade de casas
+decimais dá falso positivo — float8 pequeno (0,00012…) tem 20+ casas. A assinatura
+inequívoca do numeric é zero no fim depois do ponto, que o float8 nunca imprime.
