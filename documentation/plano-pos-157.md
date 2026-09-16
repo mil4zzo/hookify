@@ -100,9 +100,36 @@ idempotentes) e registrar a decisão no código.
 
 ---
 
-## Bloco 3 — Resposta das variações mais leve
+## Bloco 3 — Resposta das variações mais leve ✅ FEITO (15/09)
 
-**Por quê (medido em 15/09, ADNV89 com 630 anúncios).** A resposta tem 1.636 KB crus, 130 KB
+Migration `160_serie_de_dias_sob_demanda.sql` (v158) em produção, backend usando
+`fetch_entity_performance_v158`, gzip no nível 6, frontend tirando a série do
+`useAdDetails`. 807 testes no backend, teste SQL novo com 3 sabotagens, diferencial da
+157 rodado contra a v158 (515 telas idênticas).
+
+**Medido na função real, em produção** (ADNV89, 630 anúncios, 13 dias, rodadas quentes):
+
+| | antes | depois |
+|---|---|---|
+| saindo do banco | 1.396 KB (796 dias) | **909 KB** (0 dias) |
+| tempo da função | ~301 ms | **~229 ms** |
+| na rede (gzip) | ~130 KB (nível 9) | **67 KB** (nível 6) |
+| CPU de compressão | ~60 ms | **8 ms** |
+
+**Três coisas que o plano original errava:**
+- `series_days=0` **não** desligava a série na v157: caía no ramo do NULL e pedia o
+  PERÍODO INTEIRO. Daí a v158 — três significados (NULL = tudo, 0 = nada, N > 0 = N).
+- "a série é usada ao clicar numa variação (1 de 630)" estava errado: dentro do modal a
+  tabela é renderizada **sem `onRowClick`**. Quem usa é o modal aberto pela tabela
+  expandida do Manager, na aba de vídeo — onde `useAdDetails` já é buscado.
+- O ganho é **35%**, não 44%. A estimativa de 44% veio de medir com `series_days=1`
+  quando o período termina hoje: a janela vira `[date_stop, date_stop]`, não há linha do
+  dia corrente e a saída tem ZERO dia. Conferir contagem de dias, não só bytes.
+
+**Falta:** conferir na tela que os mini-gráficos continuam aparecendo ao abrir uma
+variação (aba de vídeo do modal) — a série agora chega pelo `useAdDetails`.
+
+**Por quê (contexto original, medido em 15/09, ADNV89 com 630 anúncios).** A resposta tem 1.636 KB crus, 130 KB
 na rede. **Metade é a mini-série de 5 dias por anúncio, que a tabela de variações não
 desenha** — ela só é usada ao clicar numa variação (1 de 630). E comprimir no nível 9 custa
 60 ms por resposta; no nível 6 custa 8 ms e o arquivo fica 12% maior.
@@ -242,5 +269,5 @@ API nova, não pela antiga.
   rodam SÓ lá (`supabase/tests/README.md`).
 - **Deploy:** `ssh root@77.37.126.210`, `cd /var/www/hookify/deploy && ./deploy.sh` disparado com
   `setsid nohup`; esperar pela trava (`flock /tmp/hookify_deploy.lock true`), nunca por `pgrep`.
-- **Ordem sugerida:** 3 → 4 → 5 (1 e 2 já feitos). Os blocos 3, 4 e 6 são independentes; o 5 espera
+- **Ordem sugerida:** 4 → 5 (1, 2 e 3 já feitos). Os blocos 4 e 6 são independentes; o 5 espera
   a feature de editar data do pack.
