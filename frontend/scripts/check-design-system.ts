@@ -88,6 +88,14 @@ const REGEX_RULES: RegexRule[] = [
     pattern: /(?<![\w-])(?:bg|text|border(?:-[trblxy])?|ring-offset|ring|from|via|to|outline|fill|stroke|divide|shadow|decoration|placeholder|caret)-(?:accent-foreground|attention-foreground|card-foreground|destructive-foreground|info-foreground|input-foreground|muted-foreground|popover-foreground|primary-foreground|ring-foreground|success-foreground|warning-foreground|accent|attention|background|border|destructive|foreground|info|input|muted|primary|ring|success|warning|card|popover|surface(?:-[23])?)\/\d{1,3}(?![\w-])/,
   },
   {
+    id: "tailwind-v4-syntax",
+    description:
+      "Sintaxe do Tailwind 4 — o projeto esta no 3.4 e a classe nao gera CSS. aria-invalid: -> aria-[invalid=true]:, has-focus: -> has-[:focus]:, **: -> [&_seletor]:, rounded-xs/outline-hidden/bg-linear-* nao existem. Acontece ao colar componente do registro atual do shadcn, que ja emite v4.",
+    // shadow-xs fica com a regra raw-shadow, que ja o pega.
+    pattern:
+      /(?:^|[\s"'`:])(?:\*\*:|aria-invalid:|has-(?:focus|focus-visible|focus-within|checked|disabled|hover|active|invalid|visited):)|(?<![\w-])(?:rounded-xs|outline-hidden|field-sizing-(?:content|fixed)|bg-linear-to-[a-z]+)(?![\w-])/,
+  },
+  {
     id: "raw-shadow",
     description: "Use shadow-elevation-flat/raised/overlay instead of raw Tailwind shadows.",
     pattern: /\bshadow-(?:xs|sm|md|lg|xl|2xl)\b/,

@@ -239,12 +239,12 @@ export const SparklineBars = React.memo(function SparklineBars({
           return (
             <div
               key={i}
-              className={`rounded-xs flex-1 relative ${staggeredFadeIn ? "sparkline-fade-in-bar" : "transition-opacity duration-150"}`}
+              className={`flex-1 relative ${staggeredFadeIn ? "sparkline-fade-in-bar" : "transition-opacity duration-150"}`}
               style={{ height: `${bar.heightPct}%`, ...(staggeredFadeIn ? {} : { opacity: dimmed ? 0.25 : 1 }), ...getRevealStyle(i) }}
               title={interactive ? undefined : bar.titleText}
               onMouseEnter={interactive ? (e) => handleBarMouseEnter(i, e) : undefined}
             >
-              <div className={`w-full h-full rounded-xs ${bar.gradientClass} ${bar.borderClass} border-t-2`} />
+              <div className={`w-full h-full ${bar.gradientClass} ${bar.borderClass} border-t-2`} />
             </div>
           );
         })}
@@ -276,10 +276,10 @@ export const SparklineBars = React.memo(function SparklineBars({
             <Tooltip key={i}>
               <TooltipTrigger asChild>
                 <div
-                  className={`rounded-xs flex-1 relative cursor-pointer ${staggeredFadeIn ? "sparkline-fade-in-bar" : "transition-opacity duration-150"}`}
+                  className={`flex-1 relative cursor-pointer ${staggeredFadeIn ? "sparkline-fade-in-bar" : "transition-opacity duration-150"}`}
                   style={{ height: `${bar.heightPct}%`, ...(staggeredFadeIn ? {} : { opacity: hoveredIndex != null && i !== hoveredIndex ? 0.25 : 1 }), ...getRevealStyle(i) }}
                 >
-                  <div className={`w-full h-full rounded-xs ${bar.gradientClass} ${bar.borderClass} border-t-2`} />
+                  <div className={`w-full h-full ${bar.gradientClass} ${bar.borderClass} border-t-2`} />
                 </div>
               </TooltipTrigger>
               <TooltipContent side="top" className="text-xs">

@@ -29,8 +29,8 @@ function Calendar({
         // Tamanho de célula responsivo: 44px em mobile (mínimo para toque), 40px em tablet, 32px em desktop
         "[--cell-size:2.75rem] sm:[--cell-size:2.5rem] md:[--cell-size:2.5rem]",
         "[[data-slot=card-content]_&]:bg-transparent [[data-slot=popover-content]_&]:bg-transparent",
-        String.raw`rtl:**:[.rdp-button\_next>svg]:rotate-180`,
-        String.raw`rtl:**:[.rdp-button\_previous>svg]:rotate-180`,
+        String.raw`rtl:[&_.rdp-button\_next>svg]:rotate-180`,
+        String.raw`rtl:[&_.rdp-button\_previous>svg]:rotate-180`,
         className
       )}
       captionLayout={captionLayout}
@@ -47,7 +47,7 @@ function Calendar({
         button_next: cn(buttonVariants({ variant: buttonVariant }), "h-[--cell-size] w-[--cell-size] min-h-[2.75rem] min-w-[2.75rem] sm:min-h-[2.5rem] sm:min-w-[2.5rem] md:min-h-0 md:min-w-0", "select-none p-0 rounded-md transition-colors", "hover:bg-accent hover:text-accent-foreground", "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2", "aria-disabled:opacity-40 aria-disabled:cursor-not-allowed", defaultClassNames.button_next),
         month_caption: cn("flex h-[--cell-size] w-full items-center justify-center px-[--cell-size]", "min-h-[2.75rem] sm:min-h-[2.5rem] md:min-h-0", defaultClassNames.month_caption),
         dropdowns: cn("flex h-[--cell-size] w-full items-center justify-center gap-1.5 sm:gap-2", "min-h-[2.75rem] sm:min-h-[2.5rem] md:min-h-0", "text-sm sm:text-base font-medium", defaultClassNames.dropdowns),
-        dropdown_root: cn("has-focus:border-ring border-input shadow-elevation-raised", "has-focus:ring-ring-50 has-focus:ring-[3px]", "relative rounded-md border transition-all", defaultClassNames.dropdown_root),
+        dropdown_root: cn("has-[:focus]:border-ring border-input shadow-elevation-raised", "has-[:focus]:ring-ring-50 has-[:focus]:ring-[3px]", "relative rounded-md border transition-all", defaultClassNames.dropdown_root),
         dropdown: cn("bg-popover absolute inset-0 opacity-0", defaultClassNames.dropdown),
         caption_label: cn("select-none font-semibold text-foreground", captionLayout === "label" ? "text-sm sm:text-base md:text-lg" : "[&>svg]:text-muted-foreground flex h-8 sm:h-9 items-center gap-1.5 rounded-md pl-2 pr-1.5 text-sm sm:text-base [&>svg]:size-3.5 sm:[&>svg]:size-4", defaultClassNames.caption_label),
         table: "w-full border-collapse",

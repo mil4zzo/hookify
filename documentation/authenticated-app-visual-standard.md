@@ -332,6 +332,23 @@ Todo token novo em `tailwind.config.ts` precisa tambem do registro no
 boxShadow/zIndex/fontSize em `classGroups`), senao overrides via `cn()`
 quebram silenciosamente para ele.
 
+### Tailwind 3.4, nao 4
+
+O projeto roda Tailwind **3.4**. O registro atual do shadcn ja emite sintaxe da v4,
+e colar um componente de la produz classes que **nao geram CSS** — sem erro:
+
+| v4 (morta aqui) | v3.4 |
+|---|---|
+| `aria-invalid:` | `aria-[invalid=true]:` |
+| `has-focus:` | `has-[:focus]:` |
+| `**:[seletor]:` | `[&_seletor]:` |
+| `rounded-xs`, `shadow-xs` | nao existem (use `rounded-sm`, `shadow-elevation-raised`) |
+| `outline-hidden`, `bg-linear-to-*` | `outline-none`, `bg-gradient-to-*` |
+
+Regra `tailwind-v4-syntax`. Na duvida sobre uma classe, compile:
+`npx tailwindcss -c tailwind.config.ts -i in.css --content arquivo.html -o out.css`
+e procure o seletor no `out.css`.
+
 ### Enforcement
 
 - `npm run check:design-system` roda automaticamente no pre-commit (husky,
