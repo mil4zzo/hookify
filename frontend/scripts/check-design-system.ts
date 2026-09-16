@@ -96,6 +96,15 @@ const REGEX_RULES: RegexRule[] = [
       /(?:^|[\s"'`:])(?:\*\*:|aria-invalid:|has-(?:focus|focus-visible|focus-within|checked|disabled|hover|active|invalid|visited):)|(?<![\w-])(?:rounded-xs|outline-hidden|field-sizing-(?:content|fixed)|bg-linear-to-[a-z]+)(?![\w-])/,
   },
   {
+    id: "removed-theme-token",
+    description:
+      "Token removido na consolidacao (F1): text-text -> text-foreground, *-brand -> *-primary, bg-secondary -> bg-card, text-secondary-foreground -> text-card-foreground. A classe nao existe mais e nao gera CSS.",
+    // As variants chamadas \"secondary\" (Button, Badge) continuam validas: a regra so
+    // casa com prefixo de utilitario de cor (bg-, text-...), nunca com variant=\"secondary\".
+    pattern:
+      /(?<![\w-])(?:bg|text|border(?:-[trblxy])?|ring|ring-offset|from|via|to|outline|fill|stroke|divide|decoration|placeholder|caret)-(?:text|brand|secondary)(?:-(?:foreground|hover|label|\d{1,3}))?(?![\w-])/,
+  },
+  {
     id: "raw-shadow",
     description: "Use shadow-elevation-flat/raised/overlay instead of raw Tailwind shadows.",
     pattern: /\bshadow-(?:xs|sm|md|lg|xl|2xl)\b/,

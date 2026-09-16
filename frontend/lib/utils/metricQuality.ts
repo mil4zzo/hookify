@@ -27,7 +27,7 @@ const sparklineBorderMap: Record<MetricQualityTone, string> = {
   attention: "border-t-attention",
   success: "border-t-success",
   primary: "border-t-primary",
-  brand: "border-t-brand",
+  brand: "border-t-primary",
   muted: "border-t-muted",
   accent: "border-t-ring",
   "muted-foreground": "border-t-muted-foreground",
