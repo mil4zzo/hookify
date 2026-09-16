@@ -559,7 +559,6 @@ export default function Topbar() {
             readOnly
             disabled
             value={isMixedCurrency ? "Múltiplas moedas" : detectedCurrency || userCurrency}
-            className="bg-border-50"
           />
           <p className="text-xs text-muted-foreground">
             {isMixedCurrency
@@ -591,7 +590,6 @@ export default function Topbar() {
               }
             }}
             disabled={isLoadingNiche || isSavingNiche}
-            className={isLoadingNiche || isSavingNiche ? "bg-border-50" : ""}
           />
           <p className="text-xs text-muted-foreground">{isSavingNiche ? "Salvando..." : "Digite o nicho do seu negócio (ex: E-commerce, SaaS, etc.)"}</p>
         </div>

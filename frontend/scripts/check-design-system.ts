@@ -141,18 +141,28 @@ const RULE_ALLOWLIST: RuleAllowlistEntry[] = [
   { pattern: /^components\/share\//, rules: ["emoji-icon"], reason: "public share viewer (/s) uses deliberate playful emoji in expiry states" },
   { pattern: /^components\/waitlist\/(?:WaitlistV2|CanvasRevealEffect)\.tsx$/, rules: [...COLOR_RULES, DIRECT_PRIMITIVE_RULE], reason: "cinematic public waitlist v2 keeps a raw black/white/accent palette" },
 
-  // ── Backlog da escada de superficie (fase F3 do plano de tokens) ──────────
-  // 54 usos em 30 arquivos herdados de antes do contrato de superficie. Cada tela
-  // migrada REMOVE a sua entrada daqui — a allowlist e o rastreador da divida, e
-  // "fase pronta" e a allowlist encolher com o checker verde.
-  { pattern: /^components\/upload\//, rules: [STRUCTURAL_ALPHA_RULE], reason: "legacy surface tints — F3 upload phase" },
-  { pattern: /^components\/plano\//, rules: [STRUCTURAL_ALPHA_RULE], reason: "legacy surface tints — F3 plano phase" },
-  { pattern: /^components\/(?:ads|gold|insights|share|packs)\//, rules: [STRUCTURAL_ALPHA_RULE], reason: "legacy surface tints — F3 analytics phase" },
-  { pattern: /^components\/common\/(?:AdPlayArea|MetricDeltaBadge|MultiSelectChipsField|StandardCard)\.tsx$/, rules: [STRUCTURAL_ALPHA_RULE], reason: "legacy surface tints — F3 common phase" },
-  { pattern: /^components\/layout\/Topbar\.tsx$/, rules: [STRUCTURAL_ALPHA_RULE], reason: "legacy surface tints — F3 common phase" },
-  { pattern: /^components\/ui\/(?:accordion|table)\.tsx$/, rules: [STRUCTURAL_ALPHA_RULE], reason: "legacy surface tints — F3 primitives phase" },
-  { pattern: /^app\/(?:docs|packs|upload)\//, rules: [STRUCTURAL_ALPHA_RULE], reason: "legacy surface tints — F3 pages phase" },
-  { pattern: /^lib\/utils\/gemsColorSchemes\.ts$/, rules: [STRUCTURAL_ALPHA_RULE], reason: "legacy surface tints — F3 recipes phase" },
+  // ── Backlog da escada de superficie ─────────────────────────────────────────
+  // Organizado pelo uso real do produto (decidido em 2026-09-16). Cada tela migrada
+  // REMOVE a sua entrada — a allowlist e o rastreador da divida, e "fase pronta" e a
+  // allowlist encolher com o checker verde.
+  //
+  // F3 — em uso hoje (onboarding, packs, manager e modais):
+  { pattern: /^components\/(?:ads|packs)\//, rules: [STRUCTURAL_ALPHA_RULE], reason: "F3 — modais de criativo, planilha e transcricao" },
+  { pattern: /^app\/packs\//, rules: [STRUCTURAL_ALPHA_RULE], reason: "F3 — tela de packs" },
+  // Depois — consumidores so em telas fora de uso agora (docs, waitlist, planos, upload):
+  { pattern: /^components\/ui\/accordion\.tsx$/, rules: [STRUCTURAL_ALPHA_RULE], reason: "depois — usado so em docs, waitlist e upload" },
+  { pattern: /^components\/common\/StandardCard\.tsx$/, rules: [STRUCTURAL_ALPHA_RULE], reason: "depois — variant muted usada so em docs e planos" },
+  { pattern: /^app\/docs\//, rules: [STRUCTURAL_ALPHA_RULE], reason: "depois — pagina de docs" },
+  { pattern: /^components\/insights\//, rules: [STRUCTURAL_ALPHA_RULE], reason: "depois — insights sera redesenhada" },
+  // Reativacao — upload volta depois das otimizacoes:
+  { pattern: /^(?:components|app)\/upload\//, rules: [STRUCTURAL_ALPHA_RULE], reason: "reativacao — upload" },
+  // Legado — gold e plano aguardam decisao (apagar ou migrar). NAO repintar:
+  { pattern: /^components\/(?:plano|gold)\//, rules: [STRUCTURAL_ALPHA_RULE], reason: "legado — gold/plano, decisao pendente" },
+  { pattern: /^components\/common\/MetricDeltaBadge\.tsx$/, rules: [STRUCTURAL_ALPHA_RULE], reason: "legado — usado so pelo plano" },
+  { pattern: /^lib\/utils\/gemsColorSchemes\.ts$/, rules: [STRUCTURAL_ALPHA_RULE], reason: "legado/depois — gold e insights" },
+  // Outros:
+  { pattern: /^components\/common\/MultiSelectChipsField\.tsx$/, rules: [STRUCTURAL_ALPHA_RULE], reason: "orfao desde 0a158f7 (filtros viraram o RuleBuilder) — candidato a remocao" },
+  { pattern: /^components\/share\//, rules: [STRUCTURAL_ALPHA_RULE], reason: "viewer publico — barra sobre midia, revisar com o compartilhamento" },
 
   // Exceções pontuais de skeleton agora vivem inline nos arquivos ("design-system-exception: direct-skeleton-import - ..."),
   // para não isentar o arquivo inteiro da regra. Só diretórios/superfícies inteiras permanecem aqui.
