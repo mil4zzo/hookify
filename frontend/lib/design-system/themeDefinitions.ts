@@ -86,11 +86,15 @@ export const THEME_VAR_NAMES: readonly string[] = [
 ] as const;
 
 const semanticScaleTokens: ThemeVars = {
-  "neutral-950": "oklch(0.209 0.000 89.9)",
-  "neutral-800": "oklch(0.348 0.000 89.9)",
-  "neutral-600": "oklch(0.524 0.000 89.9)",
-  "neutral-400": "oklch(0.715 0.000 89.9)",
-  "surface-fill": "oklch(0.967 0.003 264.5)",
+  // Neutros com leve inclinacao fria (croma 0,007 no matiz 265, o do azul da marca).
+  // Decidido em 2026-09-16 comparando neutro, frio e quente lado a lado: da identidade
+  // sem tingir a leitura de verde, vermelho e miniaturas (desvio de dE 0,7 do cinza
+  // puro). Antes, so o surface-fill tinha essa inclinacao — agora a rampa e coerente.
+  "neutral-950": "oklch(0.209 0.007 265.0)",
+  "neutral-800": "oklch(0.348 0.007 265.0)",
+  "neutral-600": "oklch(0.524 0.007 265.0)",
+  "neutral-400": "oklch(0.715 0.007 265.0)",
+  "surface-fill": "oklch(0.967 0.0035 265.0)",
   "primary-950": "oklch(0.210 0.080 265.9)",
   "primary-800": "oklch(0.411 0.171 264.9)",
   "primary-600": "oklch(0.561 0.244 265.2)",
