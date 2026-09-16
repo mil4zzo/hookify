@@ -26,6 +26,31 @@ interface ShareRow {
   created_at: string;
 }
 
+/**
+ * Avatar de iniciais + nome + detalhe. Uma lista de pessoas só com o nome lia chapada;
+ * o círculo e a segunda linha dão o ritmo que o olho usa para percorrer a lista.
+ * Neutro de propósito: um círculo de cor sólida por membro pesaria mais que o conteúdo.
+ */
+function MemberIdentity({ name, fallback, since }: { name: string | null; fallback: string; since?: string }) {
+  const label = name?.trim() || fallback;
+  const words = label.split(/\s+/).filter(Boolean);
+  const initials = (words.length > 1 ? `${words[0][0]}${words[words.length - 1][0]}` : label.slice(0, 2)).toUpperCase();
+  const sinceDate = since ? new Date(since) : null;
+  const sinceLabel = sinceDate && !Number.isNaN(sinceDate.getTime()) ? sinceDate.toLocaleDateString("pt-BR") : null;
+
+  return (
+    <div className="flex min-w-0 items-center gap-3">
+      <span aria-hidden className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-surface-3 text-xs font-semibold text-foreground">
+        {initials}
+      </span>
+      <div className="min-w-0">
+        <div className="truncate text-sm font-medium text-foreground">{label}</div>
+        {sinceLabel && <div className="text-2xs text-muted-foreground">Acesso desde {sinceLabel}</div>}
+      </div>
+    </div>
+  );
+}
+
 const ROLE_LABEL: Record<"editor" | "viewer", string> = {
   editor: "Editor",
   viewer: "Leitura",
@@ -184,8 +209,8 @@ export function PackShareDialog({ pack, open, onOpenChange }: PackShareDialogPro
           )}
 
           {lookupResult && lookupResult !== "not_found" && (
-            <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border p-3">
-              <span className="text-sm font-medium text-foreground">{lookupResult.display_name || email.trim()}</span>
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border bg-surface-2 p-3">
+              <MemberIdentity name={lookupResult.display_name} fallback={email.trim()} />
               <div className="flex items-center gap-2">
                 <Select value={inviteRole} onValueChange={(v) => setInviteRole(v as "editor" | "viewer")}>
                   <SelectTrigger size="sm" className="w-28">
@@ -214,10 +239,10 @@ export function PackShareDialog({ pack, open, onOpenChange }: PackShareDialogPro
           ) : shares.length === 0 ? (
             <p className="text-xs text-muted-foreground">Ninguém ainda — só você vê este pack.</p>
           ) : (
-            <div className="divide-y divide-border rounded-md border border-border">
+            <div className="divide-y divide-border rounded-md border border-border bg-surface-2">
               {shares.map((share) => (
                 <div key={share.id} className="flex flex-wrap items-center justify-between gap-2 p-3">
-                  <span className="truncate text-sm text-foreground">{share.display_name || share.grantee_id.slice(0, 8)}</span>
+                  <MemberIdentity name={share.display_name} fallback={share.grantee_id.slice(0, 8)} since={share.created_at} />
                   <div className="flex items-center gap-2">
                     <Select
                       value={share.role}

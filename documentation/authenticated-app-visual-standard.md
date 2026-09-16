@@ -238,6 +238,13 @@ escurece. Nunca o contrario, e nunca dependendo do tema.
 
 `bg-popover` e alias historico de `bg-card`; em codigo novo, use `bg-card`.
 
+**Poco ou grupo? Pergunte se a pessoa le ou age.** Onde se LE — lista rolavel,
+historico, previa de dados, resumo do que vai acontecer — e poco (`bg-muted`, mais
+fundo que o cartao). Onde se AGE — opcoes de escolha, membros com papel, ajustes com
+toggle, condicoes — e grupo elevado (`bg-surface-2`, mais alto que o cartao). Sem
+fundo proprio, um conjunto de acoes dentro de dialogo se dissolve e parece
+desabilitado.
+
 **A regra que isso substitui:** superficie estrutural em repouso NAO pode vir da
 escala alpha (`bg-card-20`, `bg-input-30`, `bg-muted-50`...). A escala gera
 `color-mix(in oklab, var(--token) N%, var(--background))` — mistura com o fundo da
@@ -271,8 +278,10 @@ poco (`bg-muted`).
 buraco mais fundo possivel; no claro vira uma caixa MAIS CLARA que o cartao. Poco e
 `bg-muted`.
 
-**Lista de itens com acoes** (membros, conexoes): um contorno so, com as linhas
-divididas por filete (`divide-y divide-border`) — nao uma caixa por item.
+**Lista de itens com acoes** (membros, conexoes): um grupo elevado so
+(`bg-surface-2` + contorno), com as linhas divididas por filete (`divide-y
+divide-border`) — nao uma caixa por item. Lista de pessoas leva identidade
+(iniciais + nome + detalhe), senao le chapada.
 
 **Nem tudo e cartao.** Borda, preenchimento, raio e sombra dizem "objeto separado".
 Gaste por papel: um bloco que ja esta dentro de um cartao raramente precisa da propria
@@ -321,7 +330,8 @@ cita uma parada inexistente vira `background-image: none`.
 - **Foco**: anel via `focus-visible:ring-ring` — nunca so mudanca de cor de fundo.
 - **Item selecionado** (linha de lista ou tabela): `bg-primary-10` + `border-primary-30`.
 - **Opcao escolhida** (cartao de escolha, estilo radio): `bg-primary-10` + `border-primary`
-  solido. A nao escolhida e so contorno, sem fundo proprio, com `hover:bg-accent`.
+  solido. A nao escolhida e grupo elevado: `bg-surface-2` + contorno + `hover:bg-accent`.
+  Sem fundo ela parece desabilitada; desabilitada de verdade e sem fundo + `opacity-50`.
 - **Desabilitado**: `disabled:opacity-50` das primitivas; nao rebaixar cor a mao.
 
 ### Elevacao

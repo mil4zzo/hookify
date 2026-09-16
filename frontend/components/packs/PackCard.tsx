@@ -544,7 +544,7 @@ export function PackCard({ pack, adAccountName, formatCurrency, formatDate, onRe
 
               {/* Footer: Toggles com ícone e timestamp integrados. Um grupo só, com as linhas
                   divididas por filete — duas caixas empilhadas eram duas molduras onde cabe uma. */}
-              <div className="flex flex-col divide-y divide-border rounded-md border border-border bg-muted">
+              <div className="flex flex-col divide-y divide-border rounded-md border border-border bg-surface-2">
                 {/* Manter atualizado */}
                 <div className="relative z-20" onClick={(e) => e.stopPropagation()} onPointerDown={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()}>
                   <div className="flex items-center px-3 py-2 gap-2 w-full justify-between">
