@@ -157,6 +157,80 @@ desenha** — ela só é usada ao clicar numa variação (1 de 630). E comprimir
 
 ---
 
+## Bloco 7 — Aba "Por anúncio" com TODAS as linhas (aberto em 16/09) 🔨
+
+**O incidente.** A aba "Por anúncio" do Igor (7 packs, 26/08–15/09, purchase) deu 500 duas vezes:
+`57014` aos 20 s. Medido sem limite: **39–44 s** — falharia também com os 30 s de antes da 159.
+A 159 escolheu 20 s olhando o nível de criativo (1,2 s) e não mediu o nível `ad_id` com o maior
+usuário. Não houve rollback do teto: não resolveria nada.
+
+**O corte silencioso de 10 mil.** O `limit: 10000` do Manager (e do Boards) nasceu em 03/03/2026
+como "remover o limite de 1.000" — ninguém escolheu 10 mil como teto. A função do banco repete o
+teto (`least(p_limit, 10000)`). O Igor tem **26.015** linhas nesses 7 packs (55 mil com os 38).
+Com o corte:
+- médias de taxa (hook, CTR, CPM, CPR) vêm do servidor sobre TUDO → certas;
+- **somas do cabeçalho (Spend, Results, MQLs, CPMQL…) são calculadas no navegador sobre as
+  linhas carregadas → erradas**;
+- filtros, busca, "Exibindo X de Y" e seleção em massa só enxergam as 10 mil (há um aviso
+  discreto "N no total" na FilterBar, e só ele).
+
+**Decisão (idealizador, 16/09): carregar TUDO**, com teto de segurança alto (100 mil) e o aviso
+de truncamento como rede. Não paginar: filtros por regra, busca, ordenação, somas e seleção
+rodam no navegador (paginar = portar o motor de regras para SQL), e paginar por offset refaz a
+agregação inteira a cada página ([[manager_rpc_cost_model]]). O "sob demanda" já existe onde
+importa: a tabela é virtualizada, séries só das linhas visíveis (até 100), miniaturas só ao
+aparecer. 12 MB de download no pior caso real (38 packs) aceito.
+
+**Onde vai o tempo hoje — as três camadas** (Igor, 26 mil linhas; medições de 16/09)
+
+| camada | o quê | custo |
+|---|---|---|
+| banco | ler os anúncios IRMÃOS por anúncio (353 por vez) só para o tipo de mídia | ~9 s — **N²** |
+| banco | invólucro `core_v2` relendo o JSON inteiro para status/orçamento | ~10 s |
+| banco | nomes de campanha/conjunto buscados linha a linha em `ad_metrics` | ~7,5 s |
+| banco | a agregação de verdade | ~3 s |
+| backend | `jsonable_encoder` do FastAPI reescrevendo JSON que já é JSON | **1–3 s por 10 mil linhas** |
+| backend | decodificar + `json.dumps` + gzip | ~0,8 s por 10 mil |
+| navegador | ler o JSON (Chrome) | ~52 ms por 10 mil — ok |
+| navegador | **persister grava cada resposta como TEXTO JSON no IndexedDB**, sem teto de tamanho | 16 MB por 10 mil linhas |
+
+**Formato de colunas — medido com as 10 mil linhas reais**
+
+| formato | cru | rede (gzip 6) | Python: ler | navegador: ler + montar linhas | memória no navegador |
+|---|---|---|---|---|---|
+| linhas (hoje) | 15,9 MB | 1,98 MB | 162 ms | 52 ms | 23 MB |
+| lista de listas | 8,9 MB | 1,66 MB | 91 ms | 67 ms | 56 MB |
+| **uma lista por campo** | **8,9 MB** | **1,08 MB** | 67 ms | 77 ms | 33 MB |
+
+"Uma lista por campo" ganha na rede (−45%) porque valores parecidos ficam juntos; no navegador
+não ajuda (o Chrome já lê linhas muito bem: objetos iguais compartilham forma), custa +25 ms por
+10 mil. Ou seja: **colunas para trafegar e para gravar; linhas para usar.**
+
+**Desenho**
+- **A. Banco** — base nova (v161) sem o N² (mídia/transcrição/tags uma vez por NOME, hash join;
+  nomes de campanha/conjunto sem ida linha a linha), o trabalho do `core_v2` dobrado para dentro
+  sem reler JSON, teto 100 mil, saída já no formato de colunas, com `status_resolved` e a URL de
+  miniatura do Storage montadas em SQL. A v155/core_v2 ficam para rollback. Diferencial linha a
+  linha contra a saída atual (convertida), em produção, vários usuários e as 4 abas. Medir em
+  26 mil e **55 mil** (o pior caso real; lição da 157: teste de tamanho onde a versão ruim já é
+  ruim).
+- **B. Backend** — a rota **repassa os bytes** do PostgREST, sem decodificar nem reencodar
+  (some o `jsonable_encoder`). Continua pelo cliente com slot (`db_slot`). Opt-in por campo do
+  request (`format: "columns"`) enquanto houver consumidor antigo.
+- **C. Frontend** — um adaptador só em `api.analytics.getAdPerformance` (colunas → linhas):
+  Manager, Boards, Explorer e Insights passam por ali. O CACHE continua em linhas (há
+  `setQueryData` otimista de status que edita linhas); o **persister** grava em colunas
+  (serializa linhas → colunas na escrita e desfaz na leitura). Tirar o `limit: 10000` do
+  Manager e do Boards.
+- **D. Medir ponta a ponta** em 26 mil e 55 mil: banco, backend, bytes, leitura no navegador,
+  gravação no IndexedDB; conferência visual (inclui a pendência do Bloco 3: mini-gráficos ao
+  abrir uma variação).
+
+**Pronto quando:** a aba do Igor abre com os 38 packs, soma do cabeçalho igual à do servidor,
+diferencial zerado, e o tempo total medido e registrado.
+
+---
+
 ## Bloco 4 — `detect_pack_conflicts`: a afinação barata
 
 **Por quê (medido em 15/09).** Depois do F5 a função caiu para 0,5–0,8 s nos 38 packs do Igor
@@ -269,5 +343,5 @@ API nova, não pela antiga.
   rodam SÓ lá (`supabase/tests/README.md`).
 - **Deploy:** `ssh root@77.37.126.210`, `cd /var/www/hookify/deploy && ./deploy.sh` disparado com
   `setsid nohup`; esperar pela trava (`flock /tmp/hookify_deploy.lock true`), nunca por `pgrep`.
-- **Ordem sugerida:** 4 → 5 (1, 2 e 3 já feitos). Os blocos 4 e 6 são independentes; o 5 espera
+- **Ordem sugerida:** 7 (urgente: aba quebrada) → 4 → 5 (1, 2 e 3 já feitos). Os blocos 4 e 6 são independentes; o 5 espera
   a feature de editar data do pack.
