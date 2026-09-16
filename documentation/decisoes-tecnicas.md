@@ -4949,3 +4949,49 @@ campanha chamava a mesma função pelo cliente comum (25 s) — com o banco em 4
 consulta órfã. Todo caminho que chama a função do Manager usa `_get_analytics_supabase`
 (teste que falha se não usar).
 
+---
+
+## Quatro jeitos de uma classe não gerar CSS — e o botão primário que renderizava chapado (2026-09-16)
+
+**O contexto.** Refatoração do design system (branch `feat/design-system-tokens`,
+fases F0–F2). Ao medir o uso real dos tokens para decidir o que cortar, apareceram
+classes e valores que o Tailwind 3.4 descarta **sem erro nenhum** — o estilo
+simplesmente não aparece. Nenhum dos casos era visível no código.
+
+| Tipo | Exemplo | Casos | O que a tela mostrava |
+|---|---|---|---|
+| `var()` indefinida | `var(--primary-900)` no gradiente | 2 | Botão primário e de sucesso **chapados** (o gradiente inteiro caía) |
+| Barra em cor do tema | `bg-destructive/5` | 31 | Avisos sem borda/fundo, degradê de rolagem ausente, corpo de toda InlineNotice sem o esmaecimento |
+| Sintaxe do Tailwind 4 | `aria-invalid:`, `has-focus:` | 5 | Anel vermelho de botão inválido e foco do calendário inexistentes |
+| Classe que nunca existiu | `text-text-muted`, `var(--brand)` | 5 | Texto secundário em contraste cheio; sparkline sem traço |
+
+**Por que cada um some calado.**
+- `var()` sem fallback apontando para variável inexistente torna a declaração
+  inválida *inteira* no tempo de valor computado — não só aquela parada de cor.
+  A escala de tom do tema tem 950/800/600/400/300; nunca teve 900.
+- A barra de opacidade só funciona em cor definida com `<alpha-value>`. As cores do
+  tema são `var(--x)` puro, então o compilador desiste da classe.
+- O projeto roda Tailwind 3.4 e o registro atual do shadcn já emite sintaxe da v4.
+- Classe de família que não existe no config simplesmente não casa com nada.
+
+**Como foi provado.** Nada disso foi assumido de memória: cada caso foi compilado
+com o CLI do Tailwind contra o `tailwind.config.ts` real, e o gradiente foi
+renderizado num Chrome headless (`getComputedStyle` devolveu `background-image: none`
+em produção). Um detector compila o CSS do app e confere cada uma das ~510 classes
+de token escritas no código: zero mortas depois das correções.
+
+**A escala alpha: 15 passos viraram 9, por medição.** A auditoria tinha proposto
+cortar para 3 degraus. Medido em OKLab, 5 pontos de passo valem dE 1,2–3,8 (limiar
+de percepção) e 10 pontos valem dE 3–7 (visível). Três degraus apagariam diferenças
+que a tela mostra — o `-20`, com 87 usos, é distinguível do `-10` e do `-30`. Ficou
+uma rampa regular: 10, 20 … 90. Os passos removidos (5, 45, 75, 82, 88, 95) migraram
+para a década vizinha sem nenhuma troca acima de dE 3,8.
+
+**Efeito de segunda ordem.** A classe morta escondia o elemento também de outras
+regras do checker: com a sintaxe corrigida, `inline-notice-pattern` passou a ver um
+aviso montado à mão no Upload. Virou `InlineNotice`.
+
+**O que ficou para não voltar.** Regras novas no checker: `alpha-step-out-of-scale`,
+`semantic-color-slash-opacity`, `tailwind-v4-syntax` (todas sabotadas de propósito
+antes do commit). Doc do padrão visual ganhou as seções "Escala alpha" e
+"Tailwind 3.4, não 4", com o comando para compilar uma classe em dúvida.
