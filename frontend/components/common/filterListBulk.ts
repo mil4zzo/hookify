@@ -35,23 +35,6 @@ export function deselectVisible<T extends string>(selected: Set<T>, visibleIds: 
 }
 
 /**
- * Versão para seleção ORDENADA (array), onde a ordem é a de escolha e aparece na tela —
- * ex: os chips do `MultiSelectChipsField`. Os novos entram no fim, na ordem da lista visível.
- */
-export function selectVisibleOrdered<T extends string>(selected: readonly T[], visibleIds: readonly T[]): T[] {
-  const current = new Set(selected);
-  const added = visibleIds.filter((id) => !current.has(id));
-  return added.length === 0 ? (selected as T[]) : [...selected, ...added];
-}
-
-/** Remove os visíveis preservando a ordem dos que ficam. */
-export function deselectVisibleOrdered<T extends string>(selected: readonly T[], visibleIds: readonly T[]): T[] {
-  const visible = new Set(visibleIds);
-  const next = selected.filter((id) => !visible.has(id));
-  return next.length === selected.length ? (selected as T[]) : next;
-}
-
-/**
  * Variante para listas com EXCLUSÃO MÚTUA entre opções — hoje, os packs em conflito
  * cross-silo (mesmo anúncio em contas de donos diferentes; ver `usePackConflicts`).
  *

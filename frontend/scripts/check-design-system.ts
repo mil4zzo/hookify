@@ -161,7 +161,6 @@ const RULE_ALLOWLIST: RuleAllowlistEntry[] = [
   { pattern: /^components\/common\/MetricDeltaBadge\.tsx$/, rules: [STRUCTURAL_ALPHA_RULE], reason: "legado — usado so pelo plano" },
   { pattern: /^lib\/utils\/gemsColorSchemes\.ts$/, rules: [STRUCTURAL_ALPHA_RULE], reason: "legado/depois — gold e insights" },
   // Outros:
-  { pattern: /^components\/common\/MultiSelectChipsField\.tsx$/, rules: [STRUCTURAL_ALPHA_RULE], reason: "orfao desde 0a158f7 (filtros viraram o RuleBuilder) — candidato a remocao" },
   { pattern: /^components\/share\//, rules: [STRUCTURAL_ALPHA_RULE], reason: "viewer publico — barra sobre midia, revisar com o compartilhamento" },
 
   // Exceções pontuais de skeleton agora vivem inline nos arquivos ("design-system-exception: direct-skeleton-import - ..."),

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { deselectVisible, deselectVisibleOrdered, selectVisible, selectVisibleOrdered, selectVisibleRespectingConflicts } from "../filterListBulk";
+import { deselectVisible, selectVisible, selectVisibleRespectingConflicts } from "../filterListBulk";
 
 // O caso reportado: 37 packs, busca "EI.31" deixa 7 na tela, nenhum marcado ainda.
 const TODOS = ["a1", "a2", "b1", "b2", "b3"] as const;
@@ -39,13 +39,6 @@ test("lista vazia (busca sem resultado) não mexe na seleção", () => {
   const selecao = new Set(["a1", "b1"]);
   assert.equal(selectVisible(selecao, []), selecao);
   assert.equal(deselectVisible(selecao, []), selecao);
-});
-
-test("versão ordenada: novos entram no fim, ordem de escolha preservada", () => {
-  assert.deepEqual(selectVisibleOrdered(["b3", "a1"], ["b1", "b2", "b3"]), ["b3", "a1", "b1", "b2"]);
-  assert.deepEqual(deselectVisibleOrdered(["b3", "a1", "b1"], ["b1", "b2", "b3"]), ["a1"]);
-  const semNovidade = ["b1", "b2"];
-  assert.equal(selectVisibleOrdered(semNovidade, ["b1"]), semNovidade);
 });
 
 // ── Conflito cross-silo (packs) ─────────────────────────────────────────────
