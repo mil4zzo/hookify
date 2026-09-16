@@ -797,7 +797,7 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
                     disabled={isImageAd}
                     headerAction={isImageAd ? undefined : (
                       <TooltipProvider>
-                        <div className="flex rounded-lg border border-input bg-background" role="group" aria-label="Modo de visualização da retenção">
+                        <div className="flex rounded-lg border border-border bg-muted" role="group" aria-label="Modo de visualização da retenção">
                           <Tooltip>
                             <TooltipTrigger asChild>
                               <Button variant={retentionViewMode === "chart" ? "secondary" : "ghost"} size="sm" onClick={() => setRetentionViewMode("chart")} className="h-8 px-2.5 rounded-md" aria-label="Visualização do gráfico de retenção" aria-pressed={retentionViewMode === "chart"}>
@@ -861,7 +861,7 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
                     <div className="flex items-center gap-2">
                       {transcriptionData?.timestamped_text && resolvedRetentionSeries.length > 0 && (
                         <TooltipProvider>
-                          <div className="flex rounded-lg border border-input bg-background" role="group" aria-label="Modo de visualização da transcrição">
+                          <div className="flex rounded-lg border border-border bg-muted" role="group" aria-label="Modo de visualização da transcrição">
                             <Tooltip>
                               <TooltipTrigger asChild>
                                 <Button variant={transcriptionViewMode === "plain" ? "secondary" : "ghost"} size="sm" onClick={() => setTranscriptionViewMode("plain")} className="h-8 px-2.5 rounded-md" aria-label="Texto simples" aria-pressed={transcriptionViewMode === "plain"}>

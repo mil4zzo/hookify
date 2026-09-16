@@ -146,8 +146,7 @@ const RULE_ALLOWLIST: RuleAllowlistEntry[] = [
   // REMOVE a sua entrada — a allowlist e o rastreador da divida, e "fase pronta" e a
   // allowlist encolher com o checker verde.
   //
-  // F3 — em uso hoje (onboarding, packs, manager e modais):
-  { pattern: /^components\/ads\/SurveyPanel\.tsx$/, rules: [STRUCTURAL_ALPHA_RULE], reason: "F3 — detalhe do criativo (vez do Manager)" },
+  // F3 — telas em uso: nada pendente (packs e manager concluidos em 2026-09-16).
   // Depois — consumidores so em telas fora de uso agora (docs, waitlist, planos, upload):
   { pattern: /^components\/ui\/accordion\.tsx$/, rules: [STRUCTURAL_ALPHA_RULE], reason: "depois — usado so em docs, waitlist e upload" },
   { pattern: /^components\/common\/StandardCard\.tsx$/, rules: [STRUCTURAL_ALPHA_RULE], reason: "depois — variant muted usada so em docs e planos" },

@@ -324,9 +324,15 @@ cita uma parada inexistente vira `background-image: none`.
 
 ### Estado (hover, foco, selecao)
 
-- **Abas**: trilho rebaixado (`TabsList`, `bg-muted`), aba ativa em `primary` solido.
+- **Abas e controles segmentados**: trilho rebaixado (`bg-muted` + `border-border`);
+  a opcao ativa se destaca (aba em `primary` solido, segmento em `secondary`).
 
-- **Hover** de superficie interativa: `hover:bg-accent`. Nao invente mistura propria.
+- **Hover de linha de tabela de dados**: `hover:bg-muted` — sutil, porque muda a cada
+  linha que o mouse cruza. Linhas herdam o fundo do painel onde estao (sem `bg-*`
+  proprio).
+- **Hover de objeto clicavel, item de menu e lista de opcoes**: `hover:bg-accent`.
+  Botao DENTRO de uma linha usa `accent`, para nao se confundir com o hover da linha.
+  Nao invente mistura propria.
 - **Foco**: anel via `focus-visible:ring-ring` — nunca so mudanca de cor de fundo.
 - **Item selecionado** (linha de lista ou tabela): `bg-primary-10` + `border-primary-30`.
 - **Opcao escolhida** (cartao de escolha, estilo radio): `bg-primary-10` + `border-primary`

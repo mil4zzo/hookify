@@ -1117,7 +1117,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
           {/* Exibição: agrupa toggles de exibição e exportação (ações esporádicas) */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" className="py-2 px-3 border border-input bg-background rounded-lg gap-2" aria-label="Opções de exibição">
+              <Button variant="outline" className="gap-2" aria-label="Opções de exibição">
                 <IconAdjustmentsHorizontal className="h-4 w-4" />
                 <span className="hidden text-sm sm:inline">Exibição</span>
                 <IconChevronDown className="h-4 w-4 opacity-60" />
@@ -1173,7 +1173,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
           <TooltipProvider>
             <Tooltip>
               <TooltipTrigger asChild>
-                <Button variant="ghost" onClick={() => setIsFullscreen((prev) => !prev)} className="py-2 px-3 border border-input bg-background rounded-lg" aria-label={isFullscreen ? "Sair da tela cheia" : "Tela cheia"} aria-pressed={isFullscreen}>
+                <Button variant="outline" size="icon" onClick={() => setIsFullscreen((prev) => !prev)} aria-label={isFullscreen ? "Sair da tela cheia" : "Tela cheia"} aria-pressed={isFullscreen}>
                   {isFullscreen ? <IconMinimize className="h-4 w-4" /> : <IconMaximize className="h-4 w-4" />}
                 </Button>
               </TooltipTrigger>

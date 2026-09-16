@@ -34,7 +34,7 @@ const VARIANT_STYLES = {
     sortGap: "gap-1",
     resizeHandle: "w-1.5",
     skeletonRow: "bg-background",
-    row: (isResizing: boolean) => `bg-background transition-colors ${isResizing ? "cursor-col-resize" : "hover:bg-input-30 cursor-pointer"}`,
+    row: (isResizing: boolean) => `bg-background transition-colors ${isResizing ? "cursor-col-resize" : "hover:bg-muted cursor-pointer"}`,
     cell: (cellAlign: string, isFirst: boolean, isLast: boolean, padless = false) => `${padless ? "relative p-0" : "p-4"} ${cellAlign} border-y border-border ${isFirst ? "rounded-l-md border-l" : ""} ${isLast ? "rounded-r-md border-r" : ""}`,
     emptyTd: "p-4",
     skeletonThumb: "w-14 h-14",

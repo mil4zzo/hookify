@@ -284,7 +284,7 @@ export function ManagerExportDialog({ isOpen, onClose, table, activeColumns, col
             </p>
           </div>
 
-          <div className="space-y-2 rounded-md border border-border bg-background px-3 py-2.5">
+          <div className="space-y-2 rounded-md border border-border bg-muted px-3 py-2.5">
             <div className="flex items-center gap-2">
               <IconAlertTriangle className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
               <span className="text-sm text-foreground">Motivos das falhas</span>
@@ -389,7 +389,7 @@ export function ManagerExportDialog({ isOpen, onClose, table, activeColumns, col
                   key={c.id}
                   type="button"
                   onClick={() => toggleColumn(c.id)}
-                  className="inline-flex items-center gap-1 rounded-md border border-border bg-background px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                  className="inline-flex items-center gap-1 rounded-md border border-border bg-surface-2 px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
                   aria-label={`Adicionar ${c.name} ao export`}
                 >
                   <IconPlus className="h-3 w-3 opacity-70" />
@@ -402,7 +402,7 @@ export function ManagerExportDialog({ isOpen, onClose, table, activeColumns, col
 
         {/* Transcrições */}
         {showTranscriptionToggle && creativeStats && (
-          <div className="flex flex-col gap-2.5 rounded-md border border-border bg-background px-3 py-2.5">
+          <div className="flex flex-col gap-2.5 rounded-md border border-border bg-surface-2 px-3 py-2.5">
             <div className="flex items-center justify-between gap-3">
               <div className="flex items-center gap-2 min-w-0">
                 <IconFileText className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
@@ -451,7 +451,7 @@ export function ManagerExportDialog({ isOpen, onClose, table, activeColumns, col
 
         {/* URLs das mídias */}
         {showMediaUrlsToggle && creativeStats && (
-          <div className="flex items-center justify-between gap-3 rounded-md border border-border bg-background px-3 py-2.5">
+          <div className="flex items-center justify-between gap-3 rounded-md border border-border bg-surface-2 px-3 py-2.5">
             <div className="flex items-center gap-2 min-w-0">
               <IconVideo className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
               <div className="flex min-w-0 flex-col">

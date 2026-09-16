@@ -108,11 +108,11 @@ export function PackConflictGuard({ serverOverlapRows, children }: PackConflictG
         </div>
 
         {conflictingPairs.length > 0 ? (
-          <div className="flex w-full flex-col gap-2">
+          <div className="flex w-full flex-col divide-y divide-border rounded-md border border-border bg-surface-2">
             {conflictingPairs.map(([a, b]) => (
               <div
                 key={`${a}:${b}`}
-                className="flex flex-wrap items-center justify-center gap-2 rounded-md border border-border bg-background p-3"
+                className="flex flex-wrap items-center justify-center gap-2 p-3"
               >
                 <span className="text-sm text-foreground">
                   «{nameById.get(a) ?? a}» × «{nameById.get(b) ?? b}»

@@ -93,7 +93,7 @@ export function TagsCell({ adName, tags }: { adName: string; tags: RankingsRowTa
         <button
           type="button"
           onClick={(e) => e.stopPropagation()}
-          className="flex w-full flex-wrap items-center gap-1 rounded px-1 py-0.5 text-left transition-colors hover:bg-muted"
+          className="flex w-full flex-wrap items-center gap-1 rounded px-1 py-0.5 text-left transition-colors hover:bg-accent"
           aria-label={`Editar tags de ${adName}`}
         >
           {tags.length === 0 ? (

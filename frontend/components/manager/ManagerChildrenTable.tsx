@@ -343,7 +343,7 @@ export function ManagerChildrenTable({
     return asContent ? (
       loadingContent
     ) : (
-      <tr className="bg-border">
+      <tr className="bg-card">
         <td className="p-0" colSpan={colspan}>
           {loadingContent}
         </td>
@@ -355,7 +355,7 @@ export function ManagerChildrenTable({
     return asContent ? (
       errorContent
     ) : (
-      <tr className="bg-border">
+      <tr className="bg-card">
         <td className="p-0" colSpan={colspan}>
           {errorContent}
         </td>
@@ -367,7 +367,7 @@ export function ManagerChildrenTable({
     return asContent ? (
       emptyContent
     ) : (
-      <tr className="bg-border">
+      <tr className="bg-card">
         <td className="p-0" colSpan={colspan}>
           {emptyContent}
         </td>
@@ -477,7 +477,7 @@ export function ManagerChildrenTable({
               {sortedData.map((child) => (
                 <tr
                   key={config.rowKey(child)}
-                  className={`bg-background border-b border-border hover:bg-muted ${onRowClick ? "cursor-pointer" : ""}`}
+                  className={`border-b border-border hover:bg-muted ${onRowClick ? "cursor-pointer" : ""}`}
                   onClick={onRowClick ? () => onRowClick(child as RankingsChildrenItem) : undefined}
                 >
                   <td className="px-2 py-3 text-center" onClick={(e) => e.stopPropagation()}>
