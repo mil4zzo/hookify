@@ -4817,3 +4817,42 @@ byte a byte idêntica à v155 em 14 telas de produção e 515 combinações sint
 **Armadilha do teste.** A primeira calibração da escala (300 × 1.200 anúncios) deixava a v155
 passar: nesse tamanho a parte quadrática ainda não dominava. Teste de escala só prova algo num
 tamanho em que a versão ruim já é claramente ruim.
+
+## Repetir uma chamada só recupera o que não aconteceu (2026-09-15)
+
+**Sintoma.** O mesmo incidente das variações demorava ~60 s antes de mostrar o erro, e o banco
+ficava mais carregado justamente durante a falha.
+
+**Causa 1 — repetir o que já estava rodando.** `with_postgrest_retry` repetia em `ReadTimeout`,
+porque a lista de exceções citava `httpx.TimeoutException`, que é a classe-**mãe** de ReadTimeout.
+Ninguém escreveu "ReadTimeout"; ele entrou por herança. Uma consulta de 18 s contra um teto de
+15 s virava 4 tentativas de 15 s. E repetir não cancela nada: medido em produção, um cliente que
+desiste em 0,15 s de uma leitura de ~3 s deixa a consulta rodando no banco por mais de 1 s depois.
+São 4 cópias da mesma consulta, somando carga na hora errada.
+
+Havia um **segundo** mecanismo, só para as RPCs do Manager (as mais pesadas do app), que era pior:
+classificava por texto antes de olhar o tipo, e o marcador `"Timeout"` casava com qualquer timeout.
+
+**Causa 2 — o cliente desistindo antes do banco.** Quando o backend desiste primeiro, a consulta
+continua no banco sem ninguém para ler o resultado. Estava assim: detalhe/variações com banco em
+30 s e cliente em 15 s; `detect_pack_conflicts` com 25 s e 15 s. As duas linhas desalinhadas eram
+exatamente as duas rotas que davam problema — o Manager, já alinhado (35 s > 30 s), não dava.
+
+**Decisão.** (a) Repetir só falha de "não aconteceu": queda de conexão, falta de conexão no pool,
+deadlock. Timeout de leitura, nunca. (b) Migration 159: o banco corta em 20 s (no papel, para
+cobrir também as leituras que não passam por função) e o cliente espera 25 s, com orçamento
+separado por fase. O erro que chega passa a ser `57014`, que é inequívoco e já era tratado como
+não-repetível — as duas correções se reforçam.
+
+**Escrita.** O helper embrulha ~87 chamadas, incluindo upserts do refresh. Repetir é seguro
+porque essas escritas gravam valores absolutos em colunas disjuntas; rodar duas vezes deixa o
+mesmo estado. Se entrar uma escrita que não seja idempotente, ela tem de sair do helper.
+
+**Armadilha da sabotagem.** Uma das quatro sabotagens passou ilesa: o teste usava um `ReadTimeout`
+de verdade, que é barrado pelo nome da classe antes de chegar à linha sabotada. Trocado por um
+erro **serializado em texto** — que é como o PostgREST entrega boa parte dos erros aqui. Teste
+que não passa pela linha alterada não prova a linha.
+
+**Armadilha da conferência.** Não dá para conferir o teto do papel com `set role authenticated;
+select pg_sleep(25);` — passa direto. Configuração de papel entra no login, e `SET ROLE` não é
+login. Quem aplica o teto é o PostgREST, lendo `pg_db_role_setting` por transação.

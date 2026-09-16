@@ -58,6 +58,25 @@
 -- NÃO MEXE em `authenticator`/`service_role` (8 s): esse lado já está alinhado,
 -- e é por onde passam as ESCRITAS do refresh.
 --
+-- COMO CONFERIR (e a armadilha que pega quem tenta)
+-- -------------------------------------------------
+-- NÃO adianta `set role authenticated; select pg_sleep(25);` no psql: passa
+-- direto. Configuração de papel (`rolconfig`) é aplicada no LOGIN, e `SET ROLE`
+-- não é login — a sessão continua com o `statement_timeout` de quem conectou
+-- (2 min, como `postgres`). Tentado em 15/09; o pg_sleep(25) completou.
+--
+-- `authenticated` nem sequer tem login: quem conecta é o `authenticator`. Quem
+-- aplica o teto é o PostgREST, que lê `pg_db_role_setting` e o aplica por
+-- transação, junto com o `SET LOCAL ROLE`. Então confira na fonte:
+--
+--     select r.rolname, s.setconfig
+--     from pg_db_role_setting s join pg_roles r on r.oid = s.setrole
+--     where r.rolname in ('anon','authenticated','authenticator');
+--
+-- Que o mecanismo atua de verdade já está provado pelo histórico do app: as
+-- queries do Manager (papel `authenticated`) morriam com `57014` no cliff de
+-- generic plan. 57014 é o teto do papel agindo.
+--
 -- SE PRECISAR VOLTAR ATRÁS
 -- ------------------------
 --   alter role authenticated set statement_timeout = '30s';
