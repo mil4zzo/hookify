@@ -261,6 +261,19 @@ dentro de um painel) e o que carrega a informacao mais importante; ele precisa s
 elemento mais definido da tela, com superficie propria e borda solida. Borda tracejada
 le como placeholder ou area de drop — nao use para agrupar conteudo real.
 
+**`bg-border` e cor de linha.** Serve para divisor, trilho de progresso e bloco SEM
+texto — placeholder de midia ausente e skeleton, onde o tom medio da escala e o unico
+que aparece sobre qualquer superficie nos dois temas. Como fundo de texto nao: sob
+`muted-foreground` o contraste cai para ~2,4:1. Caixa com texto dentro de dialogo e
+poco (`bg-muted`).
+
+**Nao use `bg-background` como caixa dentro de cartao ou dialogo.** No escuro vira o
+buraco mais fundo possivel; no claro vira uma caixa MAIS CLARA que o cartao. Poco e
+`bg-muted`.
+
+**Lista de itens com acoes** (membros, conexoes): um contorno so, com as linhas
+divididas por filete (`divide-y divide-border`) — nao uma caixa por item.
+
 **Nem tudo e cartao.** Borda, preenchimento, raio e sombra dizem "objeto separado".
 Gaste por papel: um bloco que ja esta dentro de um cartao raramente precisa da propria
 moldura, e uma linha cujas colunas ja sao controles com borda nao precisa de caixa em
@@ -302,9 +315,13 @@ cita uma parada inexistente vira `background-image: none`.
 
 ### Estado (hover, foco, selecao)
 
+- **Abas**: trilho rebaixado (`TabsList`, `bg-muted`), aba ativa em `primary` solido.
+
 - **Hover** de superficie interativa: `hover:bg-accent`. Nao invente mistura propria.
 - **Foco**: anel via `focus-visible:ring-ring` — nunca so mudanca de cor de fundo.
-- **Selecionado**: `bg-primary-10` + `border-primary-30`, sempre esse par.
+- **Item selecionado** (linha de lista ou tabela): `bg-primary-10` + `border-primary-30`.
+- **Opcao escolhida** (cartao de escolha, estilo radio): `bg-primary-10` + `border-primary`
+  solido. A nao escolhida e so contorno, sem fundo proprio, com `hover:bg-accent`.
 - **Desabilitado**: `disabled:opacity-50` das primitivas; nao rebaixar cor a mao.
 
 ### Elevacao

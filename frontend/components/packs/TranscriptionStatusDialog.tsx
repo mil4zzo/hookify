@@ -334,7 +334,7 @@ function TranscriptionStatusSkeleton() {
 
       {/* espelha TabsList: mesma moldura, 3 triggers dividindo a largura */}
       <div>
-        <div className="flex w-full items-center gap-1 rounded-lg border border-border bg-card p-1 shadow-elevation-raised">
+        <div className="flex w-full items-center gap-1 rounded-lg border border-border bg-muted p-1">
           {[0, 1, 2].map((i) => (
             <Skeleton key={i} className="h-control-compact flex-1 rounded-md" />
           ))}
