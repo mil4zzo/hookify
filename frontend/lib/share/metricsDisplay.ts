@@ -82,15 +82,6 @@ export const SHARE_METRIC_SECTIONS: ShareMetricSection[] = [
   { title: "Visibilidade", cards: [{ key: "spend" }, { key: "frequency" }, { key: "impressions" }, { key: "reach" }] },
 ];
 
-/** Card do destaque: encontra a config (subtítulo etc.) da métrica em qualquer seção. */
-export function findMetricCardConfig(key: ShareMetricKey) {
-  for (const section of SHARE_METRIC_SECTIONS) {
-    const card = section.cards.find((c) => c.key === key);
-    if (card) return card;
-  }
-  return { key };
-}
-
 /** Métricas presentes no snapshot deste criativo (esconde as indisponíveis). */
 export function hasMetric(metrics: ShareItemMetrics, key: ShareMetricKey): boolean {
   return typeof metrics[key] === "number";

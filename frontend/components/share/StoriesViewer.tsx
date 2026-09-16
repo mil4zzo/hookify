@@ -18,11 +18,8 @@ import {
 import { cn } from "@/lib/utils/cn";
 import { getSiteOrigin } from "@/lib/utils/siteUrl";
 import { PublicMetricCell } from "@/components/share/PublicMetricCell";
-import {
-  SHARE_METRIC_SECTIONS,
-  findMetricCardConfig,
-  hasMetric,
-} from "@/lib/share/metricsDisplay";
+import { PublicMetricChip } from "@/components/share/PublicMetricChip";
+import { SHARE_METRIC_SECTIONS, hasMetric } from "@/lib/share/metricsDisplay";
 import type { PublicShare, ShareItem } from "@/lib/share/types";
 
 // Gramática de stories padrão (Instagram/WhatsApp): segmentos no topo, tap
@@ -63,7 +60,7 @@ function isVideoExpired(item: ShareItem): boolean {
 // ── Progresso do segmento ativo ──────────────────────────────────────────────
 
 /** Preenchimento por timer (imagens e slides degradados). Isolado para o RAF não re-renderizar o viewer. */
-function TimedSegmentFill({ paused, resetKey, onComplete }: { paused: boolean; resetKey: number; onComplete: () => void }) {
+function TimedSegmentFill({ paused, resetKey, onComplete }: { paused: boolean; resetKey: string; onComplete: () => void }) {
   const [progress, setProgress] = useState(0);
   const progressRef = useRef(0);
   const onCompleteRef = useRef(onComplete);
@@ -97,7 +94,7 @@ function TimedSegmentFill({ paused, resetKey, onComplete }: { paused: boolean; r
 }
 
 /** Preenchimento dirigido pelo próprio vídeo (timeupdate ~4Hz, como no WhatsApp). */
-function VideoSegmentFill({ videoRef, resetKey }: { videoRef: React.RefObject<HTMLVideoElement | null>; resetKey: number }) {
+function VideoSegmentFill({ videoRef, resetKey }: { videoRef: React.RefObject<HTMLVideoElement | null>; resetKey: string }) {
   const [progress, setProgress] = useState(0);
 
   useEffect(() => {
@@ -125,6 +122,10 @@ export function StoriesViewer({ share }: { share: PublicShare }) {
   const [isUserPaused, setIsUserPaused] = useState(false);
   const [isMuted, setIsMuted] = useState(true);
   const [isMetricsExpanded, setIsMetricsExpanded] = useState(false);
+  // Contador de reinícios do slide atual. "Voltar" no primeiro criativo não
+  // muda o índice — sem isso nada recomeçaria (e um link de 1 anúncio nunca
+  // poderia ser revisto). Entra na chave da mídia e da barra de progresso.
+  const [restartCount, setRestartCount] = useState(0);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const pointerStartRef = useRef<{ t: number; x: number; y: number } | null>(null);
 
@@ -145,15 +146,27 @@ export function StoriesViewer({ share }: { share: PublicShare }) {
     [items.length],
   );
   const next = useCallback(() => goTo(index + 1), [goTo, index]);
-  const prev = useCallback(() => goTo(index - 1), [goTo, index]);
+  // Como no Instagram: voltar no primeiro story recomeça ele do início.
+  const prev = useCallback(() => {
+    if (index === 0) {
+      setIsMetricsExpanded(false);
+      setRestartCount((n) => n + 1);
+      return;
+    }
+    goTo(index - 1);
+  }, [goTo, index]);
 
-  // Pausa/retoma o vídeo junto com o estado do viewer
+  // Muda a cada troca de slide E a cada reinício — remonta o vídeo (volta ao
+  // segundo 0) e zera a barra de progresso.
+  const playKey = `${index}:${restartCount}`;
+
+  // Pausa/retoma o vídeo junto com o estado do viewer (inclusive o recém-remontado)
   useEffect(() => {
     const el = videoRef.current;
     if (!el || !hasPlayableVideo) return;
     if (isPaused) el.pause();
     else el.play().catch(() => {});
-  }, [isPaused, hasPlayableVideo, index]);
+  }, [isPaused, hasPlayableVideo, playKey]);
 
   // Teclado (desktop): setas navegam, espaço pausa, Esc fecha o painel
   useEffect(() => {
@@ -221,7 +234,7 @@ export function StoriesViewer({ share }: { share: PublicShare }) {
           onPointerCancel={handlePointerCancel}
           onContextMenu={(e) => e.preventDefault()}
         >
-          <div key={index} className="h-full w-full">
+          <div key={playKey} className="h-full w-full">
             {hasPlayableVideo ? (
               <video
                 ref={videoRef}
@@ -282,9 +295,9 @@ export function StoriesViewer({ share }: { share: PublicShare }) {
                   <div className="h-full w-full rounded-full bg-primary" />
                 ) : i === index ? (
                   hasPlayableVideo ? (
-                    <VideoSegmentFill videoRef={videoRef} resetKey={index} />
+                    <VideoSegmentFill videoRef={videoRef} resetKey={playKey} />
                   ) : (
-                    <TimedSegmentFill paused={isPaused} resetKey={index} onComplete={next} />
+                    <TimedSegmentFill paused={isPaused} resetKey={playKey} onComplete={next} />
                   )
                 ) : null}
               </div>
@@ -329,65 +342,28 @@ export function StoriesViewer({ share }: { share: PublicShare }) {
         )}
 
         {/*
-          Painel de métricas em DUAS ALTURAS (mesmo container): espiado mostra
-          só os destaques; expandido revela as 4 seções. Translúcido para a
-          mídia continuar respirando por trás no estado espiado.
+          Métricas em dois estados. COLAPSADO: legenda sobre degradê (nome +
+          pílulas de vidro dos destaques) — o criativo continua visível até a
+          borda de baixo, que é onde o anúncio costuma pôr legenda e CTA.
+          EXPANDIDO: o painel sólido com as 4 seções do modal.
         */}
-        <div
-          className={cn(
-            // bg-card (não translúcido): o `card` não tem escala de alpha registrada,
-            // e o par card/background é o mesmo contraste dos cards do modal.
-            "absolute inset-x-0 bottom-0 z-30 flex flex-col rounded-t-lg border-t border-border bg-card transition-[max-height] duration-300",
-            isMetricsExpanded ? "max-h-[85%]" : "max-h-[45%]",
-          )}
-        >
-          <button
-            type="button"
-            className="flex w-full items-center gap-2 px-3 pb-1.5 pt-2 text-left"
-            onClick={() => setIsMetricsExpanded((v) => !v)}
-            aria-expanded={isMetricsExpanded}
-          >
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-medium">{current.ad_name}</p>
-              <p className="text-2xs text-muted-foreground">
-                {isMetricsExpanded
-                  ? `${formatDatePt(share.date_start)}–${formatDatePt(share.date_stop)} · snapshot na criação do link`
-                  : "Ver todas as métricas"}
-              </p>
-            </div>
-            {isMetricsExpanded ? (
+        {isMetricsExpanded ? (
+          <div className="absolute inset-x-0 bottom-0 z-30 flex max-h-[85%] flex-col rounded-t-lg border-t border-border bg-card">
+            <button
+              type="button"
+              className="flex w-full items-center gap-2 px-3 pb-1.5 pt-2 text-left"
+              onClick={() => setIsMetricsExpanded(false)}
+              aria-expanded
+            >
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-medium">{current.ad_name}</p>
+                <p className="text-2xs text-muted-foreground">
+                  {formatDatePt(share.date_start)}–{formatDatePt(share.date_stop)} · snapshot na criação do link
+                </p>
+              </div>
               <IconChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
-            ) : (
-              <IconChevronUp className="h-4 w-4 shrink-0 animate-bounce text-muted-foreground" />
-            )}
-          </button>
+            </button>
 
-          {/* Espiado: só os destaques escolhidos na criação do link */}
-          {!isMetricsExpanded && highlights.length > 0 && (
-            <div className={cn("grid gap-2 px-3 pb-2", highlights.length > 1 ? "grid-cols-2" : "grid-cols-1")}>
-              {highlights.map((key) => {
-                const config = findMetricCardConfig(key);
-                const subtitleValue = config.subtitleOf != null ? metrics[config.subtitleOf] : null;
-                return (
-                  <PublicMetricCell
-                    key={key}
-                    metricKey={key}
-                    value={metrics[key] as number}
-                    average={averages[key]}
-                    currency={share.currency}
-                    subtitle={
-                      typeof subtitleValue === "number"
-                        ? `${Math.round(subtitleValue).toLocaleString("pt-BR")} ${config.subtitleLabel ?? ""}`.trim()
-                        : undefined
-                    }
-                  />
-                );
-              })}
-            </div>
-          )}
-
-          {/* Expandido: as 4 seções do modal de detalhamento */}
-          {isMetricsExpanded && (
             <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-3 pb-3">
               {visibleSections.map((section) => {
                 const SectionIcon = SECTION_ICONS[section.title];
@@ -423,17 +399,43 @@ export function StoriesViewer({ share }: { share: PublicShare }) {
                 <p className="py-4 text-center text-sm text-muted-foreground">Sem métricas disponíveis para este criativo.</p>
               )}
             </div>
-          )}
 
-          <a
-            href={`${getSiteOrigin()}/pv`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="shrink-0 border-t border-border py-1.5 text-center text-2xs text-muted-foreground hover:text-text"
+            <a
+              href={`${getSiteOrigin()}/pv`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="shrink-0 border-t border-border py-1.5 text-center text-2xs text-muted-foreground hover:text-text"
+            >
+              Feito com <span className="font-semibold text-brand">Hookify</span>
+            </a>
+          </div>
+        ) : (
+          <button
+            type="button"
+            aria-expanded={false}
+            aria-label="Ver todas as métricas"
+            onClick={() => setIsMetricsExpanded(true)}
+            className="absolute inset-x-0 bottom-0 z-30 flex w-full flex-col gap-1.5 bg-gradient-to-t from-overlay to-transparent px-3 pb-3 pt-12 text-left"
           >
-            Feito com <span className="font-semibold text-brand">Hookify</span>
-          </a>
-        </div>
+            <div className="flex items-center gap-2">
+              <span className="min-w-0 flex-1 truncate text-sm font-medium">{current.ad_name}</span>
+              <IconChevronUp className="h-4 w-4 shrink-0 animate-bounce text-muted-foreground" />
+            </div>
+            {highlights.length > 0 && (
+              <div className={cn("grid gap-2", highlights.length > 1 ? "grid-cols-2" : "grid-cols-1")}>
+                {highlights.map((key) => (
+                  <PublicMetricChip
+                    key={key}
+                    metricKey={key}
+                    value={metrics[key] as number}
+                    average={averages[key]}
+                    currency={share.currency}
+                  />
+                ))}
+              </div>
+            )}
+          </button>
+        )}
       </div>
     </div>
   );
