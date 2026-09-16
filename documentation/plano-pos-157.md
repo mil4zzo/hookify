@@ -69,7 +69,7 @@ Três coisas que o plano original não previa e que ficaram sabidas:
   estavam certas (cliente 35 s > banco 30 s).
 - **O venv local estava divergente de produção** (postgrest 2.27.0 aqui, 0.16.11 lá),
   o que fazia 4 testes de `test_db_concurrency.py` falharem localmente sem serem bug.
-  Alinhado com `pip install "supabase>=2.5.1,<2.7.0"`. Ver [[venv_local_divergente]].
+  Alinhado com `pip install "supabase>=2.5.1,<2.7.0"`. Ver [[supabase_py_upgrade_desliga_o_teto_de_concorrencia]] e o **Bloco 6**.
 
 **Por quê (contexto original).** `with_postgrest_retry` repete também em `ReadTimeout`. Medido em produção em
 15/09: quando o backend desiste, **a consulta continua rodando no banco por mais de 1 s**
@@ -182,6 +182,58 @@ qualquer pack muda. O F2b já tem estimativa: incremental por pack custa ~196 ms
 
 ---
 
+## Bloco 6 — Atualizar o `supabase-py` (levantado em 15/09, NÃO urgente)
+
+**O que é.** `supabase-py` é o cliente Python oficial do Supabase — por onde todo o backend
+fala com o banco, com o Auth e com o Storage. Produção está na **2.6.0, de 24/07/2024**
+(mais de dois anos atrás); o PyPI está na 2.31.0. O `httpx` está preso em 0.27.2 por causa dela.
+O resto do stack está em dia (FastAPI 0.139, cryptography 50.0.1, pydantic 2.13.5).
+
+**Por que NÃO é urgente (medido em 15/09).** `pip-audit` sobre o `pip freeze` exato do
+container: **zero vulnerabilidades** em `supabase`, `postgrest`, `gotrue`, `storage3`,
+`realtime` e `httpx`. O único achado em 47 pacotes é `ecdsa 0.19.2` (PYSEC-2026-1325), que
+vem do `python-jose`, é um ataque de temporização ao **assinar** com P-256 — e o backend só
+**verifica** assinatura de JWT (o próprio advisory diz que verificação não é afetada).
+O projeto `python-ecdsa` declara que não vai corrigir; não há versão de conserto.
+
+**Por que vale fazer um dia.** Dois anos sem atualizar é dívida que só encarece, e a versão
+nova **simplifica** a proteção em vez de dificultar: `ClientOptions.httpx_client` é API
+pública nas versões novas — é exatamente o campo que a tentativa de 2026-08 procurou, não
+achou no 2.6.0, e custou um outage. Passaríamos o `_SlottedHTTPXClient` direto, sem
+sobrescrever método interno. O filtro por `/rest/v1/` que já existe no `send()` (hoje
+descrito como "cinto e suspensório") passa a ser a peça que impede o Storage de disputar
+slot de banco.
+
+**Superfície real:** só **5 imports diretos** da família no backend inteiro — três em
+`app/core/supabase_client.py` (o arquivo da proteção) e dois de `postgrest.exceptions.APIError`
+(que continua existindo). O resto usa o objeto `Client` genericamente.
+
+**Riscos, em ordem de importância**
+1. **Falha silenciosa da proteção.** Se a instalação do slot não migrar junto, a fila do banco
+   some sem erro — o estado que precedeu o crash de 2026-08-24. Já existe alarme para isso:
+   `test_db_concurrency.py::test_a_lib_ainda_tem_o_gancho_em_que_a_protecao_se_apoia` falha
+   com mensagem explicativa (sabotagem provada em 15/09).
+2. **O timeout do ClientOptions é IGNORADO quando se passa `http_client`** (conferido no código
+   da 2.31.0). O alinhamento do Bloco 2 teria de mudar para dentro do cliente httpx, ou a
+   consulta órfã volta calada. `test_timeout_alinhado.py` cobre o lado dos números, mas não
+   que eles cheguem ao cliente — vale um teste novo nessa hora.
+3. `gotrue` virou `supabase-auth` e `realtime` pula de 1.0.6 para 2.31.0 (major). O backend não
+   importa nenhum dos dois diretamente, mas o `create_client` os instancia.
+4. `httpx` sobe para a faixa 0.28 (`>=0.26,<0.29`), que tem mudanças próprias.
+
+**Passos**
+1. Atualizar num branch, com `requirements.txt` fixando as versões novas.
+2. Migrar a instalação do slot para `ClientOptions(httpx_client=...)` e mover o orçamento de
+   tempo para dentro do cliente httpx. Rodar `tests/` inteiro (796 hoje).
+3. **Teste funcional no app, não só unitário** — é o que os testes não cobrem: login, upload
+   de miniatura (Storage), refresh de um pack (escrita), uma tela do Manager (leitura pesada).
+4. Deploy fora de horário de uso, com rollback pronto (`git revert` + redeploy).
+
+**Pronto quando:** app exercitado nos quatro caminhos acima e o teste do gancho passando pela
+API nova, não pela antiga.
+
+---
+
 ## Como retomar (para uma sessão sem histórico)
 
 - **Banco de produção:** session pooler; credencial na memória `db_connection`. Só leitura sem
@@ -190,5 +242,5 @@ qualquer pack muda. O F2b já tem estimativa: incremental por pack custa ~196 ms
   rodam SÓ lá (`supabase/tests/README.md`).
 - **Deploy:** `ssh root@77.37.126.210`, `cd /var/www/hookify/deploy && ./deploy.sh` disparado com
   `setsid nohup`; esperar pela trava (`flock /tmp/hookify_deploy.lock true`), nunca por `pgrep`.
-- **Ordem sugerida:** 1 → 2 → 3 → 4 → 5. Os blocos 1 a 4 são independentes entre si; o 5 espera
+- **Ordem sugerida:** 3 → 4 → 5 (1 e 2 já feitos). Os blocos 3, 4 e 6 são independentes; o 5 espera
   a feature de editar data do pack.

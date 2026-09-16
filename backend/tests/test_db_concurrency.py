@@ -291,6 +291,33 @@ class TestTetoNoPontoUnico:
             liberar.set()
             t.join()
 
+    def test_a_lib_ainda_tem_o_gancho_em_que_a_protecao_se_apoia(self):
+        """Falha PRIMEIRO, e explicando, quando a biblioteca sobe de versao.
+
+        A protecao se apoia em sobrescrever `SyncPostgrestClient.create_session`.
+        Esse metodo **deixou de existir** no `postgrest >= 2.x`, que recebe um
+        `http_client` pronto. Se alguem subir o `supabase-py`, o override para de
+        ser chamado e a fila do banco some **sem erro nenhum** -- o app funciona,
+        so que sem teto de concorrencia, que foi o estado que precedeu o crash do
+        Postgres em 2026-08-24.
+
+        Sem este teste, o sintoma sao os tres testes abaixo falhando com
+        `isinstance(...) is False`, que parece bug de codigo. Em 2026-09-15 isso
+        aconteceu de verdade (venv local em 2.27.0, producao em 0.16.11) e quase
+        virou a conclusao errada de "falha pre-existente, sigo em frente".
+        """
+        import postgrest
+        from postgrest import SyncPostgrestClient
+
+        assert hasattr(SyncPostgrestClient, "create_session"), (
+            f"postgrest {getattr(postgrest, '__version__', '?')} nao tem mais "
+            "`create_session` -- o teto de concorrencia do banco esta DESLIGADO.\n"
+            "Ou o ambiente saiu do requirements.txt (conserto: pip install "
+            '"supabase>=2.5.1,<2.7.0"), ou a lib foi atualizada de proposito e a '
+            "instalacao do slot precisa migrar para `ClientOptions(httpx_client=...)`, "
+            "que e a API publica das versoes novas. Nao basta trocar o numero da versao."
+        )
+
     def test_fabrica_realmente_usa_o_cliente_com_slot(self, monkeypatch):
         """Guarda de fiacao: adianta pouco a classe existir se a fabrica nao a usa."""
         import app.core.supabase_client as sc
