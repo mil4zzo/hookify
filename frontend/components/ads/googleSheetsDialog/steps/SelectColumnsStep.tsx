@@ -366,7 +366,7 @@ export function SelectColumnsStep({
       <h3 className="font-semibold text-lg flex items-center gap-2">Selecionar colunas</h3>
 
       {hasDuplicates && (
-        <Alert variant="default" className="border-warning-50 bg-warning-5">
+        <Alert variant="default" className="border-warning-50 bg-warning-10">
           <IconAlertTriangle className="h-4 w-4" />
           <AlertDescription>
             Esta planilha possui colunas com nomes duplicados. Selecione a coluna correta em cada campo (ex: &quot;Leadscore (coluna B)&quot;).

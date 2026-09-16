@@ -772,7 +772,7 @@ export default function Topbar() {
   return (
     <>
       <ServerStatusBanner />
-      <header className="z-sticky w-full border-b border-border bg-background-95 backdrop-blur supports-[backdrop-filter]:bg-background-60">
+      <header className="z-sticky w-full border-b border-border bg-background-90 backdrop-blur supports-[backdrop-filter]:bg-background-60">
         {/* Layout unificado: um único container evita duplicar renderProfileMenu (que causava 2 popups) */}
         <div className={cn("container mx-auto grid grid-cols-[1fr_auto_1fr] h-16 items-center", APP_PAGE_SHELL_X)}>
           {/* Left: Título (desktop) ou Logo (mobile; sempre no onboarding) */}

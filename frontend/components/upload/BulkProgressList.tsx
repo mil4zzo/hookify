@@ -187,11 +187,11 @@ export function ProgressItemCard({
   const currentLabel = getStepLabel(status, labelOpts)
 
   const borderClass = isDone
-    ? "border-success-30 bg-success-5"
+    ? "border-success-30 bg-success-10"
     : isError
-      ? "border-destructive-30 bg-destructive-5"
+      ? "border-destructive-30 bg-destructive-10"
       : isActive
-        ? "border-primary-30 bg-primary-5"
+        ? "border-primary-30 bg-primary-10"
         : "border-border bg-muted-10"
 
   return (

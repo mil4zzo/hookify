@@ -60,7 +60,7 @@ const REGEX_RULES: RegexRule[] = [
   {
     id: "structural-alpha-surface",
     description:
-      "Superficie estrutural em repouso nao pode vir da escala alpha (-5..-95): ela mistura com --background, entao afunda no tema escuro e eleva no claro. Use a escada: bg-background / bg-muted / bg-card / bg-surface-2 / bg-surface-3.",
+      "Superficie estrutural em repouso nao pode vir da escala alpha (-10..-90): ela mistura com --background, entao afunda no tema escuro e eleva no claro. Use a escada: bg-background / bg-muted / bg-card / bg-surface-2 / bg-surface-3.",
     // Passos exatos da escala (tailwind.config `alphaSteps`) — sem isso, `bg-surface-2`
     // e `bg-surface-3`, que sao os tokens CERTOS da escada, virariam falso positivo.
     // `bg-background-N` fica de fora de proposito: ali o mix e com a propria cor, o
@@ -68,7 +68,16 @@ const REGEX_RULES: RegexRule[] = [
     // Variante de estado (`hover:`, `data-[x]:`) tambem fica de fora: e receita de
     // estado, assunto do token `accent`, nao de superficie.
     pattern:
-      /(?<![\w:[\]-])bg-(?:card|popover|surface|input|muted-foreground|muted|secondary|accent|foreground|border)-(?:5|10|20|30|40|45|50|60|70|75|80|82|88|90|95)(?![\w-])/,
+      /(?<![\w:[\]-])bg-(?:card|popover|surface|input|muted-foreground|muted|secondary|accent|foreground|border)-(?:10|20|30|40|50|60|70|80|90)(?![\w-])/,
+  },
+  {
+    id: "alpha-step-out-of-scale",
+    description:
+      "Passo fora da escala alpha (10, 20 ... 90), ou token sem escala (card, popover): a classe nao gera CSS e o estilo some em silencio. Use a decada mais proxima.",
+    // Numero terminado em 0 e decada (permitido); qualquer outro — 5, 15, 45, 75 — nao
+    // existe no tailwind.config. card/popover nao tem escala nenhuma. surface fica de fora
+    // de proposito: `surface-2`/`surface-3` sao os degraus da escada, nao passos alpha.
+    pattern: /(?<![\w-])(?:bg|text|border(?:-[trblxy])?|ring-offset|ring|from|via|to|outline|fill|stroke|divide|shadow|decoration|placeholder|caret)-(?:(?:accent-foreground|attention-foreground|card-foreground|destructive-foreground|info-foreground|input-foreground|muted-foreground|popover-foreground|primary-foreground|ring-foreground|success-foreground|warning-foreground|accent|attention|background|border|destructive|foreground|info|input|muted|primary|ring|success|warning)-(?:[1-9]|[1-9][1-9])|(?:card|popover)-\d{1,2})(?![\w\/-])/,
   },
   {
     id: "raw-shadow",

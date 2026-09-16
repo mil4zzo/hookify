@@ -266,6 +266,40 @@ Gaste por papel: um bloco que ja esta dentro de um cartao raramente precisa da p
 moldura, e uma linha cujas colunas ja sao controles com borda nao precisa de caixa em
 volta — vira moldura dentro de moldura.
 
+### Escala alpha (tinta semantica)
+
+A escala `-N` existe em rampa regular: **10, 20, 30, 40, 50, 60, 70, 80, 90**. Ela
+gera `color-mix(in oklab, var(--token) N%, var(--background))` — um veu da cor sobre
+o fundo da pagina. Por isso serve para **tinta**, e nao para superficie (ver acima).
+
+Papeis de referencia (nao obrigatorios, mas o que a maior parte do app ja usa):
+
+| Passo | Papel |
+|---|---|
+| `-10` | fundo suave (chip, badge, linha destacada) |
+| `-20` | fundo com enfase, parada de gradiente |
+| `-30` | borda de estado |
+| `-50` | borda forte, inicio de gradiente |
+| `-80` / `-90` | quase solido, hover de solido |
+
+**Por que de 10 em 10.** Medido em OKLab: dois passos a 5 pontos de distancia valem
+dE 1,2 a 3,8 — no limiar de percepcao. Eram variantes que o olho nao separa e que
+cada tela escolhia no chute (a escala antiga tinha 5, 45, 75, 82, 88 e 95). A 10
+pontos a diferenca e visivel (dE 3 a 7), entao cada passo que sobrou significa algo.
+
+Duas armadilhas que **nao dao erro — o estilo simplesmente some**:
+
+- **Passo fora da rampa** (`bg-primary-5`, `bg-primary-15`) nao gera classe. Regra
+  `alpha-step-out-of-scale`. `card` e `popover` nao tem escala nenhuma.
+- **Barra de opacidade em token do tema** (`bg-destructive/5`) nao gera CSS no
+  Tailwind 3: a cor e `var(--x)`, sem `<alpha-value>`, e o compilador descarta a
+  classe. Use o hifen (`bg-destructive-10`). A barra continua valendo para a paleta
+  padrao do Tailwind (`bg-black/60`).
+
+Uma terceira, do mesmo tipo: `var(--x)` indefinida **sem fallback** dentro de um
+valor nao estraga so aquela parte — invalida a declaracao inteira. Um gradiente que
+cita uma parada inexistente vira `background-image: none`.
+
 ### Estado (hover, foco, selecao)
 
 - **Hover** de superficie interativa: `hover:bg-accent`. Nao invente mistura propria.

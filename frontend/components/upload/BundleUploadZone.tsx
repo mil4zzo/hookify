@@ -192,7 +192,7 @@ export default function BundleUploadZone({
       ) : null}
 
       {parseErrors.length > 0 ? (
-        <StandardCard className="space-y-2 border-destructive-20 bg-destructive-5 text-sm text-destructive">
+        <StandardCard className="space-y-2 border-destructive-20 bg-destructive-10 text-sm text-destructive">
           <div className="font-medium">Arquivos com nomenclatura invalida</div>
           <ul className="space-y-1">
             {parseErrors.map((error) => (

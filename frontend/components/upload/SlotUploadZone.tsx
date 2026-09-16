@@ -154,7 +154,7 @@ function FileSlot({ label, aspectRatios, file, required, isAutoFilled, autoFille
       ) : (
         <button
           type="button"
-          className={`group flex w-full cursor-pointer flex-col items-center justify-center gap-1.5 rounded-lg border border-dashed px-2 transition-colors ${isDragOver ? "border-primary bg-primary-10" : "border-border bg-muted-20 hover:border-primary-60 hover:bg-primary-5"} ${aspectClass}`}
+          className={`group flex w-full cursor-pointer flex-col items-center justify-center gap-1.5 rounded-lg border border-dashed px-2 transition-colors ${isDragOver ? "border-primary bg-primary-10" : "border-border bg-muted-20 hover:border-primary-60 hover:bg-primary-10"} ${aspectClass}`}
           onClick={() => inputRef.current?.click()}
           onDragOver={(e) => {
             e.preventDefault();
@@ -326,7 +326,7 @@ export default function SlotUploadZone({ sets, templateSlots, onChange }: SlotUp
         {/* Add card — lives inside the grid as a peer */}
         <button
           type="button"
-          className="group flex min-h-[120px] cursor-pointer flex-col items-center justify-center gap-2 rounded-md border border-dashed border-border bg-muted-10 text-sm text-muted-foreground transition-colors hover:border-primary-60 hover:bg-primary-5 hover:text-primary"
+          className="group flex min-h-[120px] cursor-pointer flex-col items-center justify-center gap-2 rounded-md border border-dashed border-border bg-muted-10 text-sm text-muted-foreground transition-colors hover:border-primary-60 hover:bg-primary-10 hover:text-primary"
           onClick={addSet}
         >
           <IconPlus className="h-5 w-5 transition-transform group-hover:scale-110" />

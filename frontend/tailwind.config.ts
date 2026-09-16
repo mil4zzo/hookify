@@ -6,7 +6,12 @@ import type { Config } from "tailwindcss";
  */
 const colorMixOnCanvas = (cssVar: string, percent: number) => `color-mix(in oklab, var(${cssVar}) ${percent}%, var(--background))`;
 
-const alphaSteps = [5, 10, 20, 30, 40, 45, 50, 60, 70, 75, 80, 82, 88, 90, 95] as const;
+// Rampa regular de 10 em 10. Os passos intermediários que existiam (5, 45, 75, 82, 88, 95)
+// ficavam a 5 pontos do vizinho — em OKLab isso vale dE 1,2–3,8, no limiar de percepção:
+// variantes que o olho não separa e que cada tela escolhia no chute. A 10 pontos (dE 3–7)
+// a diferença é visível, então cada passo que sobrou significa alguma coisa.
+// Passo fora desta lista NÃO gera classe — o checker (`alpha-step-out-of-scale`) barra.
+const alphaSteps = [10, 20, 30, 40, 50, 60, 70, 80, 90] as const;
 
 /** Opacidade da própria `--background` (overlay) — usa alpha real, não mix com transparent. */
 const backgroundAlphaScale = () => {

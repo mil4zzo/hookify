@@ -71,7 +71,7 @@ const AdRow = memo(function AdRow({
     <button
       type="button"
       onClick={() => onSelect(ad.ad_id, ad.ad_name ?? "", ad.account_id)}
-      className={`group flex w-full cursor-pointer items-center gap-3 border-b border-border px-3 py-3 text-left transition-colors hover:bg-muted-40 ${isSelected ? "bg-primary-5 hover:bg-primary-10" : ""}`}
+      className={`group flex w-full cursor-pointer items-center gap-3 border-b border-border px-3 py-3 text-left transition-colors hover:bg-muted-40 ${isSelected ? "bg-primary-10 hover:bg-primary-10" : ""}`}
     >
       <div className={`relative h-12 w-12 shrink-0 overflow-hidden rounded-lg border ${isSelected ? "border-primary-40" : "border-border"} bg-muted`}>
         {thumbnail ? (

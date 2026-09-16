@@ -140,7 +140,7 @@ const AdsetSelector = memo(function AdsetSelector({ data, selectedAdsetIds, onCh
                         key={adset.adset_id}
                         type="button"
                         onClick={() => toggleAdset(adset.adset_id)}
-                        className={`group flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-muted-40 cursor-pointer ${isSelected ? "bg-primary-5 hover:bg-primary-10" : ""}`}
+                        className={`group flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-muted-40 cursor-pointer ${isSelected ? "bg-primary-10 hover:bg-primary-10" : ""}`}
                       >
                         {/* Checkbox visual */}
                         <CheckSquare checked={isSelected} className={isSelected ? undefined : "group-hover:border-primary-60"} />
