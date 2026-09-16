@@ -230,6 +230,19 @@ def test_resposta_grande_sai_comprimida(cliente, monkeypatch):
     assert r.content == grande  # o TestClient já descomprime
 
 
+def test_filhos_de_campanha_usam_o_cliente_do_manager(cliente, monkeypatch):
+    # A função tem teto de 40 s no banco (164); o cliente comum desiste aos 25 s.
+    sb = _Sb(_ok())
+    monkeypatch.setattr(A, "_get_analytics_supabase", lambda token: sb)
+    def _comum(token, **kw):
+        raise AssertionError("filhos de campanha pelo cliente comum (25 s): consulta órfã")
+    monkeypatch.setattr(A, "get_supabase_for_user", _comum)
+    r = cliente.get("/analytics/rankings/campaign-id/c1/children",
+                    params={"date_start": "2026-08-26", "date_stop": "2026-09-15"})
+    assert r.status_code == 200
+    assert sb.rpcs
+
+
 def test_filhos_de_campanha_leem_linhas_sem_prefixo(cliente, monkeypatch):
     sb = _com_sb(monkeypatch, _Sb(_ok()))
     r = cliente.get("/analytics/rankings/campaign-id/c1/children",

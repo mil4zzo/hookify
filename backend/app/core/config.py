@@ -100,16 +100,23 @@ MIN_POSTGREST_READ_TIMEOUT_SECONDS = (
     DB_READ_STATEMENT_TIMEOUT_SECONDS + POSTGREST_TIMEOUT_MARGIN_SECONDS
 )
 
+# Exceção de propósito (migration 164, decisão do idealizador em 16/09): a função
+# do Manager tem teto PRÓPRIO de 40 s no banco — uma seleção enorme é pesada de
+# verdade, e esperar vale mais do que um erro. As demais leituras seguem em 20 s.
+MANAGER_STATEMENT_TIMEOUT_SECONDS = 40.0
+MIN_MANAGER_READ_TIMEOUT_SECONDS = MANAGER_STATEMENT_TIMEOUT_SECONDS + POSTGREST_TIMEOUT_MARGIN_SECONDS
+
 try:
     ANALYTICS_MANAGER_POSTGREST_TIMEOUT_SECONDS = float(
-        os.getenv("ANALYTICS_MANAGER_POSTGREST_TIMEOUT_SECONDS", "35")
+        os.getenv("ANALYTICS_MANAGER_POSTGREST_TIMEOUT_SECONDS", "45")
     )
 except ValueError:
-    ANALYTICS_MANAGER_POSTGREST_TIMEOUT_SECONDS = 35.0
+    ANALYTICS_MANAGER_POSTGREST_TIMEOUT_SECONDS = MIN_MANAGER_READ_TIMEOUT_SECONDS
 # Piso pela REGRA, não por sanidade genérica: um `max(1.0, ...)` aceitava 2 s
-# vindos do .env e invertia a ordem em produção sem ninguém notar.
+# vindos do .env e invertia a ordem em produção sem ninguém notar. Todo caminho que
+# chama a função do Manager tem de usar este cliente (`_get_analytics_supabase`).
 ANALYTICS_MANAGER_POSTGREST_TIMEOUT_SECONDS = max(
-    MIN_POSTGREST_READ_TIMEOUT_SECONDS, ANALYTICS_MANAGER_POSTGREST_TIMEOUT_SECONDS
+    MIN_MANAGER_READ_TIMEOUT_SECONDS, ANALYTICS_MANAGER_POSTGREST_TIMEOUT_SECONDS
 )
 
 # Manager pela `fetch_manager_rankings_v161` (migration 161): todas as linhas, saída em
@@ -120,7 +127,7 @@ ANALYTICS_MANAGER_V161 = os.getenv("ANALYTICS_MANAGER_V161", "true").strip().low
 
 # Qual função em colunas o caminho acima chama. A 162 devolve a MESMA resposta em
 # pedaços (uma linha por campo) para não montar um JSON gigante dentro do banco: o
-# pico de memória caiu de ~960 para ~340 MB no pior caso medido. Os leitores aceitam
+# pico de memória caiu de ~960 para ~400 MB no pior caso medido. Os leitores aceitam
 # as duas formas, então `fetch_manager_rankings_v161` aqui é a volta atrás da 162
 # sem deploy. Nome fora da lista vira a 162 (não se chama função arbitrária por env).
 _MANAGER_COLUMNS_RPCS = ("fetch_manager_rankings_v161", "fetch_manager_rankings_v162")

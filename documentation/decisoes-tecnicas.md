@@ -4933,3 +4933,19 @@ marcadas como visíveis — e só o VACUUM marca. Com o padrão de 20%, `ad_metr
 marcada. Depois do VACUUM, as idas à tabela na aba de 7 packs caíram de ~74 mil para 0; com
 cache quente o tempo não muda, o ganho é com cache frio. Autovacuum a 2% nas três tabelas
 para a marca não envelhecer.
+
+## O Manager espera 40 s; o resto do app, 20 s (migration 164) — 2026-09-16
+
+**Decisão do idealizador:** numa seleção enorme do Manager, esperar até 40 s é melhor do
+que um erro aos 20 s. **Só a função do Manager** (`statement_timeout` na própria função,
+que o PostgREST aplica à transação): nas outras telas tudo mede menos de 1 s, e passar de
+20 s lá é defeito — esperar mais só atrasaria o erro. Aceitável agora porque a 162 cortou
+o pico de memória pela metade; com a v161, segurar ~1 GB por 40 s seria arriscado.
+
+**A ordem continua: banco < backend < navegador** — 40 s / 45 s / 60 s. O navegador tinha
+um teto genérico de 2 min desde o primeiro commit; as leituras de análise passaram a 60 s,
+para um backend travado virar erro em 1 min. **Achado na mudança:** a rota de filhos de
+campanha chamava a mesma função pelo cliente comum (25 s) — com o banco em 40 s, viraria
+consulta órfã. Todo caminho que chama a função do Manager usa `_get_analytics_supabase`
+(teste que falha se não usar).
+

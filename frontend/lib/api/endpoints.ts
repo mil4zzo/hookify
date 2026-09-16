@@ -1,6 +1,7 @@
 import { apiClient } from './client'
 import { getActiveCustomColumns } from '@/lib/metrics/customColumnsRegistry'
 import { asRowPayload, type ColumnarPayload } from './managerColumns'
+import { ANALYTICS_REQUEST_TIMEOUT_MS } from './limits'
 import {
   GetMeResponse,
   GetAdsRequest,
@@ -308,17 +309,17 @@ export const api = {
     // Ver lib/api/managerColumns.ts.
     getRankings: async (params: RankingsRequest, options?: { signal?: AbortSignal }): Promise<RankingsResponse> =>
       asRowPayload(
-        await apiClient.post<RankingsResponse | ColumnarPayload | unknown[]>('/analytics/rankings', { ...params, format: 'columns' }, { signal: options?.signal }),
+        await apiClient.post<RankingsResponse | ColumnarPayload | unknown[]>('/analytics/rankings', { ...params, format: 'columns' }, { signal: options?.signal, timeout: ANALYTICS_REQUEST_TIMEOUT_MS }),
       ) as RankingsResponse,
     // Alias semântico para evolução futura: mesma payload, rota nova
     getAdPerformance: async (params: RankingsRequest, options?: { signal?: AbortSignal }): Promise<RankingsResponse> =>
       asRowPayload(
-        await apiClient.post<RankingsResponse | ColumnarPayload | unknown[]>('/analytics/ad-performance', { ...params, format: 'columns' }, { signal: options?.signal }),
+        await apiClient.post<RankingsResponse | ColumnarPayload | unknown[]>('/analytics/ad-performance', { ...params, format: 'columns' }, { signal: options?.signal, timeout: ANALYTICS_REQUEST_TIMEOUT_MS }),
       ) as RankingsResponse,
     getRankingsSeries: (params: RankingsSeriesRequest, options?: { signal?: AbortSignal }): Promise<RankingsSeriesResponse> =>
-      apiClient.post('/analytics/rankings/series', params, { signal: options?.signal }),
+      apiClient.post('/analytics/rankings/series', params, { signal: options?.signal, timeout: ANALYTICS_REQUEST_TIMEOUT_MS }),
     getRankingsRetention: (params: RankingsRetentionRequest, options?: { signal?: AbortSignal }): Promise<RankingsRetentionResponse> =>
-      apiClient.post('/analytics/rankings/retention', params, { signal: options?.signal }),
+      apiClient.post('/analytics/rankings/retention', params, { signal: options?.signal, timeout: ANALYTICS_REQUEST_TIMEOUT_MS }),
     // 140: rotas de detalhe/filhos só agregam os histogramas das colunas vinculadas
     // quando pedido — e só há o que pedir quando algum pack selecionado tem vínculo
     // (o registro ativo é publicado pela página que conhece os packs).
@@ -335,7 +336,7 @@ export const api = {
         if (packId) qs.append('pack_ids', packId)
       })
       appendIncludeCustom(qs)
-      return apiClient.get(`/analytics/rankings/ad-name/${encodeURIComponent(adName)}/children?${qs.toString()}`, { signal: options?.signal })
+      return apiClient.get(`/analytics/rankings/ad-name/${encodeURIComponent(adName)}/children?${qs.toString()}`, { signal: options?.signal, timeout: ANALYTICS_REQUEST_TIMEOUT_MS })
     },
     getAdDetails: (
       adId: string,
@@ -349,7 +350,7 @@ export const api = {
         if (packId) qs.append('pack_ids', packId)
       })
       appendIncludeCustom(qs)
-      return apiClient.get(`/analytics/rankings/ad-id/${encodeURIComponent(adId)}?${qs.toString()}`, { signal: options?.signal })
+      return apiClient.get(`/analytics/rankings/ad-id/${encodeURIComponent(adId)}?${qs.toString()}`, { signal: options?.signal, timeout: ANALYTICS_REQUEST_TIMEOUT_MS })
     },
     getAdCreative: (adId: string, options?: { signal?: AbortSignal; packIds?: string[] }): Promise<AdCreativeResponse> =>
       apiClient.get(`/analytics/rankings/ad-id/${encodeURIComponent(adId)}/creative`, {
@@ -368,7 +369,7 @@ export const api = {
       params.pack_ids?.forEach((packId) => {
         if (packId) qs.append('pack_ids', packId)
       })
-      return apiClient.get(`/analytics/rankings/ad-id/${encodeURIComponent(adId)}/history?${qs.toString()}`, { signal: options?.signal })
+      return apiClient.get(`/analytics/rankings/ad-id/${encodeURIComponent(adId)}/history?${qs.toString()}`, { signal: options?.signal, timeout: ANALYTICS_REQUEST_TIMEOUT_MS })
     },
     getAdNameDetails: (
       adName: string,
@@ -382,7 +383,7 @@ export const api = {
         if (packId) qs.append('pack_ids', packId)
       })
       appendIncludeCustom(qs)
-      return apiClient.get(`/analytics/rankings/ad-name/${encodeURIComponent(adName)}/details?${qs.toString()}`, { signal: options?.signal })
+      return apiClient.get(`/analytics/rankings/ad-name/${encodeURIComponent(adName)}/details?${qs.toString()}`, { signal: options?.signal, timeout: ANALYTICS_REQUEST_TIMEOUT_MS })
     },
     getAdNameHistory: (
       adName: string,
@@ -395,7 +396,7 @@ export const api = {
       params.pack_ids?.forEach((packId) => {
         if (packId) qs.append('pack_ids', packId)
       })
-      return apiClient.get(`/analytics/rankings/ad-name/${encodeURIComponent(adName)}/history?${qs.toString()}`, { signal: options?.signal })
+      return apiClient.get(`/analytics/rankings/ad-name/${encodeURIComponent(adName)}/history?${qs.toString()}`, { signal: options?.signal, timeout: ANALYTICS_REQUEST_TIMEOUT_MS })
     },
     getTranscription: async (adName: string): Promise<AdTranscriptionResponse | null> => {
       try {
@@ -422,7 +423,7 @@ export const api = {
         if (packId) qs.append('pack_ids', packId)
       })
       appendIncludeCustom(qs)
-      return apiClient.get(`/analytics/rankings/adset-id/${encodeURIComponent(adsetId)}?${qs.toString()}`, { signal: options?.signal })
+      return apiClient.get(`/analytics/rankings/adset-id/${encodeURIComponent(adsetId)}?${qs.toString()}`, { signal: options?.signal, timeout: ANALYTICS_REQUEST_TIMEOUT_MS })
     },
     getAdsetChildren: (
       adsetId: string,
@@ -437,7 +438,7 @@ export const api = {
         if (packId) qs.append('pack_ids', packId)
       })
       appendIncludeCustom(qs)
-      return apiClient.get(`/analytics/rankings/adset-id/${encodeURIComponent(adsetId)}/children?${qs.toString()}`, { signal: options?.signal })
+      return apiClient.get(`/analytics/rankings/adset-id/${encodeURIComponent(adsetId)}/children?${qs.toString()}`, { signal: options?.signal, timeout: ANALYTICS_REQUEST_TIMEOUT_MS })
     },
     getCampaignChildren: (
       campaignId: string,
@@ -454,7 +455,7 @@ export const api = {
       })
       appendIncludeCustom(qs)
       const query = qs.toString()
-      return apiClient.get(`/analytics/rankings/campaign-id/${encodeURIComponent(campaignId)}/children${query ? `?${query}` : ''}`, { signal: options?.signal })
+      return apiClient.get(`/analytics/rankings/campaign-id/${encodeURIComponent(campaignId)}/children${query ? `?${query}` : ''}`, { signal: options?.signal, timeout: ANALYTICS_REQUEST_TIMEOUT_MS })
     },
     listPacks: (includeAds?: boolean): Promise<{ success: boolean; packs: any[] }> =>
       apiClient.get('/analytics/packs', { params: { include_ads: includeAds || false } }),

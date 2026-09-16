@@ -49,11 +49,35 @@ class TestOrdemDosTempos(unittest.TestCase):
 
     def test_teto_do_manager_acima_do_banco(self) -> None:
         # Este vem do .env da VPS, que o repositório não controla — por isso o
-        # piso está no código e não só no arquivo de ambiente.
+        # piso está no código e não só no arquivo de ambiente. A função do Manager
+        # tem teto próprio no banco (164), maior que o do papel.
         self.assertGreater(
             config.ANALYTICS_MANAGER_POSTGREST_TIMEOUT_SECONDS,
-            config.DB_READ_STATEMENT_TIMEOUT_SECONDS,
+            config.MANAGER_STATEMENT_TIMEOUT_SECONDS,
         )
+        self.assertGreater(config.MANAGER_STATEMENT_TIMEOUT_SECONDS, config.DB_READ_STATEMENT_TIMEOUT_SECONDS)
+
+    def test_env_pequeno_nao_inverte_a_ordem_do_manager(self) -> None:
+        import importlib
+        import os
+        os.environ["ANALYTICS_MANAGER_POSTGREST_TIMEOUT_SECONDS"] = "30"
+        try:
+            self.assertGreaterEqual(
+                importlib.reload(config).ANALYTICS_MANAGER_POSTGREST_TIMEOUT_SECONDS,
+                config.MIN_MANAGER_READ_TIMEOUT_SECONDS,
+            )
+        finally:
+            del os.environ["ANALYTICS_MANAGER_POSTGREST_TIMEOUT_SECONDS"]
+            importlib.reload(config)
+
+    def test_constante_bate_com_a_migration(self) -> None:
+        # O banco manda (migration 164); a constante é o espelho que o backend usa
+        # para garantir a ordem. Mudou um, muda o outro.
+        import re
+        from pathlib import Path
+        sql = (Path(__file__).resolve().parents[2] / "supabase" / "migrations" / "164_manager_espera_40s.sql").read_text(encoding="utf-8")
+        valores = set(re.findall(r"SET statement_timeout TO '(\d+)s'", sql))
+        self.assertEqual(valores, {str(int(config.MANAGER_STATEMENT_TIMEOUT_SECONDS))})
 
     def test_valor_pequeno_de_quem_chama_nao_inverte_a_ordem(self) -> None:
         # Alguém pedindo "espere só 3 s" recriaria a consulta órfã em silêncio.

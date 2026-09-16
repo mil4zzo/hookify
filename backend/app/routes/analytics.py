@@ -1515,7 +1515,9 @@ def get_campaign_children(
         include_custom=include_custom,
         include_available_conversion_types=False,
     )
-    sb = get_supabase_for_user(user["token"])
+    # Cliente do Manager: a função tem teto de 40 s no banco (164); o cliente comum
+    # desistiria aos 25 s e deixaria a consulta órfã.
+    sb = _get_analytics_supabase(user["token"])
     if _config.ANALYTICS_MANAGER_V161:
         # Sem prefixo de miniatura de propósito: esta rota nunca hidratou a miniatura
         # do Storage, e as linhas de conjunto seguem como eram (a tela não a mostra).
