@@ -324,7 +324,15 @@ diferencial zerado, e o tempo total medido e registrado.
 
 ---
 
-## Bloco 4 — `detect_pack_conflicts`: a afinação barata
+## Bloco 4 — `detect_pack_conflicts`: a afinação barata ✅ FEITO (16/09)
+
+**Resultado (38 packs do Igor, 0 conflitos):** `VACUUM (ANALYZE)` no mapa (0% → 100% das
+páginas marcadas): idas à tabela **156.580 → 0**; tempo **0,45 → 0,375 s** (4,8 s com cache
+frio antes). `work_mem 16MB` na função testado e **descartado** (tira do disco a ordenação
+de 7 MB, mas muda ~20 ms — ruído). Migration **165**: autovacuum a 2% no mapa, para a
+marca não voltar a zero. Também feito no mesmo dia, fora do plano original: o Manager espera
+40 s (migration 164, decisão do idealizador).
+
 
 **Por quê (medido em 15/09).** Depois do F5 a função caiu para 0,5–0,8 s nos 38 packs do Igor
 (antes: média 4,6 s, pior caso 19,7 s). O que sobra de desperdício: lê as **142 mil linhas de
@@ -436,5 +444,5 @@ API nova, não pela antiga.
   rodam SÓ lá (`supabase/tests/README.md`).
 - **Deploy:** `ssh root@77.37.126.210`, `cd /var/www/hookify/deploy && ./deploy.sh` disparado com
   `setsid nohup`; esperar pela trava (`flock /tmp/hookify_deploy.lock true`), nunca por `pgrep`.
-- **Ordem sugerida:** 7 (urgente: aba quebrada) → 4 → 5 (1, 2 e 3 já feitos). Os blocos 4 e 6 são independentes; o 5 espera
+- **Ordem sugerida:** 1, 2, 3, 4 e 7 feitos. Próximos: medir 38 packs por anúncio (decide resumo pré-calculado / partes) → 6 → 5. Os blocos 4 e 6 são independentes; o 5 espera
   a feature de editar data do pack.
