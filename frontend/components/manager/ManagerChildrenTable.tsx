@@ -212,22 +212,14 @@ export function ManagerChildrenTable({
     }
 
     const dataWithCalculations = childrenData.map((child) => {
-      let conversions = child.conversions || {};
-
-      if (Object.keys(conversions).length === 0 && child.series?.conversions) {
-        conversions = {};
-
-        for (const dayConversions of child.series.conversions) {
-          if (dayConversions && typeof dayConversions === "object") {
-            for (const [conversionActionType, value] of Object.entries(dayConversions)) {
-              if (!conversions[conversionActionType]) {
-                conversions[conversionActionType] = 0;
-              }
-              conversions[conversionActionType] += Number(value || 0);
-            }
-          }
-        }
-      }
+      // 160: aqui havia um plano B que somava as conversões dia a dia a partir de
+      // `child.series` quando `child.conversions` vinha vazio. Nenhuma das três
+      // rotas que alimentam esta tabela manda série: a de campanha nunca mandou
+      // (`include_series=False`), e as de ad_name e adset_id pararam na 160, porque
+      // montar a mini-série por anúncio custava 35% do que saía do banco para uma
+      // tela que não a desenha. Era código morto — somava a partir de `undefined`.
+      // As conversões desta linha vêm dos totais do período, que é a fonte certa.
+      const conversions = child.conversions || {};
       return {
         ...buildManagerComputedRow(
           {

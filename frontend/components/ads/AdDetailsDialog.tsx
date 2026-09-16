@@ -451,8 +451,18 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
   }, [ad, averages?.cpmql, childrenData]);
 
   // Calcular séries dinâmicas (cpr, cpc, cplc e page_conv)
+  //
+  // 160: `adDetails` entrou na fila de fontes. As rotas de filhos pararam de mandar
+  // a mini-série por anúncio — a tabela de variações não a desenha, e montá-la
+  // custava 35% do que saía do banco para 630 anúncios. Quem desenha série é este
+  // modal, para UM anúncio, e todas as células que a usam vivem na aba de vídeo —
+  // a mesma em que `useAdDetails` já é buscado (`shouldLoadDetails`). Ou seja: não
+  // há requisição nova, a série só passa a chegar por ela.
+  //
+  // Mesma ordem de prioridade já usada para a curva de retenção e o p50 logo
+  // abaixo: período sobrescrito > linha que abriu o modal > detalhe do anúncio.
   const series = useMemo(() => {
-    const baseSeries = effectiveAd?.series ?? ad?.series;
+    const baseSeries = effectiveAd?.series ?? ad?.series ?? (adDetails as any)?.series;
     if (!baseSeries) return baseSeries;
 
     return {
@@ -464,7 +474,7 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
       page_conv: buildMetricSeriesFromSourceSeries(baseSeries as any, "page_conv", { actionType: localActionType }),
       website_ctr: buildMetricSeriesFromSourceSeries(baseSeries as any, "website_ctr"),
     } as any;
-  }, [ad?.series, effectiveAd?.series, localActionType]);
+  }, [ad?.series, effectiveAd?.series, adDetails, localActionType]);
 
   // Retenção de vídeo (array 0..100 por segundo) - priorizar effectiveAd > ad > adDetails
   const retentionSeries: number[] = useMemo(() => {

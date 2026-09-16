@@ -103,3 +103,32 @@ A primeira calibração da escala (300 × 1.200 anúncios, 3 dias, razão < 8) *
 (razão 6,6): nesse tamanho a parte quadrática ainda não domina. Teste de escala só vale num
 tamanho em que a versão ruim já é visivelmente ruim — e com folga larga, porque a máquina do lab
 varia ±40% entre rodadas.
+
+## Migration 160 — série de dias sob demanda
+
+```bash
+export PATH="/c/Program Files/PostgreSQL/17/bin:$PATH"
+export PGPASSWORD='lab_hookify_2026'; export PGHOST=127.0.0.1; export PGUSER=hookify_lab
+
+# o teste novo
+psql -d hookify_lab -X -v ON_ERROR_STOP=1 -f supabase/tests/160_serie_sob_demanda.test.sql
+
+# não-regressão: o diferencial da 157 rodado contra a v158
+psql -d hookify_lab -X -v ON_ERROR_STOP=1 -v alvo=fetch_entity_performance_v158 \
+     -f supabase/tests/157_detalhe_linear.test.sql
+```
+
+A v158 é a v157 com `p_series_days = 0` significando NENHUM dia (na v157 o zero caía
+junto do NULL e pedia o período inteiro). As 515 combinações da 157 continuam idênticas
+à v155 — a mudança só cria significado para um valor que ninguém usava.
+
+Sabotagens provadas (15/09): rodar com `alvo=...v157` (A1 falha, 3 dias em vez de 0);
+`v_date_stop` em vez de `v_date_stop + 1` (A1 falha, sobra 1 dia); fazer a CTE `totals`
+respeitar `v_series_start` — o jeito errado de zerar dias — (A1b falha com `<NULL>`: sem
+total, o `having` descarta o grupo e ele SOME da resposta).
+
+**Armadilha de medição:** não estime "o custo de um dia" com `p_series_days = 1` quando o
+período termina hoje. A janela vira `[date_stop, date_stop]`, não há linha do dia corrente,
+e a chamada devolve ZERO dia — o mesmo tamanho de "sem série". Confira a contagem de dias
+na saída, não só os bytes. Isso produziu um ganho inventado de 44% antes de a medição com
+a função real mostrar 35%.

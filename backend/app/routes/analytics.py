@@ -1185,18 +1185,27 @@ def _entity_child_item(
     mql: Optional[float],
     include_leadscore: bool,
     *,
-    series_null_when_empty: bool = False,
+    incluir_serie: bool = True,
 ) -> Dict[str, Any]:
     """Linha-filha (um anúncio) no contrato de /children — comum a ad-name e adset-id.
 
-    `series_null_when_empty`: os filhos por ad_name sempre devolveram `series: null`
-    para o anúncio sem nenhum dia no eixo de 5 dias (os de adset devolvem o objeto
-    com nulls). Contrato mantido — provado pelo diferencial.
+    `incluir_serie=False`: `series` sai como `null` para TODA linha. As telas de
+    filhos não desenham a mini-série — quem a usa é o modal de um anúncio, que a
+    busca por `/rankings/ad-id/{id}` (mesmo `EP.series_of`, mesmos 5 dias). Medido
+    em 15/09 com 630 anúncios: a série era 35% do que saía do banco e ~1/3 do tempo.
+    Devolver `null` explícito, e não um objeto de nulls, deixa o contrato legível:
+    "esta rota não tem série", em vez de "esta rota tem série sem dados".
+
+    HISTÓRICO, para quem um dia religar a série aqui: havia um
+    `series_null_when_empty` porque as duas rotas divergiam — o filho por ad_name
+    devolvia `null` para o anúncio sem nenhum dia no eixo de 5 dias, e o de adset
+    devolvia o objeto com nulls. Com as duas em `null` sempre, esse flag passou a
+    não ter efeito observável e saiu (160). Religar a série exige decidir de novo
+    o que fazer com o anúncio sem dia no eixo.
     """
     t = EP.totals_of(group)
     d = EP.derived_of(t)
     status = group.get("effective_status")
-    has_axis_days = any(str((day or {}).get("date") or "")[:10] in axis for day in (group.get("days") or []))
     return {
         "account_id": group.get("account_id"),
         # Packs de onde vieram as metricas desta filha, restritos a selecao
@@ -1232,7 +1241,7 @@ def _entity_child_item(
         # 140: histogramas das colunas vinculadas ({} quando a rota não pediu)
         "custom_histograms": t["custom_histograms"],
         "thumbnail": _entity_thumbnail(group),
-        "series": None if (series_null_when_empty and not has_axis_days) else EP.series_of(group, axis, mql),
+        "series": None if not incluir_serie else EP.series_of(group, axis, mql),
     }
 
 
@@ -1317,18 +1326,22 @@ def get_rankings_children(
     user=Depends(get_current_user),
     include_custom: bool = False,
 ):
-    """Linhas-filhas (um anúncio por ad_id) de um ad_name no período, com série de 5
-    dias (read model, migration 133). Com `pack_ids`, só os packs selecionados."""
+    """Linhas-filhas (um anúncio por ad_id) de um ad_name no período (read model,
+    migration 133). Com `pack_ids`, só os packs selecionados.
+
+    SEM mini-série por anúncio (160): a tabela de variações não a desenha, e montá-la
+    custava 35% do que saía do banco. Quem precisa da série é o modal de um anúncio,
+    que a busca por `/rankings/ad-id/{id}`."""
     axis = _axis_5_days(date_stop)
     payload = _entity_payload(
         user, date_start=date_start, date_stop=date_stop, entity="ad_name", entity_id=ad_name,
-        pack_ids=pack_ids, group_by="ad_id", include_curve=False, series_days=5,
+        pack_ids=pack_ids, group_by="ad_id", include_curve=False, series_days=0,
         include_custom=include_custom,
     )
     mql = payload["mql_leadscore_min"]
     items: List[Dict[str, Any]] = []
     for g in payload["groups"]:
-        item = _entity_child_item(g, axis, mql, include_leadscore, series_null_when_empty=True)
+        item = _entity_child_item(g, axis, mql, include_leadscore, incluir_serie=False)
         item["ad_name"] = ad_name
         items.append(item)
     _sort_children(items, order_by)
@@ -1347,8 +1360,11 @@ def get_campaign_children(
     user=Depends(get_current_user),
     include_custom: bool = False,
 ):
-    """Retorna linhas-filhas agregadas por adset_id para um campaign_id no perÃ­odo.
-    Inclui sÃ©ries de 5 dias (hook, spend, ctr, connect_rate, lpv, impressions, conversions).
+    """Retorna linhas-filhas agregadas por adset_id para um campaign_id no período.
+
+    SEM série: `include_series=False` abaixo. A docstring dizia o contrário e estava
+    errada desde antes da 160 — as três rotas que alimentam a tabela de filhos (esta,
+    a de ad_name e a de adset_id) devolvem `series` vazia ou nula.
     """
     req = RankingsRequest(
         date_start=date_start,
@@ -1392,18 +1408,23 @@ def get_adset_children(
     user=Depends(get_current_user),
     include_custom: bool = False,
 ):
-    """Linhas-filhas (um anúncio por ad_id) de um adset_id no período, com série de 5
-    dias (read model, migration 133). Com `pack_ids`, só os packs selecionados."""
+    """Linhas-filhas (um anúncio por ad_id) de um adset_id no período (read model,
+    migration 133). Com `pack_ids`, só os packs selecionados.
+
+    SEM mini-série por anúncio (160) — mesma razão da rota por ad_name: a tabela de
+    filhos não desenha a série; o modal de um anúncio a busca por
+    `/rankings/ad-id/{id}`. Antes desta mudança esta rota devolvia o objeto de série
+    com os dados; agora devolve `null`."""
     axis = _axis_5_days(date_stop)
     payload = _entity_payload(
         user, date_start=date_start, date_stop=date_stop, entity="adset_id", entity_id=adset_id,
-        pack_ids=pack_ids, group_by="ad_id", include_curve=False, series_days=5,
+        pack_ids=pack_ids, group_by="ad_id", include_curve=False, series_days=0,
         include_custom=include_custom,
     )
     mql = payload["mql_leadscore_min"]
     items: List[Dict[str, Any]] = []
     for g in payload["groups"]:
-        item = _entity_child_item(g, axis, mql, include_leadscore)
+        item = _entity_child_item(g, axis, mql, include_leadscore, incluir_serie=False)
         items.append({
             "unique_id": None,
             "account_id": item["account_id"],

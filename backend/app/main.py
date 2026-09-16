@@ -71,7 +71,12 @@ app = FastAPI(
 # Content-Encoding. A resposta do Manager (JSON com arrays numéricos, ~1 MB)
 # comprime 4-6x. `minimum_size=1000`: abaixo disso o cabeçalho custa mais que
 # o ganho.
-app.add_middleware(GZipMiddleware, minimum_size=1000)
+# `compresslevel=6` e nao o 9 do padrao. Medido em 15/09 na resposta de variacoes
+# (1,6 MB crus): nivel 9 custa ~60 ms de CPU por resposta e nivel 6 custa ~8 ms,
+# para um arquivo ~12% maior. Em rede de usuario esses 12% valem milissegundos; os
+# 52 ms de CPU sao pagos pelo servidor em TODA resposta grande, e o processo do
+# backend e o mesmo que atende as outras requisicoes enquanto comprime.
+app.add_middleware(GZipMiddleware, minimum_size=1000, compresslevel=6)
 
 
 @app.middleware("http")

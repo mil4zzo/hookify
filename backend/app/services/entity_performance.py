@@ -25,8 +25,12 @@ from app.core.supabase_retry import with_postgrest_retry
 
 # 155: completado pelo inventário do pack (anúncio ativo sem entrega, sem linha de métrica)
 # 157: mesma saída, montagem linear no número de anúncios (a v155 era N² nos filhos de um
-#      criativo repetido em centenas de anúncios). Rollback: voltar para _v155.
-RPC_NAME = "fetch_entity_performance_v157"
+#      criativo repetido em centenas de anúncios).
+# 158: idem, e `series_days=0` passa a significar NENHUM dia de série (na v157 caía junto
+#      do NULL e pedia o período inteiro). É o que deixa as rotas de filhos não pagarem por
+#      uma mini-série que a tabela de variações não desenha: 35% menos dado saindo do banco.
+# Rollback: voltar para _v157 (e as rotas de filhos voltarem a pedir series_days=5).
+RPC_NAME = "fetch_entity_performance_v158"
 
 # Campos inteiros e somas ponderadas que a RPC devolve em `totals` e em cada dia.
 INT_FIELDS = ("impressions", "clicks", "inline_link_clicks", "lpv", "plays", "thruplays", "reach")

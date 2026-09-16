@@ -9,9 +9,13 @@ regras que o diferencial não isola: MQL indefinido ≠ zero, série nula do fil
 dia no eixo, conversões sem prefixo no conjunto, curva ponderada por índice, 403.
 
 SABOTAGENS PROVADAS (2026-08-27): trocar `count_mql` para devolver 0 sem corte
-→ falha `test_mql_sem_corte_e_indefinido`; remover o `series_null_when_empty`
-→ falha `test_filho_sem_dia_no_eixo_tem_series_nula`; somar plays de todas as
-linhas na curva → falha `test_curva_pondera_so_quem_tem_o_indice`.
+→ falha `test_mql_sem_corte_e_indefinido`; somar plays de todas as linhas na curva
+→ falha `test_curva_pondera_so_quem_tem_o_indice`.
+(2026-09-15) `series_days=5` de volta nas rotas de filhos → falha
+`test_filho_por_ad_name_nao_tem_series_nem_com_dias`. A sabotagem antiga citada
+aqui era `remover o series_null_when_empty`; esse flag saiu na 160, quando as duas
+rotas de filhos passaram a devolver `series: null` sempre — ver o histórico na
+docstring de `_entity_child_item`.
 """
 import unittest
 from unittest import mock
@@ -146,22 +150,36 @@ class TestRotas(unittest.TestCase):
     def _patch(self, sb):
         return mock.patch.object(A, "get_supabase_for_user", return_value=sb)
 
-    def test_filho_sem_dia_no_eixo_tem_series_nula(self):
+    def test_filho_por_ad_name_nao_tem_series_nem_com_dias(self):
+        """160: a rota nao pede dia (`p_series_days=0`) e devolve `series: null`.
+
+        Ate 15/09 este teste afirmava o contrato antigo: filho COM dia no eixo tinha
+        serie, filho SEM dia tinha `null`. A tabela de variacoes nao desenha essa
+        serie, e monta-la custava 35% do que saia do banco para 630 anuncios; quem a
+        desenha e o modal de um anuncio, por `/rankings/ad-id/{id}`.
+
+        O grupo `a1` entra COM dias de proposito: se a rota voltasse a montar a
+        serie, teria com que monta-la e o teste falharia — em vez de passar porque
+        nao havia dado.
+        """
         g2 = _group(group_key="a2", ad_id="a2", days=[])
         sb = _Sb({"mql_leadscore_min": None, "groups": [_group(group_key="a1"), g2]})
         with self._patch(sb):
             out = A.get_rankings_children("N1", "2026-01-01", "2026-01-05", None, True, ["p1"], self.USER)
         by_id = {r["ad_id"]: r for r in out["data"]}
-        self.assertIsNotNone(by_id["a1"]["series"])
-        self.assertIsNone(by_id["a2"]["series"])  # contrato historico do filho por ad_name
+        self.assertIsNone(by_id["a1"]["series"], "filho com dias tambem nao leva serie")
+        self.assertIsNone(by_id["a2"]["series"])
+        self.assertIn("series", by_id["a1"], "o campo continua no contrato, so que nulo")
         self.assertEqual(sb.params["p_group_by"], "ad_id")
-        self.assertEqual(sb.params["p_series_days"], 5)
+        self.assertEqual(sb.params["p_series_days"], 0, "0 = nenhum dia (160); 5 traria a serie de volta")
 
-    def test_filho_do_conjunto_sempre_tem_series(self):
+    def test_filho_do_conjunto_tambem_nao_tem_series(self):
+        """Mesma decisao da rota por ad_name — e o resto do contrato segue de pe."""
         sb = _Sb({"mql_leadscore_min": None, "groups": [_group(group_key="a2", ad_id="a2", days=[])]})
         with self._patch(sb):
             out = A.get_adset_children("s1", "2026-01-01", "2026-01-05", None, True, ["p1"], self.USER)
-        self.assertIsNotNone(out["data"][0]["series"])
+        self.assertIsNone(out["data"][0]["series"])
+        self.assertEqual(sb.params["p_series_days"], 0)
         self.assertEqual(out["data"][0]["ad_count"], 1)
         self.assertIsNone(out["data"][0]["unique_id"])
 
