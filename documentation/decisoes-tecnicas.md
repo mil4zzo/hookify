@@ -4995,3 +4995,22 @@ aviso montado à mão no Upload. Virou `InlineNotice`.
 `semantic-color-slash-opacity`, `tailwind-v4-syntax` (todas sabotadas de propósito
 antes do commit). Doc do padrão visual ganhou as seções "Escala alpha" e
 "Tailwind 3.4, não 4", com o comando para compilar uma classe em dúvida.
+
+---
+
+## Status das telas pelo uso real — onde investir design e performance (2026-09-16)
+
+Definido pelo idealizador ao ordenar a repintura do design system. Vale para qualquer
+trabalho "tela a tela".
+
+| Grupo | Telas | Postura |
+|---|---|---|
+| Em uso hoje | onboarding, packs, manager e seus modais (planilha, carregar pack, detalhe de criativo/campanha/conjunto, configurações) | prioridade |
+| Próximas, ainda vão mudar | insights, boards | não repintar antes do redesign |
+| Reativação futura | upload, admin | depois das otimizações |
+| Debug | meta-usage | perdeu utilidade |
+| Legado | gold, explorer, plano | decisão pendente (apagar ou migrar) — não investir |
+
+As decisões anteriores sobre o `/plano` registradas neste arquivo (redesign v2,
+alavancas, comparação do dia) continuam válidas como referência para uma eventual
+migração das funcionalidades, não como tela a evoluir.
