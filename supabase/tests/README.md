@@ -132,3 +132,43 @@ período termina hoje. A janela vira `[date_stop, date_stop]`, não há linha do
 e a chamada devolve ZERO dia — o mesmo tamanho de "sem série". Confira a contagem de dias
 na saída, não só os bytes. Isso produziu um ganho inventado de 44% antes de a medição com
 a função real mostrar 35%.
+
+## Migration 161 — Manager em colunas, todas as linhas
+
+```bash
+export PATH="/c/Program Files/PostgreSQL/17/bin:$PATH"
+export PGPASSWORD='lab_hookify_2026'; export PGHOST=127.0.0.1; export PGUSER=hookify_lab
+export PGCLIENTENCODING=UTF8
+
+# ramos que os dados reais não exercitam (status vazio, miniatura já do Storage,
+# caminho com acento, conjunto, renome, 10.050 linhas sem corte)
+psql -d hookify_lab -X -v ON_ERROR_STOP=1 -f supabase/tests/161_manager_em_colunas.test.sql
+
+# diferencial: resposta HTTP antiga (v155 + core_v2 + hidratação Python) contra a
+# nova convertida em linhas — 591 cenários, ~25 min no laboratório
+PSQL="C:/Program Files/PostgreSQL/17/bin/psql.exe" py backend/scripts/diff_manager_v161.py --jobs 3
+```
+
+Resultado em 16/09: **591 cenários, 344.605 linhas, zero divergências** (inclusive a
+ordem das linhas, que a v161 calcula sobre `grp` e entrega em `row_order`).
+
+**O diferencial sozinho não bastava — provado por sabotagem.** `status_resolved` forçado
+a verdadeiro passou ileso por ele, porque nenhum anúncio do laboratório tem status vazio;
+idem renome (nenhum dos 58.499 anúncios de produção foi renomeado). Daí o teste SQL.
+
+Sabotagens provadas (16/09):
+- no diferencial: tags/transcrição trocadas, miniatura sem Storage, `budget_mode` do
+  próprio conjunto, filtro de campanha pelo conjunto — todas acusadas;
+- no teste SQL: `status_resolved` sempre verdadeiro e sem tirar espaços (C2), caminho sem
+  codificar (C3), sem o ramo "já é do Storage" (C4), corte de 10 mil de volta (C1),
+  motivo da pausa invertido (C6), orçamento em aba de anúncio (C7), sem plano B de
+  `ad_metrics` (C6), e voltar a ler o nome do DIA antes do atual (C8);
+- nos leitores (Python e TypeScript): ignorar `row_order` derruba a paridade com o fixture.
+
+Duas armadilhas desta rodada:
+1. **Sabotagem que não passa pela linha alterada não prova nada.** "Preferir o nome do
+   dia" não mudou o resultado enquanto `ad_metrics` só era lida SEM linha em `ads`; a
+   regressão real era voltar a ler sempre. Sabote o comportamento antigo, não um
+   detalhe do novo.
+2. **Um script de sabotagem que falha antes de gravar deixa o arquivo da sabotagem
+   ANTERIOR no lugar** — e o psql aplica aquele. Apague o arquivo antes de gerar.

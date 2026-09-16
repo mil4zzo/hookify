@@ -425,3 +425,5 @@ AUX
 !tailwind.config.ts
 !postcss.config.js
 !components.json
+# Fixtures de teste versionados (dados sintéticos ou anonimizados — nunca dado de cliente)
+!**/__tests__/fixtures/*.json

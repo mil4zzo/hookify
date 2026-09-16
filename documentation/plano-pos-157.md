@@ -157,7 +157,41 @@ desenha** — ela só é usada ao clicar numa variação (1 de 630). E comprimir
 
 ---
 
-## Bloco 7 — Aba "Por anúncio" com TODAS as linhas (aberto em 16/09) 🔨
+## Bloco 7 — Aba "Por anúncio" com TODAS as linhas 🚀 PRONTO PARA DEPLOY (16/09)
+
+**Estado.** Migration `161_manager_em_colunas.sql` aplicada em produção (a função nova não é
+chamada por ninguém até o backend subir); backend com `ANALYTICS_MANAGER_V161` (padrão ligado;
+`false` volta à v155 sem deploy); frontend pedindo `format: 'columns'`, lendo em um ponto só
+(`lib/api/managerColumns.ts`) e gravando em colunas no IndexedDB; `limit` 100000 no Manager e
+no Boards. Diferencial: 591 cenários, 344.605 linhas, zero divergências. Testes: 829 no
+backend, 28 no frontend, teste SQL novo com 10 sabotagens provadas.
+
+**Medido em produção (v155+core_v2 → v161):**
+
+| aba (Igor) | antes | depois |
+|---|---|---|
+| por anúncio, 7 packs (26.015 linhas) | 39–44 s, cortado em 10 mil | **7,7–10,6 s, completo** |
+| por conjunto, 38 packs | 21,8 s (estourava) | **11,7 s** |
+| por conjunto, 7 packs | 7,2 s | 3,8 s |
+| por criativo, 7 / 38 packs | ~2 s / 16,6–17,7 s | ~2 s / 12,8–17,1 s |
+| por campanha, 7 / 38 packs | 3,2 s / 13,3 s | 3,1 s / 12,1 s |
+| **por anúncio, 38 packs, 120 dias (51 mil linhas)** | — | **36–45 s — ainda falha** |
+
+**O que sobrou (decisão pendente).** Por anúncio com todos os packs ainda passa dos 20 s. Em
+produção o custo restante é: agregação de base (~9 s a 51 mil linhas), montar o JSON (~4 s a
+cada 26 mil linhas, CPU) e ler `ads` com cache frio (~7 s). Alavancas, em ordem de custo:
+1. mais memória na instância (hoje 256 MB para 1,2 GB de banco — o gargalo de fundo);
+2. índices de cobertura (nomes por campanha/conjunto; colunas de `ads` do representante);
+3. `VACUUM` para marcar páginas visíveis (`ad_metrics` com 0%);
+4. agregado pré-calculado por período (projeto).
+
+**A descobrir no mesmo tema:** Explorer e Insights pedem `limit: 1000` — o Igor tem ~3,4 mil
+criativos; o mesmo corte silencioso pode existir lá (decidir se é proposital).
+
+**Correção deste plano:** a primeira versão desta seção atribuía ~10 s ao invólucro
+`core_v2`. Errado para as abas de anúncio e criativo — nelas ele devolve a base sem tocar.
+
+### Contexto original (aberto em 16/09)
 
 **O incidente.** A aba "Por anúncio" do Igor (7 packs, 26/08–15/09, purchase) deu 500 duas vezes:
 `57014` aos 20 s. Medido sem limite: **39–44 s** — falharia também com os 30 s de antes da 159.

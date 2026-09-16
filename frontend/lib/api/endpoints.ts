@@ -1,5 +1,6 @@
 import { apiClient } from './client'
 import { getActiveCustomColumns } from '@/lib/metrics/customColumnsRegistry'
+import { asRowPayload, type ColumnarPayload } from './managerColumns'
 import {
   GetMeResponse,
   GetAdsRequest,
@@ -300,11 +301,20 @@ export const api = {
     // `options.signal` permite que o TanStack Query aborte o HTTP em-voo
     // (ex.: queryClient.cancelQueries() no logout) — sem ele a query pesada
     // continua rodando no backend até estourar o statement_timeout (57014).
-    getRankings: (params: RankingsRequest, options?: { signal?: AbortSignal }): Promise<RankingsResponse> =>
-      apiClient.post('/analytics/rankings', params, { signal: options?.signal }),
+    //
+    // 161: pedimos a resposta em COLUNAS (`format: 'columns'`) e a convertemos em
+    // linhas aqui, num ponto só — Manager, Boards, Explorer e Insights recebem o
+    // formato de sempre. Colunas trafegam ~45% menores; o navegador usa linhas.
+    // Ver lib/api/managerColumns.ts.
+    getRankings: async (params: RankingsRequest, options?: { signal?: AbortSignal }): Promise<RankingsResponse> =>
+      asRowPayload(
+        await apiClient.post<RankingsResponse | ColumnarPayload>('/analytics/rankings', { ...params, format: 'columns' }, { signal: options?.signal }),
+      ) as RankingsResponse,
     // Alias semântico para evolução futura: mesma payload, rota nova
-    getAdPerformance: (params: RankingsRequest, options?: { signal?: AbortSignal }): Promise<RankingsResponse> =>
-      apiClient.post('/analytics/ad-performance', params, { signal: options?.signal }),
+    getAdPerformance: async (params: RankingsRequest, options?: { signal?: AbortSignal }): Promise<RankingsResponse> =>
+      asRowPayload(
+        await apiClient.post<RankingsResponse | ColumnarPayload>('/analytics/ad-performance', { ...params, format: 'columns' }, { signal: options?.signal }),
+      ) as RankingsResponse,
     getRankingsSeries: (params: RankingsSeriesRequest, options?: { signal?: AbortSignal }): Promise<RankingsSeriesResponse> =>
       apiClient.post('/analytics/rankings/series', params, { signal: options?.signal }),
     getRankingsRetention: (params: RankingsRetentionRequest, options?: { signal?: AbortSignal }): Promise<RankingsRetentionResponse> =>

@@ -20,15 +20,17 @@
  *
  * TAMANHO
  * -------
- * ~570 kB por resposta do ad-performance; cada (período × packs × agrupamento ×
+ * Até ~9 MB por resposta do ad-performance em colunas (10 mil linhas; ver
+ * `serializeAnalyticsQuery`); cada (período × packs × agrupamento ×
  * evento × frescor) é uma entrada. `persisterGc()` no primeiro uso da sessão
  * remove o que passou de `maxAge` ou é de outro usuário.
  */
 
 import { experimental_createQueryPersister } from '@tanstack/query-persist-client-core'
-import type { AsyncStorage } from '@tanstack/query-persist-client-core'
+import type { AsyncStorage, PersistedQuery } from '@tanstack/query-persist-client-core'
 import type { Query, QueryKey } from '@tanstack/react-query'
 import { queryPersistStorage } from '@/lib/storage/queryPersistStorage'
+import { asRowPayload, columnsFromRows, isColumnarPayload } from '@/lib/api/managerColumns'
 
 export const ANALYTICS_PERSIST_PREFIX = 'hookify-analytics'
 export const ANALYTICS_PERSIST_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000
@@ -55,6 +57,39 @@ export function busterFor(userId: string): string {
   return `${ANALYTICS_PERSIST_VERSION}:${userId}`
 }
 
+/**
+ * Grava a resposta do Manager em COLUNAS (161). Medido em 16/09 com 10 mil linhas:
+ * 16 MB de texto em linhas contra 9 MB em colunas, por entrada — e cada combinação de
+ * período, packs, aba e evento é uma entrada. A memória da tela continua em linhas
+ * (a troca de status edita linhas direto no cache); só o disco muda de formato.
+ *
+ * Se as linhas não tiverem todas os mesmos campos (um update manual pode ter mexido
+ * em alguma), grava em linhas como sempre: "campo ausente" não pode virar "nulo".
+ */
+export function serializeAnalyticsQuery(pq: PersistedQuery): string {
+  const data = pq.state?.data as Record<string, unknown> | undefined
+  const rows = data?.data
+  if (data && Array.isArray(rows) && rows.length > 0) {
+    const packed = columnsFromRows(rows as Array<Record<string, unknown>>)
+    if (packed) {
+      const { data: _rows, ...topo } = data
+      void _rows
+      return JSON.stringify({ ...pq, state: { ...pq.state, data: { ...topo, ...packed } } })
+    }
+  }
+  return JSON.stringify(pq)
+}
+
+/** Aceita os dois formatos: entradas gravadas antes da 161 estão em linhas. */
+export function deserializeAnalyticsQuery(stored: string): PersistedQuery {
+  const pq = JSON.parse(stored) as PersistedQuery
+  const data = pq?.state?.data
+  if (isColumnarPayload(data)) {
+    pq.state.data = asRowPayload(data)
+  }
+  return pq
+}
+
 const byUser = new Map<string, AnalyticsPersister>()
 let current: AnalyticsPersister | null = null
 
@@ -75,6 +110,8 @@ export function getAnalyticsPersister(
       buster: busterFor(userId),
       maxAge: ANALYTICS_PERSIST_MAX_AGE_MS,
       refetchOnRestore: false,
+      serialize: serializeAnalyticsQuery,
+      deserialize: deserializeAnalyticsQuery,
     })
     byUser.set(userId, p)
     void p.persisterGc().catch(() => { /* best-effort */ })

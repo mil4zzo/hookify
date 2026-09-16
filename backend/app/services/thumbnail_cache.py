@@ -115,6 +115,21 @@ def select_representative_thumb_url(
     return None
 
 
+def public_storage_prefix(bucket: str) -> Optional[str]:
+    """Tudo que vem antes do caminho em `build_public_storage_url`.
+
+    A 161 monta a URL da miniatura no banco (`prefixo || url_quote_path(caminho)`)
+    para o backend só repassar os bytes. O prefixo sai daqui, e não de uma cópia da
+    regra, para as duas montagens não divergirem.
+    """
+    if not SUPABASE_URL:
+        return None
+    b = (bucket or "").strip()
+    if not b:
+        return None
+    return f"{SUPABASE_URL.rstrip('/')}/storage/v1/object/public/{b}/"
+
+
 def build_public_storage_url(bucket: str, storage_path: str) -> Optional[str]:
     if not SUPABASE_URL:
         return None

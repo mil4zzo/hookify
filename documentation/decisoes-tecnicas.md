@@ -4856,3 +4856,51 @@ que não passa pela linha alterada não prova a linha.
 **Armadilha da conferência.** Não dá para conferir o teto do papel com `set role authenticated;
 select pg_sleep(25);` — passa direto. Configuração de papel entra no login, e `SET ROLE` não é
 login. Quem aplica o teto é o PostgREST, lendo `pg_db_role_setting` por transação.
+
+## Manager com todas as linhas: colunas, dicionários e a máquina de produção (2026-09-16)
+
+**Sintoma.** A aba "Por anúncio" do Igor (7 packs, 3 semanas) dava "Erro ao carregar dados":
+`57014` aos 20 s. Sem limite de tempo a consulta levava 39–44 s — falharia também com os 30 s
+de antes da 159. A 159 escolheu 20 s olhando o nível de criativo (1,2 s) sem medir o nível
+por anúncio do maior usuário.
+
+**E um corte silencioso.** O `limit: 10000` do Manager nasceu em 03/2026 como "tirar o limite
+de 1.000"; a função repetia o teto. O Igor tinha 26.015 linhas: as somas do cabeçalho
+(calculadas no navegador), os filtros e a seleção em massa enxergavam só a fatia de maior
+gasto. Decisão do idealizador: **carregar tudo** (teto de segurança de 100 mil), sem paginar —
+filtros, busca e somas rodam no navegador, e paginar refaz a agregação a cada página.
+
+**A máquina manda.** Produção tem 256 MB de memória para um banco de 1,2 GB (`ads` sozinha tem
+548 MB). O laboratório (tudo em memória) media 2,6 s onde produção media 29 s: a diferença era
+leitura aleatória de disco, uma por anúncio. Toda otimização desta rodada foi medida com o
+plano de PRODUÇÃO — no laboratório, as duas maiores economias nem apareciam.
+
+**O que se fez (migration 161), cada item medido em produção:**
+- mídia/transcrição/tags uma vez por NOME (antes: N², ~9 s);
+- dicionários {chave: valor} lidos por subconsulta escalar no lugar de junções entre etapas
+  (no laboratório, uma estimativa trocada fez uma etapa ser relida por linha: ~15 s) — o
+  padrão da 157 generalizado;
+- nomes do representante da linha de `ads` já lida, não da linha do dia em `ad_metrics`
+  (12,4 s e ~99 MB de disco por requisição). Seguro porque, medido, nenhum dos 58.499
+  anúncios foi renomeado e nenhum id de campanha/conjunto tem dois nomes;
+- o dicionário `names` com os nomes que as linhas já trouxeram (54 mil buscas, ~26 s);
+- a ordem calculada sobre as somas e entregue em `row_order`, sem ordenar nem copiar as
+  linhas largas (~200 MB de arquivos temporários por requisição);
+- saída em colunas (45% menos na rede) e o backend repassando os bytes (o
+  `jsonable_encoder` custava 1–3 s a cada 10 mil linhas).
+
+**Resultado.** Por anúncio, 7 packs: 39–44 s cortado → 7,7–10,6 s completo. Por conjunto, 38
+packs: 21,8 s (estourava) → 11,7 s. Criativo e campanha: iguais ou melhores. Diferencial: 591
+cenários, 344.605 linhas, zero divergências.
+
+**O que ficou de fora, e por quê.** Por anúncio com 38 packs e 120 dias (51 mil linhas) ainda
+leva 36–45 s: o que sobra é CPU para montar o JSON (~4 s por 26 mil linhas) e a leitura de
+`ads` quando o cache está frio. As alavancas restantes são outra classe de trabalho — mais
+memória na instância, índice de cobertura para os nomes, ou agregado pré-calculado — e ficaram
+registradas no plano pós-157 para decisão.
+
+**Formato em colunas: colunas para trafegar e gravar, linhas para usar.** Medido: o Chrome lê
+JSON de linhas muito bem (objetos iguais compartilham forma); montar linhas a partir das
+colunas campo a campo dobra a memória (50 MB contra 23 MB por 10 mil linhas). A cópia de um
+molde criado pelo `JSON.parse` empata com as linhas — e `new Function` (que também empata)
+viola a CSP de produção.

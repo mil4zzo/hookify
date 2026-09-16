@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional, Literal, Set, Tuple
 from datetime import datetime, timedelta
+import json
 import logging
 import time
 
@@ -13,13 +14,17 @@ from app.core.supabase_retry import with_postgrest_retry
 from app.core.db_concurrency import db_slot
 from app.core.client_disconnect import ClientGone, abort_if_client_gone
 from app.core.auth import get_current_user
+from fastapi.responses import JSONResponse, Response
+from postgrest.exceptions import APIError
+from app.core import config as _config
 from app.core.config import ANALYTICS_MANAGER_POSTGREST_TIMEOUT_SECONDS
 from app.services import supabase_repo
 from app.services import entity_performance as EP
 from app.services.pack_access import assert_pack_role, resolve_entity_pack_scope
 from app.services import pack_action_log
 from app.services.ad_media import resolve_media_type
-from app.services.thumbnail_cache import build_public_storage_url, DEFAULT_BUCKET
+from app.services.manager_columns import as_row_payload
+from app.services.thumbnail_cache import build_public_storage_url, public_storage_prefix, DEFAULT_BUCKET
 
 try:
     import httpx
@@ -175,6 +180,11 @@ class RankingsRequest(BaseModel):
     )
     series_window: Optional[int] = Field(default=None, description="Limitar series aos Ãºltimos N dias do range. Se None, usa range completo.")
     offset: int = Field(default=0, ge=0, description="Offset para paginaÃ§Ã£o server-side")
+    # 161: "columns" = a resposta da v161 repassada como veio do banco (uma lista por
+    # campo em `data_columns`); o frontend monta as linhas. "rows" (padrão) = o
+    # formato antigo, para quem ainda não pede colunas (aba aberta com o JavaScript
+    # de antes do deploy).
+    format: Literal["rows", "columns"] = "rows"
     include_available_conversion_types: bool = Field(
         # DEFAULT FALSE de proposito (2026-08-25): calcular esta lista expande ~70 tipos
         # de conversao do jsonb linha a linha. Medido com EXPLAIN ANALYZE: +0,8 s numa
@@ -513,18 +523,88 @@ def _get_rankings_core_v2_rpc(req: RankingsRequest, user: Dict[str, Any], sb) ->
     return _normalize_rankings_rpc_response(rpc_result.data)
 
 
+RANKINGS_V161_RPC = "fetch_manager_rankings_v161"
+
+
+def _get_rankings_v161_raw(
+    req: RankingsRequest,
+    user: Dict[str, Any],
+    sb,
+    *,
+    thumb_prefix: Optional[str],
+) -> bytes:
+    """A resposta da v161 como BYTES, sem decodificar.
+
+    POR QUE BYTES
+    -------------
+    Decodificar a resposta em objetos Python e reescrevê-la custava, medido em 16/09
+    com 10 mil linhas, 1–3 s só no `jsonable_encoder` do FastAPI, mais ~0,5 s de
+    `json.loads`/`json.dumps` — para devolver um JSON que o banco já tinha montado.
+    Com a 161 o banco entrega a resposta pronta (miniatura e `status_resolved`
+    inclusos), e a rota só repassa.
+
+    MESMA REQUISIÇÃO DA BIBLIOTECA
+    ------------------------------
+    `sb.rpc(...)` monta caminho, corpo e cabeçalhos; aqui só trocamos o `.execute()`
+    (que decodifica) pela chamada direta na MESMA sessão. A sessão é a
+    `_SlottedHTTPXClient`: o teto de concorrência de banco e o JWT do usuário vêm
+    junto. Erro do PostgREST vira o mesmo `APIError` do `.execute()`, com `.code`
+    (o `57014` continua sendo reconhecido pelo retry).
+    """
+    f = req.filters or RankingsFilters()
+    params: Dict[str, Any] = {
+        "p_user_id": user["user_id"],
+        "p_date_start": req.date_start,
+        "p_date_stop": req.date_stop,
+        "p_group_by": req.group_by,
+        "p_pack_ids": req.pack_ids,
+        "p_account_ids": f.adaccount_ids,
+        "p_campaign_name_contains": f.campaign_name_contains,
+        "p_adset_name_contains": f.adset_name_contains,
+        "p_ad_name_contains": f.ad_name_contains,
+        "p_campaign_id": f.campaign_id,
+        "p_action_type": req.action_type,
+        "p_include_leadscore": bool(req.include_leadscore),
+        "p_include_custom": bool(req.include_custom),
+        "p_include_available_conversion_types": bool(req.include_available_conversion_types),
+        "p_limit": max(1, int(req.limit or 500)),
+        "p_offset": max(0, int(req.offset or 0)),
+        "p_order_by": (req.order_by or "spend"),
+        "p_thumb_public_prefix": thumb_prefix,
+    }
+    abort_if_client_gone("rankings:antes_do_slot")
+    # Slot explícito pelo mesmo motivo do `_get_rankings_core_v2_rpc`: checar
+    # desconexão DEPOIS de ganhar a vez e ANTES de disparar a consulta.
+    with db_slot("rankings_v161_rpc"):
+        abort_if_client_gone("rankings:rpc_principal")
+        rb = sb.rpc(RANKINGS_V161_RPC, params)
+        r = rb.session.request(rb.http_method, rb.path, json=rb.json, params=rb.params, headers=rb.headers)
+    if not r.is_success:
+        try:
+            erro = r.json()
+        except ValueError:
+            erro = {"message": r.text[:500], "code": str(r.status_code), "hint": None, "details": None}
+        raise APIError(erro if isinstance(erro, dict) else {"message": str(erro)[:500], "code": str(r.status_code)})
+    return r.content
+
+
 def _get_rankings_core_v2_rpc_with_retry(
     req: RankingsRequest,
     user: Dict[str, Any],
     sb,
     *,
     max_attempts: int,
-) -> Dict[str, Any]:
-    """Executa RPC agregada com retry curto apenas para falhas transitÃ³rias."""
+    rpc_call=None,
+) -> Any:
+    """Executa RPC agregada com retry curto apenas para falhas transitÃ³rias.
+
+    `rpc_call(req, user, sb)`: a chamada a repetir (padrão: a v155 via core_v2).
+    """
+    call = rpc_call or _get_rankings_core_v2_rpc
     attempts = max(1, int(max_attempts or 1))
     for attempt in range(1, attempts + 1):
         try:
-            return _get_rankings_core_v2_rpc(req, user, sb)
+            return call(req, user, sb)
         except ClientGone:
             # Cancelamento não é falha de RPC: não re-tentar, não virar 500.
             # Guarda obrigatória — ClientGone é Exception comum e este `except
@@ -912,6 +992,61 @@ def _hydrate_transcription_flags_for_rankings_rows(
     return flagged
 
 
+def _get_rankings_v161_response(
+    req: RankingsRequest,
+    user: Dict[str, Any],
+    sb,
+    *,
+    started_at: float,
+    is_probe: bool,
+) -> Response:
+    """Caminho da 161: a v161 responde pronta; a rota repassa.
+
+    `format="columns"`: os bytes do banco, sem tocar. `format="rows"` (aba aberta com
+    o JavaScript anterior ao deploy): as colunas viram linhas aqui e a resposta tem o
+    formato antigo — sem a hidratação Python, que a 161 já fez no banco, e sem o
+    `jsonable_encoder` (JSONResponse serializa direto).
+    """
+    thumb_prefix = public_storage_prefix(DEFAULT_BUCKET)
+    try:
+        raw = _get_rankings_core_v2_rpc_with_retry(
+            req,
+            user,
+            sb,
+            max_attempts=2 if req.group_by == "ad_id" else 1,
+            rpc_call=lambda r, u, s: _get_rankings_v161_raw(r, u, s, thumb_prefix=thumb_prefix),
+        )
+    except ClientGone:
+        raise
+    except Exception as e:
+        elapsed_ms = (time.perf_counter() - started_at) * 1000.0
+        logger.exception(
+            "[rankings] rpc_failed v161 elapsed_ms=%.2f group_by=%s range=%s..%s packs=%s limit=%s format=%s is_probe=%s error=%s",
+            elapsed_ms, req.group_by, req.date_start, req.date_stop, len(req.pack_ids or []),
+            int(req.limit or 0), req.format, is_probe, e,
+        )
+        raise HTTPException(status_code=500, detail="Erro ao consultar analytics agregados.")
+
+    rpc_ms = (time.perf_counter() - started_at) * 1000.0
+    # O navegador pode ter desistido durante a consulta: não montar resposta para ninguém.
+    abort_if_client_gone("rankings:resposta")
+
+    if req.format == "columns":
+        logger.info(
+            "[rankings] rpc_success v161 format=columns elapsed_ms=%.2f group_by=%s range=%s..%s packs=%s bytes=%s is_probe=%s",
+            rpc_ms, req.group_by, req.date_start, req.date_stop, len(req.pack_ids or []), len(raw), is_probe,
+        )
+        return Response(content=raw, media_type="application/json")
+
+    primary = _normalize_rankings_rpc_response(as_row_payload(json.loads(raw)))
+    logger.info(
+        "[rankings] rpc_success v161 format=rows elapsed_ms=%.2f total_ms=%.2f group_by=%s range=%s..%s packs=%s rows=%s bytes=%s is_probe=%s",
+        rpc_ms, (time.perf_counter() - started_at) * 1000.0, req.group_by, req.date_start, req.date_stop,
+        len(req.pack_ids or []), len(primary.get("data") or []), len(raw), is_probe,
+    )
+    return JSONResponse(content=primary)
+
+
 @router.post("/rankings")
 @router.post("/ad-performance")
 def get_rankings(req: RankingsRequest, user=Depends(get_current_user)):
@@ -948,6 +1083,8 @@ def get_rankings(req: RankingsRequest, user=Depends(get_current_user)):
         req.action_type or "",
         is_probe,
     )
+    if _config.ANALYTICS_MANAGER_V161:
+        return _get_rankings_v161_response(req, user, sb, started_at=started_at, is_probe=is_probe)
     try:
         max_rpc_attempts = 2 if req.group_by == "ad_id" else 1
         primary = _get_rankings_core_v2_rpc_with_retry(
@@ -1382,7 +1519,14 @@ def get_campaign_children(
         include_available_conversion_types=False,
     )
     sb = get_supabase_for_user(user["token"])
-    result = _get_rankings_core_v2_rpc(req, user, sb)
+    if _config.ANALYTICS_MANAGER_V161:
+        # Sem prefixo de miniatura de propósito: esta rota nunca hidratou a miniatura
+        # do Storage, e as linhas de conjunto seguem como eram (a tela não a mostra).
+        result = _normalize_rankings_rpc_response(
+            as_row_payload(json.loads(_get_rankings_v161_raw(req, user, sb, thumb_prefix=None)))
+        )
+    else:
+        result = _get_rankings_core_v2_rpc(req, user, sb)
     items: List[Dict[str, Any]] = []
     for row in (result.get("data") or []):
         if not isinstance(row, dict):

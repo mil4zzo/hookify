@@ -158,7 +158,12 @@ export default function BoardsPage() {
       date_stop: dateRange.end || "",
       group_by: "ad_name",
       action_type: actionType || undefined,
-      limit: 10000,
+      // TODAS as linhas (161). Filtros, busca, somas do cabeçalho e seleção em massa
+      // rodam no navegador: um corte aqui os faria enxergar só a fatia de maior gasto,
+      // em silêncio (o 10000 de antes cortava 26 mil linhas num caso real). 100 mil é o
+      // teto de segurança da função no banco, não um orçamento; se estourar, a
+      // FilterBar avisa pelo `pagination.total`.
+      limit: 100000,
       offset: 0,
       filters: {},
       pack_ids: Array.from(selectedPackIds),

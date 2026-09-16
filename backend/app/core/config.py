@@ -112,6 +112,12 @@ ANALYTICS_MANAGER_POSTGREST_TIMEOUT_SECONDS = max(
     MIN_POSTGREST_READ_TIMEOUT_SECONDS, ANALYTICS_MANAGER_POSTGREST_TIMEOUT_SECONDS
 )
 
+# Manager pela `fetch_manager_rankings_v161` (migration 161): todas as linhas, saída em
+# colunas, e a rota só repassa os bytes. `false` volta ao caminho antigo (v155 +
+# core_v2 + hidratação em Python, com o corte de 10 mil) sem novo deploy de código —
+# é a volta atrás da 161. Ligado por padrão.
+ANALYTICS_MANAGER_V161 = os.getenv("ANALYTICS_MANAGER_V161", "true").strip().lower() in ("true", "1", "yes")
+
 # Supabase Auth (Frontend JWT validation and RLS usage)
 SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY")
 SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")  # NUNCA expor no frontend
