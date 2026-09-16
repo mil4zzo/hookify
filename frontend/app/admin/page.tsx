@@ -181,7 +181,7 @@ export default function AdminPage() {
                       )}
                     </td>
                     <td className="px-4 py-3 font-mono text-xs text-muted-foreground">
-                      {user.meta_email ?? <span className="text-muted-foreground/50">—</span>}
+                      {user.meta_email ?? <span className="text-muted-foreground-50">—</span>}
                     </td>
                     <td className="px-4 py-3 text-center">{user.packs_count}</td>
                     <td className="px-4 py-3 whitespace-nowrap text-muted-foreground text-xs">
@@ -194,7 +194,7 @@ export default function AdminPage() {
                       {user.updated_at ? fmt(user.updated_at) : "—"}
                     </td>
                     <td className="px-4 py-3 font-mono text-xs text-muted-foreground">
-                      {user.granted_by ? user.granted_by.slice(0, 8) + "…" : <span className="text-muted-foreground/50">—</span>}
+                      {user.granted_by ? user.granted_by.slice(0, 8) + "…" : <span className="text-muted-foreground-50">—</span>}
                     </td>
                   </tr>
                 ))

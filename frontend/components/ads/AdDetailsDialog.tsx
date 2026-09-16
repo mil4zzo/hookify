@@ -886,7 +886,7 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
                         </TooltipProvider>
                       )}
                       {transcriptionData?.full_text && (
-                        <Button variant="ghost" size="sm" onClick={handleCopyTranscription} aria-label="Copiar transcrição" className={`px-2.5 rounded-md transition-colors duration-200 ${copiedTranscription ? "bg-success/15 hover:bg-success/20 text-success" : ""}`}>
+                        <Button variant="ghost" size="sm" onClick={handleCopyTranscription} aria-label="Copiar transcrição" className={`px-2.5 rounded-md transition-colors duration-200 ${copiedTranscription ? "bg-success-10 hover:bg-success-20 text-success" : ""}`}>
                           {copiedTranscription ? <IconCheck className="h-4 w-4 text-success animate-in zoom-in-50 duration-150" /> : <IconCopy className="h-4 w-4" />}
                         </Button>
                       )}

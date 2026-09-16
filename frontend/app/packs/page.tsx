@@ -1129,7 +1129,7 @@ export default function PacksPage() {
                   <Input placeholder="Valor..." value={filter.value} onChange={(e) => handleFilterChange(index, "value", e.target.value)} />
                 </div>
                 <div className="col-span-1 flex">
-                  <Button type="button" variant="outline" className="h-full w-full hover:border-destructive hover:text-destructive hover:bg-destructive/10" onClick={() => handleRemoveFilter(index)}>
+                  <Button type="button" variant="outline" className="h-full w-full hover:border-destructive hover:text-destructive hover:bg-destructive-10" onClick={() => handleRemoveFilter(index)}>
                     <IconTrash className="w-4 h-4" />
                   </Button>
                 </div>

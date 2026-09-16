@@ -57,7 +57,7 @@ export function QuotaGauges({ summary, isLoading }: QuotaGaugesProps) {
     return (
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         {[0, 1, 2].map((i) => (
-          <div key={i} className="p-4 rounded border border-border h-[92px] animate-pulse bg-muted/40" />
+          <div key={i} className="p-4 rounded border border-border h-[92px] animate-pulse bg-muted" />
         ))}
       </div>
     );
@@ -96,7 +96,7 @@ export function QuotaGauges({ summary, isLoading }: QuotaGaugesProps) {
 
       {summary && summary.top_routes_24h.length > 0 && (
         <div className="rounded border border-border overflow-hidden">
-          <div className="px-4 py-2 bg-muted/30 text-xs font-medium text-muted-foreground">
+          <div className="px-4 py-2 bg-muted text-xs font-medium text-muted-foreground">
             Rotas mais caras (24h) — somatório de CPU time %
           </div>
           <table className="w-full text-sm">
@@ -122,7 +122,7 @@ export function QuotaGauges({ summary, isLoading }: QuotaGaugesProps) {
 
       {buc && Object.keys(buc).length > 0 && (
         <details className="rounded border border-border">
-          <summary className="px-4 py-2 cursor-pointer text-sm bg-muted/30">
+          <summary className="px-4 py-2 cursor-pointer text-sm bg-muted">
             Breakdown por Business Use Case (última chamada)
           </summary>
           <div className="p-4 space-y-3">

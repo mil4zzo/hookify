@@ -294,7 +294,7 @@ Duas armadilhas que **nao dao erro — o estilo simplesmente some**:
 - **Barra de opacidade em token do tema** (`bg-destructive/5`) nao gera CSS no
   Tailwind 3: a cor e `var(--x)`, sem `<alpha-value>`, e o compilador descarta a
   classe. Use o hifen (`bg-destructive-10`). A barra continua valendo para a paleta
-  padrao do Tailwind (`bg-black/60`).
+  padrao do Tailwind (`bg-black/60`). Regra `semantic-color-slash-opacity`.
 
 Uma terceira, do mesmo tipo: `var(--x)` indefinida **sem fallback** dentro de um
 valor nao estraga so aquela parte — invalida a declaracao inteira. Um gradiente que

@@ -48,7 +48,7 @@ export function MetaUsageTable({
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
-            <tr className="text-left text-xs text-muted-foreground bg-muted/30">
+            <tr className="text-left text-xs text-muted-foreground bg-muted">
               <th className="px-3 py-2 font-normal">Quando</th>
               <th className="px-3 py-2 font-normal">Página</th>
               <th className="px-3 py-2 font-normal">Rota backend</th>
@@ -79,7 +79,7 @@ export function MetaUsageTable({
               </tr>
             )}
             {items.map((call) => (
-              <tr key={call.id} className="border-t border-border hover:bg-muted/20">
+              <tr key={call.id} className="border-t border-border hover:bg-accent">
                 <td className="px-3 py-2 whitespace-nowrap">
                   {new Date(call.created_at).toLocaleString()}
                 </td>
@@ -114,7 +114,7 @@ export function MetaUsageTable({
         </table>
       </div>
 
-      <div className="flex items-center justify-between px-3 py-2 bg-muted/20 text-xs text-muted-foreground">
+      <div className="flex items-center justify-between px-3 py-2 bg-muted text-xs text-muted-foreground">
         <div>
           {total != null ? (
             <>

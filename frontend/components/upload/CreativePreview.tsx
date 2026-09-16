@@ -46,7 +46,7 @@ function PreviewMedia({
 
   if (!resolvedImageUrl) {
     return (
-      <div className={`flex items-center justify-center bg-gradient-to-br from-muted to-muted/50 ${className ?? ""}`}>
+      <div className={`flex items-center justify-center bg-gradient-to-br from-muted to-muted-50 ${className ?? ""}`}>
         <div className="flex flex-col items-center gap-2 text-muted-foreground opacity-50">
           <IconPhoto className="h-7 w-7" />
           <span className="text-xs">Sem miniatura</span>
@@ -218,7 +218,7 @@ export default function CreativePreview({ creative, adId }: CreativePreviewProps
     const maxWidthClass = surface === "story" ? "mx-auto max-w-[200px]" : "w-full"
     return (
       <div className="space-y-4">
-        <div className="rounded-md bg-gradient-to-b from-muted/60 to-muted/20 p-4">
+        <div className="rounded-md bg-gradient-to-b from-muted-60 to-muted-20 p-4">
           <div className={`relative overflow-hidden rounded-2xl bg-black ${aspectClass} ${maxWidthClass}`}>
             {loadingVideo ? (
               <Skeleton className="absolute inset-0 h-full w-full" />
@@ -242,7 +242,7 @@ export default function CreativePreview({ creative, adId }: CreativePreviewProps
   // Image ads: show mockup frame
   return (
     <div className="space-y-4">
-      <div className="rounded-md bg-gradient-to-b from-muted/60 to-muted/20 p-4">
+      <div className="rounded-md bg-gradient-to-b from-muted-60 to-muted-20 p-4">
         {surface === "story" && (
           <StoryMockup creative={creative} resolvedImageUrl={resolvedImageUrl} loadingImage={loadingImageSource} />
         )}

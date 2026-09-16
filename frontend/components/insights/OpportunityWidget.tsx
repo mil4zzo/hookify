@@ -206,7 +206,7 @@ export function OpportunityWidget({ rows, averages, actionType, onAdClick, globa
   return (
     <div className="relative">
       {/* Gradiente lateral esquerdo */}
-      {canScrollLeft && <div className="absolute left-0 top-0 bottom-0 w-20 z-[5] pointer-events-none bg-gradient-to-r from-background via-background/80 to-transparent" />}
+      {canScrollLeft && <div className="absolute left-0 top-0 bottom-0 w-20 z-[5] pointer-events-none bg-gradient-to-r from-background via-background-80 to-transparent" />}
 
       {/* Botão anterior */}
       {canScrollLeft && (
@@ -224,7 +224,7 @@ export function OpportunityWidget({ rows, averages, actionType, onAdClick, globa
       </div>
 
       {/* Gradiente lateral direito */}
-      {canScrollRight && <div className="absolute right-0 top-0 bottom-0 w-20 z-[5] pointer-events-none bg-gradient-to-l from-background via-background/80 to-transparent" />}
+      {canScrollRight && <div className="absolute right-0 top-0 bottom-0 w-20 z-[5] pointer-events-none bg-gradient-to-l from-background via-background-80 to-transparent" />}
 
       {/* Botão próximo */}
       {canScrollRight && (

@@ -33,6 +33,7 @@ import { Button } from "@/components/ui/button"
 // design-system-exception: direct-skeleton-import - upload previews keep media-shaped skeletons
 import { Skeleton } from "@/components/ui/skeleton"
 import { PageContainer } from "@/components/common/PageContainer"
+import { InlineNotice } from "@/components/common/States"
 import { TabbedContentItem, type TabItem } from "@/components/common/TabbedContent"
 import { FormStepWorkspace, TabbedWorkspace } from "@/components/common/layout"
 import AdGrid from "@/components/upload/AdGrid"
@@ -127,7 +128,7 @@ function CampaignPreviewSkeleton({ mode }: { mode: "ads" | "campaign" }) {
       {/* Creative name badge */}
       <Skeleton className="h-5 w-28" />
       {/* Video preview */}
-      <div className="rounded-md bg-gradient-to-b from-muted/60 to-muted/20 p-4 flex justify-center">
+      <div className="rounded-md bg-gradient-to-b from-muted-60 to-muted-20 p-4 flex justify-center">
         <Skeleton className="w-[200px] aspect-[9/16] rounded-md" />
       </div>
       {/* Campaign structure card — only in campaign mode */}
@@ -1046,36 +1047,26 @@ export default function UploadPage() {
                 <div className="space-y-3">
                   <CreativePreview creative={creative} adId={selectedTemplateAdId} />
                   {campaignTemplateBlockedByPage && (
-                    <div className="rounded-md border border-destructive/40 bg-destructive/5 text-destructive p-3 text-xs space-y-1">
-                      <div className="font-semibold">Você não administra a Page deste anúncio</div>
-                      <div className="text-muted-foreground">
-                        {campaignTemplate.missing_page_name
-                          ? `A Page "${campaignTemplate.missing_page_name}" (${campaignTemplate.missing_page_id}) não está sob sua administração.`
-                          : `A Page ${campaignTemplate.missing_page_id} não está sob sua administração.`
-                        }
-                        {" "}Selecione um anúncio cuja Page você administre.
-                      </div>
-                    </div>
+                    <InlineNotice tone="destructive" title="Você não administra a Page deste anúncio">
+                      {campaignTemplate.missing_page_name
+                        ? `A Page "${campaignTemplate.missing_page_name}" (${campaignTemplate.missing_page_id}) não está sob sua administração.`
+                        : `A Page ${campaignTemplate.missing_page_id} não está sob sua administração.`}{" "}
+                      Selecione um anúncio cuja Page você administre.
+                    </InlineNotice>
                   )}
                   {campaignTemplate.account_requires_ads_transparency && (
-                    <div
-                      className={`rounded-md border p-3 text-xs space-y-1 ${
+                    <InlineNotice
+                      tone={campaignTemplateBlockedByTransparency ? "destructive" : "warning"}
+                      title={
                         campaignTemplateBlockedByTransparency
-                          ? "border-destructive/40 bg-destructive/5 text-destructive"
-                          : "border-warning/40 bg-warning/5 text-warning-foreground"
-                      }`}
-                    >
-                      <div className="font-semibold">
-                        {campaignTemplateBlockedByTransparency
                           ? "Esta conta exige Transparência dos anúncios"
-                          : "Atenção: alguns conjuntos não têm Transparência"}
-                      </div>
-                      <div className="text-muted-foreground">
-                        {campaignTemplateBlockedByTransparency
-                          ? "Nenhum conjunto deste anúncio tem beneficiário/pagador configurado. Selecione um modelo cujos conjuntos já estejam de acordo com a política da conta."
-                          : "Apenas os conjuntos com Transparência preenchida serão duplicados. Os demais foram desmarcados automaticamente."}
-                      </div>
-                    </div>
+                          : "Atenção: alguns conjuntos não têm Transparência"
+                      }
+                    >
+                      {campaignTemplateBlockedByTransparency
+                        ? "Nenhum conjunto deste anúncio tem beneficiário/pagador configurado. Selecione um modelo cujos conjuntos já estejam de acordo com a política da conta."
+                        : "Apenas os conjuntos com Transparência preenchida serão duplicados. Os demais foram desmarcados automaticamente."}
+                    </InlineNotice>
                   )}
                   {/* Campaign structure */}
                   <div className="rounded-md border border-border bg-background p-4 space-y-3">

@@ -80,6 +80,14 @@ const REGEX_RULES: RegexRule[] = [
     pattern: /(?<![\w-])(?:bg|text|border(?:-[trblxy])?|ring-offset|ring|from|via|to|outline|fill|stroke|divide|shadow|decoration|placeholder|caret)-(?:(?:accent-foreground|attention-foreground|card-foreground|destructive-foreground|info-foreground|input-foreground|muted-foreground|popover-foreground|primary-foreground|ring-foreground|success-foreground|warning-foreground|accent|attention|background|border|destructive|foreground|info|input|muted|primary|ring|success|warning)-(?:[1-9]|[1-9][1-9])|(?:card|popover)-\d{1,2})(?![\w\/-])/,
   },
   {
+    id: "semantic-color-slash-opacity",
+    description:
+      "Barra de opacidade em cor do tema (bg-destructive/5) nao gera CSS no Tailwind 3: a cor e var(), sem <alpha-value>, e o compilador descarta a classe. Use o passo com hifen (bg-destructive-10). A barra so vale para a paleta padrao (bg-black/60).",
+    // Provado com o CLI do Tailwind: bg-destructive/5, border-warning/40 e
+    // text-muted-foreground/50 nao aparecem no CSS compilado. Havia 31 no app.
+    pattern: /(?<![\w-])(?:bg|text|border(?:-[trblxy])?|ring-offset|ring|from|via|to|outline|fill|stroke|divide|shadow|decoration|placeholder|caret)-(?:accent-foreground|attention-foreground|card-foreground|destructive-foreground|info-foreground|input-foreground|muted-foreground|popover-foreground|primary-foreground|ring-foreground|success-foreground|warning-foreground|accent|attention|background|border|destructive|foreground|info|input|muted|primary|ring|success|warning|card|popover|surface(?:-[23])?)\/\d{1,3}(?![\w-])/,
+  },
+  {
     id: "raw-shadow",
     description: "Use shadow-elevation-flat/raised/overlay instead of raw Tailwind shadows.",
     pattern: /\bshadow-(?:xs|sm|md|lg|xl|2xl)\b/,

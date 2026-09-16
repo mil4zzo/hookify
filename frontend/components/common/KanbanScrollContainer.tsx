@@ -59,7 +59,7 @@ export function KanbanScrollContainer({ children, className }: KanbanScrollConta
   return (
     <div className="relative">
       {/* Gradiente lateral esquerdo */}
-      {canScrollLeft && <div className="absolute left-0 top-0 bottom-0 w-20 z-[5] pointer-events-none bg-gradient-to-r from-background via-background/80 to-transparent" />}
+      {canScrollLeft && <div className="absolute left-0 top-0 bottom-0 w-20 z-[5] pointer-events-none bg-gradient-to-r from-background via-background-80 to-transparent" />}
 
       {/* Container de scroll */}
       <div ref={scrollContainerRef} className={`w-full overflow-x-auto overflow-y-visible scroll-smooth [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none] ${className || ""}`}>
@@ -67,7 +67,7 @@ export function KanbanScrollContainer({ children, className }: KanbanScrollConta
       </div>
 
       {/* Gradiente lateral direito */}
-      {canScrollRight && <div className="absolute right-0 top-0 bottom-0 w-20 z-[5] pointer-events-none bg-gradient-to-l from-background via-background/80 to-transparent" />}
+      {canScrollRight && <div className="absolute right-0 top-0 bottom-0 w-20 z-[5] pointer-events-none bg-gradient-to-l from-background via-background-80 to-transparent" />}
     </div>
   );
 }

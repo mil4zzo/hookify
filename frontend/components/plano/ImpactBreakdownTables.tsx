@@ -202,7 +202,7 @@ function SpendShareBar({
           <span className="relative h-[3px] overflow-hidden rounded-full bg-muted-10">
             {prevShare != null && (
               <span
-                className="absolute inset-y-0 left-0 rounded-full bg-muted-foreground/50 transition-[width] duration-300"
+                className="absolute inset-y-0 left-0 rounded-full bg-muted-foreground-50 transition-[width] duration-300"
                 style={{ width: `${prevPct}%` }}
               />
             )}
