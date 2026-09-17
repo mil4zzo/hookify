@@ -54,7 +54,7 @@ const INACTIVE_CATEGORY_OPACITY = 0.5;
 
 // Altura fixa da lista: as 3 abas ocupam o mesmo espaço, cheias ou vazias.
 const AD_LIST_BOX =
-  "h-[18rem] overflow-y-auto rounded-lg border border-border bg-muted p-2";
+  "h-[18rem] overflow-y-auto rounded-lg border border-border bg-background p-2";
 
 export function TranscriptionStatusDialog({ isOpen, onClose, packId, packName, onConfirm, onForce }: Props) {
   const [status, setStatus] = useState<PackTranscriptionStatus | null>(null);

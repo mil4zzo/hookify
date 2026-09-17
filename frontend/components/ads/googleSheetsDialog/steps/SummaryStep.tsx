@@ -181,7 +181,7 @@ export function SummaryStep({ stats, isImporting, onSyncAgain, onClose }: Summar
 
         {/* 140: o que o sync fez com cada coluna vinculada */}
         {customColumns.length > 0 && (
-          <div className="rounded-md border border-border bg-muted p-3 space-y-1.5">
+          <div className="rounded-md border border-border bg-background p-3 space-y-1.5">
             <div className="text-xs font-medium text-muted-foreground">Colunas adicionais</div>
             {customColumns.map(([id, report]) => (
               <div key={id} className="flex items-center justify-between gap-3 text-sm">

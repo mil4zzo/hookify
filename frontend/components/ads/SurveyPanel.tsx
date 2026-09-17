@@ -54,7 +54,7 @@ function NumericCard({ mapping, hist, spend }: { mapping: SheetColumnMapping; hi
   const maxQty = entries.reduce((acc, [, qty]) => Math.max(acc, qty), 0);
 
   return (
-    <section className="rounded-md border border-border bg-muted p-4 space-y-3">
+    <section className="rounded-md border border-border bg-background p-4 space-y-3">
       <header className="flex items-baseline justify-between gap-2">
         <h4 className="text-sm font-semibold">{mapping.label}</h4>
         <span className="text-2xs text-muted-foreground">{isLeadscore ? "leadscore" : "número"} · {fmtNumber(stats?.n ?? 0, 0)} leads</span>
@@ -100,7 +100,7 @@ function CategoryCard({ mapping, hist }: { mapping: SheetColumnMapping; hist: Re
   const entries = useMemo(() => histogramEntries(hist, false), [hist]);
   const total = entries.reduce((acc, [, qty]) => acc + qty, 0);
   return (
-    <section className="rounded-md border border-border bg-muted p-4 space-y-3">
+    <section className="rounded-md border border-border bg-background p-4 space-y-3">
       <header className="flex items-baseline justify-between gap-2">
         <h4 className="text-sm font-semibold">{mapping.label}</h4>
         <span className="text-2xs text-muted-foreground">categoria · {total.toLocaleString("pt-BR")} respostas</span>

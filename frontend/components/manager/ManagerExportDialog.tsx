@@ -284,7 +284,7 @@ export function ManagerExportDialog({ isOpen, onClose, table, activeColumns, col
             </p>
           </div>
 
-          <div className="space-y-2 rounded-md border border-border bg-muted px-3 py-2.5">
+          <div className="space-y-2 rounded-md border border-border bg-background px-3 py-2.5">
             <div className="flex items-center gap-2">
               <IconAlertTriangle className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
               <span className="text-sm text-foreground">Motivos das falhas</span>

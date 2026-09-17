@@ -477,7 +477,7 @@ export function ManagerChildrenTable({
               {sortedData.map((child) => (
                 <tr
                   key={config.rowKey(child)}
-                  className={`border-b border-border hover:bg-muted ${onRowClick ? "cursor-pointer" : ""}`}
+                  className={`bg-background border-b border-border hover:bg-muted ${onRowClick ? "cursor-pointer" : ""}`}
                   onClick={onRowClick ? () => onRowClick(child as RankingsChildrenItem) : undefined}
                 >
                   <td className="px-2 py-3 text-center" onClick={(e) => e.stopPropagation()}>

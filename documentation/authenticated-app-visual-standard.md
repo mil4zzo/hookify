@@ -224,26 +224,40 @@ nova excecao, novo padrao de barra), atualize esta secao no mesmo commit.
 
 ### Superficie (contrato de elevacao)
 
-Toda superficie estrutural sai de UM destes cinco degraus. A escada anda sempre
-**para longe do fundo da pagina**: no tema escuro clareia a cada degrau, no claro
-escurece. Nunca o contrario, e nunca dependendo do tema.
+Toda superficie estrutural sai de UM destes cinco degraus. Cada degrau anda
+**para longe do fundo da pagina** (no escuro clareia, no claro escurece) — nunca o
+contrario, e nunca dependendo do tema. Dentro de um cartao, porem, os planos
+**alternam** (ver "Alternancia de planos" abaixo): regiao de leitura volta ao fundo
+da pagina, porque os degraus acima do cartao sao curtos demais para separar planos.
 
 | Degrau | Token | Onde | Regra |
 |---|---|---|---|
 | Pagina | `bg-background` | body, area de pagina | nao recebe sombra |
-| Rebaixado | `bg-muted` | poco, faixa de secao, linha alternada | nao contem outro conteiner |
+| Faixa | `bg-muted` | faixa de secao, linha alternada, trilho segmentado | nao e fundo de regiao (ver alternancia) |
 | Base | `bg-card` | cartao, modal, painel | o degrau padrao de conteudo |
 | Elevado | `bg-surface-2` | grupo dentro de cartao, campo, celula em destaque | `shadow-elevation-raised` |
 | Flutuante | `bg-surface-3` | popover, menu, tooltip | unico com `shadow-elevation-overlay` |
 
 `bg-popover` e alias historico de `bg-card`; em codigo novo, use `bg-card`.
 
-**Poco ou grupo? Pergunte se a pessoa le ou age.** Onde se LE — lista rolavel,
-historico, previa de dados, resumo do que vai acontecer — e poco (`bg-muted`, mais
-fundo que o cartao). Onde se AGE — opcoes de escolha, membros com papel, ajustes com
-toggle, condicoes — e grupo elevado (`bg-surface-2`, mais alto que o cartao). Sem
-fundo proprio, um conjunto de acoes dentro de dialogo se dissolve e parece
-desabilitado.
+**Alternancia de planos — a regra anti-achatamento.** No tema escuro os degraus
+`muted` (0,313) e `surface-2` (0,398) ficam a 0,035 e 0,050 de luminosidade do
+`card` (0,348): o olho nao separa esses planos. A unica distancia realmente
+perceptivel e cartao <-> pagina (0,139). Por isso os planos ALTERNAM:
+
+| Onde | Fundo | Por que |
+|---|---|---|
+| Pagina | `bg-background` | a base |
+| Cartao, modal, painel, barra | `bg-card` | sobe da pagina |
+| **Regiao de LEITURA dentro de cartao/modal** — tabela, lista rolavel, previa, historico, resumo do que vai acontecer | **`bg-background`** | volta ao plano da pagina: maior contraste da escada no escuro; no claro, "papel sobre a bandeja" |
+| **Grupo de ACAO dentro de cartao** — opcoes, membros, ajustes com toggle | `bg-surface-2` + borda | pequeno e sempre com borda, entao o degrau curto basta |
+| Faixa, trilho segmentado, chip estatico, hover de linha | `bg-muted` | **nao e fundo de regiao** — fica perto demais do cartao |
+
+Regra pratica: **dois planos vizinhos precisam de diferenca visivel (~0,08 de
+luminosidade) ou de borda + espaco.** Mesma cor em planos vizinhos sem borda achata a
+interface — foi o que aconteceu com o modal de variacoes do Manager quando as linhas
+passaram a herdar a cor do painel. Linhas de tabela dentro de uma regiao de leitura
+levam `bg-background`; o hover delas (`bg-muted`) fica visivel sobre esse fundo.
 
 **A regra que isso substitui:** superficie estrutural em repouso NAO pode vir da
 escala alpha (`bg-card-20`, `bg-input-30`, `bg-muted-50`...). A escala gera
@@ -272,11 +286,7 @@ le como placeholder ou area de drop — nao use para agrupar conteudo real.
 texto — placeholder de midia ausente e skeleton, onde o tom medio da escala e o unico
 que aparece sobre qualquer superficie nos dois temas. Como fundo de texto nao: sob
 `muted-foreground` o contraste cai para ~2,4:1. Caixa com texto dentro de dialogo e
-poco (`bg-muted`).
-
-**Nao use `bg-background` como caixa dentro de cartao ou dialogo.** No escuro vira o
-buraco mais fundo possivel; no claro vira uma caixa MAIS CLARA que o cartao. Poco e
-`bg-muted`.
+regiao de leitura (`bg-background`).
 
 **Lista de itens com acoes** (membros, conexoes): um grupo elevado so
 (`bg-surface-2` + contorno), com as linhas divididas por filete (`divide-y
@@ -404,6 +414,8 @@ e procure o seletor no `out.css`.
 - [ ] Altura de controles via prop `size`, nunca `h-*` em className.
 - [ ] Todo fundo estrutural sai da escada (`background`/`muted`/`card`/
       `surface-2`/`surface-3`), nunca de `bg-<token>-<N>`.
+- [ ] Nenhum plano vizinho com a mesma cor sem borda: regiao de leitura dentro de
+      cartao/modal em `bg-background`, grupo de acao em `bg-surface-2` + borda.
 - [ ] Hover de superficie usa `hover:bg-accent`; selecao usa
       `bg-primary-10` + `border-primary-30`.
 - [ ] Micro-texto usa `text-2xs`, nunca `text-[10px]`/`text-[11px]`.

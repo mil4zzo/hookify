@@ -1282,7 +1282,7 @@ export default function PacksPage() {
               </div>
             ) : removeIntegrationPreview && removeIntegrationPreview.rows_matched > 0 ? (
               <>
-                <div className="bg-muted p-4 rounded-lg">
+                <div className="bg-background p-4 rounded-lg border border-border">
                   <p className="text-sm text-muted-foreground mb-2">O leadscore importado sai junto:</p>
                   <ul className="text-sm space-y-1">
                     <li>
@@ -1318,7 +1318,7 @@ export default function PacksPage() {
       <ConfirmDialog isOpen={!!packToRemove} onClose={() => !isDeleting && setPackToRemove(null)} title={isDeleting ? "Deletando Pack..." : "Confirmar Remoção"} message={isDeleting ? `Excluindo os dados do pack "${packToRemove?.name}..."` : `Tem certeza que deseja remover o pack "${packToRemove?.name}"?`} onConfirm={confirmRemovePack} onCancel={cancelRemovePack} variant="destructive" confirmText="Remover Pack" isLoading={isDeleting} loadingText="Deletando..." layout="left-aligned" confirmIcon={<IconTrash className="w-4 h-4" />}>
         {!isDeleting && (
           <div className="py-4">
-            <div className="bg-muted p-4 rounded-lg">
+            <div className="bg-background p-4 rounded-lg border border-border">
               <p className="text-sm text-muted-foreground mb-2">Esta ação irá remover:</p>
               <ul className="text-sm space-y-1">
                 <li>

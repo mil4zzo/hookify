@@ -131,7 +131,7 @@ export function ShareCreateDialog({ isOpen, onClose, rows, dateStart, dateStop, 
           período <span className="font-medium text-foreground">{formatDatePt(dateStart)} – {formatDatePt(dateStop)}</span>.
         </p>
 
-        <div className="max-h-72 divide-y divide-border overflow-y-auto rounded-md border border-border bg-muted">
+        <div className="max-h-72 divide-y divide-border overflow-y-auto rounded-md border border-border bg-background">
           {items.map((row) => (
             <div key={row.ad_name} className="flex items-center gap-3 px-2.5 py-1.5">
               <ThumbnailImage src={getAdThumbnail(row)} size="sm" />
