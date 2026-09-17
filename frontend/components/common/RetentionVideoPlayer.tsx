@@ -215,7 +215,7 @@ export function RetentionVideoPlayerSkeleton({ className = "" }: { className?: s
       </div>
 
       <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-        <div className="flex items-center justify-center rounded-full bg-muted p-4">
+        <div className="flex items-center justify-center rounded-full bg-black/40 p-4">
           <Play className="h-9 w-9 fill-border text-border" strokeWidth={1.4} />
         </div>
       </div>

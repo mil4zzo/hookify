@@ -123,7 +123,6 @@ const REGEX_RULES: RegexRule[] = [
 
 const COLOR_RULES = ["hardcoded-tailwind-color", "large-radius", "raw-color", "emoji-icon"];
 const CONTROL_HEIGHT_RULE = "control-height-override";
-const STRUCTURAL_ALPHA_RULE = "structural-alpha-surface";
 const DIRECT_PRIMITIVE_RULE = "direct-primitive-import";
 const DIRECT_SKELETON_RULE = "direct-skeleton-import";
 const INLINE_NOTICE_RULE = "inline-notice-pattern";
@@ -152,24 +151,9 @@ const RULE_ALLOWLIST: RuleAllowlistEntry[] = [
   { pattern: /^components\/waitlist\/(?:WaitlistV2|CanvasRevealEffect)\.tsx$/, rules: [...COLOR_RULES, DIRECT_PRIMITIVE_RULE], reason: "cinematic public waitlist v2 keeps a raw black/white/accent palette" },
 
   // ── Backlog da escada de superficie ─────────────────────────────────────────
-  // Organizado pelo uso real do produto (decidido em 2026-09-16). Cada tela migrada
-  // REMOVE a sua entrada — a allowlist e o rastreador da divida, e "fase pronta" e a
-  // allowlist encolher com o checker verde.
-  //
-  // F3 — telas em uso: nada pendente (packs e manager concluidos em 2026-09-16).
-  // Depois — consumidores so em telas fora de uso agora (docs, waitlist, planos, upload):
-  { pattern: /^components\/ui\/accordion\.tsx$/, rules: [STRUCTURAL_ALPHA_RULE], reason: "depois — usado so em docs, waitlist e upload" },
-  { pattern: /^components\/common\/StandardCard\.tsx$/, rules: [STRUCTURAL_ALPHA_RULE], reason: "depois — variant muted usada so em docs e planos" },
-  { pattern: /^app\/docs\//, rules: [STRUCTURAL_ALPHA_RULE], reason: "depois — pagina de docs" },
-  { pattern: /^components\/insights\//, rules: [STRUCTURAL_ALPHA_RULE], reason: "depois — insights sera redesenhada" },
-  // Reativacao — upload volta depois das otimizacoes:
-  { pattern: /^(?:components|app)\/upload\//, rules: [STRUCTURAL_ALPHA_RULE], reason: "reativacao — upload" },
-  // Legado — gold e plano aguardam decisao (apagar ou migrar). NAO repintar:
-  { pattern: /^components\/(?:plano|gold)\//, rules: [STRUCTURAL_ALPHA_RULE], reason: "legado — gold/plano, decisao pendente" },
-  { pattern: /^components\/common\/MetricDeltaBadge\.tsx$/, rules: [STRUCTURAL_ALPHA_RULE], reason: "legado — usado so pelo plano" },
-  { pattern: /^lib\/utils\/gemsColorSchemes\.ts$/, rules: [STRUCTURAL_ALPHA_RULE], reason: "legado/depois — gold e insights" },
-  // Outros:
-  { pattern: /^components\/share\//, rules: [STRUCTURAL_ALPHA_RULE], reason: "viewer publico — barra sobre midia, revisar com o compartilhamento" },
+  // Cada tela migrada REMOVE a sua entrada — a allowlist e o rastreador da divida.
+  // F5 (2026-09-17): backlog ZERADO — nenhuma tela usa mistura estrutural. A regra
+  // vale para o app inteiro; nova entrada aqui precisa de justificativa, nao de prazo.
 
   // Exceções pontuais de skeleton agora vivem inline nos arquivos ("design-system-exception: direct-skeleton-import - ..."),
   // para não isentar o arquivo inteiro da regra. Só diretórios/superfícies inteiras permanecem aqui.

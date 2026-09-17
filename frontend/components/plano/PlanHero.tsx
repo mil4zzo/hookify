@@ -348,7 +348,7 @@ export function PlanHero({
               </button>
               <button
                 onClick={() => setEditingTarget(false)}
-                className="p-1 rounded-sm hover:bg-muted-30 text-muted-foreground transition-colors"
+                className="p-1 rounded-sm hover:bg-accent text-muted-foreground transition-colors"
               >
                 <IconX className="h-4 w-4" />
               </button>
@@ -360,7 +360,7 @@ export function PlanHero({
                   setTargetInput(currentTarget ? String(currentTarget) : "");
                   setEditingTarget(true);
                 }}
-                className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors px-2 py-1 rounded-sm hover:bg-muted-30"
+                className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors px-2 py-1 rounded-sm hover:bg-accent"
               >
                 <IconPencil className="h-3.5 w-3.5" />
                 {currentTarget ? "Editar alvo" : "Definir alvo"}
@@ -369,7 +369,7 @@ export function PlanHero({
                 <button
                   onClick={handleClearTarget}
                   disabled={isSaving}
-                  className="text-xs text-muted-foreground hover:text-destructive transition-colors px-2 py-1 rounded-sm hover:bg-muted-30"
+                  className="text-xs text-muted-foreground hover:text-destructive transition-colors px-2 py-1 rounded-sm hover:bg-accent"
                 >
                   Remover
                 </button>

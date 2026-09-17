@@ -79,7 +79,7 @@ export default function CampaignReviewTable({
     <div className="space-y-5">
       {/* Global config — grouped logically */}
       <div className="rounded-md border border-border bg-background overflow-hidden">
-        <div className="border-b border-border bg-muted-30 px-4 py-3">
+        <div className="border-b border-border bg-surface-2 px-4 py-3">
           <div className="text-sm font-semibold">Configurações globais</div>
           <div className="text-xs text-muted-foreground mt-0.5">Aplicadas a todas as campanhas duplicadas</div>
         </div>
@@ -106,15 +106,15 @@ export default function CampaignReviewTable({
             </div>
 
             {/* Shared variable legend */}
-            <div className="rounded-lg border border-border bg-muted-20 px-3 py-2.5 space-y-1.5">
+            <div className="rounded-lg border border-border bg-surface-2 px-3 py-2.5 space-y-1.5">
               <p className="text-2xs font-semibold uppercase tracking-wide text-muted-foreground">Variáveis disponíveis</p>
               <ul className="space-y-1">
                 <li className="text-2xs text-muted-foreground">
-                  <code className="rounded-sm bg-muted px-1 py-0.5 font-mono">{AD_NAME_VAR}</code>
+                  <code className="rounded-sm bg-surface-2 px-1 py-0.5 font-mono">{AD_NAME_VAR}</code>
                   {" — "}nome do criativo
                 </li>
                 <li className="text-2xs text-muted-foreground">
-                  <code className="rounded-sm bg-muted px-1 py-0.5 font-mono">{INDEX_VAR}</code>
+                  <code className="rounded-sm bg-surface-2 px-1 py-0.5 font-mono">{INDEX_VAR}</code>
                   {" — "}numeração sequencial (ex: 1, 2, 3…)
                 </li>
               </ul>
@@ -172,7 +172,7 @@ export default function CampaignReviewTable({
 
       {/* Items table */}
       <div className="rounded-md border border-border overflow-hidden">
-        <div className="border-b border-border bg-muted-30 px-4 py-2.5 flex items-center justify-between gap-3">
+        <div className="border-b border-border bg-surface-2 px-4 py-2.5 flex items-center justify-between gap-3">
           <div className="text-sm font-semibold">
             {items.length} campanha{items.length !== 1 ? "s" : ""} a criar
           </div>
@@ -186,7 +186,7 @@ export default function CampaignReviewTable({
 
         <div className="overflow-x-auto">
         {/* Column headers */}
-        <div className="grid grid-cols-[1fr_1.5fr_1.5fr_1.4fr_auto_32px] gap-3 border-b border-border bg-muted-10 px-4 py-2 text-2xs font-semibold uppercase tracking-wide text-muted-foreground min-w-[800px]">
+        <div className="grid grid-cols-[1fr_1.5fr_1.5fr_1.4fr_auto_32px] gap-3 border-b border-border bg-background px-4 py-2 text-2xs font-semibold uppercase tracking-wide text-muted-foreground min-w-[800px]">
           <div>Arquivos</div>
           <div>Nome da campanha</div>
           <div>Nome do conjunto</div>

@@ -41,12 +41,12 @@ function PreviewMedia({
   className?: string
 }) {
   if (loadingImage) {
-    return <div className={`bg-muted animate-pulse rounded-lg ${className ?? ""}`} />
+    return <div className={`bg-border animate-pulse rounded-lg ${className ?? ""}`} />
   }
 
   if (!resolvedImageUrl) {
     return (
-      <div className={`flex items-center justify-center bg-gradient-to-br from-muted to-muted-50 ${className ?? ""}`}>
+      <div className={`flex items-center justify-center bg-surface-2 ${className ?? ""}`}>
         <div className="flex flex-col items-center gap-2 text-muted-foreground opacity-50">
           <IconPhoto className="h-7 w-7" />
           <span className="text-xs">Sem miniatura</span>
@@ -195,7 +195,7 @@ export default function CreativePreview({ creative, adId }: CreativePreviewProps
 
   if (!creative) {
     return (
-      <div className="flex min-h-[200px] flex-col items-center justify-center gap-3 rounded-md border border-dashed border-border bg-muted-20 p-6 text-center">
+      <div className="flex min-h-[200px] flex-col items-center justify-center gap-3 rounded-md border border-dashed border-border bg-surface-2 p-6 text-center">
         <IconPhoto className="h-8 w-8 text-muted-foreground opacity-30" />
         <div className="space-y-1">
           <div className="text-sm font-medium text-muted-foreground">Nenhum anúncio selecionado</div>
@@ -218,7 +218,7 @@ export default function CreativePreview({ creative, adId }: CreativePreviewProps
     const maxWidthClass = surface === "story" ? "mx-auto max-w-[200px]" : "w-full"
     return (
       <div className="space-y-4">
-        <div className="rounded-md bg-gradient-to-b from-muted-60 to-muted-20 p-4">
+        <div className="rounded-md bg-background p-4">
           <div className={`relative overflow-hidden rounded-2xl bg-black ${aspectClass} ${maxWidthClass}`}>
             {loadingVideo ? (
               <Skeleton className="absolute inset-0 h-full w-full" />
@@ -242,7 +242,7 @@ export default function CreativePreview({ creative, adId }: CreativePreviewProps
   // Image ads: show mockup frame
   return (
     <div className="space-y-4">
-      <div className="rounded-md bg-gradient-to-b from-muted-60 to-muted-20 p-4">
+      <div className="rounded-md bg-background p-4">
         {surface === "story" && (
           <StoryMockup creative={creative} resolvedImageUrl={resolvedImageUrl} loadingImage={loadingImageSource} />
         )}

@@ -118,7 +118,7 @@ export default function AdTree({ data, selectedAdId, onSelect }: AdTreeProps) {
                             }`}
                           >
                             <div className="flex min-w-0 items-center gap-3">
-                              <div className="relative h-14 w-14 shrink-0 overflow-hidden rounded-md border border-border bg-muted">
+                              <div className="relative h-14 w-14 shrink-0 overflow-hidden rounded-md border border-border bg-border">
                                 {thumbnail ? (
                                   <Image
                                     src={thumbnail}

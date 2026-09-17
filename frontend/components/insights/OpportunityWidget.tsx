@@ -189,9 +189,9 @@ export function OpportunityWidget({ rows, averages, actionType, onAdClick, globa
 
   if (rows.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center py-12 px-4 rounded-lg border border-dashed border-border bg-muted-30">
+      <div className="flex flex-col items-center justify-center py-12 px-4 rounded-lg border border-dashed border-border bg-background">
         <div className="flex flex-col items-center gap-3 text-center max-w-md">
-          <div className="p-4 rounded-full bg-muted-50">
+          <div className="p-4 rounded-full bg-surface-2">
             <IconMoodEmptyFilled className="h-8 w-8 text-muted-foreground" />
           </div>
           <div className="space-y-1">

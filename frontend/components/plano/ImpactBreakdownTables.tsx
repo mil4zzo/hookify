@@ -64,7 +64,7 @@ function PillButton({ label, selected, onClick }: { label: string; selected: boo
       className={`flex-shrink-0 rounded-full px-3 py-1.5 text-xs font-medium transition-colors duration-150 ${
         selected
           ? "bg-primary text-primary-foreground"
-          : "bg-muted-30 text-muted-foreground hover:bg-muted-50 hover:text-foreground"
+          : "bg-surface-2 text-muted-foreground hover:bg-accent hover:text-foreground"
       }`}
     >
       {label}
@@ -191,7 +191,7 @@ function SpendShareBar({
       <div className="flex w-full flex-col items-center gap-1">
         <span className="text-sm font-semibold tabular-nums text-foreground">{valueText}</span>
         <div className="flex w-full max-w-[60px] flex-col items-stretch gap-[3px]">
-          <span className="relative h-[5px] overflow-hidden rounded-full bg-muted-10">
+          <span className="relative h-[5px] overflow-hidden rounded-full bg-border">
             {lastShare != null && (
               <span
                 className={`absolute inset-y-0 left-0 rounded-full transition-[width] duration-300 ${fillCls}`}
@@ -199,7 +199,7 @@ function SpendShareBar({
               />
             )}
           </span>
-          <span className="relative h-[3px] overflow-hidden rounded-full bg-muted-10">
+          <span className="relative h-[3px] overflow-hidden rounded-full bg-border">
             {prevShare != null && (
               <span
                 className="absolute inset-y-0 left-0 rounded-full bg-border transition-[width] duration-300"
@@ -401,7 +401,7 @@ function ImpactRow({
         {ad ? (
           <AdPlayArea ad={ad as unknown} aspectRatio="1:1" size={32} className="flex-shrink-0 rounded-sm" onPlayClick={open} />
         ) : (
-          <div className="h-8 w-8 flex-shrink-0 rounded-sm bg-muted-30" />
+          <div className="h-8 w-8 flex-shrink-0 rounded-sm bg-border" />
         )}
         <div className="flex min-w-0 flex-1 items-center gap-1.5">
           {ad && <AdStatusIcon status={(ad as { effective_status?: string }).effective_status} />}
@@ -632,7 +632,7 @@ export function ImpactBreakdownTables({
               ) : (
                 <>
                   {/* Tinted band separates the header from body rows at a glance. */}
-                  <div className={`flex items-center gap-2.5 border-b border-border bg-muted-30 text-sm font-medium text-muted-foreground ${ROW_PAD}`}>
+                  <div className={`flex items-center gap-2.5 border-b border-border bg-surface-2 text-sm font-medium text-muted-foreground ${ROW_PAD}`}>
                     <SortHeader
                       label="Impacto"
                       width={COL_IMPACT}

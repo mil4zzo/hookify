@@ -32,7 +32,7 @@ function toneStyle(tone: MetricQualityTone): {
     case "destructive": return { box: "border-destructive-30 bg-destructive-20 text-destructive", Icon: IconAlertTriangle };
     case "warning":     return { box: "border-warning-30 bg-warning-20 text-warning",             Icon: IconAlertTriangle };
     case "attention":   return { box: "border-attention-30 bg-attention-20 text-attention",       Icon: IconAlertTriangle };
-    default:            return { box: "border-border bg-muted-30 text-muted-foreground",          Icon: IconMinus };
+    default:            return { box: "border-border bg-surface-2 text-muted-foreground",          Icon: IconMinus };
   }
 }
 

@@ -14,7 +14,7 @@ function badgeClass(tone: MetricQualityTone): string {
     case "destructive": return "bg-destructive-20 text-destructive";
     case "warning":     return "bg-warning-20 text-warning";
     case "attention":   return "bg-attention-20 text-attention";
-    default:            return "bg-muted-30 text-muted-foreground";
+    default:            return "bg-surface-2 text-muted-foreground";
   }
 }
 

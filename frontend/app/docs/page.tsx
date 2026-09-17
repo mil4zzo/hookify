@@ -445,9 +445,9 @@ export default function DocsPage() {
       <StandardCard padding="lg">
         <SectionTitle icon={IconBrandMeta}>Meta Marketing API</SectionTitle>
         <p className="text-sm text-muted-foreground mb-4">
-          Base URL: <code className="text-xs bg-muted-50 px-1.5 py-0.5 rounded-sm font-mono">{META_BASE_URL_TEMPLATE}</code>{" "}
+          Base URL: <code className="text-xs bg-surface-2 px-1.5 py-0.5 rounded-sm font-mono">{META_BASE_URL_TEMPLATE}</code>{" "}
           <span className="text-xs text-muted-foreground">
-            (versão atual: <code className="text-xs bg-muted-50 px-1.5 py-0.5 rounded-sm font-mono">{META_CURRENT_VERSION}</code>)
+            (versão atual: <code className="text-xs bg-surface-2 px-1.5 py-0.5 rounded-sm font-mono">{META_CURRENT_VERSION}</code>)
           </span>
         </p>
 
@@ -462,7 +462,7 @@ export default function DocsPage() {
                 {META_PERMISSIONS.map((p) => (
                   <div key={p.scope} className="rounded-md border border-border p-3">
                     <div className="flex items-start gap-2 text-sm">
-                      <code className="text-xs bg-muted-50 px-1.5 py-0.5 rounded-sm font-mono text-attention shrink-0">{p.scope}</code>
+                      <code className="text-xs bg-surface-2 px-1.5 py-0.5 rounded-sm font-mono text-attention shrink-0">{p.scope}</code>
                       <span className="text-muted-foreground">{p.description}</span>
                     </div>
                     {p.usedFor?.length ? (
@@ -535,7 +535,7 @@ export default function DocsPage() {
               <div className="space-y-2">
                 {META_PARAMS.map((p) => (
                   <div key={p.param} className="flex items-start gap-2 text-sm">
-                    <code className="text-xs bg-muted-50 px-1.5 py-0.5 rounded-sm font-mono text-attention shrink-0">{p.param}</code>
+                    <code className="text-xs bg-surface-2 px-1.5 py-0.5 rounded-sm font-mono text-attention shrink-0">{p.param}</code>
                     <code className="text-xs font-mono text-muted-foreground shrink-0">{p.value}</code>
                     <span className="text-muted-foreground">— {p.description}</span>
                   </div>
@@ -642,7 +642,7 @@ export default function DocsPage() {
       <StandardCard padding="lg">
         <SectionTitle icon={IconDatabase}>Banco de Dados (Supabase)</SectionTitle>
         <p className="text-sm text-muted-foreground mb-1">
-          Todas as tabelas possuem <strong className="text-foreground">Row Level Security (RLS)</strong> habilitado. Cada usuário só acessa seus próprios dados via <code className="text-xs bg-muted-50 px-1.5 py-0.5 rounded-sm font-mono">user_id = auth.uid()</code>.
+          Todas as tabelas possuem <strong className="text-foreground">Row Level Security (RLS)</strong> habilitado. Cada usuário só acessa seus próprios dados via <code className="text-xs bg-surface-2 px-1.5 py-0.5 rounded-sm font-mono">user_id = auth.uid()</code>.
         </p>
         <p className="text-sm text-muted-foreground mb-4">Tokens OAuth são armazenados criptografados no banco.</p>
 

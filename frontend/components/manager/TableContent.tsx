@@ -59,7 +59,7 @@ const VARIANT_STYLES = {
     sortGap: "gap-0.5",
     resizeHandle: "w-1",
     skeletonRow: "border-b border-border",
-    row: (isResizing: boolean) => `border-b border-border transition-colors ${isResizing ? "cursor-col-resize" : "hover:bg-muted-30 cursor-pointer"}`,
+    row: (isResizing: boolean) => `border-b border-border transition-colors ${isResizing ? "cursor-col-resize" : "hover:bg-muted cursor-pointer"}`,
     cell: (cellAlign: string, _isFirst: boolean, _isLast: boolean, padless = false) => `${padless ? "relative p-0" : "py-1.5 px-2"} ${cellAlign} border-r border-border last:border-r-0`,
     emptyTd: "p-2",
     skeletonThumb: "w-8 h-8",

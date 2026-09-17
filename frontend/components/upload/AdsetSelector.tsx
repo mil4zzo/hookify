@@ -126,7 +126,7 @@ const AdsetSelector = memo(function AdsetSelector({ data, selectedAdsetIds, onCh
             {grouped.map((group, gi) => (
               <div key={group.campaign_name + gi}>
                 {/* Campaign header */}
-                <div className="sticky top-0 z-10 bg-muted-80 backdrop-blur-sm px-4 py-2 border-b border-border">
+                <div className="sticky top-0 z-10 bg-card px-4 py-2 border-b border-border">
                   <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide truncate">
                     {group.campaign_name}
                   </span>
@@ -140,7 +140,7 @@ const AdsetSelector = memo(function AdsetSelector({ data, selectedAdsetIds, onCh
                         key={adset.adset_id}
                         type="button"
                         onClick={() => toggleAdset(adset.adset_id)}
-                        className={`group flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-muted-40 cursor-pointer ${isSelected ? "bg-primary-10 hover:bg-primary-10" : ""}`}
+                        className={`group flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-accent cursor-pointer ${isSelected ? "bg-primary-10 hover:bg-primary-10" : ""}`}
                       >
                         {/* Checkbox visual */}
                         <CheckSquare checked={isSelected} className={isSelected ? undefined : "group-hover:border-primary-60"} />

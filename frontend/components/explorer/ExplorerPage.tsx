@@ -32,7 +32,7 @@ function SignalList({ title, icon: Icon, items }: { title: string; icon: typeof 
   return (
     <div className="space-y-4">
       <div className="flex items-start gap-3">
-        <div className="mt-0.5 flex h-10 w-10 items-center justify-center rounded-full bg-muted text-primary shadow-elevation-raised">
+        <div className="mt-0.5 flex h-10 w-10 items-center justify-center rounded-full bg-surface-2 text-primary shadow-elevation-raised">
           <Icon className="h-4 w-4" />
         </div>
         <div className="space-y-1">
@@ -87,7 +87,7 @@ function ExplorerDetailSkeleton() {
 }
 
 function SkeletonBlock({ className }: { className?: string }) {
-  return <div className={cn("animate-pulse rounded-md bg-muted", className)} aria-hidden="true" />;
+  return <div className={cn("animate-pulse rounded-md bg-border", className)} aria-hidden="true" />;
 }
 
 function ExplorerAdCardSkeleton({ selected = false }: { selected?: boolean }) {

@@ -71,9 +71,9 @@ const AdRow = memo(function AdRow({
     <button
       type="button"
       onClick={() => onSelect(ad.ad_id, ad.ad_name ?? "", ad.account_id)}
-      className={`group flex w-full cursor-pointer items-center gap-3 border-b border-border px-3 py-3 text-left transition-colors hover:bg-muted-40 ${isSelected ? "bg-primary-10 hover:bg-primary-10" : ""}`}
+      className={`group flex w-full cursor-pointer items-center gap-3 border-b border-border px-3 py-3 text-left transition-colors hover:bg-accent ${isSelected ? "bg-primary-10 hover:bg-primary-10" : ""}`}
     >
-      <div className={`relative h-12 w-12 shrink-0 overflow-hidden rounded-lg border ${isSelected ? "border-primary-40" : "border-border"} bg-muted`}>
+      <div className={`relative h-12 w-12 shrink-0 overflow-hidden rounded-lg border ${isSelected ? "border-primary-40" : "border-border"} bg-border`}>
         {thumbnail ? (
           <Image
             src={thumbnail}
@@ -253,11 +253,11 @@ const AdGrid = memo(function AdGrid({ selectedAdId, onSelect }: AdGridProps) {
           <div className="divide-y divide-border">
             {Array.from({ length: 5 }).map((_, i) => (
               <div key={i} className="flex items-center gap-3 px-3 py-3">
-                <div className="h-12 w-12 shrink-0 animate-pulse rounded-lg bg-muted" />
+                <div className="h-12 w-12 shrink-0 animate-pulse rounded-lg bg-border" />
                 <div className="flex-1 space-y-1.5">
-                  <div className="h-3 w-2/3 animate-pulse rounded-sm bg-muted" />
-                  <div className="h-2.5 w-1/2 animate-pulse rounded-sm bg-muted" />
-                  <div className="h-2.5 w-1/3 animate-pulse rounded-sm bg-muted opacity-70" />
+                  <div className="h-3 w-2/3 animate-pulse rounded-sm bg-border" />
+                  <div className="h-2.5 w-1/2 animate-pulse rounded-sm bg-border" />
+                  <div className="h-2.5 w-1/3 animate-pulse rounded-sm bg-border opacity-70" />
                 </div>
               </div>
             ))}

@@ -10,7 +10,7 @@ interface QuotaGaugesProps {
 }
 
 function bandColor(value: number | null | undefined): string {
-  if (value == null) return "bg-muted";
+  if (value == null) return "bg-border";
   if (value >= 80) return "bg-destructive";
   if (value >= 50) return "bg-warning";
   return "bg-success";
@@ -57,7 +57,7 @@ export function QuotaGauges({ summary, isLoading }: QuotaGaugesProps) {
     return (
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         {[0, 1, 2].map((i) => (
-          <div key={i} className="p-4 rounded-sm border border-border h-[92px] animate-pulse bg-muted" />
+          <div key={i} className="p-4 rounded-sm border border-border h-[92px] animate-pulse bg-border" />
         ))}
       </div>
     );

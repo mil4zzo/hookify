@@ -77,7 +77,7 @@ function RefList({ items }: { items: Array<{ token: string; value: string }> }) 
   return (
     <dl className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
       {items.map((it) => (
-        <div key={it.token} className="flex items-center justify-between gap-3 rounded-md border border-border bg-muted-20 px-2 py-1">
+        <div key={it.token} className="flex items-center justify-between gap-3 rounded-md border border-border bg-surface-2 px-2 py-1">
           <code className="text-xs text-foreground">{it.token}</code>
           <span className="text-xs text-muted-foreground">{it.value}</span>
         </div>
@@ -155,8 +155,8 @@ export default function DesignSystemPage() {
     >
       <div className="space-y-stack">
         <InlineNotice tone="info" title="Referência interna (dev)">
-          Tokens vivem em <code className="rounded-sm bg-muted px-1 py-0.5">lib/design-system/themeDefinitions.ts</code> (gerados em <code className="rounded-sm bg-muted px-1 py-0.5">app/theme-generated.css</code>) e mapeados em{" "}
-          <code className="rounded-sm bg-muted px-1 py-0.5">tailwind.config.ts</code>. Guia completo em <code className="rounded-sm bg-muted px-1 py-0.5">frontend/docs/DESIGN_SYSTEM.md</code>.
+          Tokens vivem em <code className="rounded-sm bg-surface-2 px-1 py-0.5">lib/design-system/themeDefinitions.ts</code> (gerados em <code className="rounded-sm bg-surface-2 px-1 py-0.5">app/theme-generated.css</code>) e mapeados em{" "}
+          <code className="rounded-sm bg-surface-2 px-1 py-0.5">tailwind.config.ts</code>. Guia completo em <code className="rounded-sm bg-surface-2 px-1 py-0.5">frontend/docs/DESIGN_SYSTEM.md</code>.
         </InlineNotice>
 
         {/* ===================== PALETA DE CORES ===================== */}
@@ -220,7 +220,7 @@ export default function DesignSystemPage() {
               <div className="flex flex-wrap gap-4">
                 {(["sm", "md", "lg"] as const).map((r) => (
                   <div key={r} className="flex flex-col items-center gap-1">
-                    <div className={cn("h-16 w-16 border border-border bg-muted", r === "sm" && "rounded-sm", r === "md" && "rounded-md", r === "lg" && "rounded-lg")} />
+                    <div className={cn("h-16 w-16 border border-border bg-surface-2", r === "sm" && "rounded-sm", r === "md" && "rounded-md", r === "lg" && "rounded-lg")} />
                     <span className="text-xs text-muted-foreground">{r}</span>
                   </div>
                 ))}
@@ -257,7 +257,7 @@ export default function DesignSystemPage() {
               <div className="space-y-2">
                 {([["compact", "h-row-compact", "2.5rem"], ["detailed", "h-row-detailed", "7.5rem"]] as const).map(([label, cls, val]) => (
                   <div key={label} className="flex items-center gap-2">
-                    <div className={cn("w-28 rounded-md border border-border bg-muted", cls)} />
+                    <div className={cn("w-28 rounded-md border border-border bg-surface-2", cls)} />
                     <span className="text-xs text-muted-foreground">{label} · {val}</span>
                   </div>
                 ))}
@@ -522,7 +522,7 @@ export default function DesignSystemPage() {
         </Section>
 
         <p className="text-sm text-muted-foreground">
-          Documentação: <code className="rounded-sm bg-muted px-1 py-0.5">frontend/docs/DESIGN_SYSTEM.md</code>
+          Documentação: <code className="rounded-sm bg-surface-2 px-1 py-0.5">frontend/docs/DESIGN_SYSTEM.md</code>
         </p>
       </div>
     </PageContainer>

@@ -57,7 +57,7 @@ function Row({
       {ad ? (
         <AdPlayArea ad={ad as unknown} aspectRatio="1:1" size={36} className="rounded-sm flex-shrink-0" onPlayClick={open} />
       ) : (
-        <div className="h-9 w-9 flex-shrink-0 rounded-sm bg-muted-30" />
+        <div className="h-9 w-9 flex-shrink-0 rounded-sm bg-border" />
       )}
 
       <div className="min-w-0 flex-1">

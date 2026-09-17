@@ -192,13 +192,13 @@ export function ProgressItemCard({
       ? "border-destructive-30 bg-destructive-10"
       : isActive
         ? "border-primary-30 bg-primary-10"
-        : "border-border bg-muted-10"
+        : "border-border bg-surface-2"
 
   return (
     <div className={`rounded-md border transition-colors ${borderClass}`}>
       <div className="flex items-center gap-3 px-4 py-3">
         <div className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${
-          isDone ? "bg-success-10" : isError ? "bg-destructive-10" : isActive ? "bg-primary-10" : "bg-muted"
+          isDone ? "bg-success-10" : isError ? "bg-destructive-10" : isActive ? "bg-primary-10" : "bg-surface-2"
         }`}>
           {isDone && <IconCheck className="h-3.5 w-3.5 text-success-600" />}
           {isError && <IconX className="h-3.5 w-3.5 text-destructive" />}
@@ -347,7 +347,7 @@ export default function BulkProgressList({ progress, creative }: BulkProgressLis
         <div className="overflow-hidden rounded-md border border-border bg-background shadow-elevation-raised">
           <div className="flex items-center gap-3 border-b border-border px-5 py-4">
             <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full ${
-              isCompleted ? "bg-success-10" : isFailed ? "bg-destructive-10" : isCancelled ? "bg-muted" : "bg-primary-10"
+              isCompleted ? "bg-success-10" : isFailed ? "bg-destructive-10" : isCancelled ? "bg-surface-2" : "bg-primary-10"
             }`}>
               {isCompleted && <IconCheck className="h-5 w-5 text-success-600" />}
               {isFailed && <IconAlertCircle className="h-5 w-5 text-destructive" />}
@@ -365,7 +365,7 @@ export default function BulkProgressList({ progress, creative }: BulkProgressLis
             <div className="shrink-0 text-2xl font-bold tabular-nums text-primary">{pct}%</div>
           </div>
 
-          <div className="h-1.5 bg-muted">
+          <div className="h-1.5 bg-border">
             <div
               className={`h-full transition-all duration-500 ${
                 isCompleted ? "bg-success" : isFailed ? "bg-destructive" : isCancelled ? "bg-border" : "bg-primary"

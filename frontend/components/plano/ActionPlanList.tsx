@@ -19,7 +19,7 @@ const VERDICT_META: Record<Verdict, { label: string; description: string; icon: 
   otimizar: { label: "Otimizar", description: "Custo ok, mas há métricas com margem de melhoria",        icon: IconTarget,            chipClass: "text-attention bg-attention-10 border-attention-30" },
   licao:    { label: "Aprender", description: "Custo alto, mas há elemento forte para reciclar",          icon: IconSchool,            chipClass: "text-warning bg-warning-10 border-warning-30" },
   descartar:{ label: "Pausar",   description: "Custo alto e nenhuma métrica se destaca",                  icon: IconPlayerPauseFilled, chipClass: "text-destructive bg-destructive-10 border-destructive-30" },
-  observar: { label: "Observar", description: "Dados insuficientes ou critérios de validação não atingidos", icon: IconEye,          chipClass: "text-muted-foreground bg-muted-30 border-border" },
+  observar: { label: "Observar", description: "Dados insuficientes ou critérios de validação não atingidos", icon: IconEye,          chipClass: "text-muted-foreground bg-surface-2 border-border" },
 };
 
 const VERDICT_ORDER: Verdict[] = ["gem", "otimizar", "licao", "descartar", "observar"];

@@ -53,7 +53,7 @@ export default function DataDeletionPage() {
               <ul className="list-disc space-y-2 pl-5 text-sm text-muted-foreground">
                 <li>
                   <strong className="text-foreground">Assunto:</strong>{" "}
-                  <code className="rounded-sm bg-muted px-1.5 py-0.5 text-xs">
+                  <code className="rounded-sm bg-surface-2 px-1.5 py-0.5 text-xs">
                     Exclusão de Dados - Hookify
                   </code>
                 </li>

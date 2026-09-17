@@ -128,7 +128,7 @@ function CampaignPreviewSkeleton({ mode }: { mode: "ads" | "campaign" }) {
       {/* Creative name badge */}
       <Skeleton className="h-5 w-28" />
       {/* Video preview */}
-      <div className="rounded-md bg-gradient-to-b from-muted-60 to-muted-20 p-4 flex justify-center">
+      <div className="rounded-md bg-background p-4 flex justify-center">
         <Skeleton className="w-[200px] aspect-[9/16] rounded-md" />
       </div>
       {/* Campaign structure card — only in campaign mode */}
@@ -178,7 +178,7 @@ function StepIndicator({
                 isActive
                   ? "bg-primary-10 text-primary"
                   : isDone
-                  ? "text-success hover:bg-muted-50 cursor-pointer"
+                  ? "text-success hover:bg-accent cursor-pointer"
                   : "text-muted-foreground opacity-50 cursor-default"
               }`}
             >
@@ -188,7 +188,7 @@ function StepIndicator({
                     ? "bg-primary text-primary-foreground"
                     : isDone
                     ? "bg-success text-success-foreground"
-                    : "bg-muted text-muted-foreground opacity-50 border border-border"
+                    : "bg-surface-2 text-muted-foreground opacity-50 border border-border"
                 }`}
               >
                 {isDone ? <IconCheck className="h-3 w-3" /> : step.id}
@@ -318,7 +318,7 @@ function CampaignProgressView({
         </div>
 
         {/* Progress bar */}
-        <div className="h-1.5 bg-muted">
+        <div className="h-1.5 bg-border">
           <div
             className={`h-full transition-all duration-500 ${isCompleted ? "bg-success" : isFailed ? "bg-destructive" : "bg-primary"}`}
             style={{ width: `${pct}%` }}
@@ -1185,7 +1185,7 @@ export default function UploadPage() {
                       <div className="text-xs text-muted-foreground">Iniciando job de criação</div>
                     </div>
                   </div>
-                  <div className="h-1.5 bg-muted">
+                  <div className="h-1.5 bg-border">
                     <div className="h-full bg-primary-30 animate-pulse w-full" />
                   </div>
                 </div>
@@ -1237,7 +1237,7 @@ export default function UploadPage() {
                             </div>
                           )}
                         </div>
-                      <div className="h-1.5 bg-muted">
+                      <div className="h-1.5 bg-border">
                         <div className="h-full bg-primary-30 animate-pulse w-full" />
                       </div>
                       <div className="grid grid-cols-3 divide-x divide-border text-center">

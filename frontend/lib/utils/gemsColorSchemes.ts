@@ -129,14 +129,14 @@ export const goldBucketColorSchemes: Record<
     },
   },
   neutros: {
-    headerBg: "bg-muted-20 border-muted-40",
+    headerBg: "bg-surface-2 border-border",
     title: "",
     card: {
       border: "border-muted-40",
-      bg: "bg-muted-20",
+      bg: "bg-surface-2",
       text: "text-muted-foreground",
       accent: "border-muted-foreground",
-      badge: "bg-muted text-muted-foreground",
+      badge: "bg-surface-2 text-muted-foreground",
     },
   },
 };

@@ -24,7 +24,7 @@ const VERDICT_CHIP: Record<Verdict, { label: string; className: string }> = {
   otimizar: { label: "Otimizar", className: "bg-attention-20 text-attention border border-attention-30" },
   licao:    { label: "Aprender", className: "bg-warning-20 text-warning border border-warning-30" },
   descartar:{ label: "Pausar",   className: "bg-destructive-20 text-destructive border border-destructive-30" },
-  observar: { label: "Observar", className: "bg-muted-30 text-muted-foreground border border-border" },
+  observar: { label: "Observar", className: "bg-surface-2 text-muted-foreground border border-border" },
 };
 
 type ActionPlanRowProps = {
@@ -95,7 +95,7 @@ export function ActionPlanRow({
               {adRaw.ad_name || adRaw.ad_id || "—"}
             </span>
             {lowData && (
-              <span className="flex items-center gap-1 px-1.5 py-0.5 rounded-sm text-2xs bg-muted-30 text-muted-foreground border border-border flex-shrink-0">
+              <span className="flex items-center gap-1 px-1.5 py-0.5 rounded-sm text-2xs bg-surface-2 text-muted-foreground border border-border flex-shrink-0">
                 <IconAlertTriangle className="h-3 w-3" />
                 Dados parciais
               </span>

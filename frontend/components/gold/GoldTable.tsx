@@ -267,7 +267,7 @@ export function GoldTable({ ads, averages, actionType }: GoldTableProps) {
         return {
           label: "Neutros",
           color: "text-muted-foreground",
-          bgColor: "bg-muted-20 border-muted-40",
+          bgColor: "bg-surface-2 border-border",
         };
     }
   };

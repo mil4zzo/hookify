@@ -38,7 +38,7 @@ export const StandardCard = React.forwardRef<HTMLDivElement, StandardCardProps>(
   // Variantes de background
   const variantStyles = {
     default: "bg-card",
-    muted: "bg-muted-50",
+    muted: "bg-surface-2",
     card: "bg-card",
   };
 
