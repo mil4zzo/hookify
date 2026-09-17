@@ -67,7 +67,7 @@ export function FacebookConnectionCard({ connection, isSelected = false, onSelec
   };
 
   return (
-    <div className={`flex flex-col gap-3 p-3 border rounded-lg transition-colors ${isSelected && canSelect ? "border-primary bg-primary-10 cursor-pointer" : isExpired ? "border-destructive-50 bg-destructive-10 cursor-not-allowed opacity-75" : isDegraded ? "border-warning-30 bg-warning-10" : canSelect ? "border-border hover:bg-accent cursor-pointer" : "border-border cursor-not-allowed opacity-50"}`} onClick={() => canSelect && onSelect && onSelect(connection.id)}>
+    <div className={`flex flex-col gap-3 p-3 border rounded-lg transition-colors ${isSelected && canSelect ? "border-primary bg-primary-10 cursor-pointer" : isExpired ? "border-destructive-50 bg-destructive-10 cursor-not-allowed opacity-75" : isDegraded ? "border-warning-30 bg-warning-10" : canSelect && onSelect ? "border-border bg-surface-2 hover:bg-accent cursor-pointer" : canSelect ? "border-border bg-surface-2" : "border-border cursor-not-allowed opacity-50"}`} onClick={() => canSelect && onSelect && onSelect(connection.id)}>
       <div className="flex items-center justify-between gap-2">
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
@@ -94,7 +94,7 @@ export function FacebookConnectionCard({ connection, isSelected = false, onSelec
             <div className="flex items-center gap-2">
               <div className="font-medium text-sm truncate">{connection.facebook_name || connection.facebook_email || `ID: ${connection.facebook_user_id}` || "Conta do Facebook"}</div>
               {isTesting && (
-                <span className="text-xs px-2 py-0.5 rounded bg-muted text-muted-foreground font-medium flex items-center gap-1">
+                <span className="text-xs px-2 py-0.5 rounded bg-surface-3 text-muted-foreground font-medium flex items-center gap-1">
                   <IconLoader2 className="w-3 h-3 animate-spin" />
                   Verificando...
                 </span>

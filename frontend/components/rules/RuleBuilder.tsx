@@ -176,7 +176,7 @@ function TagValueEditor({
                 <button
                   key={tag.id}
                   type="button"
-                  className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-input-30"
+                  className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-accent"
                   onClick={() => onChange([...selectedIds, tag.id])}
                 >
                   <span className={cn("h-2 w-2 flex-shrink-0 rounded-full", tagDotClasses(tag.color))} />
@@ -232,7 +232,7 @@ function MultiSelectValueEditor({
                 <button
                   key={option.value}
                   type="button"
-                  className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-input-30"
+                  className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-accent"
                   onClick={() =>
                     onChange(checked ? selectedIds.filter((id) => id !== option.value) : [...selectedIds, option.value])
                   }
@@ -572,17 +572,21 @@ function LogicChip({
   value,
   onChange,
   disabled,
+  nested = false,
 }: {
   value: RuleLogic;
   onChange?: (logic: RuleLogic) => void;
   disabled?: boolean;
+  /** Dentro do subgrupo (nível 2) o eco sobe para o nível 3; em surface-2 ele sumiria. */
+  nested?: boolean;
 }) {
   if (!onChange) {
     return (
       <span
         className={cn(
           LOGIC_CHIP_CLASSES,
-          "inline-flex min-w-12 items-center justify-center border border-border-50 bg-surface-2 px-2 text-muted-foreground",
+          "inline-flex min-w-12 items-center justify-center border border-border-50 px-2 text-muted-foreground",
+          nested ? "bg-surface-3" : "bg-surface-2",
         )}
       >
         {LOGIC_LABEL[value]}
@@ -639,14 +643,15 @@ export function RuleBuilder({
     if (node.type === "group") {
       const children = node.conditions ?? [];
       // O subgrupo é o ÚNICO contêiner da tela: superfície um degrau acima do modal
-      // (surface-2), faixa de cabeçalho um degrau acima dela (surface-3). Antes era
+      // (surface-2). O cabeçalho é parte do grupo, separado só pelo filete: com fundo
+      // surface-3 ele ficaria no MESMO nível do seletor E/OU que carrega. Antes era
       // tracejado sobre bg-input-10 — um poço quase da cor da página, o nível mais
       // profundo da regra desenhado como o mais fraco.
       return (
         <div key={node.id} className="space-y-1.5">
           {connector}
           <div className="overflow-hidden rounded-lg border border-border bg-surface-2">
-            <div className="flex items-center justify-between gap-2 border-b border-border-50 bg-surface-3 px-2.5 py-1.5">
+            <div className="flex items-center justify-between gap-2 border-b border-border-50 px-2.5 py-1.5">
               <div className="flex items-center gap-2">
                 <span className="text-2xs font-semibold uppercase tracking-wide text-muted-foreground">Subgrupo</span>
                 <LogicChip
@@ -689,7 +694,7 @@ export function RuleBuilder({
                 <div key={child.id} className="space-y-1.5">
                   {childIndex > 0 && (
                     <div className="flex items-center">
-                      <LogicChip value={node.logic} />
+                      <LogicChip value={node.logic} nested />
                     </div>
                   )}
                   {child.type === "condition" && (

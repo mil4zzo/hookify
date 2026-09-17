@@ -285,6 +285,20 @@ placeholder ou area de drop — nao use para agrupar conteudo real.
 `muted-foreground` o contraste cai para ~2,4:1. Caixa com texto dentro de dialogo e
 regiao de leitura (nivel 0).
 
+**Desempate quando a area tem leitura E acao** (lista com caixa de selecao, por
+exemplo): **tem rolagem ou volume de conteudo? desce. Cada linha e um pequeno
+formulario, com controles proprios? sobe.** A lista da transcricao (dezenas de
+anuncios, rolagem, a caixa e acao leve sobre a leitura) desce; a lista de membros
+(poucas linhas, cada uma com seletor e remover) sobe. Pelo mesmo criterio, tabela de
+variacoes e amostra de colunas descem; opcoes de escolha, toggles e pares em conflito
+sobem.
+
+**O que vai DENTRO sobe junto.** Uma pastilha ou selo que vive num grupo de nivel 2
+vai para o nivel 3 (`bg-surface-3`) — em `surface-2` ele some. E uma faixa de
+cabecalho nao ganha fundo proprio se carrega um campo: no nivel do campo (3) os dois
+se fundem; separe a faixa so com filete. A escada tem teto: acima do campo so existe a
+borda, que nao e fundo de texto.
+
 **Lista de itens com acoes** (membros, conexoes, pares em conflito): um grupo so no
 nivel +1, com contorno e as linhas divididas por filete (`divide-y divide-border`) —
 nao uma caixa por item. Lista de pessoas leva identidade (iniciais + nome + detalhe),
