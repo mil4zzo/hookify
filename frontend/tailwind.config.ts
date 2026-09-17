@@ -22,6 +22,22 @@ const backgroundAlphaScale = () => {
   };
 };
 
+/**
+ * TINTA semantica (primary, destructive, success, warning, info, attention, ring): alpha
+ * REAL sobre o que estiver atras. Ate 2026-09-17 era mistura com a pagina, e dentro de um
+ * modal (mais claro que a pagina no tema escuro) a opcao escolhida e os avisos ficavam
+ * mais escuros que o proprio modal. Com alpha o veu e o mesmo em pagina, cartao e modal
+ * (como shadcn/Radix). Consequencia: sobre midia, a imagem aparece por baixo.
+ */
+const tintScale = (cssVar: string) => ({
+  DEFAULT: `var(${cssVar})`,
+  ...Object.fromEntries(alphaSteps.map((step) => [step, `oklch(from var(${cssVar}) l c h / ${step / 100})`])),
+});
+
+/**
+ * Mistura com a pagina — so sobra para muted/input/accent, cujos usos com passo sao o
+ * backlog de `structural-alpha-surface` (telas legadas ou a redesenhar).
+ */
 const alphaScale = (cssVar: string) => {
   if (cssVar === "--background") {
     return backgroundAlphaScale();
@@ -42,7 +58,7 @@ const semanticToneScale = (family: "primary" | "destructive" | "success") => ({
 });
 
 const semanticScale = (family: "primary" | "destructive" | "success", options?: { hover?: string }) => ({
-  ...alphaScale(`--${family}`),
+  ...tintScale(`--${family}`),
   ...semanticToneScale(family),
   ...(options?.hover ? { hover: options.hover } : {}),
 });
@@ -105,11 +121,11 @@ export default {
           hover: "color-mix(in oklab, var(--success) 90%, oklch(1 0 0) 10%)",
         }),
         "success-foreground": "var(--success-foreground)",
-        warning: alphaScale("--warning"),
+        warning: tintScale("--warning"),
         "warning-foreground": "var(--warning-foreground)",
-        info: alphaScale("--info"),
+        info: tintScale("--info"),
         "info-foreground": "var(--info-foreground)",
-        attention: alphaScale("--attention"),
+        attention: tintScale("--attention"),
         "attention-foreground": "var(--attention-foreground)",
 
         // === FORMULÁRIOS ===
@@ -120,7 +136,7 @@ export default {
         // "-80" era um terceiro/quarto tom de texto sem papel. Texto apagado = cor
         // secundaria + opacity-50; sobre superficie colorida, white/N (alpha real).
         border: "var(--border)",
-        ring: alphaScale("--ring"),
+        ring: tintScale("--ring"),
         "ring-foreground": "var(--ring-foreground)",
 
         // === COMPONENTES ESPECÍFICOS ===
@@ -142,11 +158,11 @@ export default {
 
         // === GRÁFICOS ===
         chart: {
-          1: alphaScale("--chart-1"),
-          2: alphaScale("--chart-2"),
-          3: alphaScale("--chart-3"),
-          4: alphaScale("--chart-4"),
-          5: alphaScale("--chart-5"),
+          1: tintScale("--chart-1"),
+          2: tintScale("--chart-2"),
+          3: tintScale("--chart-3"),
+          4: tintScale("--chart-4"),
+          5: tintScale("--chart-5"),
         },
 
       },

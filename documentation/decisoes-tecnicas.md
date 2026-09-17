@@ -5065,3 +5065,20 @@ fundo da PÁGINA, não com o que está atrás):
 
 Achado lateral: barra de opacidade em tom numerado (`text-destructive-300/70`) também
 não gera CSS — a regra da barra agora cobre `-950…-300`/`-label`.
+
+---
+
+## Tinta com transparência real; temperatura mantida (2026-09-17)
+
+Decisões do ajuste final de cores, tomadas comparando as opções lado a lado com o CSS
+real do app:
+
+- **Temperatura do cinza: mantida em "frio sutil"** (`neutral-chroma` 0,007, matiz
+  265). Neutro e quente sutil foram vistos e descartados.
+- **Tinta semântica passa a ser alpha real** (`oklch(from var(--x) l c h / N)`) em
+  primary, destructive, success, warning, info, attention, ring e chart-*. A mistura com
+  a página fazia a opção escolhida e os avisos ficarem mais escuros que o modal no tema
+  escuro. Com alpha o tom é o mesmo em página, cartão e modal. Custo aceito: sobre mídia
+  a imagem aparece por baixo — selo sobre mídia usa passo alto ou `bg-black/60`.
+- `muted`, `input` e `accent` seguem com a mistura antiga porque os usos com passo são o
+  backlog de `structural-alpha-surface`; não devem crescer.

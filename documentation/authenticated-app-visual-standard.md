@@ -341,9 +341,18 @@ caixa em volta — vira moldura dentro de moldura.
 
 ### Escala alpha (tinta semantica)
 
-A escala `-N` existe em rampa regular: **10, 20, 30, 40, 50, 60, 70, 80, 90**. Ela
-gera `color-mix(in oklab, var(--token) N%, var(--background))` — um veu da cor sobre
-o fundo da pagina. Por isso serve para **tinta**, e nao para superficie (ver acima).
+A escala `-N` existe em rampa regular: **10, 20, 30, 40, 50, 60, 70, 80, 90**. Nas
+cores de tinta (`primary`, `destructive`, `success`, `warning`, `info`, `attention`,
+`ring`, `chart-*`) ela gera **alpha real** — `oklch(from var(--token) l c h / N%)`, um
+veu translucido sobre o que estiver atras. Por isso `bg-primary-10` tem o mesmo tom na
+pagina, no cartao e dentro do modal. Ate 2026-09-17 era mistura com o fundo da pagina,
+e dentro de modal a opcao escolhida e os avisos ficavam mais escuros que o modal.
+Consequencia do alpha: sobre imagem ou video a midia aparece por baixo — para um selo
+que precisa cobrir midia, use passo alto (`-80`/`-90`) ou `bg-black/60`.
+
+`muted`, `input` e `accent` ainda tem a escala antiga (mistura com a pagina): os usos
+com passo sao o backlog de `structural-alpha-surface` e nao devem crescer. Superficie
+vem da escada (ver acima), nunca da escala.
 
 Papeis de referencia (nao obrigatorios, mas o que a maior parte do app ja usa):
 
