@@ -240,9 +240,14 @@ aumentar a instância.**
 - **Item 2 (índices): adiado** — reavaliar com a memória já corrigida.
 - **Explorer, Insights, GOLD e Plano sem o corte de 1.000** (constante única
   `ANALYTICS_ALL_ROWS_LIMIT` em `frontend/lib/api/limits.ts`).
-- **Ainda fora:** por anúncio com 38 packs e 120 dias continua acima dos 20 s (35–54 s na
-  v161; a 162 não foi medida nesse caso em produção de propósito — era o caso que
-  derrubou a máquina). Próximas alavancas: resposta em partes, agregado pré-calculado.
+- **Ainda fora:** por anúncio com 38 packs e 120 dias (51 mil linhas, 46 MB). Medido com a
+  162 em 16/09 às 23h33, máquina ociosa, uma rodada por vez: **34,2 s** (cache frio) e
+  **41,9 s** na seguinte — a segunda já com a máquina usando swap (livre 678 → 512 MB).
+  Fica NO LIMITE dos 40 s da 164: às vezes abre, às vezes falha. A causa agora é volume
+  (agregar e buscar 51 mil anúncios numa máquina de 1 GB), não desperdício. Alavancas
+  que sobram: agregado pré-calculado (resolve), cache do resultado no servidor (só a
+  segunda abertura), máquina maior (decisão já tomada: não por ora). Decisão de produto
+  pendente: quanto esse caso é usado de verdade.
 
 **A descobrir no mesmo tema:** Explorer e Insights pediam `limit: 1000` — o Igor tem ~3,4 mil
 criativos. Decisão do idealizador (16/09): **não é proposital; nenhuma tela corta nada.**
