@@ -44,7 +44,7 @@ export function MetaUsageTable({
   const showingTo = (page - 1) * pageSize + items.length;
 
   return (
-    <div className="rounded border border-border overflow-hidden">
+    <div className="rounded-sm border border-border overflow-hidden">
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
@@ -129,7 +129,7 @@ export function MetaUsageTable({
         <div className="flex items-center gap-2">
           <button
             type="button"
-            className="px-2 py-1 rounded border border-border disabled:opacity-50"
+            className="px-2 py-1 rounded-sm border border-border disabled:opacity-50"
             disabled={page <= 1}
             onClick={() => onPageChange(page - 1)}
           >
@@ -141,7 +141,7 @@ export function MetaUsageTable({
           </span>
           <button
             type="button"
-            className="px-2 py-1 rounded border border-border disabled:opacity-50"
+            className="px-2 py-1 rounded-sm border border-border disabled:opacity-50"
             disabled={totalPages != null ? page >= totalPages : items.length < pageSize}
             onClick={() => onPageChange(page + 1)}
           >

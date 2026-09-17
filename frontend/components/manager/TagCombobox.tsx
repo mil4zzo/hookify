@@ -177,7 +177,7 @@ export function TagCombobox({
               type="button"
               onClick={() => void handleCreate()}
               disabled={isCreating}
-              className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs transition-colors hover:bg-accent disabled:opacity-70"
+              className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-xs transition-colors hover:bg-accent disabled:opacity-70"
             >
               {isCreating ? (
                 <IconLoader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />
@@ -190,10 +190,10 @@ export function TagCombobox({
             </button>
           )}
 
-          {isLoading && <p className="px-2 py-2 text-2xs text-muted-foreground">Carregando tags...</p>}
+          {isLoading && <p className="px-2 py-2 text-xs text-muted-foreground">Carregando tags...</p>}
 
           {!isLoading && visible.length === 0 && !canOfferCreate && (
-            <p className="px-2 py-2 text-2xs text-muted-foreground">
+            <p className="px-2 py-2 text-xs text-muted-foreground">
               {trimmed ? "Nenhuma tag encontrada." : "Nenhuma tag disponível."}
             </p>
           )}
@@ -205,7 +205,7 @@ export function TagCombobox({
                 key={tag.id}
                 type="button"
                 onClick={() => handlePick(tag)}
-                className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left transition-colors hover:bg-accent"
+                className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left transition-colors hover:bg-accent"
               >
                 <span className={cn("h-2 w-2 shrink-0 rounded-full", tagDotClasses(tag.color))} />
                 <span className="truncate text-xs">{tag.name}</span>

@@ -160,7 +160,7 @@ export function BulkTagDialog({ open, onOpenChange, selection, onApplied }: Bulk
               aria-selected={mode === option}
               onClick={() => handleModeChange(option)}
               className={cn(
-                "flex-1 rounded px-2 py-1 text-xs font-medium transition-colors",
+                "flex-1 rounded-sm px-2 py-1 text-xs font-medium transition-colors",
                 mode === option ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground",
               )}
             >
@@ -184,7 +184,7 @@ export function BulkTagDialog({ open, onOpenChange, selection, onApplied }: Bulk
         )}
 
         {nothingToRemove ? (
-          <p className="text-2xs text-muted-foreground">
+          <p className="text-xs text-muted-foreground">
             Nenhum dos criativos selecionados tem tag para remover.
           </p>
         ) : (

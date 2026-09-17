@@ -133,7 +133,7 @@ export function PackJudgmentDialog({ pack, open, onOpenChange }: PackJudgmentDia
           <section className="space-y-2">
             <div>
               <p className="text-sm font-medium text-foreground">Leadscore mínimo para MQL</p>
-              <p className="text-2xs text-muted-foreground">
+              <p className="text-xs text-muted-foreground">
                 Leads com leadscore maior ou igual a este valor contam como MQL. A escala vem da
                 planilha integrada.
               </p>
@@ -152,14 +152,14 @@ export function PackJudgmentDialog({ pack, open, onOpenChange }: PackJudgmentDia
                   disabled={isSaving}
                 />
                 {parsedMql === null ? (
-                  <p className="flex items-start gap-2 text-2xs text-warning">
+                  <p className="flex items-start gap-2 text-xs text-warning">
                     <IconAlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
                     Sem corte definido, MQL e CPMQL ficam indisponíveis nas telas deste pack.
                   </p>
                 ) : null}
               </>
             ) : (
-              <p className="flex items-start gap-2 text-2xs text-muted-foreground">
+              <p className="flex items-start gap-2 text-xs text-muted-foreground">
                 <IconInfoCircle className="mt-0.5 h-3 w-3 shrink-0" />
                 Este pack não tem planilha integrada, então não há leadscore para qualificar.
               </p>
@@ -170,13 +170,13 @@ export function PackJudgmentDialog({ pack, open, onOpenChange }: PackJudgmentDia
           <section className="space-y-2">
             <div>
               <p className="text-sm font-medium text-foreground">CPR alvo por evento</p>
-              <p className="text-2xs text-muted-foreground">
+              <p className="text-xs text-muted-foreground">
                 Opcional. Usado pelo plano de ação para comparar o custo real com a sua meta.
               </p>
             </div>
 
             {conversionTypes.length === 0 ? (
-              <p className="flex items-start gap-2 text-2xs text-muted-foreground">
+              <p className="flex items-start gap-2 text-xs text-muted-foreground">
                 <IconInfoCircle className="mt-0.5 h-3 w-3 shrink-0" />
                 Este pack ainda não tem eventos de conversão registrados. Atualize o pack para
                 que os eventos apareçam aqui.

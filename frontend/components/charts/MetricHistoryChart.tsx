@@ -287,7 +287,7 @@ function MetricHistoryChartInner({ data, formatValue, actionType, availableMetri
           <span className="text-xs font-medium text-foreground">Métricas:</span>
           <Popover open={metricsPopoverOpen} onOpenChange={setMetricsPopoverOpen}>
             <PopoverTrigger asChild>
-              <button className="flex items-center justify-center w-5 h-5 rounded hover:bg-muted border border-border text-muted-foreground hover:text-foreground transition-colors">
+              <button className="flex items-center justify-center w-5 h-5 rounded-sm hover:bg-muted border border-border text-muted-foreground hover:text-foreground transition-colors">
                 <Plus className="w-3 h-3" />
               </button>
             </PopoverTrigger>
@@ -373,7 +373,7 @@ function MetricHistoryChartInner({ data, formatValue, actionType, availableMetri
               </TooltipContent>
             </Tooltip>
           </TooltipProvider>
-          {(selectedMetrics.includes("cpr") || selectedMetrics.includes("page_conv") || selectedMetrics.includes("results")) && !actionType && <div className="text-2xs text-warning bg-warning-10 p-1.5 rounded">CPR, Page Conv e Results requerem tipo de conversão selecionado.</div>}
+          {(selectedMetrics.includes("cpr") || selectedMetrics.includes("page_conv") || selectedMetrics.includes("results")) && !actionType && <div className="text-2xs text-warning bg-warning-10 p-1.5 rounded-sm">CPR, Page Conv e Results requerem tipo de conversão selecionado.</div>}
         </div>
       </div>
 

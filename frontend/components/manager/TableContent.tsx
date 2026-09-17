@@ -28,7 +28,7 @@ const VARIANT_STYLES = {
     container: "flex-1 min-h-0 overflow-auto overscroll-contain",
     table: "w-full text-sm border-separate border-spacing-y-4",
     thead: "sticky top-0 z-10 bg-background",
-    headerRow: "text-foreground-80",
+    headerRow: "text-foreground",
     th: (headerAlign: string) => `text-base font-normal py-4 px-4 ${headerAlign} relative`,
     thWidthStyle: false,
     sortGap: "gap-1",
@@ -384,12 +384,12 @@ export const TableContent = React.memo(function TableContent({ table, isLoadingE
                     if (isFirstColumn) {
                       content = (
                         <div className={`flex items-center ${styles.skeletonNameGap}`}>
-                          {currentTab !== "por-conjunto" && currentTab !== "por-campanha" && <Skeleton className={`${styles.skeletonThumb} rounded flex-shrink-0`} />}
+                          {currentTab !== "por-conjunto" && currentTab !== "por-campanha" && <Skeleton className={`${styles.skeletonThumb} rounded-sm flex-shrink-0`} />}
                           {styles.skeletonName}
                         </div>
                       );
                     } else if (column.id === "select") {
-                      content = <Skeleton className="mx-auto h-4 w-4 rounded" />;
+                      content = <Skeleton className="mx-auto h-4 w-4 rounded-sm" />;
                     } else if (column.getSize() > 0) {
                       content = <Skeleton className={styles.skeletonValue} />;
                     }

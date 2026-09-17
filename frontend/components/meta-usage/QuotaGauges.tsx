@@ -20,7 +20,7 @@ function Gauge({ label, value }: { label: string; value: number | null | undefin
   const pct = typeof value === "number" ? Math.min(100, Math.max(0, value)) : 0;
   const barColor = bandColor(value);
   return (
-    <div className="p-4 rounded border border-border">
+    <div className="p-4 rounded-sm border border-border">
       <div className="flex items-baseline justify-between mb-2">
         <div className="text-xs text-muted-foreground">{label}</div>
         <div className="text-lg font-semibold">
@@ -57,7 +57,7 @@ export function QuotaGauges({ summary, isLoading }: QuotaGaugesProps) {
     return (
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         {[0, 1, 2].map((i) => (
-          <div key={i} className="p-4 rounded border border-border h-[92px] animate-pulse bg-muted" />
+          <div key={i} className="p-4 rounded-sm border border-border h-[92px] animate-pulse bg-muted" />
         ))}
       </div>
     );
@@ -78,15 +78,15 @@ export function QuotaGauges({ summary, isLoading }: QuotaGaugesProps) {
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm">
-        <div className="p-3 rounded border border-border">
+        <div className="p-3 rounded-sm border border-border">
           <div className="text-xs text-muted-foreground">Chamadas (24h)</div>
           <div className="text-lg font-semibold">{summary?.calls_24h ?? 0}</div>
         </div>
-        <div className="p-3 rounded border border-border">
+        <div className="p-3 rounded-sm border border-border">
           <div className="text-xs text-muted-foreground">Chamadas (7d)</div>
           <div className="text-lg font-semibold">{summary?.calls_7d ?? 0}</div>
         </div>
-        <div className="p-3 rounded border border-border">
+        <div className="p-3 rounded-sm border border-border">
           <div className="text-xs text-muted-foreground">Última atualização</div>
           <div className="text-sm font-medium">
             {latest?.created_at ? new Date(latest.created_at).toLocaleString() : "—"}
@@ -95,7 +95,7 @@ export function QuotaGauges({ summary, isLoading }: QuotaGaugesProps) {
       </div>
 
       {summary && summary.top_routes_24h.length > 0 && (
-        <div className="rounded border border-border overflow-hidden">
+        <div className="rounded-sm border border-border overflow-hidden">
           <div className="px-4 py-2 bg-muted text-xs font-medium text-muted-foreground">
             Rotas mais caras (24h) — somatório de CPU time %
           </div>
@@ -121,7 +121,7 @@ export function QuotaGauges({ summary, isLoading }: QuotaGaugesProps) {
       )}
 
       {buc && Object.keys(buc).length > 0 && (
-        <details className="rounded border border-border">
+        <details className="rounded-sm border border-border">
           <summary className="px-4 py-2 cursor-pointer text-sm bg-muted">
             Breakdown por Business Use Case (última chamada)
           </summary>

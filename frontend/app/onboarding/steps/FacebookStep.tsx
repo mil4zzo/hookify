@@ -117,7 +117,7 @@ export function FacebookStep(props: { onContinue: () => void; onBack: () => void
             sem saída para ele: sem conexão não havia botão de continuar, e o
             gate de onboarding devolvia o usuário para cá em loop. */}
         {!hasActiveConnection && (
-          <p className="text-2xs text-muted-foreground">
+          <p className="text-xs text-muted-foreground">
             Não anuncia por esta conta? Você pode pular: dá para receber packs
             compartilhados por outras contas e conectar o Facebook depois, em
             Configurações.

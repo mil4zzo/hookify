@@ -47,6 +47,13 @@ const REGEX_RULES: RegexRule[] = [
     pattern: /[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]|Ã°Å¸/u,
   },
   {
+    id: "bare-rounded",
+    description: "`rounded` sem sufixo e o mesmo 0,25rem de `rounded-sm` com outro nome. Use a escala: rounded-sm (pastilha, item de lista), rounded-md (controle), rounded-lg (cartao, painel, modal), rounded-full (pilula, avatar).",
+    // So dentro de string (classe): aspa/crase antes, sem outra aspa no meio, e o mesmo
+    // depois. Variavel chamada `rounded` fica de fora. Variante (`sm:rounded`) conta.
+    pattern: /(?<=["'`](?:[^"'`\n]*[\s:])?)rounded(?=(?:\s[^"'`\n]*)?["'`])/,
+  },
+  {
     id: "arbitrary-font-size",
     description: "Use the type scale (text-2xs for 10px captions, text-xs and up) instead of arbitrary text-[Npx] sizes.",
     // Só px: tamanhos display em rem (títulos) e relativos em em (superscript) são deliberados.
@@ -68,16 +75,19 @@ const REGEX_RULES: RegexRule[] = [
     // Variante de estado (`hover:`, `data-[x]:`) tambem fica de fora: e receita de
     // estado, assunto do token `accent`, nao de superficie.
     pattern:
-      /(?<![\w:[\]-])bg-(?:card|popover|surface|input|muted-foreground|muted|secondary|accent|foreground|border)-(?:10|20|30|40|50|60|70|80|90)(?![\w-])/,
+      // Paradas de gradiente (from-/via-/to-) tambem: `from-muted-50 to-muted-20` e a
+      // mesma mistura com a pagina, so que em degrade.
+      /(?<![\w:[\]-])(?:bg|from|via|to)-(?:card|popover|surface|input|muted|secondary|accent)-(?:10|20|30|40|50|60|70|80|90)(?![\w-])/,
   },
   {
     id: "alpha-step-out-of-scale",
     description:
-      "Passo fora da escala alpha (10, 20 ... 90), ou token sem escala (card, popover): a classe nao gera CSS e o estilo some em silencio. Use a decada mais proxima.",
+      "Passo fora da escala alpha (10, 20 ... 90), ou token sem escala (card, popover, border e todo *-foreground): a classe nao gera CSS e o estilo some em silencio. Tinta: use a decada mais proxima. Borda: border-border. Texto apagado: text-muted-foreground opacity-50. Sobre superficie colorida: white/N.",
     // Numero terminado em 0 e decada (permitido); qualquer outro — 5, 15, 45, 75 — nao
     // existe no tailwind.config. card/popover nao tem escala nenhuma. surface fica de fora
     // de proposito: `surface-2`/`surface-3` sao os degraus da escada, nao passos alpha.
-    pattern: /(?<![\w-])(?:bg|text|border(?:-[trblxy])?|ring-offset|ring|from|via|to|outline|fill|stroke|divide|shadow|decoration|placeholder|caret)-(?:(?:accent-foreground|attention-foreground|card-foreground|destructive-foreground|info-foreground|input-foreground|muted-foreground|popover-foreground|primary-foreground|ring-foreground|success-foreground|warning-foreground|accent|attention|background|border|destructive|foreground|info|input|muted|primary|ring|success|warning)-(?:[1-9]|[1-9][1-9])|(?:card|popover)-\d{1,2})(?![\w\/-])/,
+    // Desde a F4, border e todo *-foreground nao tem escala nenhuma (tailwind.config).
+    pattern: /(?<![\w-])(?:bg|text|border(?:-[trblxy])?|ring-offset|ring|from|via|to|outline|fill|stroke|divide|shadow|decoration|placeholder|caret)-(?:(?:accent|attention|background|destructive|info|input|muted|primary|ring|success|warning)-(?:[1-9]|[1-9][1-9])|(?:card|popover|border|[a-z]+-foreground|foreground)-\d{1,2})(?![\w\/-])/,
   },
   {
     id: "semantic-color-slash-opacity",
@@ -85,7 +95,7 @@ const REGEX_RULES: RegexRule[] = [
       "Barra de opacidade em cor do tema (bg-destructive/5) nao gera CSS no Tailwind 3: a cor e var(), sem <alpha-value>, e o compilador descarta a classe. Use o passo com hifen (bg-destructive-10). A barra so vale para a paleta padrao (bg-black/60).",
     // Provado com o CLI do Tailwind: bg-destructive/5, border-warning/40 e
     // text-muted-foreground/50 nao aparecem no CSS compilado. Havia 31 no app.
-    pattern: /(?<![\w-])(?:bg|text|border(?:-[trblxy])?|ring-offset|ring|from|via|to|outline|fill|stroke|divide|shadow|decoration|placeholder|caret)-(?:accent-foreground|attention-foreground|card-foreground|destructive-foreground|info-foreground|input-foreground|muted-foreground|popover-foreground|primary-foreground|ring-foreground|success-foreground|warning-foreground|accent|attention|background|border|destructive|foreground|info|input|muted|primary|ring|success|warning|card|popover|surface(?:-[23])?)\/\d{1,3}(?![\w-])/,
+    pattern: /(?<![\w-])(?:bg|text|border(?:-[trblxy])?|ring-offset|ring|from|via|to|outline|fill|stroke|divide|shadow|decoration|placeholder|caret)-(?:accent-foreground|attention-foreground|card-foreground|destructive-foreground|info-foreground|input-foreground|muted-foreground|popover-foreground|primary-foreground|ring-foreground|success-foreground|warning-foreground|accent|attention|background|border|destructive|foreground|info|input|muted|primary|ring|success|warning|card|popover|surface(?:-[23])?|(?:primary|destructive|success)-(?:950|800|600|400|300|label))\/\d{1,3}(?![\w-])/,
   },
   {
     id: "tailwind-v4-syntax",

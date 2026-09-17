@@ -28,7 +28,7 @@ export function PublicMetricCell({ metricKey, value, average, subtitle, currency
   const delta = canCompare ? formatShareDelta(value, average) : null;
 
   return (
-    <div className={cn("min-w-0 rounded border pb-2", tone ? getMetricCardSurfaceClass(tone) : "border-border bg-background", className)}>
+    <div className={cn("min-w-0 rounded-sm border pb-2", tone ? getMetricCardSurfaceClass(tone) : "border-border bg-background", className)}>
       <div className="mb-1.5 flex items-center justify-between gap-2 border-b border-border p-1.5 text-2xs text-muted-foreground">
         <span className="min-w-0 truncate">{METRIC_LABELS[metricKey]}</span>
         {subtitle ? <span className="min-w-0 truncate text-right">{subtitle}</span> : null}

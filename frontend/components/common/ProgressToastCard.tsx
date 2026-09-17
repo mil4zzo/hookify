@@ -219,7 +219,7 @@ function ToastCardFrame({ variant, progress, animated = true, countdownMs, child
 
   return (
     <div
-      className="relative w-[22rem] max-w-[min(22rem,calc(100vw-1rem))] overflow-hidden rounded-lg border border-primary-foreground-10"
+      className="relative w-[22rem] max-w-[min(22rem,calc(100vw-1rem))] overflow-hidden rounded-lg border border-white/10"
       style={{
         boxShadow: ambientShadow,
         transition: animated ? `box-shadow ${CARD_TRANSITION}` : undefined,
@@ -275,7 +275,7 @@ function ToastCardFrame({ variant, progress, animated = true, countdownMs, child
         >
           <div
             data-toast-countdown
-            className="h-full w-full origin-left bg-primary-foreground-70"
+            className="h-full w-full origin-left bg-white/70"
             style={{
               animation: `toast-countdown ${countdownMs}ms linear forwards`,
               animationPlayState: pageHidden ? "paused" : "running",
@@ -302,7 +302,7 @@ function ProgressBar({ progress, variant, animated = true }: ProgressBarProps) {
   return (
     <div className="relative">
       <div
-        className="relative h-[3.25rem] w-full rounded-md border border-primary-foreground-10 px-1 py-1 backdrop-blur-md"
+        className="relative h-[3.25rem] w-full rounded-md border border-white/10 px-1 py-1 backdrop-blur-md"
         style={{
           background: `color-mix(in oklab, var(--surface-fill) ${Math.round(surfaceOpacity * 100)}%, transparent)`,
           boxShadow: "inset 0 1px 0 color-mix(in oklab, var(--surface-fill) 14%, transparent), inset 0 -1px 0 color-mix(in oklab, var(--neutral-950) 6%, transparent), 0 12px 36px color-mix(in oklab, var(--neutral-950) 35%, transparent)",
@@ -462,22 +462,22 @@ export function ProgressToastCard({ packName, progress, stagedContent, message, 
             )}
           </span>
           <div className="min-w-0 flex-1 space-y-1">
-            <p className="text-2xs font-medium leading-tight text-primary-foreground-80">{eyebrow}</p>
+            <p className="text-2xs font-medium leading-tight text-white/80">{eyebrow}</p>
             <p className="text-sm font-semibold leading-snug tracking-tight text-primary-foreground">{titleText}</p>
 
             {cancelling ? (
-              <p className="pt-0.5 text-xs font-medium leading-snug text-primary-foreground-90">
+              <p className="pt-0.5 text-xs font-medium leading-snug text-white/90">
                 Cancelando atualização de <strong className="font-semibold text-primary-foreground">{packName}</strong>...
               </p>
             ) : inlineError ? (
               <>
                 <p className="pt-0.5 text-xs font-medium leading-snug text-destructive-300">{dynamicLine}</p>
                 {staged?.diagnosticLine && (
-                  <p className="pt-1 font-mono text-2xs leading-snug text-destructive-300/70 break-all">{staged.diagnosticLine}</p>
+                  <p className="pt-1 font-mono text-2xs leading-snug text-destructive-300 opacity-70 break-all">{staged.diagnosticLine}</p>
                 )}
               </>
             ) : (
-              <p className="min-w-0 pt-0.5 text-xs font-medium leading-snug text-primary-foreground-90">{dynamicLine}</p>
+              <p className="min-w-0 pt-0.5 text-xs font-medium leading-snug text-white/90">{dynamicLine}</p>
             )}
           </div>
 
@@ -488,7 +488,7 @@ export function ProgressToastCard({ packName, progress, stagedContent, message, 
               aria-label={actionButtonLabel}
               title={actionButtonLabel}
               aria-expanded={isCloseAction ? undefined : confirmingCancel}
-              className="ml-1 mt-0.5 flex h-6 w-6 flex-shrink-0 items-center justify-center rounded text-primary-foreground-80 hover:bg-primary-foreground-10 hover:text-primary-foreground focus:outline-none focus:ring-1 focus:ring-primary-foreground-30"
+              className="ml-1 mt-0.5 flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-sm text-white/80 hover:bg-white/10 hover:text-primary-foreground focus:outline-none focus:ring-1 focus:ring-white/30"
             >
               <IconX className="h-4 w-4" strokeWidth={2} />
             </button>
@@ -496,7 +496,7 @@ export function ProgressToastCard({ packName, progress, stagedContent, message, 
         </div>
 
         {confirmingCancel && (
-          <div className="flex flex-col gap-2 rounded-md border border-primary-foreground-10 px-3 py-2" style={{ background: "color-mix(in oklab, var(--neutral-950) 25%, transparent)" }} role="alertdialog" aria-label="Confirmar cancelamento">
+          <div className="flex flex-col gap-2 rounded-md border border-white/10 px-3 py-2" style={{ background: "color-mix(in oklab, var(--neutral-950) 25%, transparent)" }} role="alertdialog" aria-label="Confirmar cancelamento">
             <div className="flex items-start gap-2">
               <IconAlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0 text-attention" />
               <p className="text-xs font-medium leading-snug text-primary-foreground">
@@ -547,7 +547,7 @@ const STATUS_ACCENT_CLASS: Record<StatusToastVariant, string> = {
   error: "text-destructive-300",
   // Amarelo sobre o gradiente âmbar fica apagado — o branco é quem dá contraste aqui.
   warning: "text-primary-foreground",
-  info: "text-primary-foreground-80",
+  info: "text-white/80",
 };
 
 function getStatusDefaultIcon(variant: StatusToastVariant) {
@@ -573,7 +573,7 @@ export function StatusToastCard({ variant, message, eyebrow, icon, onDismiss, co
         </span>
 
         <div className="min-w-0 flex-1 space-y-1">
-          {eyebrow && <p className="text-2xs font-medium leading-tight text-primary-foreground-80">{eyebrow}</p>}
+          {eyebrow && <p className="text-2xs font-medium leading-tight text-white/80">{eyebrow}</p>}
           <div className={cn("flex min-w-0 items-start gap-2", eyebrow ? "pt-0.5" : undefined)}>
             {icon && <span className={cn("mt-px flex-shrink-0 [&_svg]:h-4 [&_svg]:w-4", accentClass)}>{getStatusDefaultIcon(variant)}</span>}
             <span className="min-w-0 flex-1 break-words text-sm font-medium leading-snug text-primary-foreground">{message}</span>
@@ -586,7 +586,7 @@ export function StatusToastCard({ variant, message, eyebrow, icon, onDismiss, co
             onClick={onDismiss}
             aria-label="Fechar"
             title="Fechar"
-            className="ml-1 mt-0.5 flex h-6 w-6 flex-shrink-0 items-center justify-center rounded text-primary-foreground-80 hover:bg-primary-foreground-10 hover:text-primary-foreground focus:outline-none focus:ring-1 focus:ring-primary-foreground-30"
+            className="ml-1 mt-0.5 flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-sm text-white/80 hover:bg-white/10 hover:text-primary-foreground focus:outline-none focus:ring-1 focus:ring-white/30"
           >
             <IconX className="h-4 w-4" strokeWidth={2} />
           </button>
@@ -606,9 +606,9 @@ export function PausedToastCard({ packName, onReconnect, onCancel, animated = tr
             <IconAlertCircle />
           </span>
           <div className="min-w-0 flex-1 space-y-1">
-            <p className="text-2xs font-medium leading-tight text-primary-foreground-80">{packName}: Leadscore</p>
+            <p className="text-2xs font-medium leading-tight text-white/80">{packName}: Leadscore</p>
             <p className="text-sm font-semibold leading-snug tracking-tight text-attention">Sincronização pausada</p>
-            <p className="pt-0.5 text-sm leading-snug text-primary-foreground-80">
+            <p className="pt-0.5 text-sm leading-snug text-white/80">
               {canReconnect
                 ? "Aguardando reconexão do Google para continuar a importação."
                 : `A planilha é do dono. Peça a ${ownerLabel} para reconectar o Google.`}

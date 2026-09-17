@@ -33,7 +33,7 @@ export const SortIcon = ({
 const ActiveFilterIcon = ({ onReveal, field }: { onReveal: (fieldId: string) => void; field: string }) => (
   <button
     type="button"
-    className="shrink-0 rounded text-primary hover:bg-primary-10 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+    className="shrink-0 rounded-sm text-primary hover:bg-primary-10 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
     title="Ver onde esta coluna está sendo filtrada"
     aria-label="Ver o filtro desta coluna"
     onClick={(e) => {

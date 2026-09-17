@@ -76,7 +76,7 @@ export const AdNameCell = React.memo(function AdNameCell({ original, value, grou
         <div className="relative flex-shrink-0">
           <ThumbnailImage src={thumbnail} alt="thumb" size={thumbnailSize} />
           {original.has_transcription && (
-            <div className="absolute bottom-0.5 right-0.5 rounded bg-background-80 p-0.5 backdrop-blur-sm">
+            <div className="absolute bottom-0.5 right-0.5 rounded-sm bg-background-80 p-0.5 backdrop-blur-sm">
               <IconMicrophone className="h-2.5 w-2.5 text-primary" aria-hidden />
             </div>
           )}

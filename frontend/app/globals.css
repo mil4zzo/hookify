@@ -399,7 +399,7 @@ html body[data-scroll-locked] {
 .animated-gradient-primary {
   position: relative;
   padding: 2px;
-  border-radius: 0.25rem; /* rounded equivalente */
+  border-radius: 0.25rem; /* = rounded-sm */
 }
 
 .animated-gradient-primary::before {
@@ -421,7 +421,7 @@ html body[data-scroll-locked] {
   animation: gradient-shift 8s linear infinite;
   pointer-events: none;
   z-index: 0;
-  border-radius: 0.25rem; /* rounded equivalente */
+  border-radius: 0.25rem; /* = rounded-sm */
   opacity: 1;
 }
 
@@ -429,7 +429,7 @@ html body[data-scroll-locked] {
   position: relative;
   z-index: 1;
   background: var(--background);
-  border-radius: 0.25rem; /* rounded equivalente */
+  border-radius: 0.25rem; /* = rounded-sm */
   width: 100%;
   height: 100%;
 }

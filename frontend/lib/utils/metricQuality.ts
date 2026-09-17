@@ -16,9 +16,11 @@ const sparklineGradientMap: Record<MetricQualityTone, string> = {
   success: "bg-gradient-to-b from-success-50 to-success-20",
   primary: "bg-gradient-to-b from-primary-50 to-primary-20",
   brand: "bg-gradient-to-b from-primary-50 to-primary-20",
-  muted: "bg-gradient-to-b from-muted-50 to-muted-20",
+  // Neutro sai da escada (borda -> nivel 2), nao da escala: from-muted-50 misturava o
+  // nivel 1 com a pagina e a barra sumia sobre a linha da tabela nos dois temas.
+  muted: "bg-gradient-to-b from-border to-surface-2",
   accent: "bg-gradient-to-b from-ring-50 to-ring-20",
-  "muted-foreground": "bg-gradient-to-b from-muted-50 to-muted-20",
+  "muted-foreground": "bg-gradient-to-b from-border to-surface-2",
 };
 
 const sparklineBorderMap: Record<MetricQualityTone, string> = {
@@ -28,7 +30,7 @@ const sparklineBorderMap: Record<MetricQualityTone, string> = {
   success: "border-t-success",
   primary: "border-t-primary",
   brand: "border-t-primary",
-  muted: "border-t-muted",
+  muted: "border-t-border",
   accent: "border-t-ring",
   "muted-foreground": "border-t-muted-foreground",
 };

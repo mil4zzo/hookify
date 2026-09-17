@@ -32,7 +32,7 @@ export function AdInfoCard({ ad }: AdInfoCardProps) {
 
         {(() => {
           const thumbnail = getAdThumbnail(ad);
-          return thumbnail ? <img src={thumbnail} alt="thumbnail" className="w-full rounded" /> : null;
+          return thumbnail ? <img src={thumbnail} alt="thumbnail" className="w-full rounded-sm" /> : null;
         })()}
       </div>
     </StandardCard>

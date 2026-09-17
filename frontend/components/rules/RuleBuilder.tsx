@@ -147,7 +147,7 @@ function TagValueEditor({
   return (
     <div className="flex min-w-0 flex-wrap items-center gap-1">
       {selected.map((tag) => (
-        <span key={tag.id} className={cn("inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-2xs", tagChipClasses(tag.color))}>
+        <span key={tag.id} className={cn("inline-flex items-center gap-1 rounded-sm border px-1.5 py-0.5 text-2xs", tagChipClasses(tag.color))}>
           {tag.name}
           <button
             type="button"
@@ -170,13 +170,13 @@ function TagValueEditor({
         <PopoverContent className="w-56 p-1" align="start">
           <div className="max-h-56 overflow-y-auto">
             {available.length === 0 ? (
-              <div className="px-2 py-3 text-2xs text-muted-foreground">Nenhuma tag disponível.</div>
+              <div className="px-2 py-3 text-xs text-muted-foreground">Nenhuma tag disponível.</div>
             ) : (
               available.map((tag) => (
                 <button
                   key={tag.id}
                   type="button"
-                  className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-accent"
+                  className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent"
                   onClick={() => onChange([...selectedIds, tag.id])}
                 >
                   <span className={cn("h-2 w-2 flex-shrink-0 rounded-full", tagDotClasses(tag.color))} />
@@ -224,7 +224,7 @@ function MultiSelectValueEditor({
       <PopoverContent className="w-64 p-1" align="start">
         <div className="max-h-56 overflow-y-auto">
           {options.length === 0 ? (
-            <div className="px-2 py-3 text-2xs text-muted-foreground">Nada disponível no recorte atual.</div>
+            <div className="px-2 py-3 text-xs text-muted-foreground">Nada disponível no recorte atual.</div>
           ) : (
             options.map((option) => {
               const checked = selectedIds.includes(option.value);
@@ -232,7 +232,7 @@ function MultiSelectValueEditor({
                 <button
                   key={option.value}
                   type="button"
-                  className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-accent"
+                  className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent"
                   onClick={() =>
                     onChange(checked ? selectedIds.filter((id) => id !== option.value) : [...selectedIds, option.value])
                   }
@@ -585,7 +585,7 @@ function LogicChip({
       <span
         className={cn(
           LOGIC_CHIP_CLASSES,
-          "inline-flex min-w-12 items-center justify-center border border-border-50 px-2 text-muted-foreground",
+          "inline-flex min-w-12 items-center justify-center border border-border px-2 text-muted-foreground",
           nested ? "bg-surface-3" : "bg-surface-2",
         )}
       >
@@ -651,7 +651,7 @@ export function RuleBuilder({
         <div key={node.id} className="space-y-1.5">
           {connector}
           <div className="overflow-hidden rounded-lg border border-border bg-surface-2">
-            <div className="flex items-center justify-between gap-2 border-b border-border-50 px-2.5 py-1.5">
+            <div className="flex items-center justify-between gap-2 border-b border-border px-2.5 py-1.5">
               <div className="flex items-center gap-2">
                 <span className="text-2xs font-semibold uppercase tracking-wide text-muted-foreground">Subgrupo</span>
                 <LogicChip
@@ -688,7 +688,7 @@ export function RuleBuilder({
 
             <div className="space-y-1.5 p-2">
             {children.length === 0 ? (
-              <p className="px-1 text-2xs text-muted-foreground">Subgrupo vazio não restringe nada.</p>
+              <p className="px-1 text-xs text-muted-foreground">Subgrupo vazio não restringe nada.</p>
             ) : (
               children.map((child, childIndex) => (
                 <div key={child.id} className="space-y-1.5">

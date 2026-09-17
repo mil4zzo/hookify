@@ -221,6 +221,37 @@ nova excecao, novo padrao de barra), atualize esta secao no mesmo commit.
 - `text-[Npx]` arbitrario e violacao (regra `arbitrary-font-size`). Tamanhos
   display em `rem` (titulos hero) e relativos em `em` (superscript) sao
   permitidos.
+- **Quando usar 10px.** So em: rotulo curto em maiusculas (`uppercase tracking-wide`),
+  selo/pastilha, anotacao de dado em celula densa (unidade, data do sparkline,
+  contagem, celula compacta do Manager) e metadado de uma linha ("Acesso desde...").
+  **Frase e 12px** (`text-xs`): texto de ajuda, explicacao, aviso, lista vazia. Um
+  `<p>` em 10px quase sempre esta errado.
+- **Dois tons de texto, nao quatro.** `text-foreground` (principal) e
+  `text-muted-foreground` (secundario). Apagado (desabilitado, dia fora do mes,
+  travessao de vazio): `text-muted-foreground opacity-50` — alpha de verdade, vale
+  sobre qualquer fundo. Os tokens de texto **nao tem escala `-N`** (desde a F4): a
+  escala misturava com a pagina, e `text-foreground-80` era um terceiro tom sem papel.
+- **Sobre superficie colorida** (gradiente do botao, toast de progresso, midia), a
+  transparencia e real: `text-white/80`, `border-white/10`, `bg-white/30`. Um token
+  `-N` ali misturaria com a pagina — contorno escuro no tema escuro, branco no claro.
+
+### Raio
+
+| Classe | Papel |
+|---|---|
+| `rounded-sm` (4px) | pastilha, selo, item de lista/menu, celula |
+| `rounded-md` (8px) | controle (botao, campo, seletor), bloco dentro de cartao |
+| `rounded-lg` (10px) | cartao, painel, modal, grupo |
+| `rounded-full` | pilula, avatar, ponto de status, trilho |
+
+`rounded` sem sufixo e o mesmo 4px com outro nome (regra `bare-rounded`);
+`rounded-xl` para cima fica so em simulacao de plataforma (regra `large-radius`).
+
+### Borda
+
+Um token so: `border-border` (nivel 4 da escada). Nao ha borda "fraca" `-50`/`-60`: a
+mistura com a pagina caia exatamente no nivel 2 e a linha sumia sobre qualquer grupo.
+Borda de estado continua sendo tinta (`border-primary-30`, `border-warning-30`).
 
 ### Escada de superficies (contrato de elevacao)
 
@@ -332,7 +363,11 @@ pontos a diferenca e visivel (dE 3 a 7), entao cada passo que sobrou significa a
 Duas armadilhas que **nao dao erro — o estilo simplesmente some**:
 
 - **Passo fora da rampa** (`bg-primary-5`, `bg-primary-15`) nao gera classe. Regra
-  `alpha-step-out-of-scale`. `card` e `popover` nao tem escala nenhuma.
+  `alpha-step-out-of-scale`. `card`, `popover`, `border` e todo `*-foreground` nao
+  tem escala nenhuma.
+- **Parada de gradiente conta como superficie.** `from-muted-50 to-muted-20` e a
+  mesma mistura com a pagina, em degrade (regra `structural-alpha-surface`). Degrade
+  neutro sai da escada: `from-border to-surface-2`.
 - **Barra de opacidade em token do tema** (`bg-destructive/5`) nao gera CSS no
   Tailwind 3: a cor e `var(--x)`, sem `<alpha-value>`, e o compilador descarta a
   classe. Use o hifen (`bg-destructive-10`). A barra continua valendo para a paleta

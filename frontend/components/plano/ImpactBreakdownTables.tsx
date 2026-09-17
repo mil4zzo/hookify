@@ -53,7 +53,7 @@ function signedCurrency(v: number, formatCurrency: (n: number) => string): strin
 // align-items (self-stretch overrides it), so it reads as a cell boundary rather than
 // a short centered tick.
 function ColDivider() {
-  return <span aria-hidden="true" className="w-px flex-shrink-0 self-stretch bg-border-60" />;
+  return <span aria-hidden="true" className="w-px flex-shrink-0 self-stretch bg-border" />;
 }
 
 function PillButton({ label, selected, onClick }: { label: string; selected: boolean; onClick: () => void }) {
@@ -202,7 +202,7 @@ function SpendShareBar({
           <span className="relative h-[3px] overflow-hidden rounded-full bg-muted-10">
             {prevShare != null && (
               <span
-                className="absolute inset-y-0 left-0 rounded-full bg-muted-foreground-50 transition-[width] duration-300"
+                className="absolute inset-y-0 left-0 rounded-full bg-border transition-[width] duration-300"
                 style={{ width: `${prevPct}%` }}
               />
             )}
@@ -364,7 +364,7 @@ function ImpactRow({
       role="button"
       tabIndex={ad ? 0 : -1}
       aria-disabled={!ad}
-      className={`animate-in fade-in slide-in-from-bottom-2 flex w-full items-center gap-2.5 border-b border-border-60 text-left transition-colors duration-150 last:border-b-0 ${ROW_PAD} ${
+      className={`animate-in fade-in slide-in-from-bottom-2 flex w-full items-center gap-2.5 border-b border-border text-left transition-colors duration-150 last:border-b-0 ${ROW_PAD} ${
         ad ? "cursor-pointer hover:bg-card-hover" : "opacity-60"
       }`}
       style={{ animationDelay: `${index * 30}ms`, animationDuration: "400ms", animationFillMode: "backwards" }}
@@ -399,9 +399,9 @@ function ImpactRow({
 
       <div className={`${COL_AD} flex items-center gap-2.5`}>
         {ad ? (
-          <AdPlayArea ad={ad as unknown} aspectRatio="1:1" size={32} className="flex-shrink-0 rounded" onPlayClick={open} />
+          <AdPlayArea ad={ad as unknown} aspectRatio="1:1" size={32} className="flex-shrink-0 rounded-sm" onPlayClick={open} />
         ) : (
-          <div className="h-8 w-8 flex-shrink-0 rounded bg-muted-30" />
+          <div className="h-8 w-8 flex-shrink-0 rounded-sm bg-muted-30" />
         )}
         <div className="flex min-w-0 flex-1 items-center gap-1.5">
           {ad && <AdStatusIcon status={(ad as { effective_status?: string }).effective_status} />}

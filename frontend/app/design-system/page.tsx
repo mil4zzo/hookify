@@ -155,8 +155,8 @@ export default function DesignSystemPage() {
     >
       <div className="space-y-stack">
         <InlineNotice tone="info" title="Referência interna (dev)">
-          Tokens vivem em <code className="rounded bg-muted px-1 py-0.5">lib/design-system/themeDefinitions.ts</code> (gerados em <code className="rounded bg-muted px-1 py-0.5">app/theme-generated.css</code>) e mapeados em{" "}
-          <code className="rounded bg-muted px-1 py-0.5">tailwind.config.ts</code>. Guia completo em <code className="rounded bg-muted px-1 py-0.5">frontend/docs/DESIGN_SYSTEM.md</code>.
+          Tokens vivem em <code className="rounded-sm bg-muted px-1 py-0.5">lib/design-system/themeDefinitions.ts</code> (gerados em <code className="rounded-sm bg-muted px-1 py-0.5">app/theme-generated.css</code>) e mapeados em{" "}
+          <code className="rounded-sm bg-muted px-1 py-0.5">tailwind.config.ts</code>. Guia completo em <code className="rounded-sm bg-muted px-1 py-0.5">frontend/docs/DESIGN_SYSTEM.md</code>.
         </InlineNotice>
 
         {/* ===================== PALETA DE CORES ===================== */}
@@ -190,7 +190,7 @@ export default function DesignSystemPage() {
                             </div>
                             <div className="flex items-center justify-between gap-1 p-1.5">
                               <span className="truncate text-2xs font-medium text-foreground">{color.name}</span>
-                              <button type="button" onClick={() => copyToken(color)} className="shrink-0 rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground" title={`Copiar ${snippet}`} aria-label={`Copiar ${snippet}`}>
+                              <button type="button" onClick={() => copyToken(color)} className="shrink-0 rounded-sm p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground" title={`Copiar ${snippet}`} aria-label={`Copiar ${snippet}`}>
                                 <IconCopy className="h-3 w-3" />
                               </button>
                             </div>
@@ -201,7 +201,7 @@ export default function DesignSystemPage() {
                                 </code>
                               </div>
                             )}
-                            {copied === snippet && <span className="absolute bottom-6 left-1/2 z-20 -translate-x-1/2 rounded border border-border bg-popover px-1.5 py-0.5 text-[9px] text-popover-foreground shadow">Copiado</span>}
+                            {copied === snippet && <span className="absolute bottom-6 left-1/2 z-20 -translate-x-1/2 rounded-sm border border-border bg-popover px-1.5 py-0.5 text-[9px] text-popover-foreground shadow">Copiado</span>}
                           </div>
                         );
                       })}
@@ -269,7 +269,7 @@ export default function DesignSystemPage() {
                 {(["compact", "default", "spacious"] as const).map((d) => (
                   <div key={d} className="flex flex-col items-center gap-1">
                     <div className={cn("rounded-md border border-dashed border-primary-40 bg-primary-10", d === "compact" && "p-widget-compact", d === "default" && "p-widget-default", d === "spacious" && "p-widget-spacious")}>
-                      <div className="h-8 w-8 rounded bg-primary-40" />
+                      <div className="h-8 w-8 rounded-sm bg-primary-40" />
                     </div>
                     <span className="text-xs text-muted-foreground">{d}</span>
                   </div>
@@ -522,7 +522,7 @@ export default function DesignSystemPage() {
         </Section>
 
         <p className="text-sm text-muted-foreground">
-          Documentação: <code className="rounded bg-muted px-1 py-0.5">frontend/docs/DESIGN_SYSTEM.md</code>
+          Documentação: <code className="rounded-sm bg-muted px-1 py-0.5">frontend/docs/DESIGN_SYSTEM.md</code>
         </p>
       </div>
     </PageContainer>

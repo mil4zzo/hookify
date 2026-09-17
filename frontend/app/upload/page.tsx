@@ -139,7 +139,7 @@ function CampaignPreviewSkeleton({ mode }: { mode: "ads" | "campaign" }) {
           <div className="space-y-1.5">
             {Array.from({ length: 3 }).map((_, i) => (
               <div key={i} className="flex items-center gap-2">
-                <div className="h-1 w-1 rounded-full bg-muted-foreground-20 shrink-0" />
+                <div className="h-1 w-1 rounded-full bg-border shrink-0" />
                 <Skeleton className="h-3 w-40" />
               </div>
             ))}
@@ -1085,7 +1085,7 @@ export default function UploadPage() {
                             }`}
                             title={isBlocked ? "Conjunto sem Transparência dos anúncios — não será duplicado" : undefined}
                           >
-                            <div className="h-1 w-1 rounded-full bg-muted-foreground-40 shrink-0" />
+                            <div className="h-1 w-1 rounded-full bg-border shrink-0" />
                             <span className="truncate">{adset.name}</span>
                           </div>
                         )

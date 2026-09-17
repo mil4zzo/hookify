@@ -45,7 +45,7 @@ export function VideoMetricCell({ label, value, valueClassName, deltaDisplay, su
   const hasHeaderMeta = Boolean(subtitleInLabelRow && subtitle);
 
   return (
-    <div className={`min-w-0 rounded border pb-2 transition-colors transition-shadow ${qualitySurfaceClass}`}>
+    <div className={`min-w-0 rounded-sm border pb-2 transition-colors transition-shadow ${qualitySurfaceClass}`}>
       <div className={`mb-2 flex gap-2 border-b border-border p-2 text-2xs text-muted-foreground ${hasHeaderMeta ? "items-center justify-between" : "flex-col"}`}>
         <span className={hasHeaderMeta ? "min-w-0 truncate" : ""}>{label}</span>
         {hasHeaderMeta ? <div className="min-w-0 flex flex-col items-end text-right leading-tight">{subtitleInLabelRow && subtitle ? <span className="truncate">{subtitle}</span> : null}</div> : null}

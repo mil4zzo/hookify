@@ -208,7 +208,7 @@ export default function ApiTestPage() {
         <CardContent className="space-y-4">
           <div className="flex items-center gap-4">
             <span className="font-medium">Status:</span>
-            <span className={`px-2 py-1 rounded text-sm ${isAuthenticated ? "bg-primary text-primary-foreground" : "bg-border text-muted-foreground"}`}>{isAuthenticated ? "Autenticado" : "Não autenticado"}</span>
+            <span className={`px-2 py-1 rounded-sm text-sm ${isAuthenticated ? "bg-primary text-primary-foreground" : "bg-border text-muted-foreground"}`}>{isAuthenticated ? "Autenticado" : "Não autenticado"}</span>
           </div>
 
           {user && (
@@ -290,7 +290,7 @@ export default function ApiTestPage() {
               ) : (
                 <>
                   {adAccountsData.map((account: any) => (
-                    <div key={account.id} className="p-3 border border-border rounded">
+                    <div key={account.id} className="p-3 border border-border rounded-sm">
                       <p>
                         <strong>Nome:</strong> {account.name}
                       </p>
@@ -389,7 +389,7 @@ export default function ApiTestPage() {
                     <div key={ad?.ad_id || ad?.id || idx} className="p-4 border border-border rounded-lg space-y-3">
                       <div className="flex items-center justify-between">
                         <h4 className="font-semibold text-lg">Anúncio #{idx + 1}</h4>
-                        <span className="text-xs text-muted-foreground bg-border px-2 py-1 rounded">
+                        <span className="text-xs text-muted-foreground bg-border px-2 py-1 rounded-sm">
                           {Object.keys(ad || {}).length} campos • {Object.keys(ad || {}).filter((key) => ["ad_name", "ad_id", "adset_id", "adset_name", "campaign_id", "campaign_name", "clicks", "impressions", "inline_link_clicks", "spend", "ctr", "cpm", "reach", "frequency", "website_ctr", "actions", "conversions", "cost_per_conversion", "video_play_actions", "video_thruplay_watched_actions", "video_p50_watched_actions", "video_play_curve_actions", "creative", "adcreatives_videos_ids", "account_id", "date_start", "date_stop"].includes(key)).length} principais
                         </span>
                       </div>
@@ -495,7 +495,7 @@ export default function ApiTestPage() {
                           {ad?.actions && Array.isArray(ad.actions) && (
                             <div>
                               <p className="font-medium text-sm mb-2">Actions:</p>
-                              <div className="bg-border p-2 rounded text-xs">
+                              <div className="bg-border p-2 rounded-sm text-xs">
                                 <pre className="whitespace-pre-wrap overflow-x-auto">{JSON.stringify(ad.actions, null, 2)}</pre>
                               </div>
                             </div>
@@ -503,7 +503,7 @@ export default function ApiTestPage() {
                           {ad?.conversions && (
                             <div>
                               <p className="font-medium text-sm mb-2">Conversions:</p>
-                              <div className="bg-border p-2 rounded text-xs">
+                              <div className="bg-border p-2 rounded-sm text-xs">
                                 <pre className="whitespace-pre-wrap overflow-x-auto">{JSON.stringify(ad.conversions, null, 2)}</pre>
                               </div>
                             </div>
@@ -511,7 +511,7 @@ export default function ApiTestPage() {
                           {ad?.cost_per_conversion && (
                             <div>
                               <p className="font-medium text-sm mb-2">Cost per conversion:</p>
-                              <div className="bg-border p-2 rounded text-xs">
+                              <div className="bg-border p-2 rounded-sm text-xs">
                                 <pre className="whitespace-pre-wrap overflow-x-auto">{JSON.stringify(ad.cost_per_conversion, null, 2)}</pre>
                               </div>
                             </div>
@@ -525,7 +525,7 @@ export default function ApiTestPage() {
                           {ad?.creative && (
                             <div>
                               <p className="font-medium text-sm mb-2">Creative:</p>
-                              <div className="bg-border p-2 rounded text-xs">
+                              <div className="bg-border p-2 rounded-sm text-xs">
                                 <pre className="whitespace-pre-wrap overflow-x-auto">{JSON.stringify(ad.creative, null, 2)}</pre>
                               </div>
                             </div>
@@ -533,7 +533,7 @@ export default function ApiTestPage() {
                           {(ad?.adcreatives_videos_ids || ad?.adcreatives_videos_thumbs) && (
                             <div>
                               <p className="font-medium text-sm mb-2">Vídeos (adcreatives):</p>
-                              <div className="bg-border p-2 rounded text-xs">
+                              <div className="bg-border p-2 rounded-sm text-xs">
                                 <pre className="whitespace-pre-wrap overflow-x-auto">{JSON.stringify({ ids: ad?.adcreatives_videos_ids, thumbs: ad?.adcreatives_videos_thumbs }, null, 2)}</pre>
                               </div>
                             </div>
@@ -544,7 +544,7 @@ export default function ApiTestPage() {
                       {/* Todos os campos (debug) */}
                       <details className="mt-3">
                         <summary className="cursor-pointer text-sm font-medium text-muted-foreground hover:text-foreground">Ver todos os campos (debug)</summary>
-                        <div className="mt-2 bg-border p-3 rounded text-xs">
+                        <div className="mt-2 bg-border p-3 rounded-sm text-xs">
                           <pre className="whitespace-pre-wrap overflow-x-auto max-h-40">{JSON.stringify(ad, null, 2)}</pre>
                         </div>
                       </details>
@@ -570,7 +570,7 @@ export default function ApiTestPage() {
           ) : (
             <div className="space-y-4">
               {packs.map((pack) => (
-                <div key={pack.id} className="p-4 border border-border rounded">
+                <div key={pack.id} className="p-4 border border-border rounded-sm">
                   <div className="flex justify-between items-start">
                     <div>
                       <h3 className="font-semibold">{pack.name}</h3>

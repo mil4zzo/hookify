@@ -32,7 +32,7 @@ export function SparklineSkeleton({
       {displayHeights.map((height, index) => (
         <div
           key={index}
-          className={`${staggeredFadeOut ? "sparkline-exit-bar" : "sparkline-wave-bar"} flex-1 bg-gradient-to-b from-muted-50 to-muted-20 border-t border-muted-foreground-40`}
+          className={`${staggeredFadeOut ? "sparkline-exit-bar" : "sparkline-wave-bar"} flex-1 bg-gradient-to-b from-border to-surface-2 border-t border-border`}
           style={{
             height: `${height}%`,
             ["--skeleton-wave-delay" as any]: `${index * 95}ms`,

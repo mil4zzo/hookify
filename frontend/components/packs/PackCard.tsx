@@ -306,8 +306,8 @@ export function PackCard({ pack, adAccountName, formatCurrency, formatDate, onRe
     <div className="relative inline-block w-full group">
       {/* Cards decorativos: leque sutil, pivotando do bottom — inspirado em pasta de papéis.
           Selecionados, acompanham a borda do card da frente para o "maço" inteiro ler como um só. */}
-      <div className={cn("absolute inset-x-0 top-4 bottom-0 rounded-lg bg-card border opacity-60 pointer-events-none transition-[transform,opacity] duration-500 ease-[cubic-bezier(0.34,1.56,0.64,1)] group-hover:-rotate-[1.5deg] group-hover:-translate-y-3 group-hover:opacity-85", isSelected ? "border-primary-40" : "border-border-50")} />
-      <div className={cn("absolute inset-x-0 top-4 bottom-0 rounded-lg bg-card border opacity-60 pointer-events-none transition-[transform,opacity] duration-500 ease-[cubic-bezier(0.34,1.56,0.64,1)] group-hover:rotate-[1.5deg] group-hover:-translate-y-3 group-hover:opacity-85", isSelected ? "border-primary-40" : "border-border-50")} />
+      <div className={cn("absolute inset-x-0 top-4 bottom-0 rounded-lg bg-card border opacity-60 pointer-events-none transition-[transform,opacity] duration-500 ease-[cubic-bezier(0.34,1.56,0.64,1)] group-hover:-rotate-[1.5deg] group-hover:-translate-y-3 group-hover:opacity-85", isSelected ? "border-primary-40" : "border-border")} />
+      <div className={cn("absolute inset-x-0 top-4 bottom-0 rounded-lg bg-card border opacity-60 pointer-events-none transition-[transform,opacity] duration-500 ease-[cubic-bezier(0.34,1.56,0.64,1)] group-hover:rotate-[1.5deg] group-hover:-translate-y-3 group-hover:opacity-85", isSelected ? "border-primary-40" : "border-border")} />
 
       <DropdownMenu open={isEditingName ? false : undefined}>
         <DropdownMenuTrigger asChild>
@@ -601,7 +601,7 @@ export function PackCard({ pack, adAccountName, formatCurrency, formatDate, onRe
                               </PopoverTrigger>
                               <PopoverContent align="start" className="w-64 p-3">
                                 <p className="text-xs text-foreground">{renameNotice}</p>
-                                <p className="text-2xs text-muted-foreground mt-1">
+                                <p className="text-xs text-muted-foreground mt-1">
                                   Renomear costuma acompanhar troca de conteúdo. Confira se a
                                   planilha ainda é a mesma que você vinculou.
                                 </p>

@@ -162,7 +162,7 @@ function ActivityRow({ entry }: { entry: PackActivityEntry }) {
         {/* Falha registrada de propósito: "tentei pausar e não pausou" é
             exatamente a pergunta que chega no suporte sem esta linha. */}
         {failed && (
-          <p className="mt-1 flex items-start gap-1.5 text-2xs text-destructive">
+          <p className="mt-1 flex items-start gap-1.5 text-xs text-destructive">
             <IconAlertTriangle className="mt-px h-3 w-3 shrink-0" />
             <span>Não concluído{entry.error ? `: ${entry.error}` : ""}</span>
           </p>
@@ -271,7 +271,7 @@ export function PackActivityDialog({ pack, open, onOpenChange }: PackActivityDia
               </Button>
             )}
 
-            <p className="text-2xs text-muted-foreground">
+            <p className="text-xs text-muted-foreground">
               O histórico guarda os últimos 365 dias.
             </p>
           </>

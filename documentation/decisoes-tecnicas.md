@@ -5043,3 +5043,25 @@ agir sobe um nível, ler desce um, vizinhos nunca no mesmo nível sem borda. `mu
 passou a ser o nível 1, então todo `bg-muted` sobre cartão foi revisto (trilho de abas
 foi para o nível 0; separador e ponto de status para `bg-border`; chips para o nível 2).
 A temperatura do cinza passou a morar em dois tokens (`neutral-chroma`, `neutral-hue`).
+
+---
+
+## Borda, texto e degradê também misturam com a página (2026-09-17)
+
+Na F4 apareceram três formas novas do mesmo defeito da escala `-N` (mistura com o
+fundo da PÁGINA, não com o que está atrás):
+
+- **Borda "fraca".** `border-border-50` cai exatamente no nível 2 da escada, então a
+  linha some sobre qualquer grupo `surface-2`. A borda passou a ser um token só,
+  sem escala.
+- **Texto.** `text-foreground-80/90` eram um terceiro e um quarto tom de texto sem
+  papel; `text-primary-foreground-10` no botão colorido virava contorno escuro no
+  tema escuro e branco no claro. Os tokens `*-foreground` perderam a escala: texto
+  apagado = `text-muted-foreground opacity-50`; sobre superfície colorida, `white/N`.
+- **Degradê.** `from-muted-50 to-muted-20` escapava da regra de superfície porque ela
+  só olhava `bg-`. As barras neutras do sparkline do Manager estavam praticamente
+  invisíveis nos dois temas. A regra passou a olhar `from-/via-/to-`; degradê neutro
+  sai da escada (`from-border to-surface-2`).
+
+Achado lateral: barra de opacidade em tom numerado (`text-destructive-300/70`) também
+não gera CSS — a regra da barra agora cobre `-950…-300`/`-label`.

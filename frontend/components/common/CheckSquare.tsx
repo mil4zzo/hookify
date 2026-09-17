@@ -8,7 +8,7 @@ import { cn } from "@/lib/utils/cn";
  */
 export function CheckSquare({ checked, className }: { checked: boolean; className?: string }) {
   return (
-    <div aria-hidden="true" className={cn("flex h-4 w-4 shrink-0 items-center justify-center rounded border transition-colors", checked ? "bg-primary border-primary" : "border-border", className)}>
+    <div aria-hidden="true" className={cn("flex h-4 w-4 shrink-0 items-center justify-center rounded-sm border transition-colors", checked ? "bg-primary border-primary" : "border-border", className)}>
       {checked && <IconCheck className="h-3 w-3 text-primary-foreground" />}
     </div>
   );

@@ -53,7 +53,7 @@ export default function DataDeletionPage() {
               <ul className="list-disc space-y-2 pl-5 text-sm text-muted-foreground">
                 <li>
                   <strong className="text-foreground">Assunto:</strong>{" "}
-                  <code className="rounded bg-muted px-1.5 py-0.5 text-xs">
+                  <code className="rounded-sm bg-muted px-1.5 py-0.5 text-xs">
                     Exclusão de Dados - Hookify
                   </code>
                 </li>
@@ -62,7 +62,7 @@ export default function DataDeletionPage() {
                   <strong>e-mail</strong> utilizado para acessar o Hookify.
                 </li>
               </ul>
-              <blockquote className="border-l-2 border-muted-foreground-30 pl-4 text-sm italic text-muted-foreground">
+              <blockquote className="border-l-2 border-border pl-4 text-sm italic text-muted-foreground">
                 Se você tiver mais de uma conta, envie um e-mail para cada uma (ou liste todos os
                 e-mails no mesmo pedido).
               </blockquote>
@@ -159,7 +159,7 @@ export default function DataDeletionPage() {
                 solicitante.
               </li>
             </ul>
-            <blockquote className="border-l-2 border-muted-foreground-30 pl-4 text-sm italic text-muted-foreground">
+            <blockquote className="border-l-2 border-border pl-4 text-sm italic text-muted-foreground">
               Podemos manter apenas informações estritamente necessárias para cumprir obrigações
               legais, quando aplicável.
             </blockquote>

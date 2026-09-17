@@ -87,7 +87,7 @@ export default function Sidebar() {
 
                 return (
                   <li key={item.path}>
-                    <Link href={item.path as any} className={cn("flex items-center rounded text-sm font-normal text-foreground transition-all duration-300", isCollapsed ? "justify-center px-2 py-2 ease-in" : "gap-3 px-3 py-2 ease-out", isActive ? "bg-primary text-foreground" : "text-foreground hover:bg-border hover:text-foreground")} title={isCollapsed ? item.label : undefined}>
+                    <Link href={item.path as any} className={cn("flex items-center rounded-sm text-sm font-normal text-foreground transition-all duration-300", isCollapsed ? "justify-center px-2 py-2 ease-in" : "gap-3 px-3 py-2 ease-out", isActive ? "bg-primary text-foreground" : "text-foreground hover:bg-border hover:text-foreground")} title={isCollapsed ? item.label : undefined}>
                       <Icon className={cn("h-5 w-5 flex-shrink-0 text-foreground transition-colors duration-300")} />
                       <span className={cn("transition-all duration-300 whitespace-nowrap", showLabels ? "opacity-100 max-w-full ease-out" : "opacity-0 max-w-0 overflow-hidden ease-in")}>{item.label}</span>
                     </Link>

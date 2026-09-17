@@ -230,7 +230,7 @@ export function GenericCard({ ad, metricLabel, rank, metricKey, averageValue, me
                       {ad.ad_name || "Sem nome"}
                     </p>
                     {/* Rank badge na mesma linha do título */}
-                    <div className={cn("flex items-center justify-center text-2xs font-bold transition-all flex-shrink-0 px-2 py-1 rounded text-muted-foreground")} style={rankBadgeStyles || undefined}>
+                    <div className={cn("flex items-center justify-center text-2xs font-bold transition-all flex-shrink-0 px-2 py-1 rounded-sm text-muted-foreground")} style={rankBadgeStyles || undefined}>
                       <span style={{ color: rankTextColor }}>#{rank}</span>
                     </div>
                   </div>

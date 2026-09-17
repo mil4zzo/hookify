@@ -44,7 +44,7 @@ function Row({
       role="button"
       tabIndex={ad ? 0 : -1}
       aria-disabled={!ad}
-      className={`flex w-full items-center gap-2.5 border-b border-border-60 text-left transition-all duration-150 last:border-b-0 ${ROW_PAD} ${
+      className={`flex w-full items-center gap-2.5 border-b border-border text-left transition-all duration-150 last:border-b-0 ${ROW_PAD} ${
         ad ? "cursor-pointer hover:bg-card-hover" : "opacity-60"
       }`}
       onClick={open}
@@ -55,9 +55,9 @@ function Row({
       </span>
 
       {ad ? (
-        <AdPlayArea ad={ad as unknown} aspectRatio="1:1" size={36} className="rounded flex-shrink-0" onPlayClick={open} />
+        <AdPlayArea ad={ad as unknown} aspectRatio="1:1" size={36} className="rounded-sm flex-shrink-0" onPlayClick={open} />
       ) : (
-        <div className="h-9 w-9 flex-shrink-0 rounded bg-muted-30" />
+        <div className="h-9 w-9 flex-shrink-0 rounded-sm bg-muted-30" />
       )}
 
       <div className="min-w-0 flex-1">
@@ -65,7 +65,7 @@ function Row({
           {ad && <AdStatusIcon status={(ad as { effective_status?: string }).effective_status} />}
           <span className="truncate text-xs font-medium text-foreground">{item.adName}</span>
         </div>
-        <span className={`mt-0.5 inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-2xs font-medium ${tag.className}`}>
+        <span className={`mt-0.5 inline-flex items-center gap-0.5 rounded-sm px-1.5 py-0.5 text-2xs font-medium ${tag.className}`}>
           <TagIcon className="h-2.5 w-2.5" /> {tag.label}
         </span>
       </div>

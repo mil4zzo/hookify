@@ -198,7 +198,7 @@ export function PackShareDialog({ pack, open, onOpenChange }: PackShareDialogPro
               {isLookingUp ? <IconLoader2 className="h-4 w-4 animate-spin" /> : "Buscar"}
             </Button>
           </div>
-          <p className="text-2xs text-muted-foreground">
+          <p className="text-xs text-muted-foreground">
             E-mail exato de quem já tem conta no Hookify.
           </p>
 

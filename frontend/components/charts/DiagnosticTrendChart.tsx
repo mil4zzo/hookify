@@ -357,7 +357,7 @@ function DiagnosticTrendChartInner({ lines, budgetData, adKeyToName }: Diagnosti
                     aria-pressed={!hidden}
                     className={`flex items-center gap-1.5 text-2xs transition-opacity ${hidden ? "opacity-40 line-through" : "opacity-100"} text-muted-foreground hover:text-foreground`}
                   >
-                    <span className="inline-block w-3 h-0.5 rounded" style={{ backgroundColor: line.color }} />
+                    <span className="inline-block w-3 h-0.5 rounded-sm" style={{ backgroundColor: line.color }} />
                     {line.label}
                   </button>
                 );

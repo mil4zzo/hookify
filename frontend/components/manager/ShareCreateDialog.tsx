@@ -137,7 +137,7 @@ export function ShareCreateDialog({ isOpen, onClose, rows, dateStart, dateStop, 
               <ThumbnailImage src={getAdThumbnail(row)} size="sm" />
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-medium">{row.ad_name}</p>
-                <p className="text-2xs text-muted-foreground">
+                <p className="text-xs text-muted-foreground">
                   {formatCurrency(Number(row.spend || 0))}
                   {Number.isFinite(row.ctr) ? ` · CTR ${(Number(row.ctr) * 100).toFixed(2)}%` : ""}
                 </p>
@@ -165,7 +165,7 @@ export function ShareCreateDialog({ isOpen, onClose, rows, dateStart, dateStop, 
           <div className="space-y-2">
             <div className="flex items-baseline justify-between gap-2">
               <p className="text-sm font-medium">Métricas em destaque</p>
-              <p className="text-2xs text-muted-foreground">
+              <p className="text-xs text-muted-foreground">
                 {highlights.length}/{MAX_HIGHLIGHT_METRICS} · aparecem sem precisar expandir
               </p>
             </div>
@@ -207,7 +207,7 @@ export function ShareCreateDialog({ isOpen, onClose, rows, dateStart, dateStop, 
                 Copiar
               </Button>
             </div>
-            <p className="text-2xs text-muted-foreground">
+            <p className="text-xs text-muted-foreground">
               Vídeos usam a CDN da Meta e podem expirar antes do link — as métricas continuam visíveis.
             </p>
           </div>

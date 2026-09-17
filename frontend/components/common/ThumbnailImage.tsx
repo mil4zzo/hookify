@@ -171,12 +171,12 @@ export function ThumbnailImage({ src, alt = "thumbnail", className, size = "md",
 
   // Se não há src, mostrar fallback
   if (!src) {
-    return <div className={cn(sizeClass, "bg-border rounded flex-shrink-0", fallbackClassName)} />;
+    return <div className={cn(sizeClass, "bg-border rounded-sm flex-shrink-0", fallbackClassName)} />;
   }
 
   // Se houve erro ao carregar, mostrar fallback
   if (hasError) {
-    return <div className={cn(sizeClass, "bg-border rounded flex-shrink-0", fallbackClassName)} />;
+    return <div className={cn(sizeClass, "bg-border rounded-sm flex-shrink-0", fallbackClassName)} />;
   }
 
   // Se está em cache, renderizar sem skeleton e sem opacity-0
@@ -188,7 +188,7 @@ export function ThumbnailImage({ src, alt = "thumbnail", className, size = "md",
           src={src}
           alt={alt}
           loading="eager"
-          className={cn(sizeClass, "object-cover rounded opacity-100")}
+          className={cn(sizeClass, "object-cover rounded-sm opacity-100")}
           onLoad={() => {
             if (src) imageCache.add(src);
           }}
@@ -203,13 +203,13 @@ export function ThumbnailImage({ src, alt = "thumbnail", className, size = "md",
   return (
     <div className={cn(sizeClass, "relative flex-shrink-0", className)}>
       {/* Só mostrar skeleton se estiver carregando */}
-      {isLoading && <Skeleton className={cn(sizeClass, "absolute inset-0 rounded")} />}
+      {isLoading && <Skeleton className={cn(sizeClass, "absolute inset-0 rounded-sm")} />}
       <img
         ref={imgRef}
         src={src}
         alt={alt}
         loading="lazy"
-        className={cn(sizeClass, "object-cover rounded", isLoading ? "opacity-0" : "opacity-100 transition-opacity duration-200")}
+        className={cn(sizeClass, "object-cover rounded-sm", isLoading ? "opacity-0" : "opacity-100 transition-opacity duration-200")}
         onLoad={() => {
           if (src) imageCache.add(src);
           setIsLoading(false);

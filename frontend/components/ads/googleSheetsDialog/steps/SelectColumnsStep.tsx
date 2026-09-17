@@ -158,7 +158,7 @@ function SamplePreviewTable({ duplicates, columnsWithIndices, sampleRows }: Samp
           </thead>
           <tbody>
             {sampleRows.slice(0, maxPreviewRows).map((row, rowIdx) => (
-              <tr key={rowIdx} className="border-b border-border-50 hover:bg-muted">
+              <tr key={rowIdx} className="border-b border-border hover:bg-muted">
                 {duplicateColumns.map(({ index }) => (
                   <td key={`${rowIdx}-${index}`} className="px-3 py-1.5 text-muted-foreground">
                     {row[index] ?? "—"}
@@ -307,7 +307,7 @@ function ExtraColumnRow({
         </div>
       )}
       {(problem || hint) && (
-        <p className={`text-2xs ${problem ? "text-warning" : "text-muted-foreground"}`}>{problem ?? hint}</p>
+        <p className={`text-xs ${problem ? "text-warning" : "text-muted-foreground"}`}>{problem ?? hint}</p>
       )}
     </div>
   );
@@ -407,7 +407,7 @@ export function SelectColumnsStep({
                 onChange={(e) => onMqlLeadscoreMinChange(e.target.value)}
                 placeholder="ex: 80"
               />
-              <p className="text-2xs text-muted-foreground">
+              <p className="text-xs text-muted-foreground">
                 Leads com leadscore maior ou igual contam como MQL. Sem este valor não há como
                 calcular MQL nem CPMQL — a escala é a desta planilha.
               </p>
@@ -446,7 +446,7 @@ export function SelectColumnsStep({
             <div className="flex items-start justify-between gap-3">
               <div className="space-y-0.5">
                 <h4 className="text-sm font-medium">Colunas adicionais (opcional)</h4>
-                <p className="text-2xs text-muted-foreground">
+                <p className="text-xs text-muted-foreground">
                   Outras colunas da mesma linha do lead: idade, renda, uma pergunta fechada, ou um segundo leadscore. Número rende média;
                   categoria rende a distribuição das respostas; leadscore rende MQLs, % MQL e CPMQL com corte próprio. Texto livre não entra.
                 </p>

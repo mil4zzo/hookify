@@ -351,7 +351,7 @@ function TranscriptionStatusSkeleton() {
             {SKELETON_ROW_WIDTHS.map((width, i) => (
               <div key={i} className="flex items-center gap-3 p-3">
                 <Skeleton className="h-4 w-4 shrink-0 rounded-sm" />
-                <Skeleton className="h-9 w-9 shrink-0 rounded" />
+                <Skeleton className="h-9 w-9 shrink-0 rounded-sm" />
                 <Skeleton className={cn("h-4", width)} />
               </div>
             ))}
@@ -404,9 +404,9 @@ function ReadOnlyAdRow({ ad }: { ad: TranscriptionAdInfo }) {
 function Thumbnail({ url }: { url?: string | null }) {
   if (url) {
     // eslint-disable-next-line @next/next/no-img-element
-    return <img src={url} alt="" className="h-9 w-9 shrink-0 rounded object-cover" />;
+    return <img src={url} alt="" className="h-9 w-9 shrink-0 rounded-sm object-cover" />;
   }
-  return <div className="h-9 w-9 shrink-0 rounded bg-border" />;
+  return <div className="h-9 w-9 shrink-0 rounded-sm bg-border" />;
 }
 
 function AdBreakdownBar({

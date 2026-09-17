@@ -280,7 +280,7 @@ function PlanosContent() {
               {/* Plan toggle */}
               <div className="flex items-center gap-2 bg-background rounded-md p-1 border border-border">
                 <button
-                  className={`flex-1 text-xs font-medium py-1.5 rounded transition-colors ${
+                  className={`flex-1 text-xs font-medium py-1.5 rounded-sm transition-colors ${
                     selectedPlan === "monthly"
                       ? "bg-primary text-primary-foreground"
                       : "text-muted-foreground hover:text-foreground"
@@ -290,7 +290,7 @@ function PlanosContent() {
                   Mensal
                 </button>
                 <button
-                  className={`flex-1 text-xs font-medium py-1.5 rounded transition-colors ${
+                  className={`flex-1 text-xs font-medium py-1.5 rounded-sm transition-colors ${
                     selectedPlan === "annual"
                       ? "bg-primary text-primary-foreground"
                       : "text-muted-foreground hover:text-foreground"

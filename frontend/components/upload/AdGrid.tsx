@@ -33,7 +33,7 @@ function useDebouncedValue<T>(value: T, delayMs: number): T {
 function StatusDot({ status }: { status?: string | null }) {
   return (
     <span
-      className={`inline-block h-1.5 w-1.5 shrink-0 rounded-full ${status === "ACTIVE" ? "bg-success" : "bg-muted-foreground-40"}`}
+      className={`inline-block h-1.5 w-1.5 shrink-0 rounded-full ${status === "ACTIVE" ? "bg-success" : "bg-border"}`}
       title={status ?? ""}
     />
   )
@@ -255,9 +255,9 @@ const AdGrid = memo(function AdGrid({ selectedAdId, onSelect }: AdGridProps) {
               <div key={i} className="flex items-center gap-3 px-3 py-3">
                 <div className="h-12 w-12 shrink-0 animate-pulse rounded-lg bg-muted" />
                 <div className="flex-1 space-y-1.5">
-                  <div className="h-3 w-2/3 animate-pulse rounded bg-muted" />
-                  <div className="h-2.5 w-1/2 animate-pulse rounded bg-muted" />
-                  <div className="h-2.5 w-1/3 animate-pulse rounded bg-muted opacity-70" />
+                  <div className="h-3 w-2/3 animate-pulse rounded-sm bg-muted" />
+                  <div className="h-2.5 w-1/2 animate-pulse rounded-sm bg-muted" />
+                  <div className="h-2.5 w-1/3 animate-pulse rounded-sm bg-muted opacity-70" />
                 </div>
               </div>
             ))}

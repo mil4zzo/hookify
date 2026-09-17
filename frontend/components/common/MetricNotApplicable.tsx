@@ -30,7 +30,7 @@ export function MetricNotApplicable({ minimal = false, className }: { minimal?: 
       // Altura = a do par que substitui, para não desalinhar as linhas vizinhas:
       // sparkline (h-6 = 24) + gap-3 (12) + número text-base leading-none (16) = 52.
       // No minimal: h-4 (16) + gap-1 (4) + text-xs leading-none (12) = 32 = h-8.
-      className={cn("grid place-items-center text-muted-foreground-50", minimal ? "h-8" : "h-[52px]", className)}
+      className={cn("grid place-items-center text-muted-foreground opacity-50", minimal ? "h-8" : "h-[52px]", className)}
       title="Anúncio de imagem — não tem métricas de vídeo"
       aria-label="Não se aplica: anúncio de imagem"
       role="img"

@@ -203,7 +203,7 @@ export function ProgressItemCard({
           {isDone && <IconCheck className="h-3.5 w-3.5 text-success-600" />}
           {isError && <IconX className="h-3.5 w-3.5 text-destructive" />}
           {isActive && <IconLoader2 className="h-3.5 w-3.5 animate-spin text-primary" />}
-          {isPending && <div className="h-1.5 w-1.5 rounded-full bg-muted-foreground-30" />}
+          {isPending && <div className="h-1.5 w-1.5 rounded-full bg-border" />}
         </div>
 
         <div className="min-w-0 flex-1">
@@ -252,7 +252,7 @@ export function ProgressItemCard({
       </div>
 
       {expanded && (
-        <div className="border-t border-border-60 px-4 pb-4 pt-3">
+        <div className="border-t border-border px-4 pb-4 pt-3">
           {adsetName && (
             <p className="mb-3 text-2xs text-muted-foreground">{adsetName}</p>
           )}
@@ -290,7 +290,7 @@ export function ProgressItemCard({
                     <div className="flex h-5 w-5 shrink-0 items-center justify-center">
                       {isStepDone && <IconCheck className="h-4 w-4 text-success-600" />}
                       {isStepCurrent && <IconLoader2 className="h-4 w-4 animate-spin text-primary" />}
-                      {isStepUpcoming && <IconChevronRight className="h-3.5 w-3.5 text-muted-foreground-40" />}
+                      {isStepUpcoming && <IconChevronRight className="h-3.5 w-3.5 text-muted-foreground opacity-50" />}
                     </div>
 
                     <span className={`text-xs ${
@@ -298,7 +298,7 @@ export function ProgressItemCard({
                         ? "font-medium text-success-600"
                         : isStepCurrent
                           ? "font-semibold text-primary"
-                          : "text-muted-foreground-50"
+                          : "text-muted-foreground opacity-50"
                     }`}>
                       {getStepLabel(step, labelOpts)}
                     </span>
@@ -368,7 +368,7 @@ export default function BulkProgressList({ progress, creative }: BulkProgressLis
           <div className="h-1.5 bg-muted">
             <div
               className={`h-full transition-all duration-500 ${
-                isCompleted ? "bg-success" : isFailed ? "bg-destructive" : isCancelled ? "bg-muted-foreground-30" : "bg-primary"
+                isCompleted ? "bg-success" : isFailed ? "bg-destructive" : isCancelled ? "bg-border" : "bg-primary"
               }`}
               style={{ width: `${pct}%` }}
             />

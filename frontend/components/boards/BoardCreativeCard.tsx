@@ -60,7 +60,7 @@ export function BoardCreativeCard({ row, highlightMetric, actionType, mqlLeadsco
       <div className="relative">
         <AdPlayArea ad={row} alt={name} aspectRatio="3:4" className="w-full" onPlayClick={onOpen} />
         {highlight && (
-          <div className="absolute right-1.5 top-1.5 rounded bg-background-80 px-1.5 py-0.5 text-right backdrop-blur-sm">
+          <div className="absolute right-1.5 top-1.5 rounded-sm bg-background-80 px-1.5 py-0.5 text-right backdrop-blur-sm">
             <div className="text-2xs uppercase tracking-wide text-muted-foreground">{highlight.label}</div>
             <div className="text-sm font-medium text-foreground">{highlight.value}</div>
           </div>
@@ -75,7 +75,7 @@ export function BoardCreativeCard({ row, highlightMetric, actionType, mqlLeadsco
         {tags.length > 0 && (
           <div className="flex flex-wrap items-center gap-1">
             {visibleTags.map((tag) => (
-              <span key={tag.id} className={cn("truncate rounded border px-1 py-px text-2xs", tagChipClasses(tag.color))}>
+              <span key={tag.id} className={cn("truncate rounded-sm border px-1 py-px text-2xs", tagChipClasses(tag.color))}>
                 {tag.name}
               </span>
             ))}

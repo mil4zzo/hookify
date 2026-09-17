@@ -146,7 +146,7 @@ export function PackConflictGuard({ serverOverlapRows, children }: PackConflictG
           // `serverOverlapRows` é sempre null e este ramo não é alcançado. A
           // fiação fica para o dia em que a detecção server-side voltar; não
           // confie nela como rede de segurança enquanto isto estiver escrito.
-          <p className="text-2xs text-muted-foreground">
+          <p className="text-xs text-muted-foreground">
             O servidor detectou {serverOverlapRows} linha{(serverOverlapRows ?? 0) === 1 ? "" : "s"} em
             conflito na seleção atual. Revise os packs selecionados no filtro acima.
           </p>

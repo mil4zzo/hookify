@@ -111,7 +111,7 @@ export function InlineNotice({ tone, title, children, action, className }: Inlin
       <Icon className="mt-0.5 h-4 w-4 flex-shrink-0" />
       <div className="min-w-0 flex-1 space-y-0.5">
         {title && <div className="font-medium text-foreground">{title}</div>}
-        {children && <div className="text-foreground-90">{children}</div>}
+        {children && <div className="text-foreground">{children}</div>}
       </div>
       {action && <div className="flex-shrink-0">{action}</div>}
     </div>

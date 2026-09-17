@@ -59,7 +59,7 @@ function AdAttributionRow({
           ad={ad as any}
           aspectRatio="1:1"
           size={36}
-          className="rounded flex-shrink-0"
+          className="rounded-sm flex-shrink-0"
           onPlayClick={open}
         />
       )}
@@ -68,7 +68,7 @@ function AdAttributionRow({
         <div className="text-xs font-medium text-foreground truncate">{adName}</div>
         <div className="flex items-center gap-2 mt-0.5">
           {/* Tag: rate vs mix */}
-          <span className={`flex items-center gap-0.5 text-2xs px-1.5 py-0.5 rounded font-medium ${
+          <span className={`flex items-center gap-0.5 text-2xs px-1.5 py-0.5 rounded-sm font-medium ${
             attr.tag === "rate"
               ? "bg-destructive-10 text-destructive border border-destructive-20"
               : "bg-warning-10 text-warning border border-warning-20"

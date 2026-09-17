@@ -64,7 +64,7 @@ function ManagerSkeletonTable() {
             ))}
           </colgroup>
           <thead className="sticky top-0 z-10 bg-background">
-            <tr className="text-foreground-80">
+            <tr className="text-foreground">
               <th className="px-4 py-4 text-left text-base font-normal">Anúncio</th>
               {columns.map((id) => (
                 <th key={id} className="px-4 py-4 text-center text-base font-normal">
@@ -78,7 +78,7 @@ function ManagerSkeletonTable() {
               <tr key={rowIndex} className="bg-background">
                 <td className="rounded-l-md border-y border-l border-border p-4 text-left">
                   <div className="flex items-center gap-3">
-                    <Skeleton className="h-14 w-14 flex-shrink-0 rounded" />
+                    <Skeleton className="h-14 w-14 flex-shrink-0 rounded-sm" />
                     <div className="min-w-0 flex-1 space-y-2">
                       <Skeleton className="h-4 w-3/4" />
                       <Skeleton className="h-3 w-1/2" />

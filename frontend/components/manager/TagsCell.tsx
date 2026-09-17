@@ -27,7 +27,7 @@ export function TagChip({
   return (
     <span
       className={cn(
-        "inline-flex max-w-full items-center gap-1 rounded border px-1.5 py-0.5 text-2xs font-medium leading-none",
+        "inline-flex max-w-full items-center gap-1 rounded-sm border px-1.5 py-0.5 text-2xs font-medium leading-none",
         tagChipClasses(color),
         className,
       )}
@@ -93,7 +93,7 @@ export function TagsCell({ adName, tags }: { adName: string; tags: RankingsRowTa
         <button
           type="button"
           onClick={(e) => e.stopPropagation()}
-          className="flex w-full flex-wrap items-center gap-1 rounded px-1 py-0.5 text-left transition-colors hover:bg-accent"
+          className="flex w-full flex-wrap items-center gap-1 rounded-sm px-1 py-0.5 text-left transition-colors hover:bg-accent"
           aria-label={`Editar tags de ${adName}`}
         >
           {tags.length === 0 ? (

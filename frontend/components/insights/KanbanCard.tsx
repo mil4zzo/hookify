@@ -51,7 +51,7 @@ export function KanbanCard({ ad, metricLabel, variant = "success", rank, seconda
       <div className="p-1">
         <div className="flex items-start gap-3">
           {/* Thumbnail */}
-          <div className="relative w-24 h-24 flex-shrink-0 rounded overflow-hidden bg-muted">
+          <div className="relative w-24 h-24 flex-shrink-0 rounded-sm overflow-hidden bg-muted">
             {/* Rank badge - posicionado absolutamente no canto superior esquerdo */}
             <div className={cn("absolute top-0 left-0 z-10 w-6 h-6 rounded-full flex items-center justify-center font-bold text-xs", variant === "success" ? "bg-success text-success-foreground" : "bg-destructive text-destructive-foreground")}>{rank}</div>
             {(() => {

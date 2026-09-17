@@ -64,7 +64,7 @@ export function ManagerDrillBreadcrumb({ crumbs, onNavigate }: ManagerDrillBread
               <button
                 type="button"
                 onClick={() => onNavigate(index)}
-                className="flex flex-col items-start rounded text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                className="flex flex-col items-start rounded-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
                 {kindRow}
                 <span className="truncate max-w-[200px]" title={title}>

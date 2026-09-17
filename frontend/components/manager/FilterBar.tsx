@@ -110,7 +110,7 @@ export const FilterBar = React.memo(function FilterBar({
   // banner quebraria o layout. Mesma paleta de warning, forma de chip.
   // design-system-exception: inline-notice-pattern - aviso inline na toolbar, nao banner de bloco
   const truncatedChipClass =
-    "inline-flex items-center gap-1 whitespace-nowrap rounded border border-warning-30 bg-warning-10 px-1.5 py-0.5 text-2xs text-warning";
+    "inline-flex items-center gap-1 whitespace-nowrap rounded-sm border border-warning-30 bg-warning-10 px-1.5 py-0.5 text-2xs text-warning";
 
   return (
     <div className="flex w-full flex-wrap items-center gap-2">

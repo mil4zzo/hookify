@@ -55,7 +55,7 @@ export default {
       colors: {
         // === BASE ===
         background: alphaScale("--background"),
-        foreground: alphaScale("--foreground"),
+        foreground: "var(--foreground)",
         neutral: {
           DEFAULT: "var(--neutral-600)",
           950: "var(--neutral-950)",
@@ -69,18 +69,18 @@ export default {
           DEFAULT: "var(--card)",
           hover: "color-mix(in oklab, var(--card) 85%, var(--accent) 15%)",
         },
-        "card-foreground": alphaScale("--card-foreground"),
+        "card-foreground": "var(--card-foreground)",
         popover: {
           DEFAULT: "var(--popover)",
           hover: "color-mix(in oklab, var(--popover) 85%, var(--accent) 15%)",
         },
-        "popover-foreground": alphaScale("--popover-foreground"),
+        "popover-foreground": "var(--popover-foreground)",
 
         // === PRIMÁRIAS ===
         primary: semanticScale("primary", {
           hover: "color-mix(in oklab, var(--primary) 90%, oklch(1 0 0) 10%)",
         }),
-        "primary-foreground": alphaScale("--primary-foreground"),
+        "primary-foreground": "var(--primary-foreground)",
 
         // === SECUNDÁRIAS ===
 
@@ -89,35 +89,39 @@ export default {
           ...alphaScale("--muted"),
           hover: "color-mix(in oklab, var(--muted) 85%, var(--accent) 15%)",
         },
-        "muted-foreground": alphaScale("--muted-foreground"),
+        "muted-foreground": "var(--muted-foreground)",
         accent: {
           ...alphaScale("--accent"),
           hover: "color-mix(in oklab, var(--card) 80%, var(--accent) 20%)",
         },
-        "accent-foreground": alphaScale("--accent-foreground"),
+        "accent-foreground": "var(--accent-foreground)",
 
         // === FEEDBACK ===
         destructive: semanticScale("destructive", {
           hover: "color-mix(in oklab, var(--destructive) 90%, oklch(1 0 0) 10%)",
         }),
-        "destructive-foreground": alphaScale("--destructive-foreground"),
+        "destructive-foreground": "var(--destructive-foreground)",
         success: semanticScale("success", {
           hover: "color-mix(in oklab, var(--success) 90%, oklch(1 0 0) 10%)",
         }),
-        "success-foreground": alphaScale("--success-foreground"),
+        "success-foreground": "var(--success-foreground)",
         warning: alphaScale("--warning"),
-        "warning-foreground": alphaScale("--warning-foreground"),
+        "warning-foreground": "var(--warning-foreground)",
         info: alphaScale("--info"),
-        "info-foreground": alphaScale("--info-foreground"),
+        "info-foreground": "var(--info-foreground)",
         attention: alphaScale("--attention"),
-        "attention-foreground": alphaScale("--attention-foreground"),
+        "attention-foreground": "var(--attention-foreground)",
 
         // === FORMULÁRIOS ===
         input: alphaScale("--input"),
-        "input-foreground": alphaScale("--input-foreground"),
-        border: alphaScale("--border"),
+        "input-foreground": "var(--input-foreground)",
+        // Borda e texto NAO tem escala -N: a escala mistura com a pagina, e uma borda
+        // "-50" cai exatamente no nivel 2 da escada (some sobre qualquer grupo); texto
+        // "-80" era um terceiro/quarto tom de texto sem papel. Texto apagado = cor
+        // secundaria + opacity-50; sobre superficie colorida, white/N (alpha real).
+        border: "var(--border)",
         ring: alphaScale("--ring"),
-        "ring-foreground": alphaScale("--ring-foreground"),
+        "ring-foreground": "var(--ring-foreground)",
 
         // === COMPONENTES ESPECÍFICOS ===
         sidebar: "var(--sidebar)",

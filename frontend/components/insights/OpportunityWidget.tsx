@@ -44,7 +44,7 @@ function formatPct2(v: number): string {
 }
 
 // Estilização padronizada das linhas da tabela
-const ROW_BASE_CLASS = "grid grid-cols-7 gap-2 py-2 px-3 rounded items-center border border-border";
+const ROW_BASE_CLASS = "grid grid-cols-7 gap-2 py-2 px-3 rounded-sm items-center border border-border";
 const ROW_MUTED_CLASS = `${ROW_BASE_CLASS} bg-border`;
 const ROW_GREEN_CLASS = `${ROW_BASE_CLASS} bg-success-20`;
 
@@ -334,7 +334,7 @@ function OpportunityCard({ row, idx, formatCurrency, avgHook, avgHoldRate, avgWe
               ad={r}
               aspectRatio="1:1"
               size={56}
-              className="rounded"
+              className="rounded-sm"
               onPlayClick={(e) => {
                 e.stopPropagation();
                 if (onAdClick) {

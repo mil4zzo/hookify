@@ -115,7 +115,7 @@ function FileSlot({ label, aspectRatios, file, required, isAutoFilled, autoFille
       {/* Label */}
       <div className="flex items-center gap-1">
         <span className="truncate text-2xs font-semibold text-foreground">{label}</span>
-        {!required && <span className="shrink-0 rounded bg-muted px-1 text-2xs text-muted-foreground">opc.</span>}
+        {!required && <span className="shrink-0 rounded-sm bg-muted px-1 text-2xs text-muted-foreground">opc.</span>}
       </div>
 
       {/* Auto-fill badge */}
@@ -170,7 +170,7 @@ function FileSlot({ label, aspectRatios, file, required, isAutoFilled, autoFille
         >
           <IconPhotoFilled className={`h-6 w-6 transition-colors ${isDragOver ? "text-primary" : "text-muted-foreground group-hover:text-primary"}`} />
           <span className={`text-center text-2xs font-medium leading-tight transition-colors ${isDragOver ? "text-primary" : "text-muted-foreground group-hover:text-primary"}`}>Arraste ou selecione</span>
-          {aspectRatios.filter(Boolean).length > 0 && <span className="text-center text-2xs text-muted-foreground-60 leading-tight">{aspectRatios.filter(Boolean).join(" · ")}</span>}
+          {aspectRatios.filter(Boolean).length > 0 && <span className="text-center text-2xs text-muted-foreground opacity-50 leading-tight">{aspectRatios.filter(Boolean).join(" · ")}</span>}
         </button>
       )}
 

@@ -290,7 +290,7 @@ export function StoriesViewer({ share }: { share: PublicShare }) {
         <div className="pointer-events-none absolute inset-x-0 top-0 z-10 bg-gradient-to-b from-overlay to-transparent px-3 pb-8 pt-3">
           <div className="flex gap-1">
             {items.map((_, i) => (
-              <div key={i} className="h-0.5 flex-1 overflow-hidden rounded-full bg-foreground-30">
+              <div key={i} className="h-0.5 flex-1 overflow-hidden rounded-full bg-white/30">
                 {i < index ? (
                   <div className="h-full w-full rounded-full bg-primary" />
                 ) : i === index ? (

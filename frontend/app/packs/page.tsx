@@ -62,8 +62,8 @@ function PacksGridSkeleton() {
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-x-6 gap-y-6">
       {Array.from({ length: 4 }).map((_, i) => (
         <div key={i} className="relative inline-block w-full">
-          <div className="absolute inset-x-0 top-4 bottom-0 rounded-md bg-card border border-border-50 origin-bottom -rotate-[1.5deg] opacity-60 pointer-events-none" />
-          <div className="absolute inset-x-0 top-4 bottom-0 rounded-md bg-card border border-border-50 origin-bottom rotate-[1.5deg] opacity-60 pointer-events-none" />
+          <div className="absolute inset-x-0 top-4 bottom-0 rounded-md bg-card border border-border origin-bottom -rotate-[1.5deg] opacity-60 pointer-events-none" />
+          <div className="absolute inset-x-0 top-4 bottom-0 rounded-md bg-card border border-border origin-bottom rotate-[1.5deg] opacity-60 pointer-events-none" />
           <div className="relative z-10 rounded-md border border-border bg-card overflow-hidden">
             <div className="p-6 flex flex-col gap-6">
               <div className="flex flex-col items-center gap-3">
@@ -845,8 +845,8 @@ export default function PacksPage() {
           ) : packs.length === 0 ? (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-x-6 gap-y-6">
               <div className="relative inline-block w-full">
-                <div className="absolute inset-x-0 top-4 bottom-0 rounded-md bg-card border border-border-50 origin-bottom -rotate-[1.5deg] opacity-60 pointer-events-none" />
-                <div className="absolute inset-x-0 top-4 bottom-0 rounded-md bg-card border border-border-50 origin-bottom rotate-[1.5deg] opacity-60 pointer-events-none" />
+                <div className="absolute inset-x-0 top-4 bottom-0 rounded-md bg-card border border-border origin-bottom -rotate-[1.5deg] opacity-60 pointer-events-none" />
+                <div className="absolute inset-x-0 top-4 bottom-0 rounded-md bg-card border border-border origin-bottom rotate-[1.5deg] opacity-60 pointer-events-none" />
                 <StandardCard variant="default" padding="none" className="relative flex flex-col z-10 w-full overflow-hidden">
                   <div className="p-6 flex flex-col items-center justify-center gap-4 h-full relative z-10 min-h-[220px]">
                     <IconChartBar className="w-8 h-8 text-muted-foreground" />
@@ -1303,7 +1303,7 @@ export default function PacksPage() {
                     que vão perder esse leadscore junto.
                   </InlineNotice>
                 )}
-                <p className="text-2xs text-muted-foreground">
+                <p className="text-xs text-muted-foreground">
                   Não há como desfazer. Conectar a planilha de novo repovoa os dias que ela cobrir.
                 </p>
               </>

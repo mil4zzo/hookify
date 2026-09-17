@@ -746,12 +746,12 @@ export default function Topbar() {
               {effectiveMqlLeadscoreMin != null ? effectiveMqlLeadscoreMin.toFixed(1) : "—"}
             </p>
             {mqlDivergent ? (
-              <p className="text-2xs text-warning">
+              <p className="text-xs text-warning">
                 Os packs selecionados usam cortes diferentes entre si, então MQL e CPMQL ficam
                 indisponíveis. Selecione um pack por vez ou alinhe o corte em Packs → configuração.
               </p>
             ) : effectiveMqlLeadscoreMin == null ? (
-              <p className="text-2xs text-warning">
+              <p className="text-xs text-warning">
                 Nenhum corte definido para os packs selecionados — MQL e CPMQL ficam indisponíveis.
                 Defina em Packs → configuração.
               </p>

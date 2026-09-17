@@ -112,7 +112,7 @@ export function PackDiagnosticPanel({
             <span className="text-2xs text-muted-foreground">{comparisonLabel}</span>
           )}
           {decomposition && !decomposition.minVolumeOk && (
-            <span className="text-2xs text-warning bg-warning-10 border border-warning-20 px-1.5 py-0.5 rounded font-medium">
+            <span className="text-2xs text-warning bg-warning-10 border border-warning-20 px-1.5 py-0.5 rounded-sm font-medium">
               Volume baixo
             </span>
           )}

@@ -110,11 +110,11 @@ export default function CampaignReviewTable({
               <p className="text-2xs font-semibold uppercase tracking-wide text-muted-foreground">Variáveis disponíveis</p>
               <ul className="space-y-1">
                 <li className="text-2xs text-muted-foreground">
-                  <code className="rounded bg-muted px-1 py-0.5 font-mono">{AD_NAME_VAR}</code>
+                  <code className="rounded-sm bg-muted px-1 py-0.5 font-mono">{AD_NAME_VAR}</code>
                   {" — "}nome do criativo
                 </li>
                 <li className="text-2xs text-muted-foreground">
-                  <code className="rounded bg-muted px-1 py-0.5 font-mono">{INDEX_VAR}</code>
+                  <code className="rounded-sm bg-muted px-1 py-0.5 font-mono">{INDEX_VAR}</code>
                   {" — "}numeração sequencial (ex: 1, 2, 3…)
                 </li>
               </ul>

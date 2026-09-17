@@ -328,7 +328,7 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
 
   function VideoMetricSkeletonCard({ showInlineSubtitle = false }: { showInlineSubtitle?: boolean }) {
     return (
-      <div className="rounded border border-border p-2">
+      <div className="rounded-sm border border-border p-2">
         {showInlineSubtitle ? (
           <div className="mb-1 flex items-center justify-between gap-2">
             <Skeleton className="h-2.5 w-14" />
@@ -694,7 +694,7 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
             )}
           </div>
           <div className="mt-1 flex flex-wrap items-center gap-1">
-            <span className="text-xs px-2 py-0.5 rounded bg-surface-2 text-muted-foreground">{groupByAdName ? "Agrupado" : "Individual"}</span>
+            <span className="text-xs px-2 py-0.5 rounded-sm bg-surface-2 text-muted-foreground">{groupByAdName ? "Agrupado" : "Individual"}</span>
             <ProvenanceBadge names={packNames} noun="Pack" pluralNoun="Packs" />
             <ProvenanceBadge names={accountNames} noun="Conta" pluralNoun="Ad Accounts" />
           </div>

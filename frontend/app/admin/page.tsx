@@ -154,10 +154,10 @@ export default function AdminPage() {
             <tbody>
               {isLoading ? (
                 Array.from({ length: 4 }).map((_, i) => (
-                  <tr key={i} className="border-b border-border-50">
+                  <tr key={i} className="border-b border-border">
                     {Array.from({ length: 9 }).map((_, j) => (
                       <td key={j} className="px-4 py-3">
-                        <div className="h-4 w-24 rounded bg-muted animate-pulse" />
+                        <div className="h-4 w-24 rounded-sm bg-muted animate-pulse" />
                       </td>
                     ))}
                   </tr>
@@ -170,18 +170,18 @@ export default function AdminPage() {
                 </tr>
               ) : (
                 sortedUsers.map((user) => (
-                  <tr key={user.user_id} className="border-b border-border-50 hover:bg-input-30 transition-colors">
+                  <tr key={user.user_id} className="border-b border-border hover:bg-input-30 transition-colors">
                     <td className="px-4 py-3 font-mono text-xs">{user.email}</td>
                     <td className="px-4 py-3 whitespace-nowrap">{user.name}</td>
                     <td className="px-4 py-3">
                       {updatingId === user.user_id ? (
-                        <div className="h-7 w-28 rounded bg-muted animate-pulse" />
+                        <div className="h-7 w-28 rounded-sm bg-muted animate-pulse" />
                       ) : (
                         <TierSelect user={user} onUpdate={handleTierChange} />
                       )}
                     </td>
                     <td className="px-4 py-3 font-mono text-xs text-muted-foreground">
-                      {user.meta_email ?? <span className="text-muted-foreground-50">—</span>}
+                      {user.meta_email ?? <span className="text-muted-foreground opacity-50">—</span>}
                     </td>
                     <td className="px-4 py-3 text-center">{user.packs_count}</td>
                     <td className="px-4 py-3 whitespace-nowrap text-muted-foreground text-xs">
@@ -194,7 +194,7 @@ export default function AdminPage() {
                       {user.updated_at ? fmt(user.updated_at) : "—"}
                     </td>
                     <td className="px-4 py-3 font-mono text-xs text-muted-foreground">
-                      {user.granted_by ? user.granted_by.slice(0, 8) + "…" : <span className="text-muted-foreground-50">—</span>}
+                      {user.granted_by ? user.granted_by.slice(0, 8) + "…" : <span className="text-muted-foreground opacity-50">—</span>}
                     </td>
                   </tr>
                 ))

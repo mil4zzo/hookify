@@ -84,7 +84,7 @@ export function ActionPlanRow({
           ad={adRaw}
           aspectRatio="1:1"
           size={48}
-          className="rounded flex-shrink-0"
+          className="rounded-sm flex-shrink-0"
           onPlayClick={(e) => { e.stopPropagation(); setDialogOpen(true); }}
         />
 
@@ -95,7 +95,7 @@ export function ActionPlanRow({
               {adRaw.ad_name || adRaw.ad_id || "—"}
             </span>
             {lowData && (
-              <span className="flex items-center gap-1 px-1.5 py-0.5 rounded text-2xs bg-muted-30 text-muted-foreground border border-border flex-shrink-0">
+              <span className="flex items-center gap-1 px-1.5 py-0.5 rounded-sm text-2xs bg-muted-30 text-muted-foreground border border-border flex-shrink-0">
                 <IconAlertTriangle className="h-3 w-3" />
                 Dados parciais
               </span>

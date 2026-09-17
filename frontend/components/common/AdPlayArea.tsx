@@ -83,7 +83,7 @@ export function AdPlayArea({ ad, thumbnailUrl, alt, aspectRatio = "3:4", size, c
               "flex items-center justify-center rounded-full transition-all duration-500",
               // Estado normal: véu escuro translúcido com blur. Alpha REAL e fixo, não token
               // do tema: fica sobre a mídia (qualquer brilho) e o ícone é branco nos dois
-              // temas. O `bg-muted-foreground-40` anterior era opaco (mistura com o fundo da
+              // temas. O `bg-border` anterior era opaco (mistura com o fundo da
               // página), então o blur nunca aparecia — e no tema claro virava cinza-claro
               // sob ícone branco.
               "bg-black/40 backdrop-blur-sm border border-white/20",

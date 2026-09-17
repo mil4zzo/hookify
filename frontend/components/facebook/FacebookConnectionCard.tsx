@@ -94,7 +94,7 @@ export function FacebookConnectionCard({ connection, isSelected = false, onSelec
             <div className="flex items-center gap-2">
               <div className="font-medium text-sm truncate">{connection.facebook_name || connection.facebook_email || `ID: ${connection.facebook_user_id}` || "Conta do Facebook"}</div>
               {isTesting && (
-                <span className="text-xs px-2 py-0.5 rounded bg-surface-3 text-muted-foreground font-medium flex items-center gap-1">
+                <span className="text-xs px-2 py-0.5 rounded-sm bg-surface-3 text-muted-foreground font-medium flex items-center gap-1">
                   <IconLoader2 className="w-3 h-3 animate-spin" />
                   Verificando...
                 </span>
@@ -117,7 +117,7 @@ export function FacebookConnectionCard({ connection, isSelected = false, onSelec
                   Permissões incompletas ({missingScopes.length})
                 </span>
               )}
-              {connection.is_primary && <span className="text-xs px-2 py-0.5 rounded bg-primary-20 text-primary font-medium">Primária</span>}
+              {connection.is_primary && <span className="text-xs px-2 py-0.5 rounded-sm bg-primary-20 text-primary font-medium">Primária</span>}
             </div>
             {connection.facebook_email && connection.facebook_email !== connection.facebook_name && <div className="text-xs text-muted-foreground truncate">{connection.facebook_email}</div>}
             {!connection.facebook_email && !connection.facebook_name && <div className="text-xs text-muted-foreground truncate">ID: {connection.facebook_user_id}</div>}
