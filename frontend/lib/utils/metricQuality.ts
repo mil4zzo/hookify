@@ -59,15 +59,17 @@ const metricValueTextMap: Record<MetricQualityTone, string> = {
   "muted-foreground": "text-muted-foreground",
 };
 
+// Borda a 30%: desde que a tinta virou alpha real, um contorno a 10% fica invisivel
+// e os cartoes vizinhos se fundem (visto no painel do compartilhamento e no modal do anuncio).
 const cardSurfaceMap: Record<MetricQualityTone, string> = {
-  destructive: "border-destructive-10 bg-destructive-10 shadow-elevation-raised",
-  warning: "border-warning-10 bg-warning-10 shadow-elevation-raised",
-  attention: "border-attention-10 bg-attention-10 shadow-elevation-raised",
-  success: "border-success-10 bg-success-10 shadow-elevation-raised",
-  primary: "border-primary-10 bg-primary-10 shadow-elevation-raised",
-  brand: "border-primary-10 bg-primary-10 shadow-elevation-raised",
+  destructive: "border-destructive-30 bg-destructive-10 shadow-elevation-raised",
+  warning: "border-warning-30 bg-warning-10 shadow-elevation-raised",
+  attention: "border-attention-30 bg-attention-10 shadow-elevation-raised",
+  success: "border-success-30 bg-success-10 shadow-elevation-raised",
+  primary: "border-primary-30 bg-primary-10 shadow-elevation-raised",
+  brand: "border-primary-30 bg-primary-10 shadow-elevation-raised",
   muted: "border-border bg-background shadow-none",
-  accent: "border-ring-10 bg-ring-10 shadow-elevation-raised",
+  accent: "border-ring-30 bg-ring-10 shadow-elevation-raised",
   "muted-foreground": "border-border bg-background shadow-none",
 };
 

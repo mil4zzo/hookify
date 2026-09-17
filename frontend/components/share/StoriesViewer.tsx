@@ -260,7 +260,7 @@ export function StoriesViewer({ share }: { share: PublicShare }) {
                   <p className="text-xs leading-relaxed text-muted-foreground">
                     A CDN da Meta aposentou o link. Peça um link atualizado no Hookify ;)
                   </p>
-                  <p className="text-2xs text-muted-foreground">As métricas continuam logo abaixo 👇</p>
+                  <p className="text-xs text-muted-foreground">As métricas continuam logo abaixo 👇</p>
                 </div>
               </div>
             ) : current.media.image_url || current.media.thumbnail_url ? (
