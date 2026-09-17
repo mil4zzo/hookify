@@ -222,81 +222,77 @@ nova excecao, novo padrao de barra), atualize esta secao no mesmo commit.
   display em `rem` (titulos hero) e relativos em `em` (superscript) sao
   permitidos.
 
-### Superficie (contrato de elevacao)
+### Escada de superficies (contrato de elevacao)
 
-Toda superficie estrutural sai de UM destes cinco degraus. Cada degrau anda
-**para longe do fundo da pagina** (no escuro clareia, no claro escurece) — nunca o
-contrario, e nunca dependendo do tema. Dentro de um cartao, porem, os planos
-**alternam** (ver "Alternancia de planos" abaixo): regiao de leitura volta ao fundo
-da pagina, porque os degraus acima do cartao sao curtos demais para separar planos.
+Toda superficie estrutural sai de UM de cinco niveis, **igualmente espacados** em
+luminosidade OKLab — a escala em que distancias iguais parecem iguais ao olho. Os
+valores moram em `lib/design-system/themeDefinitions.ts` (`level-0` a `level-4`); os
+componentes usam os tokens semanticos abaixo, nunca os niveis direto.
 
-| Degrau | Token | Onde | Regra |
-|---|---|---|---|
-| Pagina | `bg-background` | body, area de pagina | nao recebe sombra |
-| Faixa | `bg-muted` | faixa de secao, linha alternada, trilho segmentado | nao e fundo de regiao (ver alternancia) |
-| Base | `bg-card` | cartao, modal, painel | o degrau padrao de conteudo |
-| Elevado | `bg-surface-2` | grupo dentro de cartao, campo, celula em destaque | `shadow-elevation-raised` |
-| Flutuante | `bg-surface-3` | popover, menu, tooltip | unico com `shadow-elevation-overlay` |
+| Nivel | Token | Escuro | Claro | Papel |
+|---|---|---|---|---|
+| 0 | `bg-background` | 0,209 | 1,000 | pagina; regiao de LEITURA dentro de cartao/modal; trilho de abas e de controle segmentado |
+| 1 | `bg-card` (`popover`, `muted`, `sidebar`) | 0,289 | 0,967 | cartao, modal, painel, barra, popover; faixa; hover de linha que esta no nivel 0 |
+| 2 | `bg-surface-2` | 0,369 | 0,930 | grupo de ACAO dentro de cartao; opcao nao escolhida; chip |
+| 3 | `bg-input` (`surface-3`) | 0,449 | 0,895 | campo, seletor, avatar neutro |
+| 4 | `bg-border` | 0,529 | 0,780 | borda e divisor; bloco SEM texto (placeholder de midia, skeleton, ponto de status, trilho de progresso) |
 
-`bg-popover` e alias historico de `bg-card`; em codigo novo, use `bg-card`.
+Passo de 0,080 no escuro e 0,035 no claro (o claro tambem conta com borda e sombra).
+Flutuante (popover, menu, tooltip) e nivel 1 + `shadow-elevation-overlay`, o unico
+nivel que recebe essa sombra. A temperatura do cinza inteira mora em dois tokens,
+`neutral-chroma` e `neutral-hue`.
 
-**Alternancia de planos — a regra anti-achatamento.** No tema escuro os degraus
-`muted` (0,313) e `surface-2` (0,398) ficam a 0,035 e 0,050 de luminosidade do
-`card` (0,348): o olho nao separa esses planos. A unica distancia realmente
-perceptivel e cartao <-> pagina (0,139). Por isso os planos ALTERNAM:
+**A regra — tres frases, nenhuma decisao caso a caso:**
 
-| Onde | Fundo | Por que |
-|---|---|---|
-| Pagina | `bg-background` | a base |
-| Cartao, modal, painel, barra | `bg-card` | sobe da pagina |
-| **Regiao de LEITURA dentro de cartao/modal** — tabela, lista rolavel, previa, historico, resumo do que vai acontecer | **`bg-background`** | volta ao plano da pagina: maior contraste da escada no escuro; no claro, "papel sobre a bandeja" |
-| **Grupo de ACAO dentro de cartao** — opcoes, membros, ajustes com toggle | `bg-surface-2` + borda | pequeno e sempre com borda, entao o degrau curto basta |
-| Faixa, trilho segmentado, chip estatico, hover de linha | `bg-muted` | **nao e fundo de regiao** — fica perto demais do cartao |
+1. **Onde se AGE, sobe um nivel.** Grupo de opcoes, lista de membros, ajustes com
+   toggle, opcao nao escolhida: nivel do pai + 1. Campo dentro desse grupo: + 1 de novo.
+2. **Onde se LE, desce um nivel.** Tabela, lista rolavel, previa, historico, resumo do
+   que vai acontecer, trilho de abas — dentro de cartao ou modal: nivel do pai - 1.
+3. **Vizinhos nunca no mesmo nivel.** Dois planos encostados no mesmo nivel achatam a
+   interface; um deles esta no nivel errado, ou precisa de borda + espaco entre eles.
 
-Regra pratica: **dois planos vizinhos precisam de diferenca visivel (~0,08 de
-luminosidade) ou de borda + espaco.** Mesma cor em planos vizinhos sem borda achata a
-interface — foi o que aconteceu com o modal de variacoes do Manager quando as linhas
-passaram a herdar a cor do painel. Linhas de tabela dentro de uma regiao de leitura
-levam `bg-background`; o hover delas (`bg-muted`) fica visivel sobre esse fundo.
+Com o passo igual, +1 e -1 sempre dao a mesma diferenca visivel. Foi a falta disso que
+achatou telas durante a F3: a escada anterior tinha um degrau grande demais (pagina ->
+cartao, 0,139) e dois curtos demais (cartao -> grupo 0,050; cartao -> faixa 0,035).
 
-**A regra que isso substitui:** superficie estrutural em repouso NAO pode vir da
-escala alpha (`bg-card-20`, `bg-input-30`, `bg-muted-50`...). A escala gera
+Linhas de tabela dentro de uma regiao de leitura levam `bg-background`; o hover delas
+(`hover:bg-muted`, nivel 1) fica visivel sobre esse fundo. Um elemento que aparece em
+contextos de nivel diferente (chip, badge) usa o nivel que funciona sobre todos eles —
+`surface-2` aparece sobre 0 e sobre 1.
+
+**Superficie estrutural em repouso NAO vem da escala alpha** (`bg-card-20`,
+`bg-input-30`, `bg-muted-50`...). A escala gera
 `color-mix(in oklab, var(--token) N%, var(--background))` — mistura com o fundo da
-PAGINA, nao com a superficie que esta atras do elemento. Sobre um cartao mais claro
-que a pagina, o resultado sempre afunda no tema escuro e sempre eleva no claro: a
-hierarquia inverte de sinal ao trocar de tema, sem ninguem decidir. Regra
+PAGINA, nao com a superficie que esta atras. Sobre um cartao, o resultado afunda no
+escuro e eleva no claro: a hierarquia inverte de sinal ao trocar de tema. Regra
 `structural-alpha-surface` no checker.
 
 Continuam validos, e nao sao violacao:
 
 - **Tinta semantica** sobre a pagina — `bg-primary-10`, `border-destructive-30`,
-  `bg-success-10`. Ali a intencao e mesmo um veu da cor, e o mix com o fundo e o
-  comportamento certo.
+  `bg-success-10`. Ali a intencao e mesmo um veu da cor.
 - **`bg-background-{n}`** — o mix e com a propria cor, entao e alpha de verdade
-  (overlay de modal).
+  (overlay de modal, veu sobre midia).
 - **Variante de estado** — `hover:bg-*`, `data-[state=open]:bg-*`. Estado tem receita
-  propria (ver abaixo), e o token de hover do app e `accent`.
+  propria (ver abaixo).
 
 **Aninhamento le mais forte, nunca mais fraco.** O nivel mais profundo (um subgrupo
-dentro de um painel) e o que carrega a informacao mais importante; ele precisa ser o
-elemento mais definido da tela, com superficie propria e borda solida. Borda tracejada
-le como placeholder ou area de drop — nao use para agrupar conteudo real.
+dentro de um painel) carrega a informacao mais importante; precisa ser o elemento mais
+definido da tela, com superficie propria e borda solida. Borda tracejada le como
+placeholder ou area de drop — nao use para agrupar conteudo real.
 
-**`bg-border` e cor de linha.** Serve para divisor, trilho de progresso e bloco SEM
-texto — placeholder de midia ausente e skeleton, onde o tom medio da escala e o unico
-que aparece sobre qualquer superficie nos dois temas. Como fundo de texto nao: sob
+**`bg-border` como fundo so em bloco SEM texto.** Como fundo de texto, nao: sob
 `muted-foreground` o contraste cai para ~2,4:1. Caixa com texto dentro de dialogo e
-regiao de leitura (`bg-background`).
+regiao de leitura (nivel 0).
 
-**Lista de itens com acoes** (membros, conexoes): um grupo elevado so
-(`bg-surface-2` + contorno), com as linhas divididas por filete (`divide-y
-divide-border`) — nao uma caixa por item. Lista de pessoas leva identidade
-(iniciais + nome + detalhe), senao le chapada.
+**Lista de itens com acoes** (membros, conexoes, pares em conflito): um grupo so no
+nivel +1, com contorno e as linhas divididas por filete (`divide-y divide-border`) —
+nao uma caixa por item. Lista de pessoas leva identidade (iniciais + nome + detalhe),
+senao le chapada.
 
 **Nem tudo e cartao.** Borda, preenchimento, raio e sombra dizem "objeto separado".
-Gaste por papel: um bloco que ja esta dentro de um cartao raramente precisa da propria
-moldura, e uma linha cujas colunas ja sao controles com borda nao precisa de caixa em
-volta — vira moldura dentro de moldura.
+Gaste por papel: uma linha cujas colunas ja sao controles com borda nao precisa de
+caixa em volta — vira moldura dentro de moldura.
 
 ### Escala alpha (tinta semantica)
 
@@ -334,7 +330,7 @@ cita uma parada inexistente vira `background-image: none`.
 
 ### Estado (hover, foco, selecao)
 
-- **Abas e controles segmentados**: trilho rebaixado (`bg-muted` + `border-border`);
+- **Abas e controles segmentados**: trilho no nivel 0 (`bg-background` + `border-border`);
   a opcao ativa se destaca (aba em `primary` solido, segmento em `secondary`).
 
 - **Hover de linha de tabela de dados**: `hover:bg-muted` — sutil, porque muda a cada
@@ -412,10 +408,10 @@ e procure o seletor no `out.css`.
 - [ ] Usa um unico scroll principal em workspaces de analise.
 - [ ] Usa tokens semanticos de cor e radius aprovado.
 - [ ] Altura de controles via prop `size`, nunca `h-*` em className.
-- [ ] Todo fundo estrutural sai da escada (`background`/`muted`/`card`/
-      `surface-2`/`surface-3`), nunca de `bg-<token>-<N>`.
-- [ ] Nenhum plano vizinho com a mesma cor sem borda: regiao de leitura dentro de
-      cartao/modal em `bg-background`, grupo de acao em `bg-surface-2` + borda.
+- [ ] Todo fundo estrutural sai dos cinco niveis (`background`/`card`/`surface-2`/
+      `input`/`border`), nunca de `bg-<token>-<N>`.
+- [ ] Escada de superficies: onde se age sobe um nivel, onde se le desce um, e
+      nenhum plano vizinho fica no mesmo nivel sem borda.
 - [ ] Hover de superficie usa `hover:bg-accent`; selecao usa
       `bg-primary-10` + `border-primary-30`.
 - [ ] Micro-texto usa `text-2xs`, nunca `text-[10px]`/`text-[11px]`.

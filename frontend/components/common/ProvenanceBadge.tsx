@@ -12,7 +12,7 @@ interface ProvenanceBadgeProps {
 }
 
 /** Mesmo vocabulário visual dos badges "Agrupado"/"Individual" do header do modal. */
-const BADGE_CLASS = "rounded bg-muted px-2 py-0.5 text-xs text-muted-foreground";
+const BADGE_CLASS = "rounded bg-surface-2 px-2 py-0.5 text-xs text-muted-foreground";
 
 /**
  * Badge de procedência (pack / conta de anúncio) para o header do modal de detalhes.

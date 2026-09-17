@@ -48,12 +48,12 @@ interface TabsListProps {
   className?: string;
 }
 
-// Trilho REBAIXADO (bg-muted, sem sombra): o padrao de mercado para abas. O trilho elevado
+// Trilho REBAIXADO (nivel 0, bg-background, sem sombra): o padrao de mercado para abas. O trilho elevado
 // anterior (bg-card + sombra) virava moldura dentro de moldura quando as abas ficam num
 // dialogo, que tambem e bg-card. A aba ativa (primary solido) aparece sobre qualquer trilho.
 export function TabsList({ children, className }: TabsListProps) {
   return (
-    <div className={cn("flex w-fit max-w-full items-center gap-1 overflow-x-auto rounded-lg border border-border bg-muted p-1", className)} role="tablist">
+    <div className={cn("flex w-fit max-w-full items-center gap-1 overflow-x-auto rounded-lg border border-border bg-background p-1", className)} role="tablist">
       {children}
     </div>
   );

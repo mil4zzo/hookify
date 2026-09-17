@@ -659,7 +659,7 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
     }
   }, [transcriptionData, transcriptionPending, adName]);
 
-  const statusDotClass = groupByAdName ? (activeVariations > 0 ? "bg-success" : "bg-muted") : isAdActive ? "bg-success" : "bg-muted";
+  const statusDotClass = groupByAdName ? (activeVariations > 0 ? "bg-success" : "bg-border") : isAdActive ? "bg-success" : "bg-border";
   const detailsTabContentGapClassName = "gap-4 md:gap-8";
 
   // Procedência: de qual conta e de qual pack vieram os dados deste anúncio. No modal aparece
@@ -694,7 +694,7 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
             )}
           </div>
           <div className="mt-1 flex flex-wrap items-center gap-1">
-            <span className="text-xs px-2 py-0.5 rounded bg-muted text-muted-foreground">{groupByAdName ? "Agrupado" : "Individual"}</span>
+            <span className="text-xs px-2 py-0.5 rounded bg-surface-2 text-muted-foreground">{groupByAdName ? "Agrupado" : "Individual"}</span>
             <ProvenanceBadge names={packNames} noun="Pack" pluralNoun="Packs" />
             <ProvenanceBadge names={accountNames} noun="Conta" pluralNoun="Ad Accounts" />
           </div>
@@ -797,7 +797,7 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
                     disabled={isImageAd}
                     headerAction={isImageAd ? undefined : (
                       <TooltipProvider>
-                        <div className="flex rounded-lg border border-border bg-muted" role="group" aria-label="Modo de visualização da retenção">
+                        <div className="flex rounded-lg border border-border bg-background" role="group" aria-label="Modo de visualização da retenção">
                           <Tooltip>
                             <TooltipTrigger asChild>
                               <Button variant={retentionViewMode === "chart" ? "secondary" : "ghost"} size="sm" onClick={() => setRetentionViewMode("chart")} className="h-8 px-2.5 rounded-md" aria-label="Visualização do gráfico de retenção" aria-pressed={retentionViewMode === "chart"}>
@@ -861,7 +861,7 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
                     <div className="flex items-center gap-2">
                       {transcriptionData?.timestamped_text && resolvedRetentionSeries.length > 0 && (
                         <TooltipProvider>
-                          <div className="flex rounded-lg border border-border bg-muted" role="group" aria-label="Modo de visualização da transcrição">
+                          <div className="flex rounded-lg border border-border bg-background" role="group" aria-label="Modo de visualização da transcrição">
                             <Tooltip>
                               <TooltipTrigger asChild>
                                 <Button variant={transcriptionViewMode === "plain" ? "secondary" : "ghost"} size="sm" onClick={() => setTranscriptionViewMode("plain")} className="h-8 px-2.5 rounded-md" aria-label="Texto simples" aria-pressed={transcriptionViewMode === "plain"}>

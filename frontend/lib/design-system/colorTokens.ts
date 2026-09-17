@@ -72,6 +72,11 @@ export const colorTokenDefinitions: ColorTokenDef[] = [
   { name: "ring-foreground", value: "var(--ring-foreground)", category: "Componentes" },
 
   // === SUPERFÍCIES ===
+  { name: "level-0", value: "var(--level-0)", category: "Superfícies" },
+  { name: "level-1", value: "var(--level-1)", category: "Superfícies" },
+  { name: "level-2", value: "var(--level-2)", category: "Superfícies" },
+  { name: "level-3", value: "var(--level-3)", category: "Superfícies" },
+  { name: "level-4", value: "var(--level-4)", category: "Superfícies" },
   { name: "surface", value: "var(--surface)", category: "Superfícies" },
   { name: "surface-fill", value: "var(--surface-fill)", category: "Superfícies" },
   { name: "surface-2", value: "var(--surface-2)", category: "Superfícies" },

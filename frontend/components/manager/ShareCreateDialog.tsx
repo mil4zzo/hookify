@@ -183,7 +183,7 @@ export function ShareCreateDialog({ isOpen, onClose, rows, dateStart, dateStop, 
                       "rounded-full border px-2.5 py-1 text-xs transition-colors",
                       isSelected
                         ? "border-primary bg-primary text-primary-foreground"
-                        : "border-border bg-card text-muted-foreground hover:text-foreground",
+                        : "border-border bg-surface-2 text-muted-foreground hover:bg-accent hover:text-foreground",
                     )}
                   >
                     {option.label}

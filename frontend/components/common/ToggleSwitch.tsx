@@ -9,7 +9,7 @@ import { ReactNode } from "react";
 const containerVariants = cva("flex items-center gap-2", {
   variants: {
     variant: {
-      default: "px-4 py-2 bg-muted border border-border rounded-md",
+      default: "px-4 py-2 bg-surface-2 border border-border rounded-md",
       minimal: "p-0 bg-transparent border-0",
     },
     size: {
