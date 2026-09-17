@@ -5035,6 +5035,11 @@ plano da página (`bg-background`); grupo de ação pequeno usa `surface-2` com 
 ou de borda + espaço. Detalhe em `authenticated-app-visual-standard.md` →
 "Alternância de planos", com item no checklist.
 
-**Para o ajuste final de tokens:** a alternância contorna o problema; a correção de
-raiz é abrir os degraus acima do cartão no escuro (e separar `muted` de `surface-2`
-no claro, onde quase coincidem).
+**Correção de raiz, no mesmo dia.** A alternância ainda deixou o critério subjetivo
+(transcrição funda demais, membros quase da cor do modal). A escada foi refeita com
+cinco níveis igualmente espaçados — escuro 0,209 · 0,289 · 0,369 · 0,449 · 0,529, claro
+1 · 0,967 · 0,930 · 0,895 · 0,780 — em tokens `level-0..4`, e a regra virou mecânica:
+agir sobe um nível, ler desce um, vizinhos nunca no mesmo nível sem borda. `muted`
+passou a ser o nível 1, então todo `bg-muted` sobre cartão foi revisto (trilho de abas
+foi para o nível 0; separador e ponto de status para `bg-border`; chips para o nível 2).
+A temperatura do cinza passou a morar em dois tokens (`neutral-chroma`, `neutral-hue`).
