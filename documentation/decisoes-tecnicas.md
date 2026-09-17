@@ -5014,3 +5014,27 @@ trabalho "tela a tela".
 As decisões anteriores sobre o `/plano` registradas neste arquivo (redesign v2,
 alavancas, comparação do dia) continuam válidas como referência para uma eventual
 migração das funcionalidades, não como tela a evoluir.
+
+---
+
+## A interface achatou ao repintar — planos precisam alternar (2026-09-16)
+
+Na F3 do design system, a escada de superfícies foi aplicada pelo nome dos tokens:
+poço = `muted`, grupo = `surface-2`, linhas herdando o painel. Em duas rodadas o
+idealizador apontou o mesmo defeito: seções da mesma cor, sem diferenciação (opções
+que pareciam desabilitadas, lista de membros chapada, e o modal de variações do
+Manager com cabeçalho, barra e tabela num cinza só).
+
+**A causa é numérica.** No tema escuro, `muted` (0,313) e `surface-2` (0,398) ficam
+a 0,035 e 0,050 de luminosidade do `card` (0,348). O olho não separa planos tão
+próximos. A única distância realmente perceptível é cartão ↔ página (0,139).
+
+**A regra.** Dentro de cartão ou modal os planos alternam: região de leitura volta ao
+plano da página (`bg-background`); grupo de ação pequeno usa `surface-2` com borda;
+`muted` não é fundo de região. Dois planos vizinhos precisam de ~0,08 de diferença
+ou de borda + espaço. Detalhe em `authenticated-app-visual-standard.md` →
+"Alternância de planos", com item no checklist.
+
+**Para o ajuste final de tokens:** a alternância contorna o problema; a correção de
+raiz é abrir os degraus acima do cartão no escuro (e separar `muted` de `surface-2`
+no claro, onde quase coincidem).
