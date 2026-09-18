@@ -3216,6 +3216,67 @@ def acquire_pack_refresh_lock(
     return acquired
 
 
+def apply_pack_window_edit(
+    user_jwt: Optional[str],
+    pack_id: str,
+    user_id: Optional[str],
+    *,
+    date_start: str,
+    date_stop: str,
+    slice_until: Optional[str],
+    auto_refresh_off: bool,
+    sb_client: Optional["Client"] = None,
+) -> None:
+    """Conclusão de uma edição de período: troca as datas do pack e libera a trava.
+
+    Só é chamada depois de a coleta chegar COMPLETA e o dado estar gravado — é o
+    último passo do job, de propósito: se algo falhar antes, o pack continua com
+    o período antigo e íntegro. `last_refreshed_at` nunca retrocede: uma fatia
+    para trás termina no passado, e gravá-la como âncora faria a próxima
+    atualização incremental reler meses. `updated_at` anda — é o que gira a chave
+    do grafo de conflito e dos caches do Manager.
+    """
+    if not user_id or not pack_id:
+        return
+    sb = _get_sb(user_jwt, sb_client)
+
+    current_anchor: Optional[str] = None
+    try:
+        pres = with_postgrest_retry(
+            f"apply_pack_window_edit_read[{pack_id}]",
+            lambda: sb.table("packs").select("last_refreshed_at").eq("id", pack_id).eq("user_id", user_id).limit(1).execute(),
+        )
+        if pres.data:
+            current_anchor = str(pres.data[0].get("last_refreshed_at") or "")[:10] or None
+    except Exception as e:
+        logger.warning(f"[WINDOW_EDIT] Não li last_refreshed_at do pack {pack_id}; usando a fatia: {e}")
+
+    candidates = [d for d in (current_anchor, (slice_until or "")[:10] or None) if d]
+    last_refreshed_at = max(candidates) if candidates else date_stop
+
+    update_data: Dict[str, Any] = {
+        "date_start": date_start,
+        "date_stop": date_stop,
+        "last_refreshed_at": last_refreshed_at,
+        "refresh_status": "success",
+        "refresh_lock_until": None,
+        "refresh_actor_id": None,
+        "updated_at": _now_iso(),
+    }
+    if auto_refresh_off:
+        update_data["auto_refresh"] = False
+
+    with_postgrest_retry(
+        f"apply_pack_window_edit[{pack_id}]",
+        lambda: sb.table("packs").update(update_data).eq("id", pack_id).eq("user_id", user_id).execute(),
+    )
+    logger.info(
+        "[WINDOW_EDIT] ✓ Pack %s: período %s → %s (last_refreshed_at=%s%s)",
+        pack_id, date_start, date_stop, last_refreshed_at,
+        ", manter atualizado desligado" if auto_refresh_off else "",
+    )
+
+
 def update_pack_refresh_status(
     user_jwt: str,
     pack_id: str,

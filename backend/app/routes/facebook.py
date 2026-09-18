@@ -34,7 +34,7 @@ from app.services.facebook_connections_repo import (
     list_connections,
     update_connection_status
 )
-from app.services.pack_window import RefreshWindowError, plan_refresh_window
+from app.services.pack_window import WINDOW_EDIT, RefreshWindowError, plan_refresh_window
 from app.services.gk_retry import (
     MAX_ATTEMPTS,
     exhausted_message,
@@ -4484,11 +4484,25 @@ def refresh_pack(
         # Inclui o recuo pela janela de atribuição (143) e o fim limitado ao
         # date_stop de pack fechado (0.1 do plano de edição de período).
         refresh_type = request.refresh_type
+        # Editar o período redefine o que o pack É — mesma classe que renomear e
+        # excluir: só o dono. Editor calibra (julgamento, toggle); não redefine.
+        if refresh_type == WINDOW_EDIT and access.role != "dono":
+            raise HTTPException(status_code=403, detail="Só o dono do pack pode editar o período.")
         try:
-            window = plan_refresh_window(pack, refresh_type, request.until_date)
+            window = plan_refresh_window(
+                pack, refresh_type, request.until_date,
+                date_start=request.date_start, date_stop=request.date_stop,
+            )
         except RefreshWindowError as e:
             raise HTTPException(status_code=400, detail=str(e))
         since_str, until_str, lookback_days = window.since, window.until, window.lookback_days
+        # Etapa 1 da edição de período: só AMPLIAR. Reduzir apaga dado e chega na
+        # Etapa 2 (documentation/plano-edicao-periodo-pack.md).
+        if window.window_edit is not None and window.window_edit.reduces:
+            raise HTTPException(
+                status_code=400,
+                detail="Reduzir o período ainda não está disponível. Por enquanto, para reduzir, recrie o pack.",
+            )
 
         logger.info(
             f"[REFRESH_PACK] Pack {pack_id} - Tipo: {refresh_type} - Range: {since_str} até {until_str} "
@@ -4573,6 +4587,9 @@ def refresh_pack(
             "refresh_type": refresh_type,
             # Recuo aplicado (dias) — observabilidade do efeito da migration 143.
             "lookback_days": lookback_days,
+            # Edição de período: o que o FIM do job aplica no pack (datas novas),
+            # só com a coleta completa. Ausente em refresh comum.
+            **({"window_edit": window.window_edit.as_payload()} if window.window_edit else {}),
             # Auditoria (decisao travada: registrar o ATOR em toda escrita).
             # silo_user_id e redundante com jobs.user_id, mas explicita a intencao.
             "actor_id": str(user["user_id"]),
@@ -4663,7 +4680,7 @@ def refresh_pack(
         # e que o dado do pack mudou e por quem. As recusas daqui (409 de refresh
         # ja em curso, 403 de token do dono) nao mudaram nada e virariam ruido.
         pack_action_log.log_pack_action(
-            action=pack_action_log.ACTION_PACK_REFRESH,
+            action=pack_action_log.ACTION_PACK_DATE_RANGE if window.window_edit else pack_action_log.ACTION_PACK_REFRESH,
             actor_id=str(user["user_id"]),
             actor_role=access.role,
             owner_id=str(owner_id),
@@ -4677,6 +4694,13 @@ def refresh_pack(
                 "since": since_str,
                 "until": until_str,
                 "sheet_sync": bool(sync_job_id or server_chain),
+                **(
+                    {
+                        "from": {"date_start": pack.get("date_start"), "date_stop": pack.get("date_stop")},
+                        "to": {"date_start": window.window_edit.new_start, "date_stop": window.window_edit.new_stop},
+                    }
+                    if window.window_edit else {}
+                ),
             },
         )
 

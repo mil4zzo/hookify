@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { StandardCard } from "@/components/common/StandardCard";
 import { PackCard } from "@/components/packs/PackCard";
 import { PackJudgmentDialog } from "@/components/packs/PackJudgmentDialog";
+import { PackDateRangeDialog } from "@/components/packs/PackDateRangeDialog";
 import { TranscriptionStatusDialog } from "@/components/packs/TranscriptionStatusDialog";
 import { Input } from "@/components/ui/input";
 import { SearchInputWithClear } from "@/components/common/SearchInputWithClear";
@@ -207,6 +208,7 @@ export default function PacksPage() {
   const [isLoadingRemovePreview, setIsLoadingRemovePreview] = useState(false);
   const [isRemovingIntegration, setIsRemovingIntegration] = useState(false);
   const [judgmentPack, setJudgmentPack] = useState<AdsPack | null>(null);
+  const [dateRangePack, setDateRangePack] = useState<AdsPack | null>(null);
 
   // Função auxiliar para obter "hoje - 2 dias" no formato YYYY-MM-DD
   const getTwoDaysAgoLocal = (): string => {
@@ -886,7 +888,7 @@ export default function PacksPage() {
                       />
                     </div>
                   )}
-                <PackCard pack={pack} adAccountName={adAccountNameById.get(pack.adaccount_id)} formatCurrency={formatCurrency} formatDate={formatDate} onRefresh={handleRefreshPack} onRemove={handleRemovePack} onToggleAutoRefresh={handleToggleAutoRefresh} onSetSheetIntegration={setSheetIntegrationPack} onEditSheetIntegration={handleEditSheetIntegration} onDeleteSheetIntegration={handleDeleteSheetIntegration} onEditJudgment={setJudgmentPack} onTranscribeAds={(packId, packName) => setTranscriptionDialogPack({ id: packId, name: packName })} isSelected={isPackSelected(pack.id)} isUpdating={isPackUpdating(pack.id) || isPackRefreshingOnServer(pack)} updatingByName={isPackRefreshingOnServer(pack) ? pack.refresh_actor_name : null} isTogglingAutoRefresh={isTogglingAutoRefresh} packToDisableAutoRefresh={packToDisableAutoRefresh} />
+                <PackCard pack={pack} adAccountName={adAccountNameById.get(pack.adaccount_id)} formatCurrency={formatCurrency} formatDate={formatDate} onRefresh={handleRefreshPack} onRemove={handleRemovePack} onToggleAutoRefresh={handleToggleAutoRefresh} onSetSheetIntegration={setSheetIntegrationPack} onEditSheetIntegration={handleEditSheetIntegration} onDeleteSheetIntegration={handleDeleteSheetIntegration} onEditJudgment={setJudgmentPack} onEditDateRange={setDateRangePack} onTranscribeAds={(packId, packName) => setTranscriptionDialogPack({ id: packId, name: packName })} isSelected={isPackSelected(pack.id)} isUpdating={isPackUpdating(pack.id) || isPackRefreshingOnServer(pack)} updatingByName={isPackRefreshingOnServer(pack) ? pack.refresh_actor_name : null} isTogglingAutoRefresh={isTogglingAutoRefresh} packToDisableAutoRefresh={packToDisableAutoRefresh} />
                 </div>
               ))}
             </div>
@@ -1355,6 +1357,26 @@ export default function PacksPage() {
         open={!!judgmentPack}
         onOpenChange={(open) => {
           if (!open) setJudgmentPack(null);
+        }}
+      />
+
+      {/* Edição do período do pack (só ampliar nesta etapa) */}
+      <PackDateRangeDialog
+        pack={dateRangePack}
+        open={!!dateRangePack}
+        onOpenChange={(open) => {
+          if (!open) setDateRangePack(null);
+        }}
+        onConfirm={(pack, windowEdit) => {
+          setDateRangePack(null);
+          void refreshPack({
+            packId: pack.id,
+            packName: pack.name,
+            refreshType: "window_edit",
+            windowEdit,
+            sheetIntegrationId: pack.sheet_integration?.id,
+            toggles: { meta: true, leadscore: !!pack.sheet_integration, transcription: false },
+          });
         }}
       />
     </>

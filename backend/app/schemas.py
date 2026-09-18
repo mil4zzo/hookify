@@ -22,8 +22,13 @@ class AdsRequestFrontend(BaseModel):
 class RefreshPackRequest(BaseModel):
     # Dia lógico do usuário (YYYY-MM-DD) que deve ser usado como until do range
     until_date: str
-    # Tipo de atualização: 'since_last_refresh' (desde última atualização) ou 'full_period' (todo o período)
+    # Tipo de atualização: 'since_last_refresh' (desde última atualização),
+    # 'full_period' (todo o período) ou 'window_edit' (edição do período do pack:
+    # busca a fatia que o período novo pede e, no fim, troca as datas do pack).
     refresh_type: str = "since_last_refresh"
+    # Só em 'window_edit': o período novo do pack (YYYY-MM-DD).
+    date_start: Optional[str] = None
+    date_stop: Optional[str] = None
     # Se True, pula o sync automático de Google Sheets (frontend controla independentemente)
     skip_sheets_sync: bool = False
     # Cadeia server-side (REFRESH_SERVER_CHAIN_ENABLED): pede que o BACKEND
