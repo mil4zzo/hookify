@@ -186,14 +186,22 @@ FilterSelectButton) tem a altura definida DENTRO do componente, via variant
 
 | Variant | Token | Altura | Quando usar |
 |---|---|---|---|
-| `size="default"` | `h-control-default` | 40px | Toolbars, filtros, formularios — o padrao |
-| `size="sm"` | `h-control-compact` | 32px | Contextos densos: linhas de tabela, builders, admin |
+| `size="default"` | `h-control-default` | 40px | **Altura unica** de todo controle do app |
+| `size="sm"` | `h-control-default` | 40px | Mesma altura, respiro horizontal menor (`px-3`). Nao encolhe mais |
 | `size="xs"` (SelectTrigger) | `h-control-chip` | 24px | Chip seletor de uma palavra (conector E/OU do construtor). Nao e campo de formulario |
 | `size="lg"` (Button) | `h-control-large` | 48px | CTAs de marketing/waitlist |
 | `size="icon"` (Button) | `control-default` quadrado | 40x40 | Botao so-icone |
 
+**Uma altura so (desde 2026-09-17).** O app tinha 40px e 32px, e a escolha entre
+os dois era feita no olho, tela a tela: a mesma barra aparecia com alturas
+diferentes em telas diferentes. Agora todo controle mede 40px; `size="sm"` so
+reduz o respiro lateral. Duas excecoes deliberadas, porque nao sao controles de
+formulario: o chip seletor de uma palavra (`h-control-chip`, 24px) e a aba
+(`h-control-compact`, 32px), que somada ao padding do trilho fecha exatamente os
+40px do resto da barra.
+
 Barras de ferramentas (busca + filtros + acoes em lote) alinham tudo em
-`h-control-default`; itens internos compactos usam `size="sm"` ou `h-auto`.
+`h-control-default`; itens internos que devem colapsar usam `h-auto`.
 
 ### Por que existe (twMerge)
 

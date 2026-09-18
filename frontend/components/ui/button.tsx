@@ -18,7 +18,7 @@ const buttonVariants = cva("inline-flex items-center justify-center gap-2 whites
     },
     size: {
       default: "h-control-default py-2 px-4",
-      sm: "h-control-compact py-2 px-3",
+      sm: "h-control-default py-2 px-3",
       lg: "h-control-large py-2 px-8",
       icon: "h-control-default w-control-default",
     },

@@ -9,7 +9,7 @@ const inputVariants = cva(
     variants: {
       size: {
         default: "h-control-default py-2",
-        sm: "h-control-compact py-1",
+        sm: "h-control-default py-1",
       },
     },
     defaultVariants: {

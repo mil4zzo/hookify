@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { IconArrowsSort, IconFilter } from "@tabler/icons-react";
 import type { RankingsChildrenItem } from "@/lib/api/schemas";
 import type { ManagerColumnType } from "@/components/common/ManagerColumnFilter";
@@ -8,6 +8,7 @@ import { StatePanel } from "@/components/common/States";
 import { SearchInputWithClear } from "@/components/common/SearchInputWithClear";
 import { ThumbnailImage } from "@/components/common/ThumbnailImage";
 import { Checkbox } from "@/components/ui/checkbox";
+import { cn } from "@/lib/utils/cn";
 import { BulkActionsBar } from "@/components/common/BulkActionsBar";
 import { buildManagerBulkActions } from "@/components/manager/managerBulkActions";
 import { useMultiSelect } from "@/lib/hooks/useMultiSelect";
@@ -144,6 +145,10 @@ interface ManagerChildrenTableProps {
   packIds?: string[];
 }
 
+/** Identificacao congelada: selecao, status e nome ficam parados enquanto as metricas passam. */
+const PINNED_CELL = "sticky z-10";
+const PINNED_SHADOW = "shadow-[10px_0_10px_-6px_oklch(0_0_0/0.85)]";
+
 export function ManagerChildrenTable({
   childrenData,
   isLoading = false,
@@ -170,6 +175,18 @@ export function ManagerChildrenTable({
     direction: "desc",
   });
   const [searchTerm, setSearchTerm] = useState("");
+
+  // Sombra da identificacao congelada: so aparece quando ha coluna escondida atras dela.
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const [isScrolledX, setIsScrolledX] = useState(false);
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const sync = () => setIsScrolledX(el.scrollLeft > 2);
+    sync();
+    el.addEventListener("scroll", sync, { passive: true });
+    return () => el.removeEventListener("scroll", sync);
+  }, []);
 
   const bulk = useBulkEntityStatusControl(config.bulkEntityType, packIds);
 
@@ -434,11 +451,11 @@ export function ManagerChildrenTable({
           </div>
         </div>
       ) : (
-        <div className={asContent ? "min-h-0 flex-1 overflow-auto" : "overflow-x-auto"}>
+        <div ref={scrollRef} className={asContent ? "min-h-0 flex-1 overflow-auto" : "overflow-x-auto"}>
           <table className="w-full border-collapse text-xs">
             <thead className={asContent ? "sticky top-0 z-sticky" : undefined}>
               <tr className="bg-card">
-                <th className="w-10 px-2 py-4 text-center">
+                <th className={cn("w-10 px-2 py-3 text-center", PINNED_CELL, "left-0 bg-card")}>
                   <div className="flex items-center justify-center">
                     <Checkbox
                       checked={allSelected ? true : someSelected ? "indeterminate" : false}
@@ -448,14 +465,14 @@ export function ManagerChildrenTable({
                     />
                   </div>
                 </th>
-                <th className={`w-20 cursor-pointer select-none p-4 text-center hover:text-primary ${sortConfig.column === "status" ? "text-primary" : ""}`} onClick={() => handleSort("status")}>
+                <th className={cn("w-20 cursor-pointer select-none px-3 py-3 text-center text-2xs font-medium uppercase tracking-wide hover:text-primary", PINNED_CELL, "left-10 bg-card", sortConfig.column === "status" && "text-primary")} onClick={() => handleSort("status")}>
                   <div className="flex items-center justify-center gap-1">
                     Status
                     {filteredColumnIds.has("status") && filterIndicator}
                     <IconArrowsSort className="h-3 w-3" />
                   </div>
                 </th>
-                <th className={`cursor-pointer select-none p-4 text-left hover:text-primary ${sortConfig.column === config.nameSortKey ? "text-primary" : ""}`} onClick={() => handleSort(config.nameSortKey)}>
+                <th className={cn("min-w-[15rem] cursor-pointer select-none px-3 py-3 text-left text-2xs font-medium uppercase tracking-wide hover:text-primary", PINNED_CELL, "left-[5.5rem] bg-card border-r border-border", isScrolledX && PINNED_SHADOW, sortConfig.column === config.nameSortKey && "text-primary")} onClick={() => handleSort(config.nameSortKey)}>
                   <div className="flex items-center gap-1">
                     {config.nameHeader}
                     {isNameColumnFiltered && filterIndicator}
@@ -477,10 +494,10 @@ export function ManagerChildrenTable({
               {sortedData.map((child) => (
                 <tr
                   key={config.rowKey(child)}
-                  className={`bg-background border-b border-border hover:bg-muted ${onRowClick ? "cursor-pointer" : ""}`}
+                  className={`group bg-background border-b border-surface-3 hover:bg-muted ${onRowClick ? "cursor-pointer" : ""}`}
                   onClick={onRowClick ? () => onRowClick(child as RankingsChildrenItem) : undefined}
                 >
-                  <td className="px-2 py-3 text-center" onClick={(e) => e.stopPropagation()}>
+                  <td className={cn("px-2 py-3 text-center", PINNED_CELL, "left-0 bg-background group-hover:bg-muted")} onClick={(e) => e.stopPropagation()}>
                     {config.selectionId(child) && !isTerminalEntityStatus((child as any)?.effective_status) ? (
                       <div className="flex items-center justify-center">
                         <Checkbox
@@ -493,10 +510,10 @@ export function ManagerChildrenTable({
                       </div>
                     ) : null}
                   </td>
-                  <td className="px-4 py-3 text-center" onClick={(e) => e.stopPropagation()}>
+                  <td className={cn("px-3 py-3 text-center", PINNED_CELL, "left-10 bg-background group-hover:bg-muted")} onClick={(e) => e.stopPropagation()}>
                     <StatusCell original={child} currentTab={config.statusTab} packIds={packIds} />
                   </td>
-                  <td className="px-4 py-3 text-left">
+                  <td className={cn("px-3 py-3 text-left", PINNED_CELL, "left-[5.5rem] bg-background group-hover:bg-muted border-r border-border", isScrolledX && PINNED_SHADOW)}>
                     {config.richNameCell ? (
                       <div className="flex items-center gap-2">
                         <ThumbnailImage src={getAdThumbnail(child)} alt="thumb" size="sm" />

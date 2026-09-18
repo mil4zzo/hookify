@@ -19,7 +19,7 @@ const selectTriggerVariants = cva(
     variants: {
       size: {
         default: "h-control-default py-2",
-        sm: "h-control-compact py-1",
+        sm: "h-control-default py-1",
         // Chip: conector lógico (E/OU) do construtor de regras e afins. Não é um campo de
         // formulário — é um seletor de uma palavra que precisa pesar menos que os campos.
         xs: "h-control-chip py-0 px-2 text-xs [&>svg]:h-3 [&>svg]:w-3",

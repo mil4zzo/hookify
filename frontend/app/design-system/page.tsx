@@ -401,7 +401,7 @@ export default function DesignSystemPage() {
             <WidgetPanel title="Input" density="compact">
               <div className="space-y-2">
                 <Input placeholder="Default (h-control-default)" />
-                <Input size="sm" placeholder='size="sm" (h-control-compact)' />
+                <Input size="sm" placeholder='size="sm" (40px, px-3)' />
                 <Input disabled placeholder="Desabilitado" />
               </div>
             </WidgetPanel>
@@ -419,7 +419,7 @@ export default function DesignSystemPage() {
                 </Select>
                 <Select>
                   <SelectTrigger size="sm">
-                    <SelectValue placeholder='size="sm" (h-control-compact)' />
+                    <SelectValue placeholder='size="sm" (40px, px-3)' />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="a">Opção A</SelectItem>
@@ -432,7 +432,7 @@ export default function DesignSystemPage() {
             <WidgetPanel title="Combobox" description="select com busca" density="compact">
               <div className="space-y-2">
                 <Combobox value={comboboxValue} onValueChange={setComboboxValue} options={COMBOBOX_DEMO_OPTIONS} placeholder="Default (h-control-default)" />
-                <Combobox size="sm" value={comboboxValue} onValueChange={setComboboxValue} options={COMBOBOX_DEMO_OPTIONS} placeholder='size="sm" (h-control-compact)' />
+                <Combobox size="sm" value={comboboxValue} onValueChange={setComboboxValue} options={COMBOBOX_DEMO_OPTIONS} placeholder='size="sm" (40px, px-3)' />
               </div>
             </WidgetPanel>
 

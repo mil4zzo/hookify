@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useRef, useState, useEffect, useCallback, useMemo } from "react";
+import { cn } from "@/lib/utils/cn";
 import { flexRender } from "@tanstack/react-table";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { StatePanel } from "@/components/common/States";
@@ -52,15 +53,17 @@ const VARIANT_STYLES = {
     overscan: 10, // Linhas menores — mais overscan
     container: "flex-1 min-h-0 overflow-auto overscroll-contain border-x border-border rounded-t-lg",
     table: "w-full text-xs border-collapse",
-    thead: "sticky top-0 z-10 bg-card border-b border-border",
+    thead: "sticky top-0 z-20 bg-card border-b border-border",
     headerRow: "",
-    th: (headerAlign: string) => `text-xs font-medium py-1.5 px-2 ${headerAlign} relative border-r border-border last:border-r-0 first:rounded-tl-lg last:rounded-tr-lg`,
+    // Rotulo de cabecalho: maiusculas pequenas. A grade vertical inteira saiu — restam o
+    // filete fraco entre linhas e UMA divisoria, depois da identificacao congelada.
+    th: (headerAlign: string) => `text-2xs font-medium uppercase tracking-wide text-muted-foreground py-2 px-2 ${headerAlign} relative first:rounded-tl-lg last:rounded-tr-lg`,
     thWidthStyle: true,
     sortGap: "gap-0.5",
     resizeHandle: "w-1",
-    skeletonRow: "border-b border-border",
-    row: (isResizing: boolean) => `border-b border-border transition-colors ${isResizing ? "cursor-col-resize" : "hover:bg-muted cursor-pointer"}`,
-    cell: (cellAlign: string, _isFirst: boolean, _isLast: boolean, padless = false) => `${padless ? "relative p-0" : "py-1.5 px-2"} ${cellAlign} border-r border-border last:border-r-0`,
+    skeletonRow: "border-b border-surface-3",
+    row: (isResizing: boolean) => `group transition-colors ${isResizing ? "cursor-col-resize" : "hover:bg-muted cursor-pointer"}`,
+    cell: (cellAlign: string, _isFirst: boolean, _isLast: boolean, padless = false) => `${padless ? "relative p-0" : "py-1.5 px-2"} ${cellAlign} border-b border-surface-3`,
     emptyTd: "p-2",
     skeletonThumb: "w-8 h-8",
     skeletonName: <Skeleton className="h-3 w-24" />,
@@ -158,9 +161,51 @@ function areTableContentPropsEqual(prev: TableContentProps, next: TableContentPr
   return true;
 }
 
+/** Colunas que ficam congeladas na variante compacta: a identificacao do anuncio. */
+const PINNED_COLUMN_IDS = new Set(["select", "ad_name"]);
+
 export const TableContent = React.memo(function TableContent({ table, isLoadingEffective, isError, currentTab, setSelectedAd, sorting, rowSelection, pinSelectionToTop = false, onVisibleRowKeysChange, onOpenDrill, globalFilter, variant = "detailed" }: TableContentProps) {
   const tableContainerRef = useRef<HTMLDivElement>(null);
   const styles = VARIANT_STYLES[variant];
+
+  // IDENTIFICACAO CONGELADA (so na variante compacta): as metricas passam POR TRAS do
+  // nome, entao nunca se perde de qual anuncio a linha fala. A divisoria explica o corte
+  // com a tabela parada; a sombra so aparece quando ha coluna escondida atras.
+  const [isScrolledX, setIsScrolledX] = useState(false);
+  useEffect(() => {
+    const el = tableContainerRef.current;
+    if (!el || variant !== "minimal") return;
+    const sync = () => setIsScrolledX(el.scrollLeft > 2);
+    sync();
+    el.addEventListener("scroll", sync, { passive: true });
+    return () => el.removeEventListener("scroll", sync);
+  }, [variant]);
+
+  const pinnedOffsets = useMemo(() => {
+    if (variant !== "minimal") return null;
+    const offsets = new Map<string, { left: number; isLastPinned: boolean }>();
+    let left = 0;
+    const pinned = table.getVisibleLeafColumns().filter((column) => PINNED_COLUMN_IDS.has(column.id));
+    pinned.forEach((column, index) => {
+      offsets.set(column.id, { left, isLastPinned: index === pinned.length - 1 });
+      left += column.getSize();
+    });
+    return offsets;
+  }, [variant, table.getState().columnSizing, table.getState().columnVisibility]);
+
+  const pinnedCellProps = (columnId: string, isHeader: boolean) => {
+    const pin = pinnedOffsets?.get(columnId);
+    if (!pin) return {};
+    return {
+      className: cn(
+        "sticky z-10",
+        isHeader ? "bg-card" : "bg-background group-hover:bg-muted",
+        pin.isLastPinned && "border-r border-border",
+        pin.isLastPinned && isScrolledX && "shadow-[10px_0_10px_-6px_oklch(0_0_0/0.85)]",
+      ),
+      style: { left: pin.left },
+    };
+  };
 
   // OTIMIZAÇÃO CRÍTICA: Memoizar rows para evitar processar 873 linhas durante resize
   // rows só deve ser recalculado quando dados, filtros ou sorting mudarem
@@ -321,7 +366,11 @@ export const TableContent = React.memo(function TableContent({ table, isLoadingE
                   const headerAlign = header.column.id === "ad_name" ? "text-left" : "text-center";
                   const justify = header.column.id === "ad_name" ? "justify-start" : "justify-center";
                   return (
-                    <th key={header.id} className={styles.th(headerAlign)} style={styles.thWidthStyle ? { width: header.getSize() } : undefined}>
+                    <th
+                      key={header.id}
+                      className={cn(styles.th(headerAlign), pinnedCellProps(header.column.id, true).className)}
+                      style={{ ...(styles.thWidthStyle ? { width: header.getSize() } : {}), ...pinnedCellProps(header.column.id, true).style }}
+                    >
                       {header.isPlaceholder ? null : (
                         <div
                           className={`flex items-center ${justify} ${styles.sortGap} ${header.column.getCanSort() && !isResizing ? "cursor-pointer select-none hover:text-primary" : ""} ${header.column.getIsSorted() ? "text-primary" : ""}`}
@@ -394,7 +443,11 @@ export const TableContent = React.memo(function TableContent({ table, isLoadingE
                       content = <Skeleton className={styles.skeletonValue} />;
                     }
                     return (
-                      <td key={column.id} className={styles.cell(cellAlign, isFirst, isLast)}>
+                      <td
+                        key={column.id}
+                        className={cn(styles.cell(cellAlign, isFirst, isLast), pinnedCellProps(column.id, false).className)}
+                        style={pinnedCellProps(column.id, false).style}
+                      >
                         {content}
                       </td>
                     );
@@ -427,7 +480,11 @@ export const TableContent = React.memo(function TableContent({ table, isLoadingE
                       // `absolute inset-0` que ocupa a célula inteira (ver managerTableColumns).
                       const isSelectCell = cell.column.id === "select";
                       return (
-                        <td key={cell.id} className={styles.cell(cellAlign, isFirst, isLast, isSelectCell)}>
+                        <td
+                          key={cell.id}
+                          className={cn(styles.cell(cellAlign, isFirst, isLast, isSelectCell), pinnedCellProps(cell.column.id, false).className)}
+                          style={pinnedCellProps(cell.column.id, false).style}
+                        >
                           {flexRender(cell.column.columnDef.cell, cell.getContext())}
                         </td>
                       );
