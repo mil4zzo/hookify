@@ -448,10 +448,10 @@ export function ManagerChildrenTable({
       ) : (
         <div className="relative min-h-0 flex-1">
         {/* Divisoria da identificacao: um elemento so (ver TableContent para o porque). */}
-        <div
-          aria-hidden
-          className={cn("pointer-events-none absolute inset-y-0 left-[5.5rem] z-sticky w-px bg-border", isScrolledX && "shadow-[8px_0_10px_-3px_oklch(0_0_0/0.85)]")}
-        />
+        <div aria-hidden className="pointer-events-none absolute inset-y-0 left-[5.5rem] z-sticky flex">
+          <div className="w-px bg-border" />
+          <div className={cn("w-3 bg-gradient-to-r from-black/45 to-transparent transition-opacity duration-150", isScrolledX ? "opacity-100" : "opacity-0")} />
+        </div>
         <div onScroll={handleTableScroll} className={asContent ? "h-full min-h-0 overflow-auto" : "overflow-x-auto"}>
           <table className="w-full border-collapse text-xs">
             <thead className={asContent ? "sticky top-0 z-sticky" : undefined}>

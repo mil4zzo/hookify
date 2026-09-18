@@ -770,9 +770,12 @@ export default function Topbar() {
   return (
     <>
       <ServerStatusBanner />
-      <header className="z-sticky w-full border-b border-border bg-background-90 backdrop-blur supports-[backdrop-filter]:bg-background-60">
+      {/* ALTURA DO CABECALHO: 64px TOTAL, com a borda por dentro (`h-16` + `border-b` na
+          MESMA caixa). O cabecalho do menu lateral usa a mesma receita — se um dos dois
+          puser a borda fora da altura, as duas divisorias saem 1px deslocadas. */}
+      <header className="z-sticky h-16 w-full border-b border-border bg-background-90 backdrop-blur supports-[backdrop-filter]:bg-background-60">
         {/* Layout unificado: um único container evita duplicar renderProfileMenu (que causava 2 popups) */}
-        <div className={cn("container mx-auto grid grid-cols-[1fr_auto_1fr] h-16 items-center", APP_PAGE_SHELL_X)}>
+        <div className={cn("container mx-auto grid h-full grid-cols-[1fr_auto_1fr] items-center", APP_PAGE_SHELL_X)}>
           {/* Left: Título (desktop) ou Logo (mobile; sempre no onboarding) */}
           <div className="flex min-w-0 items-center gap-3">
             {!isOnboardingRoute && (

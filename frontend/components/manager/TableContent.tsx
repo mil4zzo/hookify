@@ -353,14 +353,12 @@ export const TableContent = React.memo(function TableContent({ table, isLoadingE
           borda nem sombra em celula `sticky`, e as linhas de preenchimento da
           virtualizacao deixavam buracos. Assim a linha e continua e custa um nó. */}
       {variant === "minimal" && pinnedWidth > 0 && (
-        <div
-          aria-hidden
-          className={cn(
-            "pointer-events-none absolute inset-y-0 z-sticky w-px bg-border",
-            isScrolledX && "shadow-[8px_0_10px_-3px_oklch(0_0_0/0.85)]",
-          )}
-          style={{ left: pinnedWidth }}
-        />
+        <div aria-hidden className="pointer-events-none absolute inset-y-0 z-sticky flex" style={{ left: pinnedWidth }}>
+          <div className="w-px bg-border" />
+          {/* A profundidade e uma FAIXA de degrade, nao box-shadow: numa linha de 1px o
+              recuo negativo da sombra a colapsa, e ela nunca chega a ser pintada. */}
+          <div className={cn("w-3 bg-gradient-to-r from-black/45 to-transparent transition-opacity duration-150", isScrolledX ? "opacity-100" : "opacity-0")} />
+        </div>
       )}
       <div ref={tableContainerRef} className={styles.container} onScroll={variant === "minimal" ? handleContainerScroll : undefined}>
         <table className={styles.table} style={{ tableLayout: "fixed" }}>

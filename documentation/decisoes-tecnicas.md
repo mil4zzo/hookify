@@ -5128,3 +5128,23 @@ wrapper da tabela, ancorado na largura das colunas congeladas — e a célula co
 Na mesma revisão: o fio de luz de 1px no topo do botão, quando aplicado a um controle que
 JÁ tem borda, lê como borda superior grossa — por isso o gatilho de campo (`control-lit`)
 usa só o degradê, e o fio fica para quem não tem borda.
+
+---
+
+## Sombra que nunca foi pintada, e o cabeçalho de 1px (2026-09-18)
+
+Dois defeitos de renderização achados medindo, não olhando:
+
+- **`box-shadow` com recuo negativo num elemento de 1px não existe.** A divisória da
+  coluna congelada tinha `8px 0 10px -3px`: o recuo de 3px encolhe a sombra além da
+  largura do elemento, e o navegador não pinta nada. Na maquete funcionava porque lá a
+  sombra estava numa célula larga. Agora a profundidade é uma faixa de degradê de 12px
+  ao lado da linha — não depende de aritmética de spread.
+- **Onde a borda entra na altura decide 1px.** A topbar tinha `h-16` no conteúdo e a
+  borda por fora (65px no total); o cabeçalho do menu lateral tinha `h-16` com a borda
+  por dentro (64px). As duas divisórias ficavam desalinhadas por 1px. Agora as duas usam
+  a mesma receita: 64px totais, borda incluída.
+
+E a medição de contraste no navegador exige pintar a cor num canvas e ler o pixel: o
+`getComputedStyle` devolve `oklch(...)` literal, e calcular em cima disso dá número sem
+sentido (o primeiro cálculo deu 14:1 para um verde que tem 2:1).
