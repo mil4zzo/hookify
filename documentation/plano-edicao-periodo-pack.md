@@ -324,7 +324,52 @@ armadilhas na decisão da 145).
 | Stats após recorte | `calculate_pack_stats_essential` | Bate com soma direta do que sobrou (diferencial) |
 | Manager após recorte | `fetch_manager_performance_base_v155` com o pack recortado | Totais = soma de `ad_metrics` restante; nenhum dia removido aparece |
 
-Registrar os números neste arquivo (seção 9) antes do deploy.
+### RESULTADOS (2026-09-18) — todos os critérios passaram
+
+Laboratório **reconstruído do dump do dia** antes de medir: o que estava na máquina
+era anterior à 156 (688 mil linhas, 82% delas linhas-zero já apagadas em produção,
+mapa de 202 MB contra 54 MB, sem as funções 157–162). Medir ali teria medido outro
+banco — a armadilha que a 145 já registrou. Depois: 172.510 linhas nas três
+tabelas, 47 packs, idêntico a produção. `jit=off` pela conexão, sessão nova por
+medição, `VACUUM (ANALYZE)` entre estados, cada `DELETE` numa transação própria.
+
+| Medição | Resultado | Critério |
+|---|---|---|
+| Prévia (`pack_trim_preview`) | **29–51 ms** (1ª chamada 51, mornas 29–46) | < 500 ms ✅ |
+| Apagamento dia a dia | **mediana 20–142 ms, maior 292 ms**; 16 dias/4.303 linhas em 401 ms; 10 dias/6.205 linhas em 1,7 s | < 2 s por requisição ✅ — **redução continua síncrona**, não vira job |
+| Clamp do inventário | **207 ms** (771 ajustados, 197 removidos) | < 2 s ✅ |
+| Stats / cascata | spend restante **bate ao centavo**; **0** órfãos em rollup, mapa e inventário; outros packs do dono intactos; restauração exata (rollup reconstruído pelo gatilho de INSERT) | diferencial ✅ |
+| Manager (`fetch_manager_rankings_v162`) | antes **R$ 551.367,21 / 242 linhas** = `ad_metrics`; depois **R$ 423.119,12 / 143 linhas** = restante | totais batem ✅ |
+
+**O risco que motivou a medição não se materializa.** A degradação de 08/09
+(apagar 922 linhas levou `detect_pack_conflicts` de 1,1 s a 10,3 s) **não
+reproduz**, medida pela ESTRUTURA — que é o que atravessa para produção, porque
+tempo de parede no laptop não atravessa (o mesmo grafo que produção mede em
+1,3–2,4 s levou 16–26 s aqui, variando 10→37 s entre repetições no mesmo estado):
+
+| Estado do mapa | Idas à tabela (`Heap Fetches`) | Blocos | Páginas visíveis |
+|---|---|---|---|
+| antes | 0 | 1.961 | 99,9% |
+| logo após apagar (6.208 tuplas mortas) | **0** | 1.961 | 99,9% |
+| após `VACUUM` do mapa | 0 | 1.961 | 100% |
+
+Motivo: a 156 deixou a tabela 4× menor e a **163/165 puseram o autovacuum em 2%** —
+o conserto daquele incidente já está no ar. Com 6,2 mil tuplas mortas contra um
+gatilho de ~3,5 mil, o autovacuum ainda passa sozinho logo depois.
+**Conclusão: a rota NÃO roda `VACUUM`** — e ainda bem: `VACUUM (ANALYZE)` das três
+tabelas levou **109 s** (só do mapa, 842 ms). Um passo desses numa requisição seria
+pior que o problema que resolveria.
+
+**O clamp do inventário deixou de ser teoria.** Recortando sem ele, o Manager
+mostrou **146 linhas** onde só restavam **143 anúncios**: três "ativos sem entrega"
+vindos de intervalos que ainda cruzavam o período (o merge só estende). Com
+`pack_clamp_inventory`, exatamente 143. O gasto estava certo nos dois casos — o
+vazamento é de PRESENÇA, não de número, e por isso passaria despercebido.
+
+**Ressalva de escala:** o maior pack de produção hoje tem 17.438 linhas em 34 dias,
+então "recortar 60 dias" não existe: os recortes medidos foram de 16 e 10 dias
+(4.303 e 6.205 linhas). Um pack várias vezes maior precisa de nova medição antes de
+assumir que a redução continua síncrona.
 
 ### 2.7 Deploy
 
@@ -363,5 +408,5 @@ Preencher conforme os passos fecham: data, o que subiu, medições, surpresas.
 | 0.2 | 2026-09-17 | Migration `166_trava_de_atualizacao_do_pack.sql` (`pack_acquire_refresh_lock`, compare-and-set, SECURITY DEFINER, EXECUTE só para service_role). Aplicada no laboratório; `supabase/tests/166_trava_de_refresh.test.sql` = 12 asserções; sabotagem (sem o compare) falha em B1. Backend: `supabase_repo.acquire_pack_refresh_lock`; `refresh_pack` adquire ANTES de abrir o relatório e devolve 409 com o job ativo (helper `_find_active_refresh_job`) — a decisão deixou de depender de `REFRESH_SERVER_CHAIN_ENABLED`. Testes do guard reescritos (3); sabotagem na rota (ignorar o resultado) derruba 2. Suíte: 864 verdes. **DEPLOY: a 166 tem de estar em produção ANTES do backend** — sem a função, toda atualização cai em 500. |
 | 0.3 | 2026-09-17 | Laboratório já no dia: 42 packs, 688 mil linhas, 141/154/155/165 presentes (`reloptions` do mapa em 0.02). Nada a refazer. |
 | 1.1–1.6 | 2026-09-18 | **Desenho**: em vez de rota nova, `refresh_type = "window_edit"` na própria rota de refresh (herda trava, job, GK retry, cadeia da planilha, 409, log); `RefreshPackRequest` ganhou `date_start`/`date_stop`. **Peça**: `pack_window.plan_window_edit` (+ `WindowEditPlan.as_payload`), espelho `lib/utils/packWindow.ts`. **Fim do job**: `JobProcessor._finish_pack_refresh` → `supabase_repo.apply_pack_window_edit` (datas novas, âncora nunca retrocede, `auto_refresh_off`, `updated_at`); coleta vazia deixou de deixar o pack `running` (refresh comum libera sem mexer em data; edição aplica as datas — período sem entrega é válido). **Frontend**: `PackDateRangeDialog` (mostra a fatia e a janela), item "Editar período" no card (só dono), `usePackRefresh` leva `windowEdit` até o `refreshPack` e atualiza AS DUAS datas + `last_refreshed_at` no store; `useServerHealth` passou a carregar `last_refreshed_at`/atribuição; feed traduz `pack.date_range`. **Testes**: `test_pack_window_edit.py` (18), `test_window_edit_persist.py` (7), `test_refresh_window_edit_route.py` (8), `packWindow.test.ts` (9). Sabotagens: `n−1`→`n+1` (emenda), `1−n`→`−n` (fim), sem `max(new_start)`, sem o `dono`, sem o `reduces`, sem o ramo `window_edit` no job, `max(candidates)`→`slice_until` — todas derrubam o teste que deveriam. Suítes: backend 897 verdes, `tsc` limpo, design-system ok. **Pendente (manual, precisa da Meta)**: checklist 1.4 na conta disjunta. |
-| 2.6 medições | | |
+| 2.6 medições | 2026-09-18 | Laboratório reconstruído do dump do dia (o anterior era pré-156: 688 mil linhas × 172 mil, sem as funções 157–162). Migration 167 escrita e aplicada no lab (`pack_trim_preview`, `pack_clamp_inventory`). **Todos os critérios passaram** — números na seção 6.6. Três achados: (a) a degradação do grafo de conflito de 08/09 **não reproduz** (idas à tabela = 0 nos três estados; a 163/165 já consertaram), então a rota **não** roda VACUUM — que levaria 109 s; (b) o clamp do inventário é **necessário e suficiente**, provado pelo Manager (146 linhas sem ele, 143 com); (c) tempo de parede no lab não transfere (grafo: 16–26 s aqui, 1,3–2,4 s em produção) — as conclusões se apoiam em estrutura. Laboratório devolvido ao estado original (172.510 linhas) após cada rodada. |
 | 2.1–2.7 | | |
