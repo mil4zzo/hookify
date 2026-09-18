@@ -5148,3 +5148,17 @@ Dois defeitos de renderização achados medindo, não olhando:
 E a medição de contraste no navegador exige pintar a cor num canvas e ler o pixel: o
 `getComputedStyle` devolve `oklch(...)` literal, e calcular em cima disso dá número sem
 sentido (o primeiro cálculo deu 14:1 para um verde que tem 2:1).
+
+---
+
+## As duas receitas de barra de rolagem não convivem (2026-09-18)
+
+As setas da barra de rolagem não saíam com `::-webkit-scrollbar-button { display: none }`.
+Medido no Chromium: **quando o elemento declara as propriedades padrão
+(`scrollbar-width`/`scrollbar-color`), o navegador ignora todo o estilo
+`::-webkit-scrollbar` dele** e desenha a barra do sistema — que no Windows vem com setas.
+O app declarava as duas receitas no mesmo seletor `*`, então a de webkit nunca valia.
+
+Correção: as propriedades padrão ficam dentro de
+`@supports not selector(::-webkit-scrollbar)`, ou seja, só no Firefox; Chromium, Edge,
+Opera e Safari usam os pseudo-elementos. Não é limitação do navegador do usuário.

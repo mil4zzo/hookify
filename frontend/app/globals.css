@@ -296,11 +296,17 @@ html body[data-scroll-locked] {
   outline-offset: 2px;
 }
 
-/* Estilização global de scrollbars para todo o app */
-* {
-  /* Firefox */
-  scrollbar-width: thin;
-  scrollbar-color: color-mix(in oklab, var(--muted-foreground) 40%, transparent) transparent;
+/* Estilização global de scrollbars para todo o app.
+   MEDIDO (Chromium/Opera, 2026-09-18): quando um elemento declara as propriedades
+   PADRAO (`scrollbar-width`/`scrollbar-color`), o Chromium IGNORA todo o estilo
+   `::-webkit-scrollbar` dele e desenha a barra do sistema — que no Windows vem com as
+   setas de rolagem. As duas receitas nao convivem. Por isso as propriedades padrao
+   ficam so onde os pseudo-elementos nao existem (Firefox). */
+@supports not selector(::-webkit-scrollbar) {
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in oklab, var(--muted-foreground) 40%, transparent) transparent;
+  }
 }
 
 *::-webkit-scrollbar {
