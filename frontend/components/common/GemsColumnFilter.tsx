@@ -38,7 +38,7 @@ export function GemsColumnFilter({ activeColumns, onToggleColumn, className }: G
         selectedIds={activeColumns}
         onSelect={(id) => onToggleColumn(id as GemsColumnType)}
         trigger={
-          <Button variant="outline" role="combobox" className="w-full justify-between">
+          <Button variant="picker" role="combobox" className="w-full justify-between">
             <span className="truncate">{buttonText}</span>
             <IconChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
           </Button>

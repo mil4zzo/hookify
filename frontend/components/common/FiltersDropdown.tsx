@@ -163,7 +163,7 @@ export function FiltersDropdown({ dateRange, onDateRangeChange, actionType, onAc
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <Button variant="outline" className="w-full sm:w-auto">
+        <Button variant="picker" className="w-full sm:w-auto">
           <IconFilter className="h-4 w-4" />
           <span>Filtros</span>
           {activeFiltersCount > 0 && <span className="ml-1 rounded-full bg-primary text-primary-foreground text-xs px-2 py-0.5">{activeFiltersCount}</span>}

@@ -1117,7 +1117,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
           {/* Exibição: agrupa toggles de exibição e exportação (ações esporádicas) */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="outline" className="gap-2" aria-label="Opções de exibição">
+              <Button variant="picker" className="gap-2" aria-label="Opções de exibição">
                 <IconAdjustmentsHorizontal className="h-4 w-4" />
                 <span className="hidden text-sm sm:inline">Exibição</span>
                 <IconChevronDown className="h-4 w-4 opacity-60" />

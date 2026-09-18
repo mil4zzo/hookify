@@ -132,7 +132,7 @@ export const FilterBar = React.memo(function FilterBar({
         )}
         <Popover open={isPopoverOpen} onOpenChange={setIsPopoverOpen}>
           <PopoverTrigger asChild>
-            <Button variant="outline">
+            <Button variant="picker">
               <IconFilter className="h-4 w-4" />
               <span>Filtros</span>
               {conditionCount > 0 && <span className="ml-1 rounded-full bg-primary text-primary-foreground text-xs px-2 py-0.5">{conditionCount}</span>}

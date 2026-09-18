@@ -12,6 +12,9 @@ const buttonVariants = cva("inline-flex items-center justify-center gap-2 whites
       destructive: "btn-lit btn-lit-destructive text-white",
       destructiveOutline: "border border-destructive-40 text-destructive bg-transparent hover:border-destructive hover:bg-destructive-10 has-[>svg]:px-3",
       outline: "btn-tonal text-foreground has-[>svg]:px-3",
+      // GATILHO (abre lista/painel para escolher ou filtrar): borda como a do campo e a
+      // luz do degrade, SEM sombra. Botao executa acao e tem sombra; gatilho guarda valor.
+      picker: "control-lit border border-surface-3 bg-input text-foreground hover:border-border data-[state=open]:border-primary has-[>svg]:px-3",
       secondary: "btn-tonal text-foreground has-[>svg]:px-3",
       ghost: "hover:bg-accent hover:text-accent-foreground",
       link: "text-primary underline-offset-4 hover:underline",

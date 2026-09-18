@@ -62,7 +62,9 @@ const VARIANT_STYLES = {
     sortGap: "gap-0.5",
     resizeHandle: "w-1",
     skeletonRow: "border-b border-surface-3",
-    row: (isResizing: boolean) => `group transition-colors ${isResizing ? "cursor-col-resize" : "hover:bg-muted cursor-pointer"}`,
+    // A linha e dona do fundo (inclusive no hover) e a celula congelada herda com
+    // `bg-inherit`: os dois nunca saem de sincronia, e nao ha classe de hover duplicada.
+    row: (isResizing: boolean) => `bg-background transition-colors ${isResizing ? "cursor-col-resize" : "hover:bg-muted cursor-pointer"}`,
     cell: (cellAlign: string, _isFirst: boolean, _isLast: boolean, padless = false) => `${padless ? "relative p-0" : "py-1.5 px-2"} ${cellAlign} border-b border-surface-3`,
     emptyTd: "p-2",
     skeletonThumb: "w-8 h-8",
@@ -181,30 +183,24 @@ export const TableContent = React.memo(function TableContent({ table, isLoadingE
     return () => el.removeEventListener("scroll", sync);
   }, [variant]);
 
-  const pinnedOffsets = useMemo(() => {
-    if (variant !== "minimal") return null;
-    const offsets = new Map<string, { left: number; isLastPinned: boolean }>();
+  const { pinnedOffsets, pinnedWidth } = useMemo(() => {
+    if (variant !== "minimal") return { pinnedOffsets: null, pinnedWidth: 0 };
+    const offsets = new Map<string, { left: number }>();
     let left = 0;
-    const pinned = table.getVisibleLeafColumns().filter((column) => PINNED_COLUMN_IDS.has(column.id));
-    pinned.forEach((column, index) => {
-      offsets.set(column.id, { left, isLastPinned: index === pinned.length - 1 });
+    for (const column of table.getVisibleLeafColumns()) {
+      if (!PINNED_COLUMN_IDS.has(column.id)) continue;
+      offsets.set(column.id, { left });
       left += column.getSize();
-    });
-    return offsets;
+    }
+    return { pinnedOffsets: offsets, pinnedWidth: left };
   }, [variant, table.getState().columnSizing, table.getState().columnVisibility]);
 
   const pinnedCellProps = (columnId: string, isHeader: boolean) => {
     const pin = pinnedOffsets?.get(columnId);
     if (!pin) return {};
     return {
-      className: cn(
-        "sticky z-10",
-        isHeader ? "bg-card" : "bg-background group-hover:bg-muted",
-        pin.isLastPinned && "pinned-divider",
-      ),
+      className: cn("sticky z-10", isHeader ? "bg-card" : "bg-inherit"),
       style: { left: pin.left },
-      // A sombra so entra quando ha coluna escondida atras (ver `.pinned-divider` em globals).
-      "data-scrolled": pin.isLastPinned && isScrolledX ? "true" : undefined,
     };
   };
 
@@ -353,6 +349,20 @@ export const TableContent = React.memo(function TableContent({ table, isLoadingE
       )}
       {/* Linha vertical que acompanha o mouse durante resize */}
       {isResizing && resizePosition !== null && <div className="fixed top-0 bottom-0 w-[2px] bg-primary z-overlay pointer-events-none" style={{ left: `${resizePosition}px` }} />}
+      {/* DIVISORIA DA IDENTIFICACAO: um elemento so, ancorado na largura das colunas
+          congeladas. Por celula ela falhava — com `border-collapse` o Chrome nao pinta
+          borda nem sombra em celula `sticky`, e as linhas de preenchimento da
+          virtualizacao deixavam buracos. Assim a linha e continua e custa um nó. */}
+      {variant === "minimal" && pinnedWidth > 0 && (
+        <div
+          aria-hidden
+          className={cn(
+            "pointer-events-none absolute inset-y-0 z-sticky w-px bg-border",
+            isScrolledX && "shadow-[8px_0_10px_-3px_oklch(0_0_0/0.85)]",
+          )}
+          style={{ left: pinnedWidth }}
+        />
+      )}
       <div ref={tableContainerRef} className={styles.container}>
         <table className={styles.table} style={{ tableLayout: "fixed" }}>
           <colgroup>

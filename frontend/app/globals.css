@@ -51,7 +51,8 @@
    Mesma luz do botao secundario, mas SEM o fio de 1px no topo: o gatilho tem borda
    propria, e o fio somado a ela lia como uma borda superior grossa. Aqui a luz vem so
    do degrade — o topo do degrade e o proprio fio. Campo de TEXTO nao entra: nele se
-   escreve, entao continua chapado. */
+   escreve, entao continua chapado. Sem sombra de contato: sombra e do BOTAO, que executa
+   uma acao; o gatilho so guarda um valor, e a borda ja o separa do fundo. */
 .control-lit {
   background-image: linear-gradient(
     180deg,
@@ -59,29 +60,9 @@
     oklch(1 0 0 / 0) 55%,
     oklch(0 0 0 / 0.06)
   );
-  box-shadow: 0 1px 1.5px oklch(0 0 0 / 0.22);
   transition: background-color 0.15s ease, border-color 0.15s ease;
 }
-.control-lit:disabled { background-image: none; box-shadow: none; }
-
-/* DIVISORIA DA COLUNA CONGELADA — desenhada como pseudo-elemento, nao como borda.
-   Medido: com `border-collapse: collapse` o Chrome NAO pinta borda nem sombra em celula
-   fixa (some no primeiro scroll); com `separate`, a borda aparece nas linhas mas nao no
-   cabecalho. O pseudo-elemento funciona nos dois e cobre cabecalho e corpo. */
-.pinned-divider { position: sticky; }
-.pinned-divider::after {
-  content: "";
-  position: absolute;
-  top: 0;
-  right: 0;
-  bottom: -1px;
-  width: 1px;
-  background: var(--border);
-  pointer-events: none;
-}
-.pinned-divider[data-scrolled="true"]::after {
-  box-shadow: 8px 0 10px -3px oklch(0 0 0 / 0.85);
-}
+.control-lit:disabled { background-image: none; }
 
 /* ESTADO PRESSIONADO — a contraparte de `btn-lit`: mesma cor, luz invertida.
    Clicavel tem relevo (a luz cai de cima); o que JA foi acionado afunda (a luz do topo

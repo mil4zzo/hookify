@@ -320,11 +320,16 @@ dentro de um painel) carrega a informacao mais importante; precisa ser o element
 definido da tela, com superficie propria e borda solida. Borda tracejada le como
 placeholder ou area de drop — nao use para agrupar conteudo real.
 
-**Coluna congelada: a divisoria e um pseudo-elemento, nunca uma borda.** Medido no
-Chrome: com `border-collapse: collapse` a borda e a sombra de uma celula `sticky` NAO
-sao pintadas (somem no primeiro scroll); com `separate`, a borda aparece nas linhas mas
-nao no cabecalho. A classe `.pinned-divider` desenha a linha em `::after` e mostra a
-sombra so com `data-scrolled="true"`.
+**Coluna congelada: a divisoria e UM elemento sobre a tabela, nunca uma borda de
+celula.** Medido no Chrome: com `border-collapse: collapse` a borda e a sombra de uma
+celula `sticky` NAO sao pintadas (somem no primeiro scroll); e por celula as linhas de
+preenchimento da virtualizacao deixam buracos. A divisoria e um `<div>` absoluto no
+wrapper, ancorado na largura das colunas congeladas, com a sombra so quando ha coluna
+escondida atras.
+
+**Quem pinta o fundo da linha e a LINHA.** A celula congelada usa `bg-inherit`, entao
+herda o fundo da linha, inclusive no hover. Dar um hover proprio a celula (`group-hover`)
+dessincroniza: a identificacao acende numa linha e o resto do corpo em outra.
 
 **`bg-border` como fundo so em bloco SEM texto.** Como fundo de texto, nao: sob
 `muted-foreground` o contraste cai para ~2,4:1. Caixa com texto dentro de dialogo e
@@ -412,10 +417,12 @@ inversa, e as duas vivem em `globals.css`:
   (`oklch(from var(--foreground) l c h / .10)`). Por ser transparencia, mantem o
   contraste em qualquer nivel da escada; um cinza fixo sumiria quando o fundo se
   aproxima. Terciario (`ghost`) nao tem luz nenhuma: so preenche no hover.
-- `control-lit` — **gatilho de campo** (seletor, combobox, botao de filtro, seletor de
-  periodo): a mesma luz, mas SEM o fio de 1px no topo, porque o gatilho ja tem borda —
-  fio somado a borda lia como uma borda superior grossa. Campo de TEXTO fica de fora: a
-  diferenca util e que no campo se escreve e no gatilho se aciona.
+- `control-lit` (e a variant `picker` do Button) — **gatilho**: tudo que abre uma lista
+  ou painel para escolher/filtrar. Borda como a do campo e a luz do degrade, **sem fio no
+  topo e sem sombra**: o fio somado a borda lia como borda grossa, e sombra e do botao,
+  que executa uma acao — o gatilho so guarda um valor. Vale para seletor, combobox, botao
+  de filtro, seletor de colunas, de exibicao e de periodo. Campo de TEXTO fica de fora:
+  nele se escreve, no gatilho se aciona.
 - `state-pressed` — **acionado**: a mesma cor com a luz invertida (a do topo vira
   sombra interna curta). Vale para aba ativa, item de menu da pagina atual, dia
   escolhido no calendario e opcao selecionada. **Nunca para hover**, que e

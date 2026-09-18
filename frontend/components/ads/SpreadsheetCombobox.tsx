@@ -145,7 +145,7 @@ export function SpreadsheetCombobox({ value, valueLabel, onValueChange, onValueL
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <Button variant="outline" role="combobox" aria-expanded={open} disabled={disabled} className={cn("h-control-default w-full items-center justify-between control-lit rounded-md border border-surface-3 bg-input hover:border-border focus:border-primary px-3 py-2 text-sm placeholder:text-muted-foreground focus-inset focus:outline-none disabled:cursor-not-allowed disabled:opacity-50 [&>span]:line-clamp-1", className)}>
+        <Button variant="picker" role="combobox" aria-expanded={open} disabled={disabled} className={cn("h-control-default w-full items-center justify-between rounded-md px-3 py-2 text-sm placeholder:text-muted-foreground focus-inset focus:outline-none disabled:cursor-not-allowed disabled:opacity-50 [&>span]:line-clamp-1", className)}>
           <span className="truncate text-left">{displayLabel}</span>
           <IconChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
         </Button>

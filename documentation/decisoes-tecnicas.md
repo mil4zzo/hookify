@@ -5119,9 +5119,11 @@ o CSS real:
 A divisória da coluna congelada aparecia parada e sumia no primeiro scroll. Medido com
 as quatro combinações renderizadas lado a lado: no Chrome, uma célula `position: sticky`
 dentro de `border-collapse: collapse` **não pinta borda nem box-shadow**; com `separate`,
-a borda aparece nas linhas mas não no cabeçalho. A solução é desenhar a divisória como
-pseudo-elemento dentro da célula (`.pinned-divider::after`), que funciona nos dois modos
-e cobre cabeçalho e corpo.
+a borda aparece nas linhas mas não no cabeçalho. A primeira correção (pseudo-elemento por célula) ainda
+falhava nas linhas de preenchimento da virtualização e obrigava cada célula a ter hover
+próprio, o que dessincronizava a linha. A solução final é um elemento só, absoluto no
+wrapper da tabela, ancorado na largura das colunas congeladas — e a célula congelada usa
+`bg-inherit`, herdando o fundo da linha (hover incluído).
 
 Na mesma revisão: o fio de luz de 1px no topo do botão, quando aplicado a um controle que
 JÁ tem borda, lê como borda superior grossa — por isso o gatilho de campo (`control-lit`)

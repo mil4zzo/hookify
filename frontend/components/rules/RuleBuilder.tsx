@@ -162,7 +162,7 @@ function TagValueEditor({
       ))}
       <Popover>
         <PopoverTrigger asChild>
-          <Button type="button" variant="outline" size="sm" disabled={disabled || available.length === 0}>
+          <Button type="button" variant="picker" size="sm" disabled={disabled || available.length === 0}>
             <IconPlus className="mr-1 h-3.5 w-3.5" />
             Tag
           </Button>
@@ -211,7 +211,7 @@ function MultiSelectValueEditor({
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <Button type="button" variant="outline" size="sm" className="min-w-0 max-w-full justify-start" disabled={disabled}>
+        <Button type="button" variant="picker" size="sm" className="min-w-0 max-w-full justify-start" disabled={disabled}>
           <span className="truncate">
             {selectedIds.length === 0
               ? "Selecionar..."
@@ -288,7 +288,7 @@ function DateValueEditor({
       <PopoverTrigger asChild>
         <Button
           type="button"
-          variant="outline"
+          variant="picker"
           size="sm"
           className={cn("w-full min-w-0 justify-between font-normal", !selected && "text-muted-foreground")}
           disabled={disabled}

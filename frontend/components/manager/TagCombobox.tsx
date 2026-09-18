@@ -129,7 +129,7 @@ export function TagCombobox({
       <PopoverTrigger asChild>
         <Button
           type="button"
-          variant="outline"
+          variant="picker"
           size="sm"
           disabled={disabled}
           role="combobox"

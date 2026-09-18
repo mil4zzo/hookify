@@ -451,7 +451,13 @@ export function ManagerChildrenTable({
           </div>
         </div>
       ) : (
-        <div ref={scrollRef} className={asContent ? "min-h-0 flex-1 overflow-auto" : "overflow-x-auto"}>
+        <div className="relative min-h-0 flex-1">
+        {/* Divisoria da identificacao: um elemento so (ver TableContent para o porque). */}
+        <div
+          aria-hidden
+          className={cn("pointer-events-none absolute inset-y-0 left-[5.5rem] z-sticky w-px bg-border", isScrolledX && "shadow-[8px_0_10px_-3px_oklch(0_0_0/0.85)]")}
+        />
+        <div ref={scrollRef} className={asContent ? "h-full min-h-0 overflow-auto" : "overflow-x-auto"}>
           <table className="w-full border-collapse text-xs">
             <thead className={asContent ? "sticky top-0 z-sticky" : undefined}>
               <tr className="bg-card">
@@ -472,7 +478,7 @@ export function ManagerChildrenTable({
                     <IconArrowsSort className="h-3 w-3" />
                   </div>
                 </th>
-                <th className={cn("min-w-[15rem] cursor-pointer select-none px-3 py-3 text-left text-2xs font-medium uppercase tracking-wide hover:text-primary", PINNED_CELL, "left-[5.5rem] bg-card pinned-divider", sortConfig.column === config.nameSortKey && "text-primary")} data-scrolled={isScrolledX ? "true" : undefined} onClick={() => handleSort(config.nameSortKey)}>
+                <th className={cn("min-w-[15rem] cursor-pointer select-none px-3 py-3 text-left text-2xs font-medium uppercase tracking-wide hover:text-primary", PINNED_CELL, "left-[5.5rem] bg-card", sortConfig.column === config.nameSortKey && "text-primary")} onClick={() => handleSort(config.nameSortKey)}>
                   <div className="flex items-center gap-1">
                     {config.nameHeader}
                     {isNameColumnFiltered && filterIndicator}
@@ -494,10 +500,10 @@ export function ManagerChildrenTable({
               {sortedData.map((child) => (
                 <tr
                   key={config.rowKey(child)}
-                  className={`group bg-background border-b border-surface-3 hover:bg-muted ${onRowClick ? "cursor-pointer" : ""}`}
+                  className={`bg-background border-b border-surface-3 hover:bg-muted ${onRowClick ? "cursor-pointer" : ""}`}
                   onClick={onRowClick ? () => onRowClick(child as RankingsChildrenItem) : undefined}
                 >
-                  <td className={cn("px-2 py-3 text-center", PINNED_CELL, "left-0 bg-background group-hover:bg-muted")} onClick={(e) => e.stopPropagation()}>
+                  <td className={cn("px-2 py-3 text-center", PINNED_CELL, "left-0 bg-inherit")} onClick={(e) => e.stopPropagation()}>
                     {config.selectionId(child) && !isTerminalEntityStatus((child as any)?.effective_status) ? (
                       <div className="flex items-center justify-center">
                         <Checkbox
@@ -510,10 +516,10 @@ export function ManagerChildrenTable({
                       </div>
                     ) : null}
                   </td>
-                  <td className={cn("px-3 py-3 text-center", PINNED_CELL, "left-10 bg-background group-hover:bg-muted")} onClick={(e) => e.stopPropagation()}>
+                  <td className={cn("px-3 py-3 text-center", PINNED_CELL, "left-10 bg-inherit")} onClick={(e) => e.stopPropagation()}>
                     <StatusCell original={child} currentTab={config.statusTab} packIds={packIds} />
                   </td>
-                  <td className={cn("px-3 py-3 text-left", PINNED_CELL, "left-[5.5rem] bg-background group-hover:bg-muted pinned-divider")} data-scrolled={isScrolledX ? "true" : undefined}>
+                  <td className={cn("px-3 py-3 text-left", PINNED_CELL, "left-[5.5rem] bg-inherit")}>
                     {config.richNameCell ? (
                       <div className="flex items-center gap-2">
                         <ThumbnailImage src={getAdThumbnail(child)} alt="thumb" size="sm" />
@@ -539,6 +545,7 @@ export function ManagerChildrenTable({
               ))}
             </tbody>
           </table>
+        </div>
         </div>
       )}
 
