@@ -192,6 +192,10 @@ FilterSelectButton) tem a altura definida DENTRO do componente, via variant
 | `size="lg"` (Button) | `h-control-large` | 48px | CTAs de marketing/waitlist |
 | `size="icon"` (Button) | `control-default` quadrado | 40x40 | Botao so-icone |
 
+**Grupo de botoes na horizontal: `gap-3` (12px).** Vale para barra de acoes de pagina,
+toolbar de tabela e topbar — a mesma distancia em todas, senao cada barra parece de um
+app diferente. Dentro de UM botao, o espaco entre icone e texto e `gap-2`.
+
 **Uma altura so (desde 2026-09-17).** O app tinha 40px e 32px, e a escolha entre
 os dois era feita no olho, tela a tela: a mesma barra aparecia com alturas
 diferentes em telas diferentes. Agora todo controle mede 40px; `size="sm"` so
@@ -423,6 +427,12 @@ inversa, e as duas vivem em `globals.css`:
   que executa uma acao — o gatilho so guarda um valor. Vale para seletor, combobox, botao
   de filtro, seletor de colunas, de exibicao e de periodo. Campo de TEXTO fica de fora:
   nele se escreve, no gatilho se aciona.
+- **Preenchimento solido de botao usa o passo escuro da cor, nao o tom do texto.**
+  Medido no tema escuro: branco sobre `--success` da 2,03:1 e sobre `--destructive` da
+  2,70:1 — o minimo para texto e 4,5:1. Os botoes usam `success-800` (6,27:1) e
+  `destructive-600` (4,63:1); o azul primario, a referencia, tem 4,97:1. Os tokens
+  `--success`/`--destructive` continuam claros porque o papel deles e texto, selo,
+  sparkline e indicador, onde o brilho e o que da leitura.
 - `state-pressed` — **acionado**: a mesma cor com a luz invertida (a do topo vira
   sombra interna curta). Vale para aba ativa, item de menu da pagina atual, dia
   escolhido no calendario e opcao selecionada. **Nunca para hover**, que e

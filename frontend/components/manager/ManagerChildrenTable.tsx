@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { IconArrowsSort, IconFilter } from "@tabler/icons-react";
 import type { RankingsChildrenItem } from "@/lib/api/schemas";
 import type { ManagerColumnType } from "@/components/common/ManagerColumnFilter";
@@ -177,16 +177,11 @@ export function ManagerChildrenTable({
   const [searchTerm, setSearchTerm] = useState("");
 
   // Sombra da identificacao congelada: so aparece quando ha coluna escondida atras dela.
-  const scrollRef = useRef<HTMLDivElement>(null);
   const [isScrolledX, setIsScrolledX] = useState(false);
-  useEffect(() => {
-    const el = scrollRef.current;
-    if (!el) return;
-    const sync = () => setIsScrolledX(el.scrollLeft > 2);
-    sync();
-    el.addEventListener("scroll", sync, { passive: true });
-    return () => el.removeEventListener("scroll", sync);
-  }, []);
+  const handleTableScroll = (event: React.UIEvent<HTMLDivElement>) => {
+    const scrolled = event.currentTarget.scrollLeft > 2;
+    setIsScrolledX((previous) => (previous === scrolled ? previous : scrolled));
+  };
 
   const bulk = useBulkEntityStatusControl(config.bulkEntityType, packIds);
 
@@ -457,7 +452,7 @@ export function ManagerChildrenTable({
           aria-hidden
           className={cn("pointer-events-none absolute inset-y-0 left-[5.5rem] z-sticky w-px bg-border", isScrolledX && "shadow-[8px_0_10px_-3px_oklch(0_0_0/0.85)]")}
         />
-        <div ref={scrollRef} className={asContent ? "h-full min-h-0 overflow-auto" : "overflow-x-auto"}>
+        <div onScroll={handleTableScroll} className={asContent ? "h-full min-h-0 overflow-auto" : "overflow-x-auto"}>
           <table className="w-full border-collapse text-xs">
             <thead className={asContent ? "sticky top-0 z-sticky" : undefined}>
               <tr className="bg-card">

@@ -197,7 +197,7 @@ export function FormStepWorkspace({ header, actions, density = "default", classN
       {(header || actions) && (
         <div className={cn("flex flex-wrap items-center justify-between", flexGapClass[density])}>
           {header && <div className="min-w-0">{header}</div>}
-          {actions && <div className="flex flex-shrink-0 items-center gap-2">{actions}</div>}
+          {actions && <div className="flex flex-shrink-0 items-center gap-3">{actions}</div>}
         </div>
       )}
       {children}
@@ -233,7 +233,7 @@ export function FormPageSection({
             {title && <h2 className="text-base font-semibold text-foreground">{title}</h2>}
             {description && <div className="text-sm text-muted-foreground">{description}</div>}
           </div>
-          {actions && <div className="flex flex-shrink-0 items-center gap-2">{actions}</div>}
+          {actions && <div className="flex flex-shrink-0 items-center gap-3">{actions}</div>}
         </div>
       )}
       {children}
@@ -300,7 +300,7 @@ export function WidgetPanel({
             {title && <h2 className="text-base font-semibold text-foreground">{title}</h2>}
             {description && <div className="text-sm text-muted-foreground">{description}</div>}
           </div>
-          {actions && <div className="flex flex-shrink-0 items-center gap-2">{actions}</div>}
+          {actions && <div className="flex flex-shrink-0 items-center gap-3">{actions}</div>}
         </div>
       )}
       <div className={cn(stackGapClass[density], scrollable && "min-h-0 flex-1 overflow-y-auto")}>{children}</div>

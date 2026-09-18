@@ -114,8 +114,12 @@
   text-shadow: 0 1px 1px oklch(0 0 0 / 0.35);
   transition: filter 0.15s ease, box-shadow 0.15s ease;
 }
-.btn-lit-success { --lit: var(--success); }
-.btn-lit-destructive { --lit: var(--destructive); }
+/* O tom do TEXTO nao serve de preenchimento: medido no tema escuro, branco sobre
+   --success da 2,03:1 e sobre --destructive da 2,70:1 (o minimo e 4,5). Os tons abaixo
+   passam — success-800 6,27:1 e destructive-600 4,63:1 — e o azul primario, a referencia,
+   tem 4,97:1. Os tokens de texto/indicador continuam claros, onde brilham. */
+.btn-lit-success { --lit: var(--success-800); }
+.btn-lit-destructive { --lit: var(--destructive-600); }
 .btn-lit:hover { filter: brightness(1.07); }
 .btn-lit:active,
 .btn-lit[data-state="on"],

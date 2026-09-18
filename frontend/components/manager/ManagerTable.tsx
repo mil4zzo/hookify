@@ -1108,7 +1108,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
   const controls = useMemo(
     () => (
       <>
-        <div className="flex flex-wrap items-stretch justify-start gap-2 md:justify-end">
+        <div className="flex flex-wrap items-stretch justify-start gap-3 md:justify-end">
           {/* Colunas: controle mais usado, permanece dedicado e fora do menu */}
           <div className="w-full sm:w-[190px]">
             <ManagerColumnFilter activeColumns={activeColumns} columnOrder={columnOrder} onToggleColumn={handleToggleColumn} onReorderColumns={handleReorderColumns} isColumnDisabled={(id) => !isColumnEnabled(id)} onSelectAll={handleSelectAllColumns} onDeselectAll={handleDeselectAllColumns} />

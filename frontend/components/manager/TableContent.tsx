@@ -174,14 +174,13 @@ export const TableContent = React.memo(function TableContent({ table, isLoadingE
   // nome, entao nunca se perde de qual anuncio a linha fala. A divisoria explica o corte
   // com a tabela parada; a sombra so aparece quando ha coluna escondida atras.
   const [isScrolledX, setIsScrolledX] = useState(false);
-  useEffect(() => {
-    const el = tableContainerRef.current;
-    if (!el || variant !== "minimal") return;
-    const sync = () => setIsScrolledX(el.scrollLeft > 2);
-    sync();
-    el.addEventListener("scroll", sync, { passive: true });
-    return () => el.removeEventListener("scroll", sync);
-  }, [variant]);
+  // No proprio evento, e nao por listener em efeito: o container so existe depois do
+  // skeleton, e um efeito com deps [variant] nunca via a versao final. `setState` com
+  // funcao evita re-render a cada frame de rolagem.
+  const handleContainerScroll = useCallback((event: React.UIEvent<HTMLDivElement>) => {
+    const scrolled = event.currentTarget.scrollLeft > 2;
+    setIsScrolledX((previous) => (previous === scrolled ? previous : scrolled));
+  }, []);
 
   const { pinnedOffsets, pinnedWidth } = useMemo(() => {
     if (variant !== "minimal") return { pinnedOffsets: null, pinnedWidth: 0 };
@@ -363,7 +362,7 @@ export const TableContent = React.memo(function TableContent({ table, isLoadingE
           style={{ left: pinnedWidth }}
         />
       )}
-      <div ref={tableContainerRef} className={styles.container}>
+      <div ref={tableContainerRef} className={styles.container} onScroll={variant === "minimal" ? handleContainerScroll : undefined}>
         <table className={styles.table} style={{ tableLayout: "fixed" }}>
           <colgroup>
             {table.getVisibleLeafColumns().map((column) => (
