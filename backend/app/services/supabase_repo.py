@@ -3175,6 +3175,47 @@ def get_pack(
     return None
 
 
+def acquire_pack_refresh_lock(
+    pack_id: str,
+    owner_id: str,
+    actor_id: Optional[str],
+    *,
+    sb_client: Optional["Client"] = None,
+) -> bool:
+    """Tenta marcar o pack como 'running' — compare-and-set no banco (migration 166).
+
+    True = adquiriu (status, prazo e ator gravados numa instrução só). False = o
+    pack já está running com prazo vigente: outro membro, outra aba ou uma edição
+    de período. Nunca sobrescreve uma trava viva — é o que impede dois refreshes
+    do mesmo pack de abrirem dois relatórios e o segundo reescrever o fim do
+    primeiro. A liberação continua em `update_pack_refresh_status` (status
+    terminal) ou na varredura da 141 (prazo vencido).
+
+    Sempre pelo papel de serviço: a função é SECURITY DEFINER e só ele tem EXECUTE.
+    """
+    if not pack_id or not owner_id:
+        return False
+    sb = _get_sb(None, sb_client)
+    res = with_postgrest_retry(
+        f"acquire_pack_refresh_lock[{pack_id}]",
+        lambda: sb.rpc(
+            "pack_acquire_refresh_lock",
+            {
+                "p_owner": str(owner_id),
+                "p_pack": str(pack_id),
+                "p_actor": str(actor_id) if actor_id else None,
+                "p_ttl_minutes": REFRESH_LOCK_TTL_MINUTES,
+            },
+        ).execute(),
+    )
+    acquired = bool(res.data) if not isinstance(res.data, list) else bool(res.data and res.data[0])
+    logger.info(
+        "[REFRESH_LOCK] Pack %s: %s (ator %s)",
+        pack_id, "adquirida" if acquired else "OCUPADA", actor_id,
+    )
+    return acquired
+
+
 def update_pack_refresh_status(
     user_jwt: str,
     pack_id: str,

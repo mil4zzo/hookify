@@ -10,9 +10,11 @@
  * atribuição da conta (migration 143: `packs.attribution_window_days`), e este
  * módulo reproduz a MESMA regra para o modal mostrar as datas que vão ser pedidas.
  *
- * Regra (espelho de routes/facebook.py):
+ * Regra (espelho de services/pack_window.py):
  *   since = max(last_refreshed_at - recuo, date_start)
  *   recuo = attribution_window_days, ou 7 se o pack ainda não foi calibrado
+ *   until = hoje — mas num pack FECHADO ("manter atualizado" desligado) nunca
+ *           além de date_stop: o período de um pack fechado é decisão do usuário.
  */
 import { subDays } from "date-fns";
 import { formatDateLocal } from "./dateFilters";
@@ -26,8 +28,21 @@ export interface RefreshWindowSource {
   last_refreshed_at?: string | null;
   date_start?: string | null;
   date_stop?: string | null;
+  auto_refresh?: boolean | null;
   attribution_window_days?: number | null;
   attribution_setting?: string | null;
+}
+
+/**
+ * Data final (YYYY-MM-DD) que o backend vai pedir, dado o "hoje" do cliente.
+ * Pack aberto (auto_refresh) acompanha hoje; pack fechado para em date_stop.
+ * Sem date_stop legível, vale hoje.
+ */
+export function refreshUntil(pack: RefreshWindowSource | null | undefined, today: string): string {
+  if (pack?.auto_refresh) return today;
+  const stop = (pack?.date_stop || "").slice(0, 10);
+  if (!stop) return today;
+  return today < stop ? today : stop;
 }
 
 /** Recuo (dias) que o backend vai aplicar a este pack. */

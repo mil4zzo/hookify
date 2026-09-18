@@ -8,8 +8,9 @@ Trava o contrato:
 - JobProcessor._finalize_chained_sheet_sync: completed_ok inicia a thread;
   mark_completed recusado só cancela o sync se o PAI foi cancelado (perda de
   lease deixa o sync para o worker que assumiu).
-- refresh_pack guard 409: pack com job de refresh ativo ⇒ REFRESH_ALREADY_RUNNING
-  com job_id no detail; sem job ativo ⇒ passa do guard; flag off ⇒ nem consulta.
+- refresh_pack 409: a TRAVA do banco (migration 166) decide — ocupada ⇒
+  REFRESH_ALREADY_RUNNING com o job ativo no detail (se houver); livre ⇒ passa
+  sem consultar `jobs`. Independe de REFRESH_SERVER_CHAIN_ENABLED.
 """
 import unittest
 from unittest import mock
@@ -192,7 +193,11 @@ _PACK_ROW = {
 
 
 class TestRefreshPackGuard409(unittest.TestCase):
-    def _call_refresh(self, sb: _FakeSb, flag_on: bool, actor_id: str = "user-1", owner_id: str = "user-1"):
+    """Trava do pack (migration 166): a decisão do 409 é do compare-and-set no
+    banco (`acquire_pack_refresh_lock`), não da consulta a `jobs`. A consulta só
+    enriquece o 409 com o job ativo, para o frontend re-anexar."""
+
+    def _call_refresh(self, sb: _FakeSb, flag_on: bool, actor_id: str = "user-1", owner_id: str = "user-1", lock_acquired: bool = True):
         from app.routes.facebook import refresh_pack
         from app.schemas import RefreshPackRequest
         from app.services.pack_access import PackAccess
@@ -211,44 +216,48 @@ class TestRefreshPackGuard409(unittest.TestCase):
              mock.patch("app.routes.facebook.get_facebook_token_for_silo", return_value="tok-do-dono"), \
              mock.patch("app.routes.facebook.GraphAPI", return_value=api), \
              mock.patch("app.routes.facebook.REFRESH_SERVER_CHAIN_ENABLED", flag_on), \
+             mock.patch("app.routes.facebook.supabase_repo.acquire_pack_refresh_lock", return_value=lock_acquired), \
              mock.patch("app.routes.facebook.supabase_repo.update_pack_refresh_status"):
             return refresh_pack("pack-1", request, user)
 
-    def test_job_ativo_fresco_retorna_409(self) -> None:
+    def test_trava_ocupada_com_job_ativo_retorna_409_com_job_id(self) -> None:
         sb = _FakeSb({
             "packs": lambda: _FakeResp([dict(_PACK_ROW)]),
             "jobs": lambda: _FakeResp([{"id": "job-existente", "status": "processing", "updated_at": "x"}]),
         })
 
         with self.assertRaises(HTTPException) as ctx:
-            self._call_refresh(sb, flag_on=True)
+            self._call_refresh(sb, flag_on=True, lock_acquired=False)
 
         self.assertEqual(ctx.exception.status_code, 409)
         detail = ctx.exception.detail
         self.assertEqual(detail["code"], "REFRESH_ALREADY_RUNNING")
         self.assertEqual(detail["details"]["job_id"], "job-existente")
 
-    def test_sem_job_ativo_passa_do_guard(self) -> None:
+    def test_trava_ocupada_sem_job_retorna_409_sem_job_id(self) -> None:
+        """Trava de OUTRA operação (edição de período) ou job já sem heartbeat:
+        continua 409 — o frontend mostra a mensagem em vez de re-anexar."""
         sb = _FakeSb({
             "packs": lambda: _FakeResp([dict(_PACK_ROW)]),
             "jobs": lambda: _FakeResp([]),
         })
 
-        # Sem job ativo, a execução segue e bate no sentinela start_ads_job,
-        # que o route converte em HTTPException 500 — o importante: NÃO é 409.
         with self.assertRaises(HTTPException) as ctx:
-            self._call_refresh(sb, flag_on=True)
-        self.assertEqual(ctx.exception.status_code, 500)
-        self.assertIn("jobs", sb.tables_queried)
+            self._call_refresh(sb, flag_on=False, lock_acquired=False)
+        self.assertEqual(ctx.exception.status_code, 409)
+        self.assertIsNone(ctx.exception.detail["details"]["job_id"])
 
-    def test_flag_off_nem_consulta_jobs(self) -> None:
+    def test_trava_livre_passa_sem_consultar_jobs(self) -> None:
+        """Com a trava adquirida a execução segue até o sentinela start_ads_job
+        (500 no route) — NÃO é 409, e `jobs` nem é consultado: a decisão é da
+        trava, mesmo havendo um job com heartbeat na tabela."""
         sb = _FakeSb({
             "packs": lambda: _FakeResp([dict(_PACK_ROW)]),
             "jobs": lambda: _FakeResp([{"id": "job-existente", "status": "processing", "updated_at": "x"}]),
         })
 
         with self.assertRaises(HTTPException) as ctx:
-            self._call_refresh(sb, flag_on=False)
+            self._call_refresh(sb, flag_on=True, lock_acquired=True)
         self.assertEqual(ctx.exception.status_code, 500)
         self.assertNotIn("jobs", sb.tables_queried)
 

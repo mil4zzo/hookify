@@ -5,6 +5,7 @@ import {
   MAX_ATTRIBUTION_WINDOW_DAYS,
   attributionWindowLabel,
   lookbackDaysForPack,
+  refreshUntil,
   sinceLastRefreshStart,
 } from "../refreshWindow";
 
@@ -53,6 +54,24 @@ test("âncora com hora (ISO completo) é lida pela data", () => {
     sinceLastRefreshStart({ last_refreshed_at: "2026-09-06T03:00:00", attribution_window_days: 7 }),
     "2026-08-30",
   );
+});
+
+// Espelho de pack_window.effective_until: pack FECHADO para em date_stop; aberto
+// acompanha hoje. Sabotagem: devolver `today` sempre e ver os dois primeiros falharem.
+
+test("pack fechado: o fim pedido é o date_stop, não hoje", () => {
+  assert.equal(refreshUntil({ auto_refresh: false, date_stop: "2026-08-15" }, "2026-09-17"), "2026-08-15");
+  assert.equal(refreshUntil({ date_stop: "2026-08-15" }, "2026-09-17"), "2026-08-15");
+});
+
+test("pack fechado com date_stop no futuro do cliente: vale hoje", () => {
+  assert.equal(refreshUntil({ auto_refresh: false, date_stop: "2026-09-20" }, "2026-09-17"), "2026-09-17");
+});
+
+test("pack aberto acompanha hoje; sem date_stop legível, hoje", () => {
+  assert.equal(refreshUntil({ auto_refresh: true, date_stop: "2026-08-15" }, "2026-09-17"), "2026-09-17");
+  assert.equal(refreshUntil({ auto_refresh: false }, "2026-09-17"), "2026-09-17");
+  assert.equal(refreshUntil(null, "2026-09-17"), "2026-09-17");
 });
 
 test("rótulo da janela para a UI", () => {
