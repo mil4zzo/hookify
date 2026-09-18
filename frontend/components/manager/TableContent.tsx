@@ -169,13 +169,29 @@ function areTableContentPropsEqual(prev: TableContentProps, next: TableContentPr
 const PINNED_COLUMN_IDS = new Set(["select", "ad_name"]);
 
 export const TableContent = React.memo(function TableContent({ table, isLoadingEffective, isError, currentTab, setSelectedAd, sorting, rowSelection, pinSelectionToTop = false, onVisibleRowKeysChange, onOpenDrill, globalFilter, variant = "detailed" }: TableContentProps) {
-  const tableContainerRef = useRef<HTMLDivElement>(null);
+  const tableContainerRef = useRef<HTMLDivElement | null>(null);
+  const resizeObserverRef = useRef<ResizeObserver | null>(null);
   const styles = VARIANT_STYLES[variant];
 
   // IDENTIFICACAO CONGELADA (so na variante compacta): as metricas passam POR TRAS do
   // nome, entao nunca se perde de qual anuncio a linha fala. A divisoria explica o corte
   // com a tabela parada; a sombra so aparece quando ha coluna escondida atras.
   const [isScrolledX, setIsScrolledX] = useState(false);
+  const [containerHeight, setContainerHeight] = useState(0);
+  // Ref de callback (e nao efeito com deps): o container so existe depois do primeiro
+  // render util, e assim a medicao comeca no instante em que ele entra no DOM.
+  const setTableContainer = useCallback((element: HTMLDivElement | null) => {
+    tableContainerRef.current = element;
+    setContainerHeight(element?.clientHeight ?? 0);
+    resizeObserverRef.current?.disconnect();
+    if (!element || typeof ResizeObserver === "undefined") return;
+    resizeObserverRef.current = new ResizeObserver((entries) => {
+      const height = entries[0]?.contentRect.height ?? 0;
+      setContainerHeight((previous) => (Math.abs(previous - height) < 1 ? previous : height));
+    });
+    resizeObserverRef.current.observe(element);
+  }, []);
+  useEffect(() => () => resizeObserverRef.current?.disconnect(), []);
   // No proprio evento, e nao por listener em efeito: o container so existe depois do
   // skeleton, e um efeito com deps [variant] nunca via a versao final. `setState` com
   // funcao evita re-render a cada frame de rolagem.
@@ -289,8 +305,13 @@ export const TableContent = React.memo(function TableContent({ table, isLoadingE
     [isResizing, currentTab, onOpenDrill, setSelectedAd],
   );
 
+  // ESQUELETO PREENCHE A ALTURA VISIVEL. Eram 8 linhas fixas: no modo detalhado (linha
+  // de 120px) isso cobre a tela, no compacto (40px) sobrava um vazio embaixo do
+  // carregamento. A conta usa a altura medida do proprio container.
+  const skeletonRowCount = Math.max(6, Math.ceil((containerHeight || 640) / styles.estimateSize) + 1);
+
   const rowVirtualizer = useVirtualizer({
-    count: isLoadingEffective ? 8 : rows.length,
+    count: isLoadingEffective ? skeletonRowCount : rows.length,
     getScrollElement: () => tableContainerRef.current,
     estimateSize,
     overscan: styles.overscan,
@@ -362,7 +383,7 @@ export const TableContent = React.memo(function TableContent({ table, isLoadingE
           <div className={cn("w-3 bg-gradient-to-r from-black/25 to-transparent transition-opacity duration-150", isScrolledX ? "opacity-100" : "opacity-0")} />
         </div>
       )}
-      <div ref={tableContainerRef} className={styles.container} onScroll={variant === "minimal" ? handleContainerScroll : undefined}>
+      <div ref={setTableContainer} className={styles.container} onScroll={variant === "minimal" ? handleContainerScroll : undefined}>
         <table className={styles.table} style={{ tableLayout: "fixed" }}>
           <colgroup>
             {table.getVisibleLeafColumns().map((column) => (
