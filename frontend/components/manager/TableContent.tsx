@@ -51,9 +51,11 @@ const VARIANT_STYLES = {
   minimal: {
     estimateSize: MANAGER_ROW_HEIGHT.minimal,
     overscan: 10, // Linhas menores — mais overscan
-    container: "flex-1 min-h-0 overflow-auto overscroll-contain border-x border-border rounded-t-lg",
+    container: "flex-1 min-h-0 overflow-auto overscroll-contain",
     table: "w-full text-xs border-collapse",
-    thead: "sticky top-0 z-20 bg-card border-b border-border",
+    // Filete do cabecalho como SOMBRA, nao borda: em tabela com bordas colapsadas a
+    // borda de um `thead` fixo desaparece assim que a tabela rola.
+    thead: "sticky top-0 z-20 bg-card shadow-[0_1px_0_0_var(--border)]",
     headerRow: "",
     // Rotulo de cabecalho: maiusculas pequenas. A grade vertical inteira saiu — restam o
     // filete fraco entre linhas e UMA divisoria, depois da identificacao congelada.
@@ -329,7 +331,7 @@ export const TableContent = React.memo(function TableContent({ table, isLoadingE
   const paddingBottom = virtualRows.length > 0 ? totalSize - (virtualRows[virtualRows.length - 1]?.end || 0) : 0;
 
   return (
-    <div className="w-full h-full flex-1 flex flex-col relative min-h-0">
+    <div className={cn("w-full h-full flex-1 flex flex-col relative min-h-0", variant === "minimal" && "overflow-hidden rounded-lg border border-border")}>
       {/* Overlay invisível durante resize para capturar eventos globalmente */}
       {isResizing && (
         <div
@@ -357,7 +359,7 @@ export const TableContent = React.memo(function TableContent({ table, isLoadingE
           <div className="w-px bg-border" />
           {/* A profundidade e uma FAIXA de degrade, nao box-shadow: numa linha de 1px o
               recuo negativo da sombra a colapsa, e ela nunca chega a ser pintada. */}
-          <div className={cn("w-3 bg-gradient-to-r from-black/45 to-transparent transition-opacity duration-150", isScrolledX ? "opacity-100" : "opacity-0")} />
+          <div className={cn("w-3 bg-gradient-to-r from-black/25 to-transparent transition-opacity duration-150", isScrolledX ? "opacity-100" : "opacity-0")} />
         </div>
       )}
       <div ref={tableContainerRef} className={styles.container} onScroll={variant === "minimal" ? handleContainerScroll : undefined}>

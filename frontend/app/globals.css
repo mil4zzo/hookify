@@ -308,6 +308,14 @@ html body[data-scroll-locked] {
   height: 10px;
 }
 
+/* Sem as setas do sistema: elas so aparecem em algumas plataformas e quebram a barra
+   fina que o resto da regra desenha. */
+*::-webkit-scrollbar-button {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
 *::-webkit-scrollbar-track {
   border-radius: 10px;
   background-color: transparent;
