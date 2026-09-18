@@ -396,8 +396,24 @@ cita uma parada inexistente vira `background-image: none`.
 
 ### Estado (hover, foco, selecao)
 
-- **Abas e controles segmentados**: trilho no nivel 0 (`bg-background` + `border-border`);
-  a opcao ativa se destaca (aba em `primary` solido, segmento em `secondary`).
+**A fisica: clicavel tem relevo, acionado afunda.** Uma receita de luz e a sua
+inversa, e as duas vivem em `globals.css`:
+
+- `btn-lit` — **clicavel**: degrade vertical curto (claro no topo, um tom abaixo na
+  base), fio claro na primeira linha de pixels e sombra fina de contato. Botao
+  primario, de sucesso e destrutivo usam a mesma receita, trocando so a cor base.
+- `btn-tonal` — **secundario**: a mesma luz sobre um veu da cor do TEXTO
+  (`oklch(from var(--foreground) l c h / .10)`). Por ser transparencia, mantem o
+  contraste em qualquer nivel da escada; um cinza fixo sumiria quando o fundo se
+  aproxima. Terciario (`ghost`) nao tem luz nenhuma: so preenche no hover.
+- `state-pressed` — **acionado**: a mesma cor com a luz invertida (a do topo vira
+  sombra interna curta). Vale para aba ativa, item de menu da pagina atual, dia
+  escolhido no calendario e opcao selecionada. **Nunca para hover**, que e
+  antecipacao e nao acao.
+
+- **Abas e controles segmentados**: trilho no nivel 1 (`bg-card` + `border-surface-2`),
+  aba ativa em `state-pressed`. O trilho precisa de um plano proprio, senao o
+  afundamento nao se le.
 
 - **Hover de linha de tabela de dados**: `hover:bg-muted` — sutil, porque muda a cada
   linha que o mouse cruza. Linhas herdam o fundo do painel onde estao (sem `bg-*`
@@ -405,7 +421,13 @@ cita uma parada inexistente vira `background-image: none`.
 - **Hover de objeto clicavel, item de menu e lista de opcoes**: `hover:bg-accent`.
   Botao DENTRO de uma linha usa `accent`, para nao se confundir com o hover da linha.
   Nao invente mistura propria.
-- **Foco**: anel via `focus-visible:ring-ring` — nunca so mudanca de cor de fundo.
+- **Foco: sempre desenhado POR DENTRO.** Campo, seletor e combobox: a propria borda
+  em azul (`focus:border-primary`), 1px. Botao e controle sem borda: classe
+  `focus-inset` (outline de 2px com deslocamento negativo). Anel externo
+  (`focus:ring-2`, `ring-offset-N`) e proibido — ele e desenhado fora da caixa e
+  qualquer container com rolagem corta os 4px. Regra `outer-focus-ring`.
+- **Campo**: nivel 2 com borda no nivel 3; o hover leva a borda ao nivel 4. Num app
+  escuro, campo no nivel 3 era o objeto mais claro da tela, acima do dado.
 - **Item selecionado** (linha de lista ou tabela): `bg-primary-10` + `border-primary-30`.
 - **Opcao escolhida** (cartao de escolha, estilo radio): `bg-primary-10` + `border-primary`
   solido. A nao escolhida e grupo elevado: `bg-surface-2` + contorno + `hover:bg-accent`.

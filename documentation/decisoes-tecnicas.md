@@ -5082,3 +5082,32 @@ real do app:
   a imagem aparece por baixo — selo sobre mídia usa passo alto ou `bg-black/60`.
 - `muted`, `input` e `accent` seguem com a mistura antiga porque os usos com passo são o
   backlog de `structural-alpha-surface`; não devem crescer.
+
+---
+
+## Uma física para a interface: luz de cima, acionado afunda (2026-09-17)
+
+Rodada de ajustes visuais pedida pelo idealizador, decidida comparando maquetes com
+o CSS real:
+
+- **Foco por dentro.** O anel de foco era desenhado FORA da caixa (`ring` +
+  `ring-offset` = 4px) e qualquer container com rolagem o cortava — havia 20 no app.
+  Em vez de dar folga container a container, o foco passou a ser desenhado para
+  dentro: campo usa a própria borda em azul, o resto usa `focus-inset` (outline com
+  deslocamento negativo). Regra `outer-focus-ring`.
+- **Campo um degrau abaixo.** `input` saiu do nível 3 para o 2: num app escuro, o
+  campo era o objeto mais claro da tela, acima do dado.
+- **Uma receita de luz.** O degradê radial do botão vinha de baixo e destoava.
+  Agora: `btn-lit` (degradê vertical curto + fio no topo + sombra de contato),
+  `btn-tonal` (a mesma luz sobre véu da cor do texto, que funciona em qualquer nível)
+  e `state-pressed` (a mesma cor com a luz invertida). A regra que saiu disso:
+  **o que é clicável tem relevo, o que já foi acionado afunda** — aba ativa, item de
+  menu da página atual, dia do calendário, opção selecionada. Hover não entra: é
+  antecipação, não ação.
+- **Tabela compacta.** A grade vertical saiu; ficou o filete fraco e uma divisória
+  depois da identificação, que agora fica congelada (as métricas passam por trás).
+  Divisória e sombra respondem a perguntas diferentes: onde termina a identificação,
+  e se ainda há coluna escondida.
+- **Altura única de 40px.** Havia 40 e 32, escolhidos no olho; a mesma barra saía com
+  alturas diferentes em telas diferentes. Exceções: chip de uma palavra (24px) e aba
+  (32px, que com o padding do trilho fecha 40).
