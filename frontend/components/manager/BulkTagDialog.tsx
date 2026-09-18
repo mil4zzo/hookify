@@ -161,7 +161,7 @@ export function BulkTagDialog({ open, onOpenChange, selection, onApplied }: Bulk
               onClick={() => handleModeChange(option)}
               className={cn(
                 "flex-1 rounded-sm px-2 py-1 text-xs font-medium transition-colors",
-                mode === option ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground",
+                mode === option ? "state-pressed text-white" : "text-muted-foreground hover:text-foreground",
               )}
             >
               {option === "add" ? "Adicionar tag" : "Remover tag"}

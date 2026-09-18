@@ -60,7 +60,7 @@ export default function Sidebar() {
 
             return (
               <li key={item.path}>
-                <Link href={item.path as any} className={cn("flex items-center rounded-md text-sm font-normal text-foreground transition-all duration-300", isCollapsed ? "justify-center px-2 py-2 ease-in" : "gap-3 px-3 py-2 ease-out", isActive ? "bg-primary text-foreground" : "text-foreground hover:bg-accent hover:text-foreground")} title={isCollapsed ? item.label : undefined}>
+                <Link href={item.path as any} className={cn("flex items-center rounded-md text-sm font-normal text-foreground transition-all duration-300", isCollapsed ? "justify-center px-2 py-2 ease-in" : "gap-3 px-3 py-2 ease-out", isActive ? "state-pressed text-white" : "text-foreground hover:bg-accent hover:text-foreground")} title={isCollapsed ? item.label : undefined}>
                   <Icon className={cn("h-5 w-5 flex-shrink-0 transition-colors duration-300", isActive ? "text-foreground" : "text-muted-foreground")} />
                   <span className={cn("transition-all duration-300 whitespace-nowrap", showLabels ? "opacity-100 max-w-full ease-out" : "opacity-0 max-w-0 overflow-hidden ease-in")}>{item.label}</span>
                 </Link>
@@ -87,7 +87,7 @@ export default function Sidebar() {
 
                 return (
                   <li key={item.path}>
-                    <Link href={item.path as any} className={cn("flex items-center rounded-sm text-sm font-normal text-foreground transition-all duration-300", isCollapsed ? "justify-center px-2 py-2 ease-in" : "gap-3 px-3 py-2 ease-out", isActive ? "bg-primary text-foreground" : "text-foreground hover:bg-border hover:text-foreground")} title={isCollapsed ? item.label : undefined}>
+                    <Link href={item.path as any} className={cn("flex items-center rounded-sm text-sm font-normal text-foreground transition-all duration-300", isCollapsed ? "justify-center px-2 py-2 ease-in" : "gap-3 px-3 py-2 ease-out", isActive ? "state-pressed text-white" : "text-foreground hover:bg-accent hover:text-foreground")} title={isCollapsed ? item.label : undefined}>
                       <Icon className={cn("h-5 w-5 flex-shrink-0 text-foreground transition-colors duration-300")} />
                       <span className={cn("transition-all duration-300 whitespace-nowrap", showLabels ? "opacity-100 max-w-full ease-out" : "opacity-0 max-w-0 overflow-hidden ease-in")}>{item.label}</span>
                     </Link>
@@ -102,7 +102,7 @@ export default function Sidebar() {
       {/* Footer Links */}
       <div className="mt-auto border-t border-border">
         <div className={cn("px-3 py-4 space-y-1 transition-all duration-300", isCollapsed ? "px-2 ease-in" : "ease-out")}>
-          <Link href="/docs" className={cn("flex items-center rounded-md text-xs font-normal text-foreground transition-all duration-300", isCollapsed ? "justify-center px-2 py-2 ease-in" : "gap-2 px-3 py-2 ease-out", pathname === "/docs" ? "bg-primary text-foreground" : "text-foreground hover:bg-accent hover:text-foreground")} title={isCollapsed ? "Docs" : undefined}>
+          <Link href="/docs" className={cn("flex items-center rounded-md text-xs font-normal text-foreground transition-all duration-300", isCollapsed ? "justify-center px-2 py-2 ease-in" : "gap-2 px-3 py-2 ease-out", pathname === "/docs" ? "state-pressed text-white" : "text-foreground hover:bg-accent hover:text-foreground")} title={isCollapsed ? "Docs" : undefined}>
             <IconBook2 className={cn("h-4 w-4 flex-shrink-0 transition-colors duration-300", pathname === "/docs" ? "text-foreground" : "text-muted-foreground")} />
             <span className={cn("transition-all duration-300 whitespace-nowrap", showLabels ? "opacity-100 max-w-full ease-out" : "opacity-0 max-w-0 overflow-hidden ease-in")}>Docs</span>
           </Link>
@@ -110,15 +110,15 @@ export default function Sidebar() {
               de TODA rota linkada visivel, em toda pagina. Medido no DevTools do Manager:
               3 requisicoes ?_rsc de 300-700 ms para paginas que ninguem navega, disputando
               conexao com o /rankings. Nao tocam no banco -- e custo de frontend/rede. */}
-          <Link href="/termos-de-uso" prefetch={false} className={cn("flex items-center rounded-md text-xs font-normal text-foreground transition-all duration-300", isCollapsed ? "justify-center px-2 py-2 ease-in" : "gap-2 px-3 py-2 ease-out", pathname === "/termos-de-uso" ? "bg-primary text-foreground" : "text-foreground hover:bg-accent hover:text-foreground")} title={isCollapsed ? "Termos de Uso" : undefined}>
+          <Link href="/termos-de-uso" prefetch={false} className={cn("flex items-center rounded-md text-xs font-normal text-foreground transition-all duration-300", isCollapsed ? "justify-center px-2 py-2 ease-in" : "gap-2 px-3 py-2 ease-out", pathname === "/termos-de-uso" ? "state-pressed text-white" : "text-foreground hover:bg-accent hover:text-foreground")} title={isCollapsed ? "Termos de Uso" : undefined}>
             <IconFileText className={cn("h-4 w-4 flex-shrink-0 transition-colors duration-300", pathname === "/termos-de-uso" ? "text-foreground" : "text-muted-foreground")} />
             <span className={cn("transition-all duration-300 whitespace-nowrap", showLabels ? "opacity-100 max-w-full ease-out" : "opacity-0 max-w-0 overflow-hidden ease-in")}>Termos de Uso</span>
           </Link>
-          <Link href="/politica-de-privacidade" prefetch={false} className={cn("flex items-center rounded-md text-xs font-normal text-foreground transition-all duration-300", isCollapsed ? "justify-center px-2 py-2 ease-in" : "gap-2 px-3 py-2 ease-out", pathname === "/politica-de-privacidade" ? "bg-primary text-foreground" : "text-foreground hover:bg-accent hover:text-foreground")} title={isCollapsed ? "Política de Privacidade" : undefined}>
+          <Link href="/politica-de-privacidade" prefetch={false} className={cn("flex items-center rounded-md text-xs font-normal text-foreground transition-all duration-300", isCollapsed ? "justify-center px-2 py-2 ease-in" : "gap-2 px-3 py-2 ease-out", pathname === "/politica-de-privacidade" ? "state-pressed text-white" : "text-foreground hover:bg-accent hover:text-foreground")} title={isCollapsed ? "Política de Privacidade" : undefined}>
             <IconShieldLock className={cn("h-4 w-4 flex-shrink-0 transition-colors duration-300", pathname === "/politica-de-privacidade" ? "text-foreground" : "text-muted-foreground")} />
             <span className={cn("transition-all duration-300 whitespace-nowrap", showLabels ? "opacity-100 max-w-full ease-out" : "opacity-0 max-w-0 overflow-hidden ease-in")}>Política de Privacidade</span>
           </Link>
-          <Link href="/exclusao-de-dados" prefetch={false} className={cn("flex items-center rounded-md text-xs font-normal text-foreground transition-all duration-300", isCollapsed ? "justify-center px-2 py-2 ease-in" : "gap-2 px-3 py-2 ease-out", pathname === "/exclusao-de-dados" ? "bg-primary text-foreground" : "text-foreground hover:bg-accent hover:text-foreground")} title={isCollapsed ? "Exclusão de Dados" : undefined}>
+          <Link href="/exclusao-de-dados" prefetch={false} className={cn("flex items-center rounded-md text-xs font-normal text-foreground transition-all duration-300", isCollapsed ? "justify-center px-2 py-2 ease-in" : "gap-2 px-3 py-2 ease-out", pathname === "/exclusao-de-dados" ? "state-pressed text-white" : "text-foreground hover:bg-accent hover:text-foreground")} title={isCollapsed ? "Exclusão de Dados" : undefined}>
             <IconTrash className={cn("h-4 w-4 flex-shrink-0 transition-colors duration-300", pathname === "/exclusao-de-dados" ? "text-foreground" : "text-muted-foreground")} />
             <span className={cn("transition-all duration-300 whitespace-nowrap", showLabels ? "opacity-100 max-w-full ease-out" : "opacity-0 max-w-0 overflow-hidden ease-in")}>Exclusão de Dados</span>
           </Link>

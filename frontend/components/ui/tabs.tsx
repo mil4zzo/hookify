@@ -48,12 +48,12 @@ interface TabsListProps {
   className?: string;
 }
 
-// Trilho REBAIXADO (nivel 0, bg-background, sem sombra): o padrao de mercado para abas. O trilho elevado
-// anterior (bg-card + sombra) virava moldura dentro de moldura quando as abas ficam num
-// dialogo, que tambem e bg-card. A aba ativa (primary solido) aparece sobre qualquer trilho.
+// Trilho no nivel 1 com borda no nivel 2: a aba ativa AFUNDA nele (`state-pressed`),
+// enquanto as inativas ficam rentes. E a fisica do teclado — o que ja foi acionado esta
+// pressionado — e o trilho precisa de um plano proprio para o afundamento ser legivel.
 export function TabsList({ children, className }: TabsListProps) {
   return (
-    <div className={cn("flex w-fit max-w-full items-center gap-1 overflow-x-auto rounded-lg border border-border bg-background p-1", className)} role="tablist">
+    <div className={cn("flex w-fit max-w-full items-center gap-1 overflow-x-auto rounded-lg border border-surface-2 bg-card p-1", className)} role="tablist">
       {children}
     </div>
   );
@@ -83,7 +83,7 @@ export const TabsTrigger = forwardRef<HTMLButtonElement, TabsTriggerProps>(({ va
       onClick={handleClick}
       className={cn(
         "flex h-control-compact shrink-0 items-center justify-center rounded-md px-3 text-sm font-medium whitespace-nowrap transition-[color,background-color,box-shadow] duration-200",
-        isActive ? "bg-primary text-primary-foreground shadow-elevation-raised" : "bg-transparent text-muted-foreground hover:bg-accent hover:text-foreground",
+        isActive ? "state-pressed text-white" : "bg-transparent text-muted-foreground hover:bg-accent hover:text-foreground",
         className
       )}
       {...props}

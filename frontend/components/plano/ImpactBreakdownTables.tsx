@@ -63,7 +63,7 @@ function PillButton({ label, selected, onClick }: { label: string; selected: boo
       onClick={onClick}
       className={`flex-shrink-0 rounded-full px-3 py-1.5 text-xs font-medium transition-colors duration-150 ${
         selected
-          ? "bg-primary text-primary-foreground"
+          ? "state-pressed text-white"
           : "bg-surface-2 text-muted-foreground hover:bg-accent hover:text-foreground"
       }`}
     >
