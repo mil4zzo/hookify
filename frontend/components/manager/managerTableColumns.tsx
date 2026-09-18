@@ -37,7 +37,7 @@ const NAME_FUNNEL_FIELDS = ["ad_name", "adset_name", "campaign_name", "ad_id"];
 const ActiveFilterIcon = ({ onReveal, field }: { onReveal: (fieldId: string) => void; field: string }) => (
   <button
     type="button"
-    className="flex h-6 w-6 items-center justify-center rounded-sm text-primary hover:bg-primary-10 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+    className="flex h-6 w-6 items-center justify-center rounded-sm text-primary hover:bg-primary-10 focus-inset focus-visible:outline-none"
     title="Ver onde esta coluna está sendo filtrada"
     aria-label="Ver o filtro desta coluna"
     onClick={(e) => {

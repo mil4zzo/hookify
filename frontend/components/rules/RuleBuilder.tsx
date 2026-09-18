@@ -495,7 +495,7 @@ function ConditionRow({
       ref={rowRef}
       className={cn(
         "flex flex-wrap items-center gap-2 rounded-md transition-shadow",
-        highlighted && "ring-1 ring-primary ring-offset-4 ring-offset-card",
+        highlighted && "ring-1 ring-inset ring-primary",
       )}
     >
       <div className="w-44 flex-shrink-0">

@@ -123,7 +123,7 @@ export function AppDialog({ isOpen, onClose, children, className, bodyClassName,
         )}>
           <DialogPrimitive.Title className="sr-only">{title ?? "Dialog"}</DialogPrimitive.Title>
           {showCloseButton && (
-            <DialogPrimitive.Close className={cn("absolute right-4 top-4 rounded-sm opacity-70 hover:opacity-100 transition-opacity focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none disabled:opacity-30 disabled:cursor-not-allowed z-10 text-foreground", mobileVariant === "bottom-sheet" && "hidden md:flex")} aria-label="Fechar">
+            <DialogPrimitive.Close className={cn("absolute right-4 top-4 rounded-sm opacity-70 hover:opacity-100 transition-opacity focus-inset focus:outline-none disabled:pointer-events-none disabled:opacity-30 disabled:cursor-not-allowed z-10 text-foreground", mobileVariant === "bottom-sheet" && "hidden md:flex")} aria-label="Fechar">
               <IconX className="h-4 w-4" />
             </DialogPrimitive.Close>
           )}

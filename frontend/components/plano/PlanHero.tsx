@@ -337,7 +337,7 @@ export function PlanHero({
                   if (e.key === "Escape") setEditingTarget(false);
                 }}
                 placeholder="ex: 15,00"
-                className="w-28 text-sm border border-border rounded-md px-2 py-1 bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                className="w-28 text-sm border border-border rounded-md px-2 py-1 bg-background text-foreground focus:outline-none focus:border-primary"
               />
               <button
                 onClick={handleSaveTarget}

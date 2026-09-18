@@ -54,6 +54,12 @@ const REGEX_RULES: RegexRule[] = [
     pattern: /(?<=["'`](?:[^"'`\n]*[\s:])?)rounded(?=(?:\s[^"'`\n]*)?["'`])/,
   },
   {
+    id: "outer-focus-ring",
+    description: "Anel de foco desenhado FORA da caixa (focus:ring-2, ring-offset-N) e cortado por qualquer container com rolagem — havia 20 no app. Campo: foco e a propria borda (focus:border-primary). Botao e controle sem borda: classe `focus-inset` (outline 2px com deslocamento negativo).",
+    // ring-0 e ring-offset-0 continuam valendo: servem para DESLIGAR anel herdado.
+    pattern: /(?:focus|focus-visible):ring-(?:1|2|3|4|8)(?![\w-])|(?<![\w-])ring-offset-(?:[1-9]|background)(?![\w-])/,
+  },
+  {
     id: "arbitrary-font-size",
     description: "Use the type scale (text-2xs for 10px captions, text-xs and up) instead of arbitrary text-[Npx] sizes.",
     // Só px: tamanhos display em rem (títulos) e relativos em em (superscript) são deliberados.

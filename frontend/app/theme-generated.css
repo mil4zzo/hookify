@@ -48,7 +48,7 @@
   --info-foreground: var(--primary-foreground);
   --attention: oklch(0.93 0.2 108.5);
   --attention-foreground: var(--neutral-950);
-  --input: var(--level-3);
+  --input: var(--level-2);
   --input-foreground: var(--neutral-950);
   --border: var(--level-4);
   --ring: var(--primary-label);
@@ -132,7 +132,7 @@
   --info-foreground: var(--primary-foreground);
   --attention: oklch(0.78 0.16 95);
   --attention-foreground: var(--neutral-950);
-  --input: var(--level-3);
+  --input: var(--level-2);
   --input-foreground: var(--surface-fill);
   --border: var(--level-4);
   --ring: var(--primary-label);

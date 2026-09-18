@@ -45,6 +45,15 @@
 }
 
 /* Primary radial gradient */
+/* FOCO POR DENTRO — o anel externo (ring + ring-offset) ocupa 4px fora da caixa e
+   QUALQUER container com rolagem o corta (havia 20 no app). Desenhado para dentro, com
+   outline de deslocamento negativo, nao existe o que cortar. Campos usam a propria borda
+   em azul; botoes e controles sem borda usam este utilitario. */
+.focus-inset:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: -2px;
+}
+
 .primary-gradient {
   --gradient-fill: radial-gradient(
     circle at 50% 100%,

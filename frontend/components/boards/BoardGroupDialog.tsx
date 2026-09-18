@@ -117,9 +117,9 @@ export function BoardGroupDialog({
                   aria-pressed={color === option}
                   onClick={() => setColor(option)}
                   className={cn(
-                    "h-6 w-6 rounded-full ring-offset-background transition-all",
+                    "h-6 w-6 rounded-full transition-all",
                     tagDotClasses(option),
-                    color === option ? "ring-2 ring-ring ring-offset-2" : "opacity-60 hover:opacity-100",
+                    color === option ? "ring-2 ring-inset ring-ring" : "opacity-60 hover:opacity-100",
                   )}
                 />
               ))}

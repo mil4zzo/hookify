@@ -488,7 +488,7 @@ export function ProgressToastCard({ packName, progress, stagedContent, message, 
               aria-label={actionButtonLabel}
               title={actionButtonLabel}
               aria-expanded={isCloseAction ? undefined : confirmingCancel}
-              className="ml-1 mt-0.5 flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-sm text-white/80 hover:bg-white/10 hover:text-primary-foreground focus:outline-none focus:ring-1 focus:ring-white/30"
+              className="ml-1 mt-0.5 flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-sm text-white/80 hover:bg-white/10 hover:text-primary-foreground focus-inset focus:outline-none"
             >
               <IconX className="h-4 w-4" strokeWidth={2} />
             </button>
@@ -586,7 +586,7 @@ export function StatusToastCard({ variant, message, eyebrow, icon, onDismiss, co
             onClick={onDismiss}
             aria-label="Fechar"
             title="Fechar"
-            className="ml-1 mt-0.5 flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-sm text-white/80 hover:bg-white/10 hover:text-primary-foreground focus:outline-none focus:ring-1 focus:ring-white/30"
+            className="ml-1 mt-0.5 flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-sm text-white/80 hover:bg-white/10 hover:text-primary-foreground focus-inset focus:outline-none"
           >
             <IconX className="h-4 w-4" strokeWidth={2} />
           </button>
