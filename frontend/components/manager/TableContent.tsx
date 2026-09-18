@@ -200,10 +200,11 @@ export const TableContent = React.memo(function TableContent({ table, isLoadingE
       className: cn(
         "sticky z-10",
         isHeader ? "bg-card" : "bg-background group-hover:bg-muted",
-        pin.isLastPinned && "border-r border-border",
-        pin.isLastPinned && isScrolledX && "shadow-[10px_0_10px_-6px_oklch(0_0_0/0.85)]",
+        pin.isLastPinned && "pinned-divider",
       ),
       style: { left: pin.left },
+      // A sombra so entra quando ha coluna escondida atras (ver `.pinned-divider` em globals).
+      "data-scrolled": pin.isLastPinned && isScrolledX ? "true" : undefined,
     };
   };
 
@@ -368,6 +369,7 @@ export const TableContent = React.memo(function TableContent({ table, isLoadingE
                   return (
                     <th
                       key={header.id}
+                      {...pinnedCellProps(header.column.id, true)}
                       className={cn(styles.th(headerAlign), pinnedCellProps(header.column.id, true).className)}
                       style={{ ...(styles.thWidthStyle ? { width: header.getSize() } : {}), ...pinnedCellProps(header.column.id, true).style }}
                     >
@@ -445,6 +447,7 @@ export const TableContent = React.memo(function TableContent({ table, isLoadingE
                     return (
                       <td
                         key={column.id}
+                        {...pinnedCellProps(column.id, false)}
                         className={cn(styles.cell(cellAlign, isFirst, isLast), pinnedCellProps(column.id, false).className)}
                         style={pinnedCellProps(column.id, false).style}
                       >
@@ -482,6 +485,7 @@ export const TableContent = React.memo(function TableContent({ table, isLoadingE
                       return (
                         <td
                           key={cell.id}
+                          {...pinnedCellProps(cell.column.id, false)}
                           className={cn(styles.cell(cellAlign, isFirst, isLast, isSelectCell), pinnedCellProps(cell.column.id, false).className)}
                           style={pinnedCellProps(cell.column.id, false).style}
                         >

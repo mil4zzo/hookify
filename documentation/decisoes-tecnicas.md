@@ -5111,3 +5111,18 @@ o CSS real:
 - **Altura única de 40px.** Havia 40 e 32, escolhidos no olho; a mesma barra saía com
   alturas diferentes em telas diferentes. Exceções: chip de uma palavra (24px) e aba
   (32px, que com o padding do trilho fecha 40).
+
+---
+
+## Célula fixa em tabela: a borda some (2026-09-17)
+
+A divisória da coluna congelada aparecia parada e sumia no primeiro scroll. Medido com
+as quatro combinações renderizadas lado a lado: no Chrome, uma célula `position: sticky`
+dentro de `border-collapse: collapse` **não pinta borda nem box-shadow**; com `separate`,
+a borda aparece nas linhas mas não no cabeçalho. A solução é desenhar a divisória como
+pseudo-elemento dentro da célula (`.pinned-divider::after`), que funciona nos dois modos
+e cobre cabeçalho e corpo.
+
+Na mesma revisão: o fio de luz de 1px no topo do botão, quando aplicado a um controle que
+JÁ tem borda, lê como borda superior grossa — por isso o gatilho de campo (`control-lit`)
+usa só o degradê, e o fio fica para quem não tem borda.

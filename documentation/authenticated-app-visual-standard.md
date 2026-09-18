@@ -320,6 +320,12 @@ dentro de um painel) carrega a informacao mais importante; precisa ser o element
 definido da tela, com superficie propria e borda solida. Borda tracejada le como
 placeholder ou area de drop — nao use para agrupar conteudo real.
 
+**Coluna congelada: a divisoria e um pseudo-elemento, nunca uma borda.** Medido no
+Chrome: com `border-collapse: collapse` a borda e a sombra de uma celula `sticky` NAO
+sao pintadas (somem no primeiro scroll); com `separate`, a borda aparece nas linhas mas
+nao no cabecalho. A classe `.pinned-divider` desenha a linha em `::after` e mostra a
+sombra so com `data-scrolled="true"`.
+
 **`bg-border` como fundo so em bloco SEM texto.** Como fundo de texto, nao: sob
 `muted-foreground` o contraste cai para ~2,4:1. Caixa com texto dentro de dialogo e
 regiao de leitura (nivel 0).
@@ -406,6 +412,10 @@ inversa, e as duas vivem em `globals.css`:
   (`oklch(from var(--foreground) l c h / .10)`). Por ser transparencia, mantem o
   contraste em qualquer nivel da escada; um cinza fixo sumiria quando o fundo se
   aproxima. Terciario (`ghost`) nao tem luz nenhuma: so preenche no hover.
+- `control-lit` — **gatilho de campo** (seletor, combobox, botao de filtro, seletor de
+  periodo): a mesma luz, mas SEM o fio de 1px no topo, porque o gatilho ja tem borda —
+  fio somado a borda lia como uma borda superior grossa. Campo de TEXTO fica de fora: a
+  diferenca util e que no campo se escreve e no gatilho se aciona.
 - `state-pressed` — **acionado**: a mesma cor com a luz invertida (a do topo vira
   sombra interna curta). Vale para aba ativa, item de menu da pagina atual, dia
   escolhido no calendario e opcao selecionada. **Nunca para hover**, que e

@@ -147,7 +147,7 @@ interface ManagerChildrenTableProps {
 
 /** Identificacao congelada: selecao, status e nome ficam parados enquanto as metricas passam. */
 const PINNED_CELL = "sticky z-10";
-const PINNED_SHADOW = "shadow-[10px_0_10px_-6px_oklch(0_0_0/0.85)]";
+
 
 export function ManagerChildrenTable({
   childrenData,
@@ -472,7 +472,7 @@ export function ManagerChildrenTable({
                     <IconArrowsSort className="h-3 w-3" />
                   </div>
                 </th>
-                <th className={cn("min-w-[15rem] cursor-pointer select-none px-3 py-3 text-left text-2xs font-medium uppercase tracking-wide hover:text-primary", PINNED_CELL, "left-[5.5rem] bg-card border-r border-border", isScrolledX && PINNED_SHADOW, sortConfig.column === config.nameSortKey && "text-primary")} onClick={() => handleSort(config.nameSortKey)}>
+                <th className={cn("min-w-[15rem] cursor-pointer select-none px-3 py-3 text-left text-2xs font-medium uppercase tracking-wide hover:text-primary", PINNED_CELL, "left-[5.5rem] bg-card pinned-divider", sortConfig.column === config.nameSortKey && "text-primary")} data-scrolled={isScrolledX ? "true" : undefined} onClick={() => handleSort(config.nameSortKey)}>
                   <div className="flex items-center gap-1">
                     {config.nameHeader}
                     {isNameColumnFiltered && filterIndicator}
@@ -513,7 +513,7 @@ export function ManagerChildrenTable({
                   <td className={cn("px-3 py-3 text-center", PINNED_CELL, "left-10 bg-background group-hover:bg-muted")} onClick={(e) => e.stopPropagation()}>
                     <StatusCell original={child} currentTab={config.statusTab} packIds={packIds} />
                   </td>
-                  <td className={cn("px-3 py-3 text-left", PINNED_CELL, "left-[5.5rem] bg-background group-hover:bg-muted border-r border-border", isScrolledX && PINNED_SHADOW)}>
+                  <td className={cn("px-3 py-3 text-left", PINNED_CELL, "left-[5.5rem] bg-background group-hover:bg-muted pinned-divider")} data-scrolled={isScrolledX ? "true" : undefined}>
                     {config.richNameCell ? (
                       <div className="flex items-center gap-2">
                         <ThumbnailImage src={getAdThumbnail(child)} alt="thumb" size="sm" />

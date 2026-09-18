@@ -98,7 +98,7 @@ export function ConnectStep({ connections, selectedConnectionId, isLoadingConnec
       ) : null}
 
       {/* Botão para criar nova conexão */}
-      <Button type="button" variant={connections.length === 0 ? "default" : "outline"} size="lg" className="flex items-center gap-2 w-full" onClick={onConnect} disabled={isConnecting || isLoadingConnections}>
+      <Button type="button" variant={connections.length === 0 ? "default" : "outline"} className="flex items-center gap-2 w-full" onClick={onConnect} disabled={isConnecting || isLoadingConnections}>
         <IconPlus className="w-5 h-5" />
         {isConnecting ? "Conectando..." : "Criar nova conexão"}
       </Button>
