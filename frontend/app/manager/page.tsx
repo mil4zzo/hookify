@@ -60,30 +60,21 @@ function ManagerPageContent() {
     actionType,
     actionTypeOptions,
     packs,
-    packsClient,
   } = useFilters();
 
   // Status fresco ao montar/voltar o foco: cobre mudanças feitas fora do Hookify.
   useStatusFocusSync();
 
-  // Gate de readiness: só dispara as queries pesadas depois que os packs
-  // estiverem carregados no store E o carregamento global ter terminado.
-  // NÃO basta usar !packsLoading: useLoadPacks faz setIsLoading(false) na fase
-  // pré-auth (não autenticado), então packsLoading já é false quando isAuthorized
-  // flipa, abrindo o gate antes dos packs chegarem → dispara rankings com
-  // packsLen=0 / hasSheetIntegration=false (leadscore=false), e re-dispara quando
-  // os packs chegam (ver debug #3, run 3). Gatear em packs.length>0 garante que
-  // hasSheetIntegration / effectiveDateRange já estão estáveis no 1º disparo.
-  // !packsLoading cobre o caso de cache stale rehidratado (espera o fetch fresco).
-  // Usuário sem packs: packsLen=0 → query não dispara; isLoading={loading||packsLoading}
-  // já é false → mostra estado vazio (não skeleton infinito).
+  // `packsLoading` sozinho só serve ao estado visual (linha do isLoading da tabela).
+  // Para GATEAR as queries pesadas ele não basta — ver o porquê de cada parte na
+  // definição única de `packsReady`, em useAvailableConversionTypes.
   const { isLoading: packsLoading } = usePacksLoading();
-  const packsReady = packsClient && packs.length > 0 && !packsLoading;
 
-  // União dos conversion_types dos packs selecionados + sync do dropdown, com o gate
-  // correto. Extraído para hook porque Explorer e useAdPerformancePipeline precisavam
-  // do mesmo, e cada tela que reimplementou errou o gate de um jeito diferente.
-  useAvailableConversionTypes();
+  // Gate de readiness + união dos conversion_types dos packs selecionados (sync do
+  // seletor de eventos). Consequência aqui: usuário sem packs → packsLen=0 → a query
+  // não dispara, e isLoading={loading || packsLoading} já é false → estado vazio, não
+  // skeleton infinito.
+  const { packsReady } = useAvailableConversionTypes();
 
   // ── Page-specific state ────────────────────────────────────────────────────
   // Toggle de 3 posições do menu "Exibição": o que cada célula mostra acima do número.

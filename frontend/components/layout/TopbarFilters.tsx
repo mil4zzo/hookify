@@ -8,8 +8,42 @@ import { PackFilter } from "@/components/common/PackFilter"
 import { deselectVisible, selectVisibleRespectingConflicts } from "@/components/common/filterListBulk"
 import { showInfo } from "@/lib/utils/toast"
 import { usePackConflicts } from "@/lib/hooks/usePackConflicts"
+import { useAvailableConversionTypes } from "@/lib/hooks/useAvailableConversionTypes"
 import { ActionTypeFilter } from "@/components/common/ActionTypeFilter"
 import { DateRangeFilter } from "@/components/common/DateRangeFilter"
+
+/**
+ * Rotas que renderizam o app autenticado mas não consomem nenhum dos filtros globais.
+ * Mostrar os seletores ali é ruído: o usuário mexe e não acontece nada na tela.
+ * (Onboarding já é excluído antes, no próprio Topbar.)
+ */
+const ROUTES_WITHOUT_FILTERS = new Set([
+  "/packs",
+  "/upload",
+  "/admin",
+  "/docs",
+  "/meta-usage",
+  "/suporte",
+  "/planos",
+])
+
+/**
+ * Porteiro: decide SE os filtros existem nesta rota, e nada mais.
+ *
+ * Separado dos controles de propósito. Um componente que devolve `null` continua
+ * montado, e seus hooks continuam rodando — então, enquanto isto era um early return
+ * lá embaixo, as rotas sem filtro ainda pagavam o fetch do grafo de conflito
+ * (`usePackConflicts`) e ainda reconciliavam `actionType` no store, sem nada na tela
+ * para justificar. Com o porteiro separado, nenhum hook roda onde não há o que mostrar.
+ */
+export function TopbarFilters() {
+  const { isAuthenticated } = useClientAuth()
+  const pathname = usePathname()
+
+  if (!isAuthenticated || ROUTES_WITHOUT_FILTERS.has(pathname)) return null
+
+  return <TopbarFilterControls />
+}
 
 /**
  * Global filter selectors rendered in the Topbar center section.
@@ -19,12 +53,7 @@ import { DateRangeFilter } from "@/components/common/DateRangeFilter"
  * Pack selection is committed to the store only when the popover closes,
  * avoiding API requests while the user is still browsing the list.
  */
-export function TopbarFilters() {
-  const { isAuthenticated } = useClientAuth()
-  const pathname = usePathname()
-  const isPacksPage = pathname === "/packs"
-  const isUploadPage = pathname === "/upload"
-  const isAdminPage = pathname === "/admin"
+function TopbarFilterControls() {
   const {
     packs,
     packsClient,
@@ -40,6 +69,16 @@ export function TopbarFilters() {
     setUsePackDates,
     calculateDateRangeFromPacks,
   } = useFilters()
+
+  // A lista de eventos de conversão é a única fonte deste topbar que NÃO se sustenta
+  // sozinha: ela é a união dos `conversion_types` dos packs selecionados, é transitória
+  // no store (zerada em toda rehidratação) e não vem de fetch. Enquanto cada página
+  // tinha o dever de chamar isto, quem esquecia deixava este seletor em skeleton eterno
+  // — sem erro, sem request falhando, indistinguível de "ainda carregando" (foi o que
+  // aconteceu no /boards). O elemento mora aqui, então a garantia do dado mora aqui.
+  // As páginas seguem chamando o hook por conta própria quando precisam do retorno
+  // (`packsReady`, a lista) — `setActionTypeOptions` deduplica, então não custa render.
+  useAvailableConversionTypes()
 
   // ── Pending pack selection ─────────────────────────────────────────────────
   // pendingPackIds mirrors the visual state of the popover immediately.
@@ -138,8 +177,6 @@ export function TopbarFilters() {
     // renderizam o empty state. Não forçamos ≥1 no commit.
     setPackPreferences(newPrefs)
   }, [setPackPreferences])
-
-  if (!isAuthenticated || isPacksPage || isUploadPage || isAdminPage) return null
 
   return (
     <div className="hidden md:flex items-center gap-2">

@@ -33,9 +33,9 @@ import { normalizeRuleTree } from "@/lib/rules/types";
 import type { Board, BoardGroup } from "@/lib/boards/types";
 import { TAG_COLORS } from "@/lib/tags/colors";
 import { useAppAuthReady } from "@/lib/hooks/useAppAuthReady";
+import { useAvailableConversionTypes } from "@/lib/hooks/useAvailableConversionTypes";
 import { useFilters } from "@/lib/hooks/useFilters";
 import { useMqlLeadscore } from "@/lib/hooks/useMqlLeadscore";
-import { usePacksLoading } from "@/components/layout/PacksLoader";
 import { mapRankingRow } from "@/lib/utils/mapRankingRow";
 import { buildCustomColumnDefs, collectPackMappings } from "@/lib/metrics/customColumns";
 import { setActiveCustomColumns } from "@/lib/metrics/customColumnsRegistry";
@@ -63,11 +63,15 @@ function BoardsPageShell({ children }: { children: React.ReactNode }) {
 
 export default function BoardsPage() {
   const { isClient, authStatus, onboardingStatus, isAuthorized } = useAppAuthReady();
-  const { selectedPackIds, effectiveDateRange: dateRange, actionType, actionTypeOptions, packs, packsClient } = useFilters();
-  const { isLoading: packsLoading } = usePacksLoading();
+  const { selectedPackIds, effectiveDateRange: dateRange, actionType, actionTypeOptions, packs } = useFilters();
   const { mqlLeadscoreMin } = useMqlLeadscore();
 
-  const packsReady = packsClient && packs.length > 0 && !packsLoading;
+  // União dos conversion_types dos packs selecionados + sync do dropdown de eventos do
+  // topbar, com o gate correto. `actionTypeOptions` é transitório (zerado em toda
+  // rehidratação): a tela que apenas LÊ a lista sem chamar isto deixa o seletor do topbar
+  // em skeleton eterno quando é a primeira a carregar. Devolve o mesmo `packsReady` que
+  // era calculado à mão aqui.
+  const { packsReady } = useAvailableConversionTypes();
 
   const hasSheetIntegration = useMemo(
     () => selectedPackIds.size > 0 && packs.some((pack) => selectedPackIds.has(pack.id) && !!pack.sheet_integration),

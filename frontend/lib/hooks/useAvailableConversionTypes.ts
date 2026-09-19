@@ -38,6 +38,17 @@ import { useFilters } from "@/lib/hooks/useFilters";
  * que já é verdade com cache stale rehidratado — é preciso esperar o fetch fresco).
  * Com ele, a limpeza do órfão só acontece quando os packs de fato têm 0 tipos.
  *
+ * `packsReady` É TAMBÉM O GATE DAS QUERIES PESADAS (Manager, Boards, pipeline), e as
+ * duas metades da condição existem por motivos opostos — tirar qualquer uma quebra
+ * algo diferente:
+ *  - `!packsLoading` sem `packs.length > 0`: `useLoadPacks` faz `setIsLoading(false)`
+ *    ainda na fase pré-auth, então `packsLoading` já é false quando `isAuthorized`
+ *    vira true. O gate abre antes dos packs chegarem e a tela dispara a RPC com
+ *    packsLen=0 / `hasSheetIntegration=false` (ou seja, sem leadscore) — e dispara de
+ *    novo quando os packs chegam. Dois requests, o primeiro com o recorte errado.
+ *  - `packs.length > 0` sem `!packsLoading`: já é verdade com cache stale rehidratado,
+ *    e aí vale o parágrafo acima.
+ *
  * Encapsular união + gate aqui é deliberado: enquanto cada tela montava isso por
  * conta própria, cada uma errou o gate de um jeito diferente.
  *
