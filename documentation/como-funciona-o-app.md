@@ -67,14 +67,19 @@ Análises aprofundadas e insights sobre os anúncios.
 - **Automático**: Packs com `auto_refresh` ativado são atualizados automaticamente quando a data final é "hoje"
 - O processo de refresh segue o mesmo fluxo de importação, mas apenas para o período novo
 
-### Editar o período de um pack (2026-09-18 — Etapa 1: só ampliar)
+### Editar o período de um pack (2026-09-18/19)
 
 Menu do card → **Editar período** (só o dono: o período define o que o pack *é*, como o nome). Por que não "apagar e recriar": recriar perde compartilhamentos, a integração com a planilha (e quebra em silêncio as regras de Boards que usam colunas vinculadas), o leadscore importado, o julgamento e o histórico. Plano completo em `documentation/plano-edicao-periodo-pack.md`.
 
 - **Como funciona**: é uma atualização com período escolhido (`refresh_type = "window_edit"` na rota de refresh — mesma trava, mesmo job, mesma cadeia com a planilha). O backend calcula a **fatia** a buscar (`services/pack_window.plan_window_edit`, espelhado em `lib/utils/packWindow.ts` para o diálogo mostrar a mesma data) e, **só no fim do job, com a coleta completa**, troca as datas do pack. Falhou a busca (Gatekeeper, teto de páginas): nada muda, e o usuário vê que nada foi alterado.
 - **A regra da borda**: a Meta só atribui uma conversão ao dia se o clique estiver dentro da janela pedida (medido em 07/09). Então todo dia gravado pela primeira vez leva 7 dias de história na consulta (a janela de atribuição do pack), menos o início do pack. Com pack 01/07 → 31/08: começar em 01/06 busca `01/06 → 07/07` (os 7 primeiros dias antigos estavam sem os cliques de junho e são regravados); terminar em 15/09 busca `25/08 → 15/09` (o primeiro dia novo, 01/09, precisa de 25/08 em cena).
 - **Ao concluir**: `last_refreshed_at` nunca retrocede (uma fatia para trás termina no passado); terminar antes de hoje desliga o "manter atualizado"; `updated_at` anda (gira o grafo de conflito e os caches do Manager); a ação entra no histórico como `pack.date_range`. Se o período novo passa a cruzar outro pack com os mesmos anúncios, o bloqueio de seleção conjunta acusa na próxima leitura do grafo.
-- **Reduzir** (começar depois / terminar antes) chega na Etapa 2 — apaga dado, precisa de prévia com "X dias saem, somando R$ Y" e de medição no laboratório. Por enquanto o diálogo explica que, para reduzir, é preciso recriar o pack.
+- **Reduzir** (começar depois / terminar antes) apaga dado, então o diálogo avisa antes: "**9 dias saem** deste pack, somando **R$ 3.240**". O número vem do banco e conta o que EXISTE fora do período novo — não o que a janela declarada diz (há linhas fora dela; 847 no mapa em produção). O botão fica vermelho e diz "Alterar e apagar".
+  - **Encurtar só o fim** não pede nada à Meta: é banco puro, resolvido na hora (medido: ~1,7 s no maior pack).
+  - **Começar depois** busca a "cabeça" de 7 dias do novo início. Só ali a ausência na resposta significa "saiu do pack": aqueles dias contavam conversões de cliques que agora estão fora. Fora da cabeça, apaga-se por PERÍODO, nunca por ausência — um filtro de campanha que deixou de casar devolveria vazio e levaria o pack inteiro.
+  - **O que mais é limpo junto:** intervalos do inventário recortados (sem isso o Manager mostra anúncios "ativos sem entrega" em dias que saíram — medido: 146 linhas onde restavam 143), anúncios que ficaram sem nenhum dia saem do pack (e a miniatura só é apagada se nenhum outro pack a usa), e os tipos de conversão são recalculados do que sobrou (o dropdown do Manager não pode oferecer um evento que não responde mais).
+  - **A ordem é a proteção:** apagar primeiro, trocar as datas por último. Se algo falhar no meio, o pack continua declarando o período antigo, que é o estado do qual "atualizar todo o período" repõe o que faltar.
+  - **Para desfazer:** amplie o período e atualize — o dado volta da Meta.
 
 ---
 

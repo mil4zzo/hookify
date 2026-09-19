@@ -1105,6 +1105,34 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
 
       updateActiveRefresh(packId, { serverChain: !!refreshResult.server_chain });
 
+      // Redução que não pediu nada à Meta (só encurtar o fim): o backend já fez
+      // tudo e não há job para acompanhar. Fecha o toast e segue para o recarregamento
+      // do pack, como se o Meta tivesse concluído.
+      if (refreshResult.status === "completed" && !refreshResult.job_id) {
+        finishProgressToast(
+          toastId, true, `Período de "${packName}" alterado.`,
+          { durationSeconds: 5, context: "meta", packName }
+        );
+        try {
+          const response = await api.analytics.getPack(packId, false);
+          if (response.success && response.pack) {
+            updatePack(packId, {
+              stats: response.pack.stats || {},
+              updated_at: response.pack.updated_at || new Date().toISOString(),
+              auto_refresh: response.pack.auto_refresh,
+              date_start: response.pack.date_start,
+              date_stop: response.pack.date_stop,
+              last_refreshed_at: response.pack.last_refreshed_at ?? undefined,
+            } as Partial<AdsPack>);
+            await invalidatePackAds(packId);
+          }
+          invalidateAdPerformance();
+        } catch (error) {
+          logger.error("Erro ao recarregar pack após edição de período:", error);
+        }
+        return { completed: true, adsCount: 0 };
+      }
+
       const jobId = refreshResult.job_id ? String(refreshResult.job_id) : "";
 
       // Check if Meta was cancelled before receiving job_id

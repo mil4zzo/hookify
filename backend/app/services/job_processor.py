@@ -264,7 +264,10 @@ class JobProcessor:
         )
         return groups
 
-    def _finish_pack_refresh(self, pack_id: str, payload: Optional[Dict[str, Any]], *, empty: bool = False) -> None:
+    def _finish_pack_refresh(
+        self, pack_id: str, payload: Optional[Dict[str, Any]], *,
+        empty: bool = False, formatted_data: Optional[List[Dict[str, Any]]] = None,
+    ) -> None:
         """Fecha o pack ao fim de um refresh que chegou até aqui com a coleta completa.
 
         Refresh comum: `success`, âncora e fim = `until` da busca (com coleta
@@ -277,6 +280,29 @@ class JobProcessor:
         payload = payload or {}
         window_edit = payload.get("window_edit")
         if window_edit:
+            # Reduzir: apagar ANTES de trocar as datas. Se isto falhar, o pack
+            # segue declarando o período antigo — estado do qual um "atualizar
+            # todo o período" repõe o que faltar.
+            if window_edit.get("delete_before") or window_edit.get("delete_after"):
+                cabeca = window_edit.get("head")
+                cabeca_t = (str(cabeca[0]), str(cabeca[1])) if cabeca else None
+                chaves = None
+                if cabeca_t and formatted_data:
+                    # Ausência só apaga na cabeça, e só com a resposta em mãos.
+                    chaves = [
+                        [str(r.get("ad_id")), str(r.get("date"))[:10]]
+                        for r in formatted_data
+                        if r.get("ad_id") and cabeca_t[0] <= str(r.get("date"))[:10] <= cabeca_t[1]
+                    ] or None
+                supabase_repo.trim_pack_to_window(
+                    self.user_id,
+                    pack_id,
+                    str(window_edit["date_start"]),
+                    str(window_edit["date_stop"]),
+                    head=cabeca_t,
+                    head_keys=chaves,
+                    sb_client=self._sb,
+                )
             supabase_repo.apply_pack_window_edit(
                 self.user_jwt,
                 pack_id,
@@ -975,7 +1001,7 @@ class JobProcessor:
 
             if is_refresh and pack_id:
                 try:
-                    self._finish_pack_refresh(pack_id, payload)
+                    self._finish_pack_refresh(pack_id, payload, formatted_data=formatted_data)
                 except Exception as e:
                     raise PersistStageError("pack_refresh_status", f"Erro ao atualizar refresh do pack: {e}") from e
 

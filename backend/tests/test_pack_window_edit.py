@@ -70,7 +70,7 @@ def test_recuo_do_pack_calibrado_em_1_dia():
     assert p.fetch == ("2026-08-31", "2026-09-15")
 
 
-# ── Reduzir (Etapa 2 — o plano já descreve; a rota recusa na Etapa 1) ────────
+# ── Reduzir ─────────────────────────────────────────────────────────────────
 
 def test_comecar_depois():
     p = plan_window_edit(PACK, "2026-07-15", "2026-08-31", HOJE)
@@ -139,6 +139,11 @@ def test_window_edit_sem_datas_e_erro():
         plan_refresh_window(PACK, "window_edit", HOJE)
 
 
-def test_window_edit_so_reducao_nao_abre_job():
-    with pytest.raises(RefreshWindowError, match="não exige busca"):
-        plan_refresh_window(PACK, "window_edit", HOJE, date_start="2026-07-01", date_stop="2026-08-15")
+def test_window_edit_so_reducao_nao_pede_nada_a_meta():
+    """Encurtar o fim é banco puro: o plano volta sem fatia, e a rota resolve
+    sem abrir relatório. `since`/`until` viram a janela nova (informativos)."""
+    w = plan_refresh_window(PACK, "window_edit", HOJE, date_start="2026-07-01", date_stop="2026-08-15")
+    assert w.window_edit is not None
+    assert w.window_edit.fetch is None
+    assert w.window_edit.delete_after == "2026-08-15"
+    assert (w.since, w.until) == ("2026-07-01", "2026-08-15")

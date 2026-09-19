@@ -40,9 +40,9 @@ class RefreshWindowError(ValueError):
 class WindowEditPlan:
     """O que a edição de período pede à Meta e o que muda no pack.
 
-    `fetch` é UMA fatia (since, until) ou None. Os campos de redução
-    (`delete_before`, `delete_after`, `head`) descrevem o que a Etapa 2 apaga;
-    na Etapa 1 a rota recusa qualquer plano com `reduces=True`.
+    `fetch` é UMA fatia (since, until) — ou None quando só se encurta o fim, caso
+    em que não há nada a pedir à Meta e a rota resolve no banco. Os campos de
+    redução (`delete_before`, `delete_after`, `head`) dizem o que sai do pack.
     """
     new_start: str
     new_stop: str
@@ -215,12 +215,13 @@ def plan_refresh_window(
         if not date_start or not date_stop:
             raise RefreshWindowError("Edição de período exige date_start e date_stop.")
         plan = plan_window_edit(pack, date_start, date_stop, until_date)
-        if plan.fetch is None:
-            # Só redução: nada a pedir à Meta (Etapa 2 resolve sem job).
-            raise RefreshWindowError("Este período não exige busca na Meta.")
+        # Só redução (encurtar o fim): não há o que pedir à Meta. `since`/`until`
+        # ficam sendo a janela nova — a rota vê `window_edit.fetch is None` e
+        # resolve no banco, sem abrir relatório.
+        since_str, until_str = plan.fetch or (plan.new_start, plan.new_stop)
         return RefreshWindow(
-            since=plan.fetch[0],
-            until=plan.fetch[1],
+            since=since_str,
+            until=until_str,
             lookback_days=plan.lookback_days,
             clamped_to_stop=False,
             window_edit=plan,

@@ -3216,6 +3216,226 @@ def acquire_pack_refresh_lock(
     return acquired
 
 
+def pack_trim_preview(
+    pack_id: str,
+    owner_id: str,
+    date_start: str,
+    date_stop: str,
+    *,
+    sb_client: Optional["Client"] = None,
+) -> Dict[str, Any]:
+    """O que SAI do pack se o período virar [date_start, date_stop] (migration 167).
+
+    Conta o dado real, não o que a janela declarada diz: existem linhas fora da
+    janela do próprio pack (847 no mapa em produção, medido na 146) e elas também
+    saem no recorte. É o número do aviso "X dias saem, somando R$ Y".
+    """
+    sb = _get_sb(None, sb_client)
+    res = with_postgrest_retry(
+        f"pack_trim_preview[{pack_id}]",
+        lambda: sb.rpc(
+            "pack_trim_preview",
+            {"p_owner": str(owner_id), "p_pack": str(pack_id),
+             "p_start": date_start, "p_stop": date_stop},
+        ).execute(),
+    )
+    linha = (res.data or [{}])[0] if isinstance(res.data, list) else (res.data or {})
+    return {
+        "dias": int(linha.get("dias") or 0),
+        "investimento": float(linha.get("investimento") or 0),
+        "linhas": int(linha.get("linhas") or 0),
+        "anuncios": int(linha.get("anuncios") or 0),
+    }
+
+
+def _delete_pack_days(sb, owner_id: str, pack_id: str, dias: List[str]) -> int:
+    """Apaga as métricas do pack dia a dia. Uma requisição por dia, como
+    `delete_pack`: cada uma fica bem abaixo do teto de 8 s que o papel de serviço
+    herda do `authenticator`, mesmo num pack grande. A cascata das FKs leva mapa
+    e read model junto (medido em 18/09: zero órfãos)."""
+    apagados = 0
+    for dia in dias:
+        try:
+            with_postgrest_retry(
+                f"trim_delete_day[{pack_id}:{dia}]",
+                lambda d=dia: sb.table("ad_metrics").delete()
+                .eq("user_id", owner_id).eq("pack_id", pack_id).eq("date", d).execute(),
+            )
+            apagados += 1
+        except Exception as e:
+            # Um dia que falha não pode deixar o recorte pela metade em silêncio.
+            raise RuntimeError(f"Falha ao apagar o dia {dia} do pack {pack_id}: {e}") from e
+    return apagados
+
+
+def trim_pack_to_window(
+    owner_id: str,
+    pack_id: str,
+    date_start: str,
+    date_stop: str,
+    *,
+    head: Optional[Tuple[str, str]] = None,
+    head_keys: Optional[List[List[str]]] = None,
+    sb_client: Optional["Client"] = None,
+) -> Dict[str, Any]:
+    """Reduz um pack ao período [date_start, date_stop]. NÃO mexe nas datas do pack.
+
+    Ordem (plano de edição de período, §2.3), e ela importa: primeiro o que é
+    idempotente e recuperável por um refresh (apagar), por último o que muda o
+    contrato (as datas, em `apply_pack_window_edit`). Se algo falhar no meio, o
+    pack continua declarando o período ANTIGO — que é o estado do qual um
+    "atualizar todo o período" repõe o que faltar.
+
+    `head`/`head_keys`: a cabeça do período novo. É o ÚNICO lugar onde "a Meta não
+    trouxe" significa "saiu do pack" — ali as linhas gravadas contavam conversões
+    de cliques anteriores ao novo início. Sem as chaves, a cabeça não é tocada
+    (nunca se apaga por ausência sem a resposta em mãos).
+    """
+    sb = _get_sb(None, sb_client)
+    resultado: Dict[str, Any] = {
+        "dias_apagados": 0, "cabeca_apagada": 0, "inventario_ajustado": 0,
+        "inventario_removido": 0, "ads_removidos": 0, "thumbs_removidas": 0,
+    }
+
+    # 1. Cabeça: ausência = saiu (só com as chaves da resposta).
+    if head and head_keys:
+        try:
+            res = with_postgrest_retry(
+                f"pack_trim_head[{pack_id}]",
+                lambda: sb.rpc("pack_trim_head", {
+                    "p_owner": str(owner_id), "p_pack": str(pack_id),
+                    "p_from": head[0], "p_to": head[1], "p_keys": head_keys,
+                }).execute(),
+            )
+            resultado["cabeca_apagada"] = int(res.data or 0)
+        except Exception as e:
+            raise RuntimeError(f"Falha ao recortar a cabeça do pack {pack_id}: {e}") from e
+
+    # 2. Período: dia a dia sobre o que EXISTE fora da janela nova, mais uma
+    #    varredura final (pega linha fora da janela declarada, que o dia a dia
+    #    não enxergaria se o pack mentisse sobre o próprio período).
+    #    PAGINADO de propósito: o PostgREST corta em 1000 linhas sem avisar, e um
+    #    pack grande tem dezenas de milhares — um dia perdido aqui viraria dia
+    #    sobrevivente no pack. Só as linhas FORA da janela são lidas.
+    dias_fora: List[str] = []
+    try:
+        encontrados = set()
+        for lado, alvo in (("antes", date_start), ("depois", date_stop)):
+            def filtros(q, lado=lado, alvo=alvo):
+                q = q.eq("user_id", owner_id).eq("pack_id", pack_id)
+                return q.lt("date", alvo) if lado == "antes" else q.gt("date", alvo)
+
+            for r in _fetch_all_paginated(sb, "ad_metrics", "date", filtros):
+                dia = str(r.get("date") or "")[:10]
+                if dia:
+                    encontrados.add(dia)
+        dias_fora = sorted(encontrados)
+    except Exception as e:
+        raise RuntimeError(f"Falha ao listar os dias fora do período do pack {pack_id}: {e}") from e
+
+    resultado["dias_apagados"] = _delete_pack_days(sb, owner_id, pack_id, dias_fora)
+
+    for rotulo, filtro in (("antes", "lt"), ("depois", "gt")):
+        alvo = date_start if rotulo == "antes" else date_stop
+        try:
+            q = sb.table("ad_metrics").delete().eq("user_id", owner_id).eq("pack_id", pack_id)
+            q = q.lt("date", alvo) if filtro == "lt" else q.gt("date", alvo)
+            with_postgrest_retry(f"trim_sweep_{rotulo}[{pack_id}]", lambda qq=q: qq.execute())
+        except Exception as e:
+            raise RuntimeError(f"Falha na varredura {rotulo} do pack {pack_id}: {e}") from e
+
+    # 3. Inventário: intervalos ativos para dentro da janela (o merge só estende).
+    try:
+        res = with_postgrest_retry(
+            f"pack_clamp_inventory[{pack_id}]",
+            lambda: sb.rpc("pack_clamp_inventory", {
+                "p_owner": str(owner_id), "p_pack": str(pack_id),
+                "p_start": date_start, "p_stop": date_stop,
+            }).execute(),
+        )
+        linha = (res.data or [{}])[0] if isinstance(res.data, list) else (res.data or {})
+        resultado["inventario_ajustado"] = int(linha.get("ajustados") or 0)
+        resultado["inventario_removido"] = int(linha.get("removidos") or 0)
+    except Exception as e:
+        raise RuntimeError(f"Falha ao recortar o inventário do pack {pack_id}: {e}") from e
+
+    # 4. Anúncios que ficaram sem nenhum dia e sem intervalo.
+    saindo: List[str] = []
+    try:
+        res = with_postgrest_retry(
+            f"pack_prune_ad_ids[{pack_id}]",
+            lambda: sb.rpc("pack_prune_ad_ids", {
+                "p_owner": str(owner_id), "p_pack": str(pack_id)}).execute(),
+        )
+        saindo = [str(a) for a in (res.data or []) if str(a or "").strip()]
+    except Exception as e:
+        logger.warning(f"[TRIM_PACK] Falha ao podar ad_ids do pack {pack_id} (best-effort): {e}")
+
+    if saindo:
+        # Miniaturas dos que saem: coletadas ANTES de mexer em `ads`.
+        thumbs: List[str] = []
+        try:
+            for i in range(0, len(saindo), 200):
+                lote = saindo[i:i + 200]
+                r = sb.table("ads").select("thumb_storage_path").eq("user_id", owner_id).in_("ad_id", lote).execute()
+                thumbs.extend([str(x.get("thumb_storage_path")) for x in (r.data or []) if x.get("thumb_storage_path")])
+        except Exception as e:
+            logger.warning(f"[TRIM_PACK] Não coletei as miniaturas dos ads que saíram: {e}")
+
+        # Tira o pack do array; quem ficou sem nenhum pack é apagado. Mesmo
+        # mecanismo do `delete_pack` (decide linha a linha entre "pertence a
+        # outros packs → tira só este" e "era só deste → apaga"), em lotes de 200
+        # ids porque o `in_` do PostgREST vai na URL.
+        try:
+            apagar: List[str] = []
+            for i in range(0, len(saindo), 200):
+                lote = saindo[i:i + 200]
+
+                def filtros(q, lote=lote):
+                    return q.eq("user_id", owner_id).in_("ad_id", lote).filter(
+                        "pack_ids", "cs", f"{{{pack_id}}}"
+                    )
+
+                _, exclusivos, _ = _process_pack_deletion_in_batches(
+                    sb=sb, table_name="ads", id_field="ad_id", filters_func=filtros,
+                    pack_id=str(pack_id), user_id=str(owner_id),
+                )
+                apagar.extend(exclusivos)
+
+            for i in range(0, len(apagar), 200):
+                lote = apagar[i:i + 200]
+                sb.table("ads").delete().eq("user_id", owner_id).in_("ad_id", lote).execute()
+            resultado["ads_removidos"] = len(saindo)
+        except Exception as e:
+            logger.warning(f"[TRIM_PACK] Falha ao tirar o pack de ads.pack_ids (best-effort): {e}")
+
+        try:
+            resultado["thumbs_removidas"] = int(_delete_unreferenced_thumb_paths(
+                sb, user_id=owner_id, candidate_paths=thumbs) or 0)
+        except Exception as e:
+            logger.warning(f"[TRIM_PACK] Cleanup de miniaturas falhou (best-effort): {e}")
+
+    # 5. conversion_types do que sobrou (o union do refresh só cresce; um tipo que
+    #    só existia nos dias removidos seguiria no dropdown e devolveria tela vazia).
+    try:
+        with_postgrest_retry(
+            f"pack_recompute_conversion_types[{pack_id}]",
+            lambda: sb.rpc("pack_recompute_conversion_types", {
+                "p_owner": str(owner_id), "p_pack": str(pack_id)}).execute(),
+        )
+    except Exception as e:
+        logger.warning(f"[TRIM_PACK] Falha ao recalcular conversion_types (best-effort): {e}")
+
+    logger.info(
+        "[TRIM_PACK] Pack %s recortado para %s..%s: %s dias apagados, cabeça %s, "
+        "inventário %s ajustados/%s removidos, %s ads fora, %s miniaturas",
+        pack_id, date_start, date_stop, resultado["dias_apagados"], resultado["cabeca_apagada"],
+        resultado["inventario_ajustado"], resultado["inventario_removido"],
+        resultado["ads_removidos"], resultado["thumbs_removidas"],
+    )
+    return resultado
+
+
 def apply_pack_window_edit(
     user_jwt: Optional[str],
     pack_id: str,

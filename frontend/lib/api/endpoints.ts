@@ -162,7 +162,7 @@ export const api = {
      */
     // refresh_type "window_edit" = edição do período do pack: `windowEdit` leva o
     // período novo; o backend busca a fatia que ele pede e, no fim, troca as datas.
-    refreshPack: (packId: string, untilDate: string, refreshType: "since_last_refresh" | "full_period" | "window_edit" = "since_last_refresh", skipSheetsSync: boolean = false, chainSheetsAfterMeta: boolean = false, sheetIntegrationId?: string, windowEdit?: { date_start: string; date_stop: string }): Promise<{ job_id: string; status: string; message: string; pack_id: string; date_range: { since: string; until: string }; sync_job_id?: string; server_chain?: boolean }> =>
+    refreshPack: (packId: string, untilDate: string, refreshType: "since_last_refresh" | "full_period" | "window_edit" = "since_last_refresh", skipSheetsSync: boolean = false, chainSheetsAfterMeta: boolean = false, sheetIntegrationId?: string, windowEdit?: { date_start: string; date_stop: string }): Promise<{ job_id?: string; status: string; message: string; pack_id: string; date_range: { since: string; until: string }; sync_job_id?: string; server_chain?: boolean; removido?: { dias_apagados: number; cabeca_apagada: number; inventario_ajustado: number; inventario_removido: number; ads_removidos: number; thumbs_removidas: number } }> =>
       apiClient.post(`/facebook/refresh-pack/${packId}`, { until_date: untilDate, refresh_type: refreshType, skip_sheets_sync: skipSheetsSync, chain_sheets_after_meta: chainSheetsAfterMeta, sheet_integration_id: sheetIntegrationId, ...(windowEdit ? { date_start: windowEdit.date_start, date_stop: windowEdit.date_stop } : {}) }),
 
     /** Retorna contagens e listas de ads por categoria de transcrição para um pack. */
@@ -469,6 +469,10 @@ export const api = {
       apiClient.deleteWithBody(`/analytics/packs/${packId}`, { ad_ids: adIds }),
     updatePackAutoRefresh: (packId: string, autoRefresh: boolean): Promise<{ success: boolean; pack_id: string; auto_refresh: boolean }> =>
       apiClient.patch(`/analytics/packs/${packId}/auto-refresh`, { auto_refresh: autoRefresh }),
+    // Prévia do recorte: o que sai do pack se o período virar este. Só leitura.
+    previewPackDateRange: (packId: string, dateStart: string, dateStop: string): Promise<{ success: boolean; pack_id: string; dias: number; investimento: number; linhas: number; anuncios: number }> =>
+      apiClient.get(`/analytics/packs/${packId}/date-range/preview`, { params: { date_start: dateStart, date_stop: dateStop } }),
+
     updatePackName: (packId: string, name: string): Promise<{ success: boolean; pack_id: string; name: string }> =>
       apiClient.patch(`/analytics/packs/${packId}/name`, { name }),
     /**

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from typing import Any, Dict, List, Optional, Literal, Set, Tuple
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 import json
 import logging
 import time
@@ -2280,6 +2280,41 @@ def get_pack_activity(
     except Exception as e:
         logger.exception(f"Erro ao listar atividade do pack {pack_id}: {e}")
         raise HTTPException(status_code=500, detail="Erro ao listar atividade do pack")
+
+
+@router.get("/packs/{pack_id}/date-range/preview")
+def preview_pack_date_range(
+    pack_id: str,
+    date_start: str,
+    date_stop: str,
+    user=Depends(get_current_user),
+):
+    """O que SAI do pack se o período virar [date_start, date_stop]. Só leitura.
+
+    Alimenta o aviso do diálogo ("X dias saem, somando R$ Y") antes de confirmar.
+    Conta o dado real, não a janela declarada: existem linhas fora da janela do
+    próprio pack (847 no mapa em produção, medido na 146) e elas também saem.
+
+    Só o DONO: o período define o que o pack é, como o nome.
+    """
+    try:
+        access = assert_pack_role(user["user_id"], pack_id, roles=("dono",))
+        try:
+            date.fromisoformat(date_start)
+            date.fromisoformat(date_stop)
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="Datas inválidas. Use formato YYYY-MM-DD.")
+
+        return {
+            "success": True,
+            "pack_id": pack_id,
+            **supabase_repo.pack_trim_preview(pack_id, access.owner_id, date_start, date_stop),
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"Erro na prévia de período do pack {pack_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Erro ao calcular a prévia: {str(e)}")
 
 
 @router.patch("/packs/{pack_id}/name")

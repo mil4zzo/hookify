@@ -1,11 +1,14 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { IconInfoCircle } from "@tabler/icons-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { IconInfoCircle, IconLoader2 } from "@tabler/icons-react";
 
 import { AppDialog } from "@/components/common/AppDialog";
+import { InlineNotice } from "@/components/common/States";
 import { DateRangeFilter, type DateRangeValue } from "@/components/common/DateRangeFilter";
 import { Button } from "@/components/ui/button";
+import { api } from "@/lib/api/endpoints";
+import { logger } from "@/lib/utils/logger";
 import { getTodayLocal } from "@/lib/utils/dateFilters";
 import { planWindowEdit, windowEditErrorMessage } from "@/lib/utils/packWindow";
 import type { WindowEditParams } from "@/lib/hooks/usePackRefresh";
@@ -21,22 +24,34 @@ interface PackDateRangeDialogProps {
 
 const fmt = (s: string) => s.slice(0, 10).split("-").reverse().join("/");
 
+interface Previa {
+  dias: number;
+  investimento: number;
+}
+
 /**
- * Edição do período do pack — Etapa 1: só AMPLIAR.
+ * Edição do período do pack.
  *
  * O diálogo mostra exatamente a fatia que o backend vai pedir à Meta (espelho em
  * lib/utils/packWindow.ts), incluindo os dias de janela de atribuição, para o
  * usuário não estranhar as datas pedidas serem maiores que as escolhidas. As
  * datas do pack só mudam quando o dado novo chega completo; falha não muda nada.
+ *
+ * Reduzir apaga dado, então o aviso é quantificado e vem do banco — o que EXISTE
+ * fora do período novo, não o que a janela declarada diz (há linhas fora dela).
  */
 export function PackDateRangeDialog({ pack, open, onOpenChange, onConfirm }: PackDateRangeDialogProps) {
   const [range, setRange] = useState<DateRangeValue>({});
+  const [previa, setPrevia] = useState<Previa | null>(null);
+  const [carregandoPrevia, setCarregandoPrevia] = useState(false);
+  const pedidoRef = useRef(0);
   const today = getTodayLocal();
 
   // Reidrata ao abrir — reabrir para outro pack não pode mostrar o período do anterior.
   useEffect(() => {
     if (!open || !pack) return;
     setRange({ start: pack.date_start || undefined, end: pack.date_stop || undefined });
+    setPrevia(null);
   }, [open, pack]);
 
   const result = useMemo(
@@ -46,11 +61,39 @@ export function PackDateRangeDialog({ pack, open, onOpenChange, onConfirm }: Pac
 
   const plan = result?.plan ?? null;
   const unchanged = result?.error === "mesmo_periodo";
-  // Reduzir chega na Etapa 2 (documentation/plano-edicao-periodo-pack.md).
   const reduces = !!plan?.reduces;
-  const canConfirm = !!plan && !reduces;
+  const canConfirm = !!plan;
 
   const errorMessage = result?.error && !unchanged ? windowEditErrorMessage(result.error) : null;
+
+  // Prévia só quando reduz, e com respiro: o usuário mexe no calendário várias
+  // vezes antes de decidir. `pedidoRef` descarta resposta de pedido vencido.
+  useEffect(() => {
+    if (!pack || !plan || !plan.reduces) {
+      setPrevia(null);
+      setCarregandoPrevia(false);
+      return;
+    }
+    const meu = ++pedidoRef.current;
+    setCarregandoPrevia(true);
+    const timer = setTimeout(() => {
+      api.analytics
+        .previewPackDateRange(pack.id, plan.newStart, plan.newStop)
+        .then((r) => {
+          if (meu !== pedidoRef.current) return;
+          setPrevia({ dias: r.dias, investimento: r.investimento });
+        })
+        .catch((e) => {
+          if (meu !== pedidoRef.current) return;
+          logger.error("Erro ao calcular a prévia do recorte:", e);
+          setPrevia(null);
+        })
+        .finally(() => {
+          if (meu === pedidoRef.current) setCarregandoPrevia(false);
+        });
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [pack, plan?.reduces, plan?.newStart, plan?.newStop]);
 
   return (
     <AppDialog isOpen={open} onClose={() => onOpenChange(false)} title="Editar período" size="sm">
@@ -73,12 +116,34 @@ export function PackDateRangeDialog({ pack, open, onOpenChange, onConfirm }: Pac
         {errorMessage && <p className="text-xs text-destructive">{errorMessage}</p>}
 
         {reduces && (
-          <div className="rounded-lg border border-border bg-background p-3 text-xs text-muted-foreground">
-            Reduzir o período ainda não está disponível. Por enquanto, para reduzir, recrie o pack.
-          </div>
+          <InlineNotice tone="warning" title="Este período apaga dados do pack">
+            <div className="space-y-1">
+              {carregandoPrevia || !previa ? (
+                <p className="text-xs text-muted-foreground flex items-center gap-1.5">
+                  <IconLoader2 className="w-3 h-3 animate-spin" /> Calculando o que sai do pack...
+                </p>
+              ) : previa.dias === 0 ? (
+                <p className="text-xs">Nenhum dia com dados sai deste pack.</p>
+              ) : (
+                <p className="text-xs">
+                  <span className="font-medium">
+                    {previa.dias} {previa.dias === 1 ? "dia sai" : "dias saem"}
+                  </span>{" "}
+                  deste pack, somando{" "}
+                  <span className="font-medium">
+                    {previa.investimento.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
+                  </span>{" "}
+                  de investimento.
+                </p>
+              )}
+              <p className="text-2xs text-muted-foreground">
+                Para trazer de volta, amplie o período e atualize o pack.
+              </p>
+            </div>
+          </InlineNotice>
         )}
 
-        {plan && !reduces && plan.fetch && (
+        {plan && plan.fetch && (
           <div className="rounded-lg border border-border bg-background p-3 space-y-1">
             <p className="text-xs text-foreground">
               Vai buscar na Meta <span className="font-medium">{fmt(plan.fetch[0])} → {fmt(plan.fetch[1])}</span>.
@@ -105,13 +170,14 @@ export function PackDateRangeDialog({ pack, open, onOpenChange, onConfirm }: Pac
           </Button>
           <Button
             size="sm"
-            disabled={!canConfirm}
+            variant={reduces && (previa?.dias ?? 0) > 0 ? "destructive" : "default"}
+            disabled={!canConfirm || (reduces && carregandoPrevia)}
             onClick={() => {
               if (!pack || !plan) return;
               onConfirm(pack, { date_start: plan.newStart, date_stop: plan.newStop });
             }}
           >
-            Alterar período
+            {reduces && (previa?.dias ?? 0) > 0 ? "Alterar e apagar" : "Alterar período"}
           </Button>
         </div>
       </div>

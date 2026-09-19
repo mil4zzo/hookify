@@ -4496,13 +4496,6 @@ def refresh_pack(
         except RefreshWindowError as e:
             raise HTTPException(status_code=400, detail=str(e))
         since_str, until_str, lookback_days = window.since, window.until, window.lookback_days
-        # Etapa 1 da edição de período: só AMPLIAR. Reduzir apaga dado e chega na
-        # Etapa 2 (documentation/plano-edicao-periodo-pack.md).
-        if window.window_edit is not None and window.window_edit.reduces:
-            raise HTTPException(
-                status_code=400,
-                detail="Reduzir o período ainda não está disponível. Por enquanto, para reduzir, recrie o pack.",
-            )
 
         logger.info(
             f"[REFRESH_PACK] Pack {pack_id} - Tipo: {refresh_type} - Range: {since_str} até {until_str} "
@@ -4531,6 +4524,56 @@ def refresh_pack(
                     "details": {"job_id": existing_job_id, "pack_id": pack_id},
                 },
             )
+
+        # Redução que não pede nada à Meta (só encurtar o fim): banco puro, aqui
+        # mesmo. Medido em 18/09: ~1,7 s no pior pack de produção. Vai sob a trava
+        # já adquirida, e as datas mudam por último, como no caminho do job.
+        if window.window_edit is not None and window.window_edit.fetch is None:
+            plano = window.window_edit
+            try:
+                recorte = supabase_repo.trim_pack_to_window(
+                    owner_id, pack_id, plano.new_start, plano.new_stop, sb_client=sb,
+                )
+                supabase_repo.apply_pack_window_edit(
+                    None, pack_id, owner_id,
+                    date_start=plano.new_start, date_stop=plano.new_stop,
+                    slice_until=None, auto_refresh_off=plano.auto_refresh_off, sb_client=sb,
+                )
+            except Exception as e:
+                logger.exception(f"[WINDOW_EDIT] Falha ao reduzir o pack {pack_id}: {e}")
+                supabase_repo.update_pack_refresh_status(
+                    None, pack_id, owner_id, refresh_status="failed", sb_client=sb,
+                )
+                raise HTTPException(
+                    status_code=500,
+                    detail="Não foi possível alterar o período. O pack continua como estava.",
+                )
+
+            try:
+                stats = supabase_repo.calculate_pack_stats_essential(None, pack_id, user_id=owner_id, sb_client=sb)
+                if stats and stats.get("totalSpend") is not None:
+                    supabase_repo.update_pack_stats(None, pack_id, stats, user_id=owner_id, sb_client=sb)
+            except Exception as e:
+                logger.warning(f"[WINDOW_EDIT] Stats do pack {pack_id} não recalculados (best-effort): {e}")
+
+            pack_action_log.log_pack_action(
+                action=pack_action_log.ACTION_PACK_DATE_RANGE,
+                actor_id=str(user["user_id"]), actor_role=access.role, owner_id=str(owner_id),
+                pack_ids=[pack_id], pack_name=pack.get("name"),
+                target_type="pack", target_ids=[pack_id],
+                detail={
+                    "from": {"date_start": pack.get("date_start"), "date_stop": pack.get("date_stop")},
+                    "to": {"date_start": plano.new_start, "date_stop": plano.new_stop},
+                    "removido": recorte,
+                },
+            )
+            return {
+                "status": "completed",
+                "message": "Período alterado.",
+                "pack_id": pack_id,
+                "date_range": {"since": plano.new_start, "until": plano.new_stop},
+                "removido": recorte,
+            }
 
         # Converter filtros para formato do GraphAPI (ignorar filtros com campos vazios)
         filters_list = _clean_pack_filters(filters)

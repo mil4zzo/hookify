@@ -77,6 +77,61 @@ class TestFinishPackRefresh(unittest.TestCase):
         apply.assert_called_once()
 
 
+class TestTrimNoFimDoJob(unittest.TestCase):
+    """Redução COM fatia: o job recorta antes de aplicar as datas, e só apaga por
+    ausência na cabeça — com as chaves da resposta em mãos."""
+
+    PAYLOAD = {
+        "date_start": "2026-07-15", "date_stop": "2026-07-21",   # a fatia (cabeça)
+        "window_edit": {
+            "date_start": "2026-07-15", "date_stop": "2026-08-31",
+            "auto_refresh_off": False, "head": ["2026-07-15", "2026-07-21"],
+            "delete_before": "2026-07-15", "delete_after": None,
+        },
+    }
+    LINHAS = [
+        {"ad_id": "a1", "date": "2026-07-15"},
+        {"ad_id": "a2", "date": "2026-07-16"},
+        {"ad_id": "a3", "date": "2026-08-30"},   # fora da cabeça: não vira chave
+    ]
+
+    def test_recorta_antes_de_aplicar_as_datas(self) -> None:
+        p = _processor()
+        ordem = []
+        with mock.patch.object(supabase_repo, "trim_pack_to_window",
+                               side_effect=lambda *a, **k: ordem.append("recorte") or {}) as trim, \
+             mock.patch.object(supabase_repo, "apply_pack_window_edit",
+                               side_effect=lambda *a, **k: ordem.append("datas")):
+            p._finish_pack_refresh("pack-1", self.PAYLOAD, formatted_data=self.LINHAS)
+        self.assertEqual(ordem, ["recorte", "datas"])
+        kw = trim.call_args.kwargs
+        self.assertEqual(kw["head"], ("2026-07-15", "2026-07-21"))
+        # Só os pares DENTRO da cabeça viram chave.
+        self.assertEqual(kw["head_keys"], [["a1", "2026-07-15"], ["a2", "2026-07-16"]])
+        self.assertEqual(trim.call_args.args[2:], ("2026-07-15", "2026-08-31"))
+
+    def test_sem_resposta_nao_apaga_por_ausencia(self) -> None:
+        """Sem `formatted_data` não há chaves: a cabeça fica intocada em vez de ser
+        apagada inteira. `pack_trim_head` também recusa lista vazia do lado do banco."""
+        p = _processor()
+        with mock.patch.object(supabase_repo, "trim_pack_to_window", return_value={}) as trim, \
+             mock.patch.object(supabase_repo, "apply_pack_window_edit"):
+            p._finish_pack_refresh("pack-1", self.PAYLOAD, formatted_data=[])
+        self.assertIsNone(trim.call_args.kwargs["head_keys"])
+
+    def test_ampliar_nao_recorta(self) -> None:
+        p = _processor()
+        payload = {"date_start": "2026-06-01", "date_stop": "2026-07-07",
+                   "window_edit": {"date_start": "2026-06-01", "date_stop": "2026-08-31",
+                                   "auto_refresh_off": True, "head": None,
+                                   "delete_before": None, "delete_after": None}}
+        with mock.patch.object(supabase_repo, "trim_pack_to_window") as trim, \
+             mock.patch.object(supabase_repo, "apply_pack_window_edit") as apply:
+            p._finish_pack_refresh("pack-1", payload, formatted_data=self.LINHAS)
+        trim.assert_not_called()
+        apply.assert_called_once()
+
+
 class TestApplyPackWindowEdit(unittest.TestCase):
     def _run(self, current_anchor, slice_until, **kw):
         writes = []
