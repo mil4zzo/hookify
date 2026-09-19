@@ -9,7 +9,7 @@ import { PackShareDialog } from "@/components/packs/PackShareDialog";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
-import { IconLogout, IconUsers, IconFilter, IconTrash, IconLoader2, IconRotateClockwise, IconPencil, IconTableExport, IconAlertTriangle, IconAlertCircle, IconMicrophone, IconTargetArrow, IconHistory } from "@tabler/icons-react";
+import { IconLogout, IconUsers, IconFilter, IconTrash, IconLoader2, IconRotateClockwise, IconPencil, IconTableExport, IconAlertTriangle, IconAlertCircle, IconMicrophone, IconTargetArrow, IconHistory, IconCalendarEvent } from "@tabler/icons-react";
 import { MetaIcon, GoogleSheetsIcon } from "@/components/icons";
 import { FilterRule } from "@/lib/api/schemas";
 import { AdsPack } from "@/lib/types";
@@ -48,6 +48,8 @@ export interface PackCardProps {
   onDeleteSheetIntegration?: (pack: AdsPack) => void;
   /** Abre a configuração de critérios de julgamento (MQL, CPR alvo, métrica de custo) do pack. */
   onEditJudgment?: (pack: AdsPack) => void;
+  /** Abre a edição do período do pack. Só o dono: período define o que o pack É. */
+  onEditDateRange?: (pack: AdsPack) => void;
   /** Inicia apenas a transcrição dos vídeos do pack (sem refresh). Útil para testes. */
   onTranscribeAds?: (packId: string, packName: string) => void;
   /** Selecionado para uma ação em massa — destaca o card inteiro, não só o checkbox. */
@@ -70,7 +72,7 @@ export interface PackCardProps {
  * - Métricas: Campanhas, Adsets, Anúncios (grid de 3 colunas)
  * - Footer: Última atualização (esquerda) + Atualização automática (direita)
  */
-export function PackCard({ pack, adAccountName, formatCurrency, formatDate, onRefresh, onRemove, onToggleAutoRefresh, onSetSheetIntegration, onEditSheetIntegration, onDeleteSheetIntegration, onEditJudgment, onTranscribeAds, isSelected = false, isUpdating, updatingByName, isTogglingAutoRefresh, packToDisableAutoRefresh }: PackCardProps) {
+export function PackCard({ pack, adAccountName, formatCurrency, formatDate, onRefresh, onRemove, onToggleAutoRefresh, onSetSheetIntegration, onEditSheetIntegration, onDeleteSheetIntegration, onEditJudgment, onEditDateRange, onTranscribeAds, isSelected = false, isUpdating, updatingByName, isTogglingAutoRefresh, packToDisableAutoRefresh }: PackCardProps) {
   const stats = pack.stats;
   // Conta de anúncio de origem: prefere o nome resolvido; cai para o id cru (act_...) se ainda não carregou/não resolveu.
   const adAccountLabel = adAccountName || pack.adaccount_id;
@@ -676,6 +678,12 @@ export function PackCard({ pack, adAccountName, formatCurrency, formatDate, onRe
             <IconRotateClockwise className="w-4 h-4 mr-2" />
             Atualizar pack
           </DropdownMenuItem>
+          {onEditDateRange && !isSharedGuest && (
+            <DropdownMenuItem onClick={() => onEditDateRange(pack)} disabled={isUpdating}>
+              <IconCalendarEvent className="w-4 h-4 mr-2" />
+              Editar período
+            </DropdownMenuItem>
+          )}
           {onTranscribeAds && !isSharedGuest && (
             <DropdownMenuItem onClick={() => onTranscribeAds(pack.id, pack.name)} disabled={isUpdating}>
               <IconMicrophone className="w-4 h-4 mr-2" />

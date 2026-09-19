@@ -1340,6 +1340,7 @@ export type PackActionVerb =
   | 'pack.judgment'
   | 'pack.auto_refresh'
   | 'pack.rename'
+  | 'pack.date_range'
   | 'pack.delete'
   | 'share.grant'
   | 'share.role'

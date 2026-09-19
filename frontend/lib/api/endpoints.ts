@@ -160,8 +160,10 @@ export const api = {
      * (true ⇒ o frontend NÃO deve disparar sheets — orquestrador único; ausente
      * = backend antigo/flag off ⇒ fluxo client-side atual).
      */
-    refreshPack: (packId: string, untilDate: string, refreshType: "since_last_refresh" | "full_period" = "since_last_refresh", skipSheetsSync: boolean = false, chainSheetsAfterMeta: boolean = false, sheetIntegrationId?: string): Promise<{ job_id: string; status: string; message: string; pack_id: string; date_range: { since: string; until: string }; sync_job_id?: string; server_chain?: boolean }> =>
-      apiClient.post(`/facebook/refresh-pack/${packId}`, { until_date: untilDate, refresh_type: refreshType, skip_sheets_sync: skipSheetsSync, chain_sheets_after_meta: chainSheetsAfterMeta, sheet_integration_id: sheetIntegrationId }),
+    // refresh_type "window_edit" = edição do período do pack: `windowEdit` leva o
+    // período novo; o backend busca a fatia que ele pede e, no fim, troca as datas.
+    refreshPack: (packId: string, untilDate: string, refreshType: "since_last_refresh" | "full_period" | "window_edit" = "since_last_refresh", skipSheetsSync: boolean = false, chainSheetsAfterMeta: boolean = false, sheetIntegrationId?: string, windowEdit?: { date_start: string; date_stop: string }): Promise<{ job_id: string; status: string; message: string; pack_id: string; date_range: { since: string; until: string }; sync_job_id?: string; server_chain?: boolean }> =>
+      apiClient.post(`/facebook/refresh-pack/${packId}`, { until_date: untilDate, refresh_type: refreshType, skip_sheets_sync: skipSheetsSync, chain_sheets_after_meta: chainSheetsAfterMeta, sheet_integration_id: sheetIntegrationId, ...(windowEdit ? { date_start: windowEdit.date_start, date_stop: windowEdit.date_stop } : {}) }),
 
     /** Retorna contagens e listas de ads por categoria de transcrição para um pack. */
     getPackTranscriptionStatus: (packId: string): Promise<PackTranscriptionStatus> =>

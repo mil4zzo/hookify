@@ -264,6 +264,41 @@ class JobProcessor:
         )
         return groups
 
+    def _finish_pack_refresh(self, pack_id: str, payload: Optional[Dict[str, Any]], *, empty: bool = False) -> None:
+        """Fecha o pack ao fim de um refresh que chegou até aqui com a coleta completa.
+
+        Refresh comum: `success`, âncora e fim = `until` da busca (com coleta
+        vazia, nada de data anda — só libera a trava).
+        Edição de período (`payload.window_edit`): as datas do pack viram as
+        novas, âncora nunca retrocede, e "terminar antes de hoje" desliga o
+        "manter atualizado". Último passo de propósito: falha antes daqui deixa
+        o período antigo intacto.
+        """
+        payload = payload or {}
+        window_edit = payload.get("window_edit")
+        if window_edit:
+            supabase_repo.apply_pack_window_edit(
+                self.user_jwt,
+                pack_id,
+                self.user_id,
+                date_start=str(window_edit["date_start"]),
+                date_stop=str(window_edit["date_stop"]),
+                slice_until=str(payload.get("date_stop") or ""),
+                auto_refresh_off=bool(window_edit.get("auto_refresh_off")),
+                sb_client=self._sb,
+            )
+            return
+        until = str(payload.get("date_stop")) if payload.get("date_stop") else None
+        supabase_repo.update_pack_refresh_status(
+            self.user_jwt,
+            pack_id,
+            user_id=self.user_id,
+            last_refreshed_at=None if empty else until,
+            refresh_status="success",
+            date_stop=None if empty else until,
+            sb_client=self._sb,
+        )
+
     def _release_pack_after_failure(self, payload: Optional[Dict[str, Any]], pack_id: Optional[str], is_refresh: bool) -> None:
         """Refresh que morreu na coleta deixa o pack 'failed', não 'running' até o lock vencer."""
         if not is_refresh or not pack_id:
@@ -435,7 +470,16 @@ class JobProcessor:
                     )
 
             if not raw_data:
-                # Job completou mas sem dados
+                # Job completou mas sem dados. A coleta chegou COMPLETA (o teste
+                # acima) — o período simplesmente não tem anúncio. Um refresh
+                # deixava o pack 'running' até o lock vencer; uma edição de
+                # período aplica as datas novas: um período sem entrega é um
+                # período válido, e o usuário pediu esse.
+                if is_refresh and pack_id_from_payload:
+                    try:
+                        self._finish_pack_refresh(pack_id_from_payload, payload, empty=True)
+                    except Exception as e:
+                        logger.warning(f"[JobProcessor] Não fechei o pack {pack_id_from_payload} após coleta vazia (best-effort): {e}")
                 self.tracker.mark_completed(job_id, pack_id="", result_count=0, details={
                     "page_count": page_count,
                     "total_collected": 0,
@@ -930,18 +974,8 @@ class JobProcessor:
                     raise PersistStageError("pack_index_update", f"Erro ao atualizar índices do pack: {e}") from e
 
             if is_refresh and pack_id:
-                last_refreshed_at = str(payload.get("date_stop")) if payload else None
-                date_stop = str(payload.get("date_stop")) if payload else None
                 try:
-                    supabase_repo.update_pack_refresh_status(
-                        self.user_jwt,
-                        pack_id,
-                        user_id=self.user_id,
-                        last_refreshed_at=last_refreshed_at,
-                        refresh_status="success",
-                        date_stop=date_stop,
-                        sb_client=self._sb,
-                    )
+                    self._finish_pack_refresh(pack_id, payload)
                 except Exception as e:
                     raise PersistStageError("pack_refresh_status", f"Erro ao atualizar refresh do pack: {e}") from e
 

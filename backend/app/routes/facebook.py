@@ -34,7 +34,7 @@ from app.services.facebook_connections_repo import (
     list_connections,
     update_connection_status
 )
-from app.services.attribution_window import lookback_days_for_pack
+from app.services.pack_window import WINDOW_EDIT, RefreshWindowError, plan_refresh_window
 from app.services.gk_retry import (
     MAX_ATTEMPTS,
     exhausted_message,
@@ -4391,6 +4391,30 @@ def exchange_code_for_token(request: FacebookTokenRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+def _find_active_refresh_job(sb, owner_id: str, pack_id: str) -> Optional[str]:
+    """Job de refresh ATIVO (heartbeat fresco) deste pack, iniciado por qualquer
+    membro/aba — para o frontend re-anexar quando a trava está ocupada. Filtro por
+    is_refresh (só o payload do refresh tem essa chave) cobre jobs antigos sem
+    "type". Filtrado pelo DONO: o job vive no silo dele. Best-effort: None se não
+    achou ou se a consulta falhou (a trava já decidiu o 409; isto só enriquece)."""
+    try:
+        active_cutoff = (datetime.now(timezone.utc) - timedelta(minutes=10)).isoformat()
+        rows = (
+            sb.table("jobs")
+            .select("id,status,updated_at")
+            .eq("user_id", owner_id)
+            .contains("payload", {"pack_id": pack_id, "is_refresh": True})
+            .in_("status", ["pending", "running", "meta_running", "meta_completed", "processing", "persisting"])
+            .gte("updated_at", active_cutoff)
+            .limit(1)
+            .execute()
+        ).data or []
+        return rows[0].get("id") if rows else None
+    except Exception as e:
+        logger.warning(f"[REFRESH_PACK] Não consegui localizar o job ativo do pack {pack_id}: {e}")
+        return None
+
+
 @router.post("/refresh-pack/{pack_id}")
 def refresh_pack(
     pack_id: str,
@@ -4399,11 +4423,14 @@ def refresh_pack(
 ):
     """Atualiza um pack existente buscando novos dados do Meta.
     
-    Calcula o range de datas baseado no refresh_type:
+    A janela da busca vem de `pack_window.plan_refresh_window` (regra única,
+    espelhada no frontend em refreshWindow.ts):
     - 'since_last_refresh': desde last_refreshed_at - janela de atribuição do pack
-      (packs.attribution_window_days; 7 se ainda não calibrado) até until_date,
-      nunca antes de date_start
-    - 'full_period': desde date_start até date_stop (ou até hoje se auto_refresh estiver ativado)
+      (packs.attribution_window_days; 7 se ainda não calibrado), nunca antes de date_start
+    - 'full_period': desde date_start
+    - até until_date nos dois casos — mas num pack FECHADO (auto_refresh desligado)
+      nunca além de date_stop: o período de um pack fechado é decisão do usuário,
+      e antes toda atualização o reabria até hoje em silêncio.
     
     Args:
         pack_id: ID do pack a atualizar
@@ -4453,113 +4480,57 @@ def refresh_pack(
         if not isinstance(filters, list):
             filters = []
 
-        # Validar refresh_type
+        # Janela da busca: regra única em pack_window (espelhada em refreshWindow.ts).
+        # Inclui o recuo pela janela de atribuição (143) e o fim limitado ao
+        # date_stop de pack fechado (0.1 do plano de edição de período).
         refresh_type = request.refresh_type
-        if refresh_type not in ["since_last_refresh", "full_period"]:
-            raise HTTPException(status_code=400, detail="refresh_type deve ser 'since_last_refresh' ou 'full_period'")
-
-        # Validar until_date
+        # Editar o período redefine o que o pack É — mesma classe que renomear e
+        # excluir: só o dono. Editor calibra (julgamento, toggle); não redefine.
+        if refresh_type == WINDOW_EDIT and access.role != "dono":
+            raise HTTPException(status_code=403, detail="Só o dono do pack pode editar o período.")
         try:
-            until_date_parsed = date.fromisoformat(request.until_date)
-        except (ValueError, TypeError):
-            raise HTTPException(status_code=400, detail=f"until_date inválido: '{request.until_date}'. Use formato YYYY-MM-DD.")
-
-        # Calcular range de datas baseado no refresh_type (datas lógicas YYYY-MM-DD)
-        if refresh_type == "since_last_refresh":
-            # Opção 1: Desde a última atualização
-            # Fallback para date_stop em packs legados criados antes de last_refreshed_at ser preenchido na criação
-            last_refreshed_str = pack.get("last_refreshed_at") or pack.get("date_stop")
-            if not last_refreshed_str:
-                raise HTTPException(status_code=400, detail="Pack não tem last_refreshed_at configurado. Use 'full_period' para atualizar todo o período.")
-            # Recuo = janela de atribuição do pack (migration 143). O /insights só
-            # conta a conversão se o CLIQUE estiver dentro da janela consultada; um
-            # recuo menor que a janela perde toda conversão tardia — para sempre,
-            # porque o dia gravado não é relido. Medido: 1 dia de recuo deixava a
-            # pré-matrícula 14,5% abaixo do Gerenciador. Os dias do recuo são
-            # reescritos por cima (upsert por {dia}-{ad_id}), então o dado converge.
-            lookback_days = lookback_days_for_pack(pack)
-            # Parsing robusto: funciona com "YYYY-MM-DD" e "YYYY-MM-DDThh:mm:ss..."
-            since_date = date.fromisoformat(last_refreshed_str[:10]) - timedelta(days=lookback_days)
-            # Nunca antes do início do pack: o primeiro dia do período não leva
-            # recuo — é onde o Gerenciador também começa (paridade conferida).
-            pack_start_str = str(pack.get("date_start") or "")[:10]
-            if pack_start_str:
-                try:
-                    since_date = max(since_date, date.fromisoformat(pack_start_str))
-                except ValueError:
-                    pass
-            since_str = since_date.strftime("%Y-%m-%d")
-            until_str = request.until_date
-
-            if since_date > until_date_parsed:
-                raise HTTPException(status_code=400, detail=f"Range inválido: since ({since_str}) > until ({until_str})")
-
-            logger.info(
-                f"[REFRESH_PACK] Pack {pack_id} - Tipo: desde última atualização - Range: {since_str} até {until_str} "
-                f"(last_refreshed: {last_refreshed_str}, recuo: {lookback_days} dias, attribution_setting: {pack.get('attribution_setting')})"
+            window = plan_refresh_window(
+                pack, refresh_type, request.until_date,
+                date_start=request.date_start, date_stop=request.date_stop,
             )
-        else:
-            # Opção 2: Todo o período (sem recuo: começa onde o pack começa)
-            lookback_days = 0
-            if not pack.get("date_start"):
-                raise HTTPException(status_code=400, detail="Pack não tem date_start configurado")
+        except RefreshWindowError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        since_str, until_str, lookback_days = window.since, window.until, window.lookback_days
+        # Etapa 1 da edição de período: só AMPLIAR. Reduzir apaga dado e chega na
+        # Etapa 2 (documentation/plano-edicao-periodo-pack.md).
+        if window.window_edit is not None and window.window_edit.reduces:
+            raise HTTPException(
+                status_code=400,
+                detail="Reduzir o período ainda não está disponível. Por enquanto, para reduzir, recrie o pack.",
+            )
 
-            since_str = pack["date_start"]
-
-            # Se auto_refresh estiver ativado, usar até hoje (until_date), senão usar date_stop
-            auto_refresh = pack.get("auto_refresh", False)
-            if auto_refresh:
-                until_str = request.until_date
-            else:
-                if not pack.get("date_stop"):
-                    raise HTTPException(status_code=400, detail="Pack não tem date_stop configurado")
-                until_str = pack["date_stop"]
-
-            logger.info(f"[REFRESH_PACK] Pack {pack_id} - Tipo: todo o período - Range: {since_str} até {until_str} (auto_refresh: {auto_refresh})")
-
-        # Guard anti-dupla atualização: se já existe um job de refresh ATIVO
-        # (com heartbeat fresco) para este pack — iniciado por outra aba/sessão —
-        # rejeitar com 409 e devolver o job_id para o frontend re-anexar em vez
-        # de criar um segundo refresh. Filtro por is_refresh (só o payload do
-        # refresh tem essa chave) cobre também jobs antigos sem "type".
-        # Gated pela flag para nunca expor 409 a um frontend que não o trata.
-        if REFRESH_SERVER_CHAIN_ENABLED:
-            active_cutoff = (datetime.now(timezone.utc) - timedelta(minutes=10)).isoformat()
-            # Filtrado pelo DONO: o job de refresh vive no silo dele, entao dois
-            # membros (ou membro + dono) disparando juntos veem o MESMO job ativo.
-            existing_refresh = (
-                sb.table("jobs")
-                .select("id,status,updated_at")
-                .eq("user_id", owner_id)
-                .contains("payload", {"pack_id": pack_id, "is_refresh": True})
-                .in_("status", ["pending", "running", "meta_running", "meta_completed", "processing", "persisting"])
-                .gte("updated_at", active_cutoff)
-                .limit(1)
-                .execute()
-            ).data or []
-            if existing_refresh:
-                existing_job_id = existing_refresh[0].get("id")
-                logger.info(
-                    f"[REFRESH_PACK] Pack {pack_id} já tem refresh ativo (job {existing_job_id}); rejeitando com 409"
-                )
-                raise HTTPException(
-                    status_code=409,
-                    detail={
-                        "code": "REFRESH_ALREADY_RUNNING",
-                        "message": "Este pack já está sendo atualizado.",
-                        "details": {"job_id": existing_job_id, "pack_id": pack_id},
-                    },
-                )
-
-        # Atualizar status do pack para "running" (silo do dono, service role)
-        supabase_repo.update_pack_refresh_status(
-            None,
-            pack_id,
-            owner_id,
-            refresh_status="running",
-            actor_id=str(user["user_id"]),
-            sb_client=sb,
+        logger.info(
+            f"[REFRESH_PACK] Pack {pack_id} - Tipo: {refresh_type} - Range: {since_str} até {until_str} "
+            f"(last_refreshed: {pack.get('last_refreshed_at')}, recuo: {lookback_days} dias, "
+            f"attribution_setting: {pack.get('attribution_setting')}, auto_refresh: {pack.get('auto_refresh', False)}"
+            f"{', fim limitado ao date_stop do pack fechado' if window.clamped_to_stop else ''})"
         )
+
+        # Trava do pack (migration 166): compare-and-set no banco. Só um refresh
+        # (ou uma edição de período) por pack, entre TODOS os membros e abas — a
+        # fila do navegador só serializa o que o próprio usuário dispara. Ocupado:
+        # 409 com o job ativo, se houver, para o frontend re-anexar em vez de
+        # duplicar; sem job (trava de outra operação), 409 sem job_id.
+        if not supabase_repo.acquire_pack_refresh_lock(
+            pack_id, owner_id, str(user["user_id"]), sb_client=sb
+        ):
+            existing_job_id = _find_active_refresh_job(sb, owner_id, pack_id)
+            logger.info(
+                f"[REFRESH_PACK] Pack {pack_id} com trava ocupada (job ativo: {existing_job_id}); rejeitando com 409"
+            )
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "REFRESH_ALREADY_RUNNING",
+                    "message": "Este pack já está sendo atualizado.",
+                    "details": {"job_id": existing_job_id, "pack_id": pack_id},
+                },
+            )
 
         # Converter filtros para formato do GraphAPI (ignorar filtros com campos vazios)
         filters_list = _clean_pack_filters(filters)
@@ -4616,6 +4587,9 @@ def refresh_pack(
             "refresh_type": refresh_type,
             # Recuo aplicado (dias) — observabilidade do efeito da migration 143.
             "lookback_days": lookback_days,
+            # Edição de período: o que o FIM do job aplica no pack (datas novas),
+            # só com a coleta completa. Ausente em refresh comum.
+            **({"window_edit": window.window_edit.as_payload()} if window.window_edit else {}),
             # Auditoria (decisao travada: registrar o ATOR em toda escrita).
             # silo_user_id e redundante com jobs.user_id, mas explicita a intencao.
             "actor_id": str(user["user_id"]),
@@ -4706,7 +4680,7 @@ def refresh_pack(
         # e que o dado do pack mudou e por quem. As recusas daqui (409 de refresh
         # ja em curso, 403 de token do dono) nao mudaram nada e virariam ruido.
         pack_action_log.log_pack_action(
-            action=pack_action_log.ACTION_PACK_REFRESH,
+            action=pack_action_log.ACTION_PACK_DATE_RANGE if window.window_edit else pack_action_log.ACTION_PACK_REFRESH,
             actor_id=str(user["user_id"]),
             actor_role=access.role,
             owner_id=str(owner_id),
@@ -4720,6 +4694,13 @@ def refresh_pack(
                 "since": since_str,
                 "until": until_str,
                 "sheet_sync": bool(sync_job_id or server_chain),
+                **(
+                    {
+                        "from": {"date_start": pack.get("date_start"), "date_stop": pack.get("date_stop")},
+                        "to": {"date_start": window.window_edit.new_start, "date_stop": window.window_edit.new_stop},
+                    }
+                    if window.window_edit else {}
+                ),
             },
         )
 

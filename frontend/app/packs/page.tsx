@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { StandardCard } from "@/components/common/StandardCard";
 import { PackCard } from "@/components/packs/PackCard";
 import { PackJudgmentDialog } from "@/components/packs/PackJudgmentDialog";
+import { PackDateRangeDialog } from "@/components/packs/PackDateRangeDialog";
 import { TranscriptionStatusDialog } from "@/components/packs/TranscriptionStatusDialog";
 import { Input } from "@/components/ui/input";
 import { SearchInputWithClear } from "@/components/common/SearchInputWithClear";
@@ -32,7 +33,7 @@ import { StatePanel, InlineNotice } from "@/components/common/States";
 import { Skeleton } from "@/components/ui/skeleton";
 import { PageBodyStack } from "@/components/common/layout";
 import { getTodayLocal, formatDateLocal } from "@/lib/utils/dateFilters";
-import { lookbackDaysForPack, sinceLastRefreshStart } from "@/lib/utils/refreshWindow";
+import { lookbackDaysForPack, refreshUntil, sinceLastRefreshStart } from "@/lib/utils/refreshWindow";
 import { useUpdatingPacksStore } from "@/lib/store/updatingPacks";
 import { usePacksLoading } from "@/components/layout/PacksLoader";
 import { usePackRefresh, type RefreshToggles } from "@/lib/hooks/usePackRefresh";
@@ -207,6 +208,7 @@ export default function PacksPage() {
   const [isLoadingRemovePreview, setIsLoadingRemovePreview] = useState(false);
   const [isRemovingIntegration, setIsRemovingIntegration] = useState(false);
   const [judgmentPack, setJudgmentPack] = useState<AdsPack | null>(null);
+  const [dateRangePack, setDateRangePack] = useState<AdsPack | null>(null);
 
   // Função auxiliar para obter "hoje - 2 dias" no formato YYYY-MM-DD
   const getTwoDaysAgoLocal = (): string => {
@@ -886,7 +888,7 @@ export default function PacksPage() {
                       />
                     </div>
                   )}
-                <PackCard pack={pack} adAccountName={adAccountNameById.get(pack.adaccount_id)} formatCurrency={formatCurrency} formatDate={formatDate} onRefresh={handleRefreshPack} onRemove={handleRemovePack} onToggleAutoRefresh={handleToggleAutoRefresh} onSetSheetIntegration={setSheetIntegrationPack} onEditSheetIntegration={handleEditSheetIntegration} onDeleteSheetIntegration={handleDeleteSheetIntegration} onEditJudgment={setJudgmentPack} onTranscribeAds={(packId, packName) => setTranscriptionDialogPack({ id: packId, name: packName })} isSelected={isPackSelected(pack.id)} isUpdating={isPackUpdating(pack.id) || isPackRefreshingOnServer(pack)} updatingByName={isPackRefreshingOnServer(pack) ? pack.refresh_actor_name : null} isTogglingAutoRefresh={isTogglingAutoRefresh} packToDisableAutoRefresh={packToDisableAutoRefresh} />
+                <PackCard pack={pack} adAccountName={adAccountNameById.get(pack.adaccount_id)} formatCurrency={formatCurrency} formatDate={formatDate} onRefresh={handleRefreshPack} onRemove={handleRemovePack} onToggleAutoRefresh={handleToggleAutoRefresh} onSetSheetIntegration={setSheetIntegrationPack} onEditSheetIntegration={handleEditSheetIntegration} onDeleteSheetIntegration={handleDeleteSheetIntegration} onEditJudgment={setJudgmentPack} onEditDateRange={setDateRangePack} onTranscribeAds={(packId, packName) => setTranscriptionDialogPack({ id: packId, name: packName })} isSelected={isPackSelected(pack.id)} isUpdating={isPackUpdating(pack.id) || isPackRefreshingOnServer(pack)} updatingByName={isPackRefreshingOnServer(pack) ? pack.refresh_actor_name : null} isTogglingAutoRefresh={isTogglingAutoRefresh} packToDisableAutoRefresh={packToDisableAutoRefresh} />
                 </div>
               ))}
             </div>
@@ -1208,15 +1210,18 @@ export default function PacksPage() {
             // do pack (nunca antes do início). É o que o refresh vai pedir de fato.
             const sinceLastStart = sinceLastRefreshStart(pack);
             const lookbackDays = lookbackDaysForPack(pack);
+            // Pack fechado ("manter atualizado" desligado) não anda: o fim pedido é o
+            // date_stop, não hoje. Mesma regra do backend (pack_window.effective_until).
+            const until = refreshUntil(pack, today);
             // Em lote cada pack tem sua própria âncora e seu próprio período — um range
             // concreto seria mentira. Descreve a regra em vez de resumir datas.
-            const sinceLastRange = isBulkRefresh ? "Cada pack a partir da sua última atualização" : sinceLastStart ? `${formatDateDisplay(sinceLastStart)} → ${formatDateDisplay(today)}` : "—";
+            const sinceLastRange = isBulkRefresh ? "Cada pack a partir da sua última atualização" : sinceLastStart ? `${formatDateDisplay(sinceLastStart)} → ${formatDateDisplay(until)}` : "—";
             const sinceLastHint = isBulkRefresh
               ? "Inclui a janela de atribuição de cada pack, para as conversões tardias entrarem."
               : sinceLastStart
                 ? `Inclui ${lookbackDays} ${lookbackDays === 1 ? "dia" : "dias"} de janela de atribuição, para as conversões tardias entrarem.`
                 : null;
-            const fullPeriodRange = isBulkRefresh ? "O período completo de cada pack" : pack?.date_start && pack?.date_stop ? (pack.auto_refresh ? `${formatDateDisplay(pack.date_start)} → ${formatDateDisplay(today)}` : `${formatDateDisplay(pack.date_start)} → ${formatDateDisplay(pack.date_stop)}`) : "—";
+            const fullPeriodRange = isBulkRefresh ? "O período completo de cada pack" : pack?.date_start && pack?.date_stop ? `${formatDateDisplay(pack.date_start)} → ${formatDateDisplay(until)}` : "—";
             return (
               <div className="w-full space-y-2">
                 <button type="button" onClick={() => setRefreshType("since_last_refresh")} className={`w-full p-3 rounded-lg border-2 text-left transition-all cursor-pointer ${refreshType === "since_last_refresh" ? "border-primary bg-primary-10" : "border-border bg-surface-2 hover:bg-accent"}`}>
@@ -1357,6 +1362,26 @@ export default function PacksPage() {
         open={!!judgmentPack}
         onOpenChange={(open) => {
           if (!open) setJudgmentPack(null);
+        }}
+      />
+
+      {/* Edição do período do pack (só ampliar nesta etapa) */}
+      <PackDateRangeDialog
+        pack={dateRangePack}
+        open={!!dateRangePack}
+        onOpenChange={(open) => {
+          if (!open) setDateRangePack(null);
+        }}
+        onConfirm={(pack, windowEdit) => {
+          setDateRangePack(null);
+          void refreshPack({
+            packId: pack.id,
+            packName: pack.name,
+            refreshType: "window_edit",
+            windowEdit,
+            sheetIntegrationId: pack.sheet_integration?.id,
+            toggles: { meta: true, leadscore: !!pack.sheet_integration, transcription: false },
+          });
         }}
       />
     </>

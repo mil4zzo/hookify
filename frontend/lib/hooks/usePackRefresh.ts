@@ -92,7 +92,13 @@ function isMetaScopeError(metaError: Record<string, unknown> | undefined): boole
 // TYPES
 // ============================================================================
 
-export type RefreshType = "since_last_refresh" | "full_period";
+export type RefreshType = "since_last_refresh" | "full_period" | "window_edit";
+
+/** Período novo do pack (só com refreshType = "window_edit"). */
+export interface WindowEditParams {
+  date_start: string;
+  date_stop: string;
+}
 
 export interface RefreshToggles {
   meta: boolean;
@@ -123,6 +129,8 @@ export interface StartRefreshParams {
   sheetIntegrationId?: string;
   /** Which processes to run. Defaults to { meta: true, leadscore: true, transcription: false } */
   toggles?: RefreshToggles;
+  /** Só com refreshType = "window_edit": o período novo do pack. */
+  windowEdit?: WindowEditParams;
 }
 
 export interface UsePackRefreshReturn {
@@ -513,6 +521,7 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
       getCancelled: () => boolean,
       onCancel: (() => void) | undefined,
       startTime: number,
+      windowEdit?: WindowEditParams,
     ): Promise<{ completed: boolean; adsCount: number; error?: string; chainedSyncJobId?: string }> => {
       type MetaResult = { completed: boolean; adsCount: number; error?: string; chainedSyncJobId?: string };
       const metaResult = await pollJob<MetaResult>({
@@ -638,8 +647,9 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
         const elapsedStr = elapsedSec >= 60
           ? `${Math.floor(elapsedSec / 60)}min e ${elapsedSec % 60}s`
           : `${elapsedSec}s`;
-        const metaSuccessMessage =
-          metaResult.adsCount > 0
+        const metaSuccessMessage = windowEdit
+          ? `Período de "${packName}" alterado (${elapsedStr}).`
+          : metaResult.adsCount > 0
             ? `Pack "${packName}" atualizado com ${metaResult.adsCount} anúncios (${elapsedStr}).`
             : `Pack "${packName}" atualizado com sucesso (${elapsedStr}).`;
         finishProgressToast(
@@ -655,7 +665,11 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
               stats: updatedPack.stats || {},
               updated_at: updatedPack.updated_at || new Date().toISOString(),
               auto_refresh: updatedPack.auto_refresh !== undefined ? updatedPack.auto_refresh : undefined,
+              // As DUAS datas: a edição de período move o início também, e o
+              // filtro do Manager ("usar datas do pack") lê o store.
+              date_start: updatedPack.date_start,
               date_stop: updatedPack.date_stop,
+              last_refreshed_at: updatedPack.last_refreshed_at ?? undefined,
             } as Partial<AdsPack>);
 
             await invalidatePackAds(packId);
@@ -1022,6 +1036,7 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
       refreshType: RefreshType,
       activeRefresh: ActiveRefresh,
       sheetIntegrationId?: string,
+      windowEdit?: WindowEditParams,
     ): Promise<{ completed: boolean; adsCount: number; error?: string; chainedSyncJobId?: string; reattached?: boolean }> => {
       const toastId = activeRefresh.toastId;
       const startTime = Date.now();
@@ -1068,7 +1083,7 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
       let refreshResult: Awaited<ReturnType<typeof api.facebook.refreshPack>>;
       try {
         refreshResult = await api.facebook.refreshPack(
-          packId, getTodayLocal(), refreshType, true, wantsChain, sheetIntegrationId
+          packId, getTodayLocal(), refreshType, true, wantsChain, sheetIntegrationId, windowEdit
         );
       } catch (error) {
         const parsed = parseError(error);
@@ -1144,7 +1159,7 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
 
       const metaResult = await pollMetaRefreshJob(
         jobId, toastId, packId, packName,
-        () => activeRefresh.metaCancelled, handleCancelMeta, startTime
+        () => activeRefresh.metaCancelled, handleCancelMeta, startTime, windowEdit
       );
 
       return metaResult;
@@ -1340,6 +1355,7 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
         refreshType = "since_last_refresh",
         sheetIntegrationId,
         toggles = { meta: true, leadscore: true, transcription: false },
+        windowEdit,
       } = params;
 
       // At least one toggle must be active
@@ -1425,7 +1441,7 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
 
           if (toggles.meta) {
             try {
-              const metaResult = await runMetaRefresh(packId, packName, refreshType, activeRefresh, sheetIntegrationId);
+              const metaResult = await runMetaRefresh(packId, packName, refreshType, activeRefresh, sheetIntegrationId, windowEdit);
               if (metaResult.reattached) {
                 // Guard anti-dupla: já havia refresh ativo no servidor e o
                 // re-attach assumiu (toast + cadeia). Nada mais a fazer aqui.

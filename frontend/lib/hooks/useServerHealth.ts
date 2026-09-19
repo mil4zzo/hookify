@@ -227,6 +227,11 @@ export function useServerHealth(
               stats: stats || undefined,
               created_at: pack.created_at,
               updated_at: pack.updated_at,
+              // Sem estes, o diálogo de atualização caía no date_stop como âncora
+              // e mostrava um recuo errado depois de uma reconexão.
+              last_refreshed_at: pack.last_refreshed_at || undefined,
+              attribution_window_days: pack.attribution_window_days ?? null,
+              attribution_setting: pack.attribution_setting ?? null,
             }
           })
         )

@@ -44,6 +44,7 @@ const VERB_LABEL: Record<PackActionVerb, string> = {
   "pack.judgment": "mudou os critérios de julgamento",
   "pack.auto_refresh": "mudou a atualização automática",
   "pack.rename": "renomeou o pack",
+  "pack.date_range": "alterou o período do pack",
   "pack.delete": "apagou o pack",
   "share.grant": "deu acesso a",
   "share.role": "mudou o papel de",
@@ -95,6 +96,12 @@ function describeDetail(entry: PackActivityEntry): string | null {
   }
   if (entry.action === "pack.rename") {
     return d.from && d.to ? `«${String(d.from)}» → «${String(d.to)}»` : null;
+  }
+  if (entry.action === "pack.date_range") {
+    const from = d.from as { date_start?: string; date_stop?: string } | undefined;
+    const to = d.to as { date_start?: string; date_stop?: string } | undefined;
+    const fmt = (s?: string) => (s ? s.slice(0, 10).split("-").reverse().join("/") : "?");
+    return from && to ? `${fmt(from.date_start)} → ${fmt(from.date_stop)} virou ${fmt(to.date_start)} → ${fmt(to.date_stop)}` : null;
   }
   if (entry.action === "pack.auto_refresh") {
     return d.to === true ? "ligou" : "desligou";

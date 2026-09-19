@@ -3175,6 +3175,108 @@ def get_pack(
     return None
 
 
+def acquire_pack_refresh_lock(
+    pack_id: str,
+    owner_id: str,
+    actor_id: Optional[str],
+    *,
+    sb_client: Optional["Client"] = None,
+) -> bool:
+    """Tenta marcar o pack como 'running' — compare-and-set no banco (migration 166).
+
+    True = adquiriu (status, prazo e ator gravados numa instrução só). False = o
+    pack já está running com prazo vigente: outro membro, outra aba ou uma edição
+    de período. Nunca sobrescreve uma trava viva — é o que impede dois refreshes
+    do mesmo pack de abrirem dois relatórios e o segundo reescrever o fim do
+    primeiro. A liberação continua em `update_pack_refresh_status` (status
+    terminal) ou na varredura da 141 (prazo vencido).
+
+    Sempre pelo papel de serviço: a função é SECURITY DEFINER e só ele tem EXECUTE.
+    """
+    if not pack_id or not owner_id:
+        return False
+    sb = _get_sb(None, sb_client)
+    res = with_postgrest_retry(
+        f"acquire_pack_refresh_lock[{pack_id}]",
+        lambda: sb.rpc(
+            "pack_acquire_refresh_lock",
+            {
+                "p_owner": str(owner_id),
+                "p_pack": str(pack_id),
+                "p_actor": str(actor_id) if actor_id else None,
+                "p_ttl_minutes": REFRESH_LOCK_TTL_MINUTES,
+            },
+        ).execute(),
+    )
+    acquired = bool(res.data) if not isinstance(res.data, list) else bool(res.data and res.data[0])
+    logger.info(
+        "[REFRESH_LOCK] Pack %s: %s (ator %s)",
+        pack_id, "adquirida" if acquired else "OCUPADA", actor_id,
+    )
+    return acquired
+
+
+def apply_pack_window_edit(
+    user_jwt: Optional[str],
+    pack_id: str,
+    user_id: Optional[str],
+    *,
+    date_start: str,
+    date_stop: str,
+    slice_until: Optional[str],
+    auto_refresh_off: bool,
+    sb_client: Optional["Client"] = None,
+) -> None:
+    """Conclusão de uma edição de período: troca as datas do pack e libera a trava.
+
+    Só é chamada depois de a coleta chegar COMPLETA e o dado estar gravado — é o
+    último passo do job, de propósito: se algo falhar antes, o pack continua com
+    o período antigo e íntegro. `last_refreshed_at` nunca retrocede: uma fatia
+    para trás termina no passado, e gravá-la como âncora faria a próxima
+    atualização incremental reler meses. `updated_at` anda — é o que gira a chave
+    do grafo de conflito e dos caches do Manager.
+    """
+    if not user_id or not pack_id:
+        return
+    sb = _get_sb(user_jwt, sb_client)
+
+    current_anchor: Optional[str] = None
+    try:
+        pres = with_postgrest_retry(
+            f"apply_pack_window_edit_read[{pack_id}]",
+            lambda: sb.table("packs").select("last_refreshed_at").eq("id", pack_id).eq("user_id", user_id).limit(1).execute(),
+        )
+        if pres.data:
+            current_anchor = str(pres.data[0].get("last_refreshed_at") or "")[:10] or None
+    except Exception as e:
+        logger.warning(f"[WINDOW_EDIT] Não li last_refreshed_at do pack {pack_id}; usando a fatia: {e}")
+
+    candidates = [d for d in (current_anchor, (slice_until or "")[:10] or None) if d]
+    last_refreshed_at = max(candidates) if candidates else date_stop
+
+    update_data: Dict[str, Any] = {
+        "date_start": date_start,
+        "date_stop": date_stop,
+        "last_refreshed_at": last_refreshed_at,
+        "refresh_status": "success",
+        "refresh_lock_until": None,
+        "refresh_actor_id": None,
+        "updated_at": _now_iso(),
+    }
+    if auto_refresh_off:
+        update_data["auto_refresh"] = False
+
+    with_postgrest_retry(
+        f"apply_pack_window_edit[{pack_id}]",
+        lambda: sb.table("packs").update(update_data).eq("id", pack_id).eq("user_id", user_id).execute(),
+    )
+    logger.info(
+        "[WINDOW_EDIT] ✓ Pack %s: período %s → %s (last_refreshed_at=%s%s)",
+        pack_id, date_start, date_stop, last_refreshed_at,
+        ", manter atualizado desligado" if auto_refresh_off else "",
+    )
+
+
 def update_pack_refresh_status(
     user_jwt: str,
     pack_id: str,
