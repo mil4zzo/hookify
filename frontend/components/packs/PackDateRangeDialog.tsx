@@ -136,7 +136,7 @@ export function PackDateRangeDialog({ pack, open, onOpenChange, onConfirm }: Pac
                   de investimento.
                 </p>
               )}
-              <p className="text-2xs text-muted-foreground">
+              <p className="text-xs text-muted-foreground">
                 Para trazer de volta, amplie o período e atualize o pack.
               </p>
             </div>
@@ -144,11 +144,11 @@ export function PackDateRangeDialog({ pack, open, onOpenChange, onConfirm }: Pac
         )}
 
         {plan && plan.fetch && (
-          <div className="rounded-lg border border-border bg-background p-3 space-y-1">
+          <div className="rounded-md border border-border bg-background p-3 space-y-1">
             <p className="text-xs text-foreground">
               Vai buscar na Meta <span className="font-medium">{fmt(plan.fetch[0])} → {fmt(plan.fetch[1])}</span>.
             </p>
-            <p className="text-2xs text-muted-foreground flex items-start gap-1">
+            <p className="text-xs text-muted-foreground flex items-start gap-1">
               <IconInfoCircle className="w-3 h-3 mt-0.5 flex-shrink-0" />
               <span>
                 Inclui {plan.lookbackDays} {plan.lookbackDays === 1 ? "dia" : "dias"} de janela de atribuição na
@@ -157,14 +157,14 @@ export function PackDateRangeDialog({ pack, open, onOpenChange, onConfirm }: Pac
               </span>
             </p>
             {plan.autoRefreshOff && pack?.auto_refresh && (
-              <p className="text-2xs text-muted-foreground">
+              <p className="text-xs text-muted-foreground">
                 A data final é anterior a hoje: o «manter atualizado» será desligado.
               </p>
             )}
           </div>
         )}
 
-        <div className="flex justify-end gap-2">
+        <div className="flex justify-end gap-3">
           <Button variant="ghost" size="sm" onClick={() => onOpenChange(false)}>
             Cancelar
           </Button>
