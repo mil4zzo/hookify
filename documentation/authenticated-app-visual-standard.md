@@ -522,14 +522,20 @@ e procure o seletor no `out.css`.
       `DashboardGrid`, `FormStepWorkspace` ou `WorkspaceState`.
 - [ ] Usa um unico scroll principal em workspaces de analise.
 - [ ] Usa tokens semanticos de cor e radius aprovado.
-- [ ] Altura de controles via prop `size`, nunca `h-*` em className.
+- [ ] Altura de controles via prop `size` (40px, uma so), nunca `h-*` em className.
+- [ ] Foco desenhado por dentro: campo usa `focus:border-primary`, o resto usa
+      `focus-inset`. Nenhum `focus:ring-*` nem `ring-offset-*`.
+- [ ] Gatilho (abre lista para escolher/filtrar) usa `variant="picker"` ou
+      `control-lit`; botao de acao usa `btn-lit`/`btn-tonal`; o que ja foi
+      acionado usa `state-pressed`.
 - [ ] Todo fundo estrutural sai dos cinco niveis (`background`/`card`/`surface-2`/
       `input`/`border`), nunca de `bg-<token>-<N>`.
 - [ ] Escada de superficies: onde se age sobe um nivel, onde se le desce um, e
       nenhum plano vizinho fica no mesmo nivel sem borda.
 - [ ] Hover de superficie usa `hover:bg-accent`; selecao usa
       `bg-primary-10` + `border-primary-30`.
-- [ ] Micro-texto usa `text-2xs`, nunca `text-[10px]`/`text-[11px]`.
+- [ ] `text-2xs` so em rotulo, selo e dado denso — frase e `text-xs`.
+- [ ] Grupo horizontal de botoes com `gap-3`.
 - [ ] Sombras via `shadow-elevation-*`; camadas de app via `z-<token>`.
 - [ ] Icon-only buttons tem `aria-label` ou `title`.
 - [ ] Roda `npm run check:design-system` antes de fechar.
