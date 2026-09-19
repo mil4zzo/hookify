@@ -5164,3 +5164,39 @@ O app declarava as duas receitas no mesmo seletor `*`, então a de webkit nunca 
 Correção: as propriedades padrão ficam dentro de
 `@supports not selector(::-webkit-scrollbar)`, ou seja, só no Firefox; Chromium, Edge,
 Opera e Safari usam os pseudo-elementos. Não é limitação do navegador do usuário.
+
+---
+
+## O `VACUUM` depois de apagar em massa está revogado (medido em 2026-09-19)
+
+Desde o incidente de 08/09 — apagar 922 linhas em produção levou `detect_pack_conflicts`
+de 1,1 s a 10,3 s **para os usuários**, porque página sem bit de visibilidade derruba o
+index-only scan — a regra registrada era: todo DELETE em massa pede `VACUUM (ANALYZE)`
+logo depois. A edição de período de pack (que apaga por desenho) ia nascer carregando
+esse passo.
+
+**Medido de novo antes de implementar, e não reproduz.** Laboratório restaurado do dump
+do dia (o que estava na máquina era anterior à 156: 688 mil linhas contra 172 mil, mapa
+de 202 MB contra 54 MB, sem as funções 157–162 — medir ali seria medir outro banco).
+Apagados 6,2 mil linhas do maior pack do dono de 42 packs:
+
+| estado do mapa | idas à tabela (`Heap Fetches`) | blocos | páginas visíveis |
+|---|---|---|---|
+| antes | 0 | 1.961 | 99,9% |
+| logo após apagar (6.208 tuplas mortas) | **0** | 1.961 | 99,9% |
+| após `VACUUM` do mapa | 0 | 1.961 | 100% |
+
+Por que sumiu: a **156** apagou as 553 mil linhas-zero (a tabela ficou 4× menor) e a
+**163/165** puseram o autovacuum em 2% — que é exatamente o conserto daquele incidente.
+Com 6,2 mil tuplas mortas contra um gatilho de ~3,5 mil, o autovacuum passa sozinho em
+seguida.
+
+**Decisão: nenhuma rota roda `VACUUM`.** Medido, `VACUUM (ANALYZE)` das três tabelas leva
+**109 s** (só do mapa, 842 ms). Seria um passo mais caro que o problema que resolveria.
+Se o sintoma voltar, o gatilho é a tabela crescer de novo, não o DELETE em si.
+
+**A lição de método, essa fica:** tempo de parede no laboratório não atravessa para
+produção. O mesmo grafo de conflito que produção faz em 1,3–2,4 s levou 16–26 s no lab, e
+variou 10→37 s entre repetições **do mesmo estado** — ruído maior que o efeito procurado.
+Quem decide é a estrutura (idas à tabela, blocos, páginas marcadas), como a 165 já tinha
+feito. Medições em `documentation/plano-edicao-periodo-pack.md` §6.6.
