@@ -98,7 +98,6 @@ export function useFilters() {
     packs,
     packsClient,
     // Actions
-    togglePack: store.togglePack,
     setPackPreferences: store.setPackPreferences,
     setDateRange: store.setDateRange,
     setActionType: store.setActionType,

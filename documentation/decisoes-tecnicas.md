@@ -1810,6 +1810,8 @@ As páginas **Plano, GOLD e Insights** montavam o request de `/ad-performance` *
 
 **Ainda com guard ≥1 de propósito:** `store.togglePack` (`if (isEnabled && enabledCount <= 1) return`) — usado por `FiltersDropdown`/`AdGrid`, não pelo Topbar. Então o Topbar chega a 0 e esses dois não; sem deadlock (adicionar pack nunca é bloqueado). Consistência total exigiria relaxar esse guard também (follow-up).
 
+**Follow-up encerrado (2026-09-18) — o guard foi REMOVIDO, junto com a função:** ao revisar o topbar descobriu-se que os dois callers citados acima já não existiam. `FiltersDropdown` era código morto (nenhum JSX o renderizava; arquivo apagado) e o `AdGrid` do upload usa um `handleTogglePack` **local**, nunca o do store — a frase "usado por `FiltersDropdown`/`AdGrid`" já estava errada quanto ao `AdGrid`. Sem caller, `store.togglePack` era só uma regra escrita dizendo o oposto do que o app faz (o Topbar commita `packPreferences` direto, via `setPackPreferences`). Removidos a ação do store e sua exposição em `useFilters`. A **Regra para código futuro** abaixo agora vale sem exceção: não existe mais nenhum guard ≥1 pack no código.
+
 **Regra para código futuro:** não reintroduzir guards ≥1 pack; manter o gate de queries em `selectedPackIds.size > 0` — é o que torna 0-packs seguro.
 
 ## Conexão do Facebook falhava com "Network Error" — status 'degraded' sem migration + CORS ausente no 500 (2026-07-06)

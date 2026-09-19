@@ -18,7 +18,7 @@ export interface PageSectionHeaderProps {
  * <PageSectionHeader
  *   title="Oportunidades"
  *   description="Insights acionáveis para alavancar seus anúncios"
- *   actions={<FiltersDropdown ... />}
+ *   actions={<Button size="sm">Novo board</Button>}
  * />
  */
 export function PageSectionHeader({ title, description, icon, actions, className }: PageSectionHeaderProps) {
