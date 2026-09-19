@@ -73,13 +73,13 @@ export function PackDateRangeDialog({ pack, open, onOpenChange, onConfirm }: Pac
         {errorMessage && <p className="text-xs text-destructive">{errorMessage}</p>}
 
         {reduces && (
-          <div className="rounded-lg border border-border bg-input-30 p-3 text-xs text-muted-foreground">
+          <div className="rounded-lg border border-border bg-background p-3 text-xs text-muted-foreground">
             Reduzir o período ainda não está disponível. Por enquanto, para reduzir, recrie o pack.
           </div>
         )}
 
         {plan && !reduces && plan.fetch && (
-          <div className="rounded-lg border border-border bg-input-30 p-3 space-y-1">
+          <div className="rounded-lg border border-border bg-background p-3 space-y-1">
             <p className="text-xs text-foreground">
               Vai buscar na Meta <span className="font-medium">{fmt(plan.fetch[0])} → {fmt(plan.fetch[1])}</span>.
             </p>
