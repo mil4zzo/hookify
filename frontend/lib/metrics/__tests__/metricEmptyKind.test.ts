@@ -18,7 +18,11 @@ import assert from "node:assert/strict";
 import { getManagerMetricEmptyKind, MANAGER_METRIC_KEYS } from "@/lib/metrics";
 import { METRIC_DEFINITIONS } from "@/lib/metrics/definitions";
 
-const VIDEO_METRICS = ["hook", "hold_rate", "scroll_stop", "video_watched_p50", "video_watched_p75"] as const;
+// plays e thruplays entraram em 2026-09-14 (decisão do idealizador): a Meta às vezes manda
+// plays num anúncio de IMAGEM (no laboratório, 58 de 971 imagens, até 1.713), e "0 ou 1
+// reprodução num estático" não é fato, é ruído — o ADNI90, imagem com 1 play, vencia o
+// ranking de hook com 100%. Antes eram tratados como contagem.
+const VIDEO_METRICS = ["hook", "hold_rate", "scroll_stop", "video_watched_p50", "video_watched_p75", "plays", "thruplays"] as const;
 
 /** Anúncio de imagem: 0 plays, métricas de vídeo zeradas pela RPC. */
 const IMAGEM = {
@@ -44,6 +48,7 @@ const VIDEO = {
   spend: 800,
   lpv: 400,
   plays: 20000,
+  video_total_thruplays: 6000,
   hook: 0.35,
   hold_rate: 0.12,
   scroll_stop: 0.4,
@@ -53,14 +58,13 @@ const VIDEO = {
   conversions: { lead: 20 },
 };
 
-test("as cinco métricas de vídeo estão marcadas no registry — e só elas", () => {
+test("as métricas de vídeo estão marcadas no registry — e só elas", () => {
   for (const key of VIDEO_METRICS) {
     assert.equal(METRIC_DEFINITIONS[key].requiresVideo, true, `${key} deveria exigir vídeo`);
   }
   const marcadas = MANAGER_METRIC_KEYS.filter((key) => METRIC_DEFINITIONS[key]?.requiresVideo);
   assert.deepEqual([...marcadas].sort(), [...VIDEO_METRICS].sort());
-  // plays/thruplays são CONTAGEM: 0 reproduções num estático é fato, não ausência.
-  for (const key of ["plays", "thruplays", "spend", "impressions", "ctr", "cpr"] as const) {
+  for (const key of ["spend", "impressions", "clicks", "ctr", "cpr"] as const) {
     assert.ok(!METRIC_DEFINITIONS[key]?.requiresVideo, `${key} não deveria exigir vídeo`);
   }
 });
@@ -97,10 +101,12 @@ test("vídeo com dado: nenhuma métrica de vídeo entra em estado vazio", () => 
 
 test("vídeo SEM entrega no período é 'missing' — não se inventa formato", () => {
   // Zero plays num vídeo não é "não se aplica": a métrica cabe, faltou entrega.
-  const semEntrega = { ...VIDEO, plays: 0, hook: 0, hold_rate: 0, scroll_stop: 0, video_watched_p50: 0, video_watched_p75: 0 };
-  for (const metric of VIDEO_METRICS) {
+  // plays e thruplays ficam de fora: são CONTAGEM, e 0 reproduções num vídeo é zero de verdade.
+  const semEntrega = { ...VIDEO, plays: 0, video_total_thruplays: 0, hook: 0, hold_rate: 0, scroll_stop: 0, video_watched_p50: 0, video_watched_p75: 0 };
+  for (const metric of VIDEO_METRICS.filter((m) => m !== "plays" && m !== "thruplays")) {
     assert.equal(getManagerMetricEmptyKind(semEntrega, metric), "missing", `${metric} deveria ser missing`);
   }
+  assert.equal(getManagerMetricEmptyKind(semEntrega, "plays"), null, "0 plays num vídeo é zero, não vazio");
 });
 
 test("formato desconhecido ou ausente cai em 'missing'", () => {
@@ -110,12 +116,14 @@ test("formato desconhecido ou ausente cai em 'missing'", () => {
   }
 });
 
-test("linha agregada que MISTURA formatos não cai em estado vazio", () => {
-  // Um criativo rodando como vídeo e como estático: os vídeos alimentam plays,
-  // então hook existe e o ramo de formato nem é alcançado — mesmo que o
-  // representante do grupo seja a imagem.
-  const misto = { ...IMAGEM, media_type: "image" as const, plays: 12000, hook: 0.28 };
+test("criativo que MISTURA formatos é vídeo — e imagem com plays é ruído da Meta", () => {
+  // A RPC marca o nome como vídeo se QUALQUER variação for vídeo (vídeo > imagem, v145).
+  // Então um criativo misto chega como vídeo e a métrica tem valor normalmente...
+  const misto = { ...IMAGEM, media_type: "video" as const, plays: 12000, hook: 0.28 };
   assert.equal(getManagerMetricEmptyKind(misto, "hook"), null);
+  // ...e uma linha marcada IMAGEM com plays é o play espúrio: não se aplica.
+  const imagemComPlay = { ...IMAGEM, media_type: "image" as const, plays: 1, hook: 1 };
+  assert.equal(getManagerMetricEmptyKind(imagemComPlay, "hook"), "format");
 });
 
 test("linha-filha (sem media_type) usa travessão — o fallback honesto", () => {

@@ -37,7 +37,7 @@ def test_video_id_wins():
 
 
 def test_video_metric_evidence_total_plays():
-    ad = {"creative": dict(SHARE_CREATIVE_NO_MEDIA), "video_total_plays": 1500}
+    ad = {"creative": dict(SHARE_CREATIVE_NO_MEDIA), "video_total_plays": 1500, "impressions": 2000}
     assert resolve_media_type(ad) == MEDIA_TYPE_VIDEO
 
 
@@ -86,7 +86,7 @@ def test_preserved_image_classification_survives():
 
 def test_video_metric_evidence_overrides_stale_image_classification():
     """Auto-correção: ad marcado image que registra plays vira video."""
-    ad = {"creative": dict(SHARE_CREATIVE_NO_MEDIA), "media_type": "image", "video_total_plays": 50}
+    ad = {"creative": dict(SHARE_CREATIVE_NO_MEDIA), "media_type": "image", "video_total_plays": 50, "impressions": 200}
     assert resolve_media_type(ad) == MEDIA_TYPE_VIDEO
 
 
@@ -100,7 +100,7 @@ def test_preserved_unknown_stays_unknown():
 def test_ig_media_type_image_wins_over_play_evidence():
     """Caso real dos 5 falso-vídeo da auditoria: heurística de plays marcou video,
     mas o IG media oficial diz IMAGE."""
-    ad = {"creative": dict(SHARE_CREATIVE_NO_MEDIA), "video_total_plays": 50, "ig_media_type": "image"}
+    ad = {"creative": dict(SHARE_CREATIVE_NO_MEDIA), "video_total_plays": 50, "impressions": 200, "ig_media_type": "image"}
     assert resolve_media_type(ad) == MEDIA_TYPE_IMAGE
 
 
@@ -120,13 +120,13 @@ def test_ig_media_type_video_wins_over_image_fields():
 
 
 def test_ig_media_type_absent_falls_through_to_chain():
-    ad = {"creative": dict(SHARE_CREATIVE_NO_MEDIA), "video_total_plays": 10}
+    ad = {"creative": dict(SHARE_CREATIVE_NO_MEDIA), "video_total_plays": 700, "impressions": 1000}
     assert resolve_media_type(ad) == MEDIA_TYPE_VIDEO
 
 
 def test_ig_media_type_invalid_value_falls_through_to_chain():
     """carousel_album (ou lixo) não é aceito — cai na chain normal."""
-    ad = {"creative": dict(SHARE_CREATIVE_NO_MEDIA), "video_total_plays": 10, "ig_media_type": "carousel_album"}
+    ad = {"creative": dict(SHARE_CREATIVE_NO_MEDIA), "video_total_plays": 700, "impressions": 1000, "ig_media_type": "carousel_album"}
     assert resolve_media_type(ad) == MEDIA_TYPE_VIDEO
     ad_unknown = {"creative": dict(SHARE_CREATIVE_NO_MEDIA), "ig_media_type": "CAROUSEL_ALBUM"}
     assert resolve_media_type(ad_unknown) == MEDIA_TYPE_UNKNOWN
@@ -163,3 +163,59 @@ def test_structural_ignores_play_evidence():
     """plays NÃO é sinal estrutural — gate deve deixar passar pro igm mesmo com plays."""
     ad = {"creative": dict(SHARE_CREATIVE_NO_MEDIA), "video_total_plays": 9999}
     assert resolve_structural_media_type(ad) is None
+
+
+# ---------------------------------------------------------------------------
+# A regra de PROPORÇÃO (2026-09-20). Antes bastava 1 play para o anúncio virar vídeo;
+# a Meta manda plays espúrios em estático, e um play decidia o formato inteiro.
+# Medido no grão de UM DIA (o que a ingestão enxerga): vídeo de verdade começa em 23,7%
+# de plays sobre impressões, imagem com play espúrio termina em 12,1%.
+# ---------------------------------------------------------------------------
+
+def test_play_espurio_em_estatico_nao_decide_nada():
+    """O caso que a regra existe para pegar: 1 play em 10 mil impressões. Com entrega
+    de sobra, a proporção (0,01%) diz que não é vídeo. Antes, esse play bastava."""
+    ad = {"creative": dict(SHARE_CREATIVE_NO_MEDIA), "video_total_plays": 1, "impressions": 10000}
+    assert resolve_media_type(ad) == MEDIA_TYPE_UNKNOWN
+
+
+def test_play_espurio_nao_derruba_classificacao_anterior():
+    ad = {"creative": dict(SHARE_CREATIVE_NO_MEDIA), "media_type": "image",
+          "video_total_plays": 12, "impressions": 5000}
+    assert resolve_media_type(ad) == MEDIA_TYPE_IMAGE
+
+
+def test_pouca_entrega_mantem_a_regra_antiga():
+    """Abaixo do piso a proporção não distingue nada (1 play em 4 impressões já dá 25%),
+    então vale o que valia antes: play indica vídeo. Medido: os 6 anúncios da base
+    classificados só pela métrica com entrega mínima são vídeos de verdade."""
+    ad = {"creative": dict(SHARE_CREATIVE_NO_MEDIA), "video_total_plays": 8, "impressions": 8}
+    assert resolve_media_type(ad) == MEDIA_TYPE_VIDEO
+
+
+def test_entrega_no_piso_ja_decide():
+    """30 impressões é o piso medido: de lá para cima, nenhuma imagem com play espúrio
+    chega aos 20%."""
+    ad = {"creative": dict(SHARE_CREATIVE_NO_MEDIA), "video_total_plays": 28, "impressions": 30}
+    assert resolve_media_type(ad) == MEDIA_TYPE_VIDEO
+
+
+def test_pouca_entrega_preserva_o_que_ja_se_sabia():
+    ad = {"creative": dict(SHARE_CREATIVE_NO_MEDIA), "media_type": "video",
+          "video_total_plays": 0, "impressions": 8}
+    assert resolve_media_type(ad) == MEDIA_TYPE_VIDEO
+
+
+def test_o_corte_e_em_20_por_cento():
+    """Exatamente no corte é vídeo; um passo abaixo, não opina. O vão medido vai de
+    12,1% (maior imagem) a 23,7% (menor vídeo), então 20% tem folga dos dois lados."""
+    no_corte = {"creative": dict(SHARE_CREATIVE_NO_MEDIA), "video_total_plays": 200, "impressions": 1000}
+    abaixo = {"creative": dict(SHARE_CREATIVE_NO_MEDIA), "video_total_plays": 199, "impressions": 1000}
+    assert resolve_media_type(no_corte) == MEDIA_TYPE_VIDEO
+    assert resolve_media_type(abaixo) == MEDIA_TYPE_UNKNOWN
+
+
+def test_campo_de_imagem_continua_vencendo_a_metrica():
+    """Precedência inalterada: estrutura antes de métrica, mesmo com proporção de vídeo."""
+    ad = {"creative": {"image_hash": "abc123"}, "video_total_plays": 900, "impressions": 1000}
+    assert resolve_media_type(ad) == MEDIA_TYPE_IMAGE

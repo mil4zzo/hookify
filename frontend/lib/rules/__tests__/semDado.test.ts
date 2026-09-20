@@ -70,7 +70,9 @@ test("no anúncio de imagem, o que NÃO depende de vídeo continua funcionando",
   assert.equal(rowMatchesRules(IMAGEM, rule("spend", ">", "100"), CTX), true);
   assert.equal(rowMatchesRules(IMAGEM, rule("impressions", ">", "1000"), CTX), true);
   assert.equal(rowMatchesRules(IMAGEM, rule("ctr", ">", "1"), CTX), true);
-  assert.equal(rowMatchesRules(IMAGEM, rule("plays", "=", "0"), CTX), true);
+  // plays é de vídeo (2026-09-14): num estático não se aplica, nem quando a Meta manda algum.
+  assert.equal(rowMatchesRules(IMAGEM, rule("plays", "=", "0"), CTX), false);
+  assert.equal(rowMatchesRules(IMAGEM, rule("plays", "is_empty", null), CTX), true);
 });
 
 /* ------------------------------------------------------------------ *

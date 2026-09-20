@@ -1,6 +1,22 @@
+import logging
 import os
 from pathlib import Path
 from dotenv import load_dotenv
+
+_log = logging.getLogger(__name__)
+
+
+def _rpc_escolhida(env: str, aceitos: tuple[str, ...], padrao: str) -> str:
+    """Nome de função vindo do ambiente, restrito a uma lista.
+
+    Nome fora da lista NÃO é ignorado em silêncio: é justamente na hora do rollback
+    (madrugada, com pressa) que um valor errado deixa o app apontando para a função que
+    se acabou de derrubar. Um `environment:` do compose que não resolve também chega
+    aqui como string vazia (ver memória compose_environment_overrides_envfile)."""
+    valor = os.getenv(env, "").strip()
+    if valor and valor not in aceitos:
+        _log.warning("[config] %s=%r fora da lista %s; usando %s", env, valor, aceitos, padrao)
+    return valor if valor in aceitos else padrao
 
 # Carregar .env do diretório backend
 backend_dir = Path(__file__).parent.parent.parent
@@ -130,10 +146,32 @@ ANALYTICS_MANAGER_V161 = os.getenv("ANALYTICS_MANAGER_V161", "true").strip().low
 # pico de memória caiu de ~960 para ~400 MB no pior caso medido. Os leitores aceitam
 # as duas formas, então `fetch_manager_rankings_v161` aqui é a volta atrás da 162
 # sem deploy. Nome fora da lista vira a 162 (não se chama função arbitrária por env).
-_MANAGER_COLUMNS_RPCS = ("fetch_manager_rankings_v161", "fetch_manager_rankings_v162")
-ANALYTICS_MANAGER_COLUMNS_RPC = os.getenv("ANALYTICS_MANAGER_COLUMNS_RPC", "").strip()
-if ANALYTICS_MANAGER_COLUMNS_RPC not in _MANAGER_COLUMNS_RPCS:
-    ANALYTICS_MANAGER_COLUMNS_RPC = "fetch_manager_rankings_v162"
+#
+# A 170 é a v162 com a regra "métrica de vídeo não se aplica a anúncio de imagem"
+# (a Meta às vezes manda plays num estático). MIGRATION ANTES DO DEPLOY: sem a 170
+# aplicada, esta função não existe. `fetch_manager_rankings_v162` aqui é a volta
+# atrás sem deploy — com ela, os plays espúrios voltam.
+_MANAGER_COLUMNS_RPCS = ("fetch_manager_rankings_v161", "fetch_manager_rankings_v162",
+                         "fetch_manager_rankings_v170")
+ANALYTICS_MANAGER_COLUMNS_RPC = _rpc_escolhida(
+    "ANALYTICS_MANAGER_COLUMNS_RPC", _MANAGER_COLUMNS_RPCS, "fetch_manager_rankings_v170")
+
+# ATENÇÃO: voltar para a v162 aqui desfaz a regra de imagem SÓ nas linhas. A série do
+# sparkline (171) e a curva (172) têm os seus próprios caminhos de volta — o da série é
+# SQL (171_rollback.sql), o da curva é ANALYTICS_RETENTION_RPC.
+
+# Qual função entrega o detalhe de uma entidade (o modal do anúncio: totais, série e
+# curva). A 171 é a v158 com a mesma regra. MIGRATION ANTES DO DEPLOY. Volta atrás: a v158.
+_ENTITY_RPCS = ("fetch_entity_performance_v158", "fetch_entity_performance_v171")
+ANALYTICS_ENTITY_RPC = _rpc_escolhida(
+    "ANALYTICS_ENTITY_RPC", _ENTITY_RPCS, "fetch_entity_performance_v171")
+
+# Qual função desenha a curva de retenção de um grupo. A 172 é a v2 com a mesma regra
+# de imagem. MIGRATION ANTES DO DEPLOY. Volta atrás: a v2.
+_RETENTION_RPCS = ("fetch_manager_rankings_retention_v2", "fetch_manager_rankings_retention_v172")
+ANALYTICS_RETENTION_RPC = _rpc_escolhida(
+    "ANALYTICS_RETENTION_RPC", _RETENTION_RPCS, "fetch_manager_rankings_retention_v172")
+
 
 # Supabase Auth (Frontend JWT validation and RLS usage)
 SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY")

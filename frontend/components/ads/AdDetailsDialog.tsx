@@ -589,7 +589,13 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
 
   const isCreativeLoading = (!groupByAdName && loadingCreative) || (groupByAdName && groupedSharedDetail.isLoadingMedia);
   const hasCreativeMediaData = groupByAdName ? !!groupedSharedDetail.creativeData : !!creativeData;
-  const isImageAd = !isCreativeLoading && hasCreativeMediaData && resolvedMediaType === "image";
+  // O formato vem PRIMEIRO da linha (a RPC manda `media_type`, e desde a 170 ele é o da
+  // própria variação no grão do anúncio). O criativo chega por fetch: esperar por ele
+  // fazia o modal mostrar "hook 0,0%" num estático enquanto carregava, enquanto a tabela
+  // ao lado já mostrava "não se aplica" — duas verdades sobre o mesmo anúncio.
+  const isImageAd =
+    normalizeMediaType((ad as any)?.media_type) === "image" ||
+    (!isCreativeLoading && hasCreativeMediaData && resolvedMediaType === "image");
   const imageActorId = groupByAdName ? (groupedSharedDetail.creativeData as any)?.creative?.actor_id || null : actorId || null;
   const shouldLoadImageSource = isImageAd && !!adId && !!imageActorId;
   const { data: imageSourceData, isLoading: loadingImageSource } = useImageSource({ ad_id: adId, actor_id: imageActorId || "", pack_ids: packIdsCsv }, shouldLoadImageSource);

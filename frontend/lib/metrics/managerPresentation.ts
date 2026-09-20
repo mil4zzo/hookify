@@ -65,8 +65,10 @@ function metricFormatKind(metric: ManagerMetricKey | string): MetricFormatKind {
  * sem entrega no período e formato desconhecido caem em "sem dado", que é a
  * resposta honesta — dizer "é imagem" sem saber seria inventar.
  *
- * Numa linha AGREGADA que mistura formatos o valor não chega a ser nulo (os
- * vídeos do grupo alimentam plays), então o ramo nem é alcançado.
+ * Um criativo que mistura formatos chega como VÍDEO (a RPC dá precedência a vídeo
+ * entre as variações do nome). Linha marcada imagem com plays é o play espúrio que a
+ * Meta às vezes manda num estático: `getMetricNumericValueOrNull` já a devolve vazia, e
+ * ela cai aqui em "formato" (2026-09-14).
  */
 export type ManagerMetricEmptyKind = "format" | "missing";
 

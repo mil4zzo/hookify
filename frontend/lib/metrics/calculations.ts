@@ -51,6 +51,19 @@ function toFiniteNumber(value: unknown): number | null {
   return Number.isFinite(numeric) ? numeric : null;
 }
 
+/**
+ * A RPC fabrica 0 quando o divisor de uma razão é zero (`case when x > 0 then ... else
+ * 0 end`), e o zero fabricado é indistinguível do real. Divisor PRESENTE e zero = "sem
+ * dado"; divisor ausente (consulta que não o devolve) não é zero — o valor lido vale.
+ * É a mesma regra que hook e CTR já seguiam; website_ctr, connect_rate, page_conv, cpm e
+ * frequency não seguiam, e `connect_rate < 50%` trazia quem não teve clique no link.
+ */
+function hasZeroDenominator(value: unknown): boolean {
+  if (value == null) return false;
+  const denominator = toFiniteNumber(value);
+  return denominator != null && denominator <= 0;
+}
+
 function resolveMetricKey(metricKey: MetricKeyLike): MetricKey | null {
   if (metricKey in METRIC_DEFINITIONS) {
     return metricKey as MetricKey;
@@ -96,6 +109,14 @@ export function getMetricNumericValueOrNull(source: MetricValueSource, metricKey
 
   const canonicalKey = resolveMetricKey(metricKey);
   if (!canonicalKey) return null;
+
+  // Métrica de VÍDEO em anúncio de IMAGEM não se aplica — mesmo quando a Meta manda
+  // plays espúrios (no laboratório, 58 de 971 imagens tinham plays, até 1.713; o ADNI90,
+  // imagem com 1 play, vencia o ranking de hook com 100%). A exibição já tratava isso
+  // (`getManagerMetricEmptyKind` → "format"); esta leitura alimenta filtros, critério de
+  // validação, Boards e rankings, e não tratava. Mesma certeza exigida lá:
+  // só `media_type === "image"` — formato desconhecido não é imagem.
+  if (METRIC_DEFINITIONS[canonicalKey]?.requiresVideo && source.media_type === "image") return null;
 
   switch (canonicalKey) {
     case "score":
@@ -147,7 +168,7 @@ export function getMetricNumericValueOrNull(source: MetricValueSource, metricKey
     }
     case "website_ctr": {
       const fromBackend = toFiniteNumber(source.website_ctr);
-      if (fromBackend != null) return fromBackend;
+      if (fromBackend != null) return hasZeroDenominator(source.impressions) ? null : fromBackend;
 
       const impressions = toFiniteNumber(source.impressions);
       const inlineLinkClicks = toFiniteNumber(source.inline_link_clicks);
@@ -156,7 +177,7 @@ export function getMetricNumericValueOrNull(source: MetricValueSource, metricKey
     }
     case "connect_rate": {
       const fromBackend = toFiniteNumber(source.connect_rate);
-      if (fromBackend != null) return fromBackend;
+      if (fromBackend != null) return hasZeroDenominator(source.inline_link_clicks) ? null : fromBackend;
 
       const lpv = toFiniteNumber(source.lpv);
       const inlineLinkClicks = toFiniteNumber(source.inline_link_clicks);
@@ -165,7 +186,7 @@ export function getMetricNumericValueOrNull(source: MetricValueSource, metricKey
     }
     case "page_conv": {
       const fromBackend = toFiniteNumber(source.page_conv);
-      if (fromBackend != null) return fromBackend;
+      if (fromBackend != null) return hasZeroDenominator(source.lpv) ? null : fromBackend;
 
       const lpv = toFiniteNumber(source.lpv);
       const results = getResultsForActionType(source, context.actionType);
@@ -174,7 +195,7 @@ export function getMetricNumericValueOrNull(source: MetricValueSource, metricKey
     }
     case "cpm": {
       const fromBackend = toFiniteNumber(source.cpm);
-      if (fromBackend != null) return fromBackend;
+      if (fromBackend != null) return hasZeroDenominator(source.impressions) ? null : fromBackend;
 
       const spend = toFiniteNumber(source.spend);
       const impressions = toFiniteNumber(source.impressions);
@@ -210,7 +231,7 @@ export function getMetricNumericValueOrNull(source: MetricValueSource, metricKey
     }
     case "frequency": {
       const fromBackend = toFiniteNumber(source.frequency);
-      if (fromBackend != null) return fromBackend;
+      if (fromBackend != null) return hasZeroDenominator(source.impressions) ? null : fromBackend;
 
       const impressions = toFiniteNumber(source.impressions);
       const reach = toFiniteNumber(source.reach);

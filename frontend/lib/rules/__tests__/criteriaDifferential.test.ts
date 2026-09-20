@@ -205,8 +205,10 @@ test("DIVERGE (de propósito): anúncio de imagem não passa mais por critério 
   assert.equal(rowMatchesRules(imagem, rule("hook", ">=", 5)), false, "nem com a contrária");
   assert.equal(rowMatchesRules(imagem, rule("hook", "is_empty", null)), true, "é assim que se pede essas linhas");
 
-  // O que NÃO muda: contagem zero continua sendo zero de verdade.
-  assert.equal(rowMatchesRules(imagem, rule("plays", "=", 0)), true);
+  // Desde 2026-09-14 plays também não se aplica a estático: a Meta manda plays espúrios em
+  // imagem, e "plays = 0" num estático deixou de ser um fato para virar "não se aplica".
+  assert.equal(rowMatchesRules(imagem, rule("plays", "=", 0)), false);
+  assert.equal(rowMatchesRules(imagem, rule("plays", "is_empty", null)), true);
 });
 
 test("DIVERGE (de propósito): anúncio sem conversão não passa em critério de CPR", () => {

@@ -133,7 +133,7 @@ def test_chamada_leva_o_prefixo(cliente, monkeypatch):
     sb = _com_sb(monkeypatch, _Sb(_ok()))
     cliente.post("/analytics/ad-performance", json=BODY)
     nome, params = sb.rpcs[0]
-    assert nome == "fetch_manager_rankings_v162"
+    assert nome == "fetch_manager_rankings_v170"
     assert params["p_thumb_public_prefix"] == public_storage_prefix(DEFAULT_BUCKET)
     assert params["p_limit"] == 100000
 
@@ -157,10 +157,47 @@ def test_configuracao_volta_para_a_v161(cliente, monkeypatch):
     assert sb.rpcs[0][0] == "fetch_manager_rankings_v161"
 
 
+@pytest.mark.parametrize("env,aceito,padrao,atributo", [
+    ("ANALYTICS_ENTITY_RPC", "fetch_entity_performance_v158", "fetch_entity_performance_v171",
+     "ANALYTICS_ENTITY_RPC"),
+    ("ANALYTICS_RETENTION_RPC", "fetch_manager_rankings_retention_v2",
+     "fetch_manager_rankings_retention_v172", "ANALYTICS_RETENTION_RPC"),
+])
+def test_os_outros_knobs_tambem_so_aceitam_a_lista(monkeypatch, env, aceito, padrao, atributo):
+    """O detalhe do modal e a curva têm o mesmo contrato do Manager: o nome da função
+    nunca vem cru do ambiente, e valor fora da lista cai no padrão (avisando no log)."""
+    import importlib
+    for valor, esperado in (("", padrao), (aceito, aceito), ("drop_tudo", padrao),
+                            ("fetch_manager_rankings_v170", padrao)):
+        monkeypatch.setenv(env, valor)
+        try:
+            assert getattr(importlib.reload(config), atributo) == esperado
+        finally:
+            monkeypatch.delenv(env)
+            importlib.reload(config)
+
+
+def test_valor_fora_da_lista_avisa_no_log(monkeypatch, caplog):
+    """Rollback com nome errado não pode falhar calado: é de madrugada que se digita
+    errado a variável de emergência."""
+    import importlib
+    import logging
+    monkeypatch.setenv("ANALYTICS_ENTITY_RPC", "fetch_entity_performance_v157")
+    try:
+        with caplog.at_level(logging.WARNING):
+            importlib.reload(config)
+        assert any("ANALYTICS_ENTITY_RPC" in r.getMessage() for r in caplog.records), caplog.text
+    finally:
+        monkeypatch.delenv("ANALYTICS_ENTITY_RPC")
+        importlib.reload(config)
+
+
 @pytest.mark.parametrize("valor,esperado", [
-    ("", "fetch_manager_rankings_v162"),
+    ("", "fetch_manager_rankings_v170"),
     ("fetch_manager_rankings_v161", "fetch_manager_rankings_v161"),
-    ("drop_tudo", "fetch_manager_rankings_v162"),
+    # a volta atrás da 170 (sem a regra de imagem) é escolher a v162 por env
+    ("fetch_manager_rankings_v162", "fetch_manager_rankings_v162"),
+    ("drop_tudo", "fetch_manager_rankings_v170"),
 ])
 def test_nome_da_funcao_so_aceita_a_lista(monkeypatch, valor, esperado):
     import importlib
@@ -249,7 +286,7 @@ def test_filhos_de_campanha_leem_linhas_sem_prefixo(cliente, monkeypatch):
                     params={"date_start": "2026-08-26", "date_stop": "2026-09-15"})
     assert r.status_code == 200
     nome, params = sb.rpcs[0]
-    assert nome == "fetch_manager_rankings_v162"
+    assert nome == "fetch_manager_rankings_v170"
     assert params["p_thumb_public_prefix"] is None
     assert params["p_group_by"] == "adset_id"
     assert [x["group_key"] for x in r.json()["data"]] == ["a1", "a2"]

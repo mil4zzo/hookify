@@ -724,8 +724,8 @@ def _get_rankings_retention_v2_rpc(req: RankingsRetentionRequest, user: Dict[str
     abort_if_client_gone("retention:antes_do_slot")
     with db_slot("rankings_retention_v2_rpc"):
         abort_if_client_gone("retention:rpc")
-        rpc_result = sb.rpc("fetch_manager_rankings_retention_v2", params).execute()
-    payload = _extract_rpc_object_payload(rpc_result.data, "fetch_manager_rankings_retention_v2")
+        rpc_result = sb.rpc(_config.ANALYTICS_RETENTION_RPC, params).execute()
+    payload = _extract_rpc_object_payload(rpc_result.data, _config.ANALYTICS_RETENTION_RPC)
 
     group_key = str(payload.get("group_key") or req.group_key or "")
     curve = payload.get("video_play_curve_actions")

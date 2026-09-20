@@ -212,7 +212,10 @@ export function useSharedAdNameDetail({
       group_key: groupKey,
       pack_ids: packIds.length > 0 ? packIds : undefined,
     },
-    enabled && !!ad && !!groupKey && !!dateStart && !!dateStop && !hasCurveFromPrimarySource,
+    // Anúncio de imagem não tem curva: não vale pedir (a função do servidor já devolve
+    // vazio desde a 172, mas a consulta é cara — varre `ad_metrics`).
+    enabled && !!ad && !!groupKey && !!dateStart && !!dateStop && !hasCurveFromPrimarySource &&
+      normalizeMediaType((ad as any)?.media_type) !== "image",
   );
 
   const videoQuery = useVideoSource(

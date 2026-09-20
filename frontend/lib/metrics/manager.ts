@@ -320,7 +320,8 @@ export function computeCustomColumnAverages(
 }
 
 function getWeightedMetricValue(source: MetricValueSource, metricKey: Extract<MetricKey, "hook" | "hold_rate" | "video_watched_p50" | "video_watched_p75" | "scroll_stop">): number | null {
-  if (metricKey === "scroll_stop") {
+  // Este atalho lê o campo cru; a regra "vídeo não se aplica a imagem" mora na leitura abaixo.
+  if (metricKey === "scroll_stop" && source.media_type !== "image") {
     const explicitScrollStop = source.scroll_stop ?? source.scroll_stop_value ?? source.scroll_stop_rate;
     const explicitValue = explicitScrollStop == null ? null : Number(explicitScrollStop);
     if (Number.isFinite(explicitValue)) {

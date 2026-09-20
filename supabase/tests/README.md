@@ -69,6 +69,93 @@ LAB_URL=postgresql://postgres@127.0.0.1:5433/hookify_lab backend/venv/Scripts/py
 O cabeçalho de cada script lista o que é exato e o que é tolerado (e por quê). Critério
 de saída: zero divergências não classificadas.
 
+## Migration 170 — métrica de vídeo não se aplica a imagem
+
+```bash
+export PATH="/c/Program Files/PostgreSQL/17/bin:$PATH"
+export PGPASSWORD='lab_hookify_2026'; export PGHOST=127.0.0.1; export PGUSER=hookify_lab
+
+psql -d hookify_lab -X -v ON_ERROR_STOP=1 -f supabase/tests/170_video_em_imagem.test.sql
+PGPASSWORD=lab_hookify_2026 PSQL="C:/Program Files/PostgreSQL/17/bin/psql.exe"   py backend/scripts/diff_manager_v170.py --jobs 3        # v162 x v170, ~25 min
+```
+
+O diferencial não compara por igualdade — a mudança é o objetivo. Ele cobra um contrato:
+mesmo conjunto de linhas (exceto em ranking ORDENADO por métrica de vídeo, onde mudar é o
+ponto), tudo que não é vídeo idêntico, plays/thruplays nunca aumentam, linha de imagem
+zerada, e no grão do anúncio quem não é imagem fica igual.
+
+Medições (19/09, laboratório com a cópia de 08/09):
+- índice: pedir `media_type` sem pô-lo no índice de cobertura troca *index-only scan*
+  (5.323 páginas, 0 heap fetches) por **Seq Scan** (~21 mil páginas). Com ele no índice:
+  5.406 páginas, 0 heap fetches, mesmo tamanho de índice (12 MB);
+- tempo: diferença dentro do ruído da máquina (−4% a +23%, cenas grandes empatadas).
+
+Sabotagens (19/09) — **duas passaram pelo diferencial e só o teste SQL pegou**:
+- regra invertida (trava o vídeo) → diferencial acusa (178 de 178 execuções);
+- gasto travado junto → diferencial acusa (dano colateral fora do vídeo);
+- travar só plays/thruplays → diferencial ILESO; o teste pega no nome misturado (hook 0,6
+  em vez de 0,5);
+- travar também `unknown` → diferencial ILESO (nenhum anúncio sem formato tem play: dos
+  1.812, só 2 tiveram entrega); o teste pega em C3/C4.
+
+## Migration 171 — série e detalhe seguem a regra de imagem
+
+```bash
+export PATH="/c/Program Files/PostgreSQL/17/bin:$PATH"
+export PGPASSWORD='lab_hookify_2026'; export PGHOST=127.0.0.1; export PGUSER=hookify_lab
+
+psql -d hookify_lab -X -v ON_ERROR_STOP=1 -f supabase/tests/171_serie_em_imagem.test.sql
+py backend/scripts/diff_series_v171.py --packs 8 --nomes 14
+```
+
+A 171 trava as duas funções que entregam número dia a dia: a série do sparkline
+(`fetch_manager_performance_series_v171`, atrás do wrapper `fetch_manager_rankings_series_v2`)
+e o detalhe do modal (`fetch_entity_performance_v171` — totais, série e curva de retenção).
+Nas duas, a trava entra num CTE só, por anúncio-dia. Com `plays` em 0 a série devolve
+**NULL** no dia (a fórmula é `case when plays > 0 ... else null`) e a curva nem sai (ela
+exige `plays > 0`).
+
+Volta atrás: `171_rollback.sql` (o wrapper volta para a v145) e
+`ANALYTICS_ENTITY_RPC=fetch_entity_performance_v158` para o detalhe.
+
+Duas armadilhas que custaram tempo ao escrever os testes:
+- a série só devolve os grupos **pedidos** em `p_group_keys` — sem eles a resposta vem
+  vazia e a asserção falha por "grupo ausente", não por número errado;
+- o corpo gravado das funções vem com CRLF quando a migration foi aplicada de um arquivo
+  convertido pelo Windows: ao gerar uma versão nova a partir de `pg_get_functiondef`,
+  normalize antes, senão nenhum texto casa.
+
+## Migration 172 — a curva de retenção segue a regra de imagem
+
+```bash
+psql -d hookify_lab -X -v ON_ERROR_STOP=1 -f supabase/tests/172_curva_em_imagem.test.sql
+```
+
+Terceira porta da mesma regra: `fetch_manager_rankings_retention_v2` (a curva de um grupo,
+chamada direto pela rota `/analytics/rankings/retention`) lia `ad_metrics` cru. **A 171
+piorou a exposição a ela**: como o detalhe passou a devolver curva vazia para imagem, o
+modal conclui "não veio curva da fonte primária" e cai justamente no fallback não tratado.
+Volta atrás: `ANALYTICS_RETENTION_RPC=fetch_manager_rankings_retention_v2`.
+
+## O que a revisão de 20/09 mudou nas provas (e por quê)
+
+Dois revisores independentes leram a 170/171 e o resultado foi **um furo de prova, não de
+código** — vale como lembrete de como esta série de testes pode enganar:
+
+- **A trava é um `case` por coluna, e cada um sustenta o seu sozinho.** Sabotagem: apagar
+  só a de `hold_rate` passava ileso pelo teste sintético E pelo diferencial de 907 mil
+  linhas. Motivo: a única asserção que tocava as outras quatro razões era num anúncio 100%
+  imagem — onde `plays = 0` já zera a razão por divisão, com ou sem trava. **Asserção
+  tautológica.** Agora o nome MISTO afirma as sete colunas, nos três arquivos (170, 171 e
+  o detalhe), e a sabotagem coluna a coluna é parte do roteiro.
+- **O diferencial das linhas só comparava `data`** — cabeçalho, médias e paginação ficavam
+  de fora (R6 fechou isso). O do detalhe nunca comparava o array de dias.
+- **A prova no próprio arquivo da 170** agora confere as sete travas POR COLUNA (contar
+  ocorrências não basta: passaria com `plays` travado sete vezes).
+
+Regra prática que fica: **num grupo onde o denominador zera, a asserção não prova a trava.**
+Quem prova é o grupo MISTO, onde sobra denominador do vídeo.
+
 ## Migration 140 (planilha flexível)
 
 ```bash

@@ -249,6 +249,7 @@ export const METRIC_DEFINITIONS: Record<MetricKey, MetricDefinition> = {
     technicalDescription: "Total de execuções iniciadas do criativo em vídeo.",
     polarity: "higher",
     formatKind: "integer",
+    requiresVideo: true,
   },
   thruplays: {
     key: "thruplays",
@@ -258,6 +259,7 @@ export const METRIC_DEFINITIONS: Record<MetricKey, MetricDefinition> = {
     technicalDescription: "Total de reproduções completas ou de pelo menos 15 segundos (video_thruplay_watched_actions).",
     polarity: "higher",
     formatKind: "integer",
+    requiresVideo: true,
   },
   reach: {
     key: "reach",

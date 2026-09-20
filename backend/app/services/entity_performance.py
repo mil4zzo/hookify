@@ -20,6 +20,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
+from app.core import config
 from app.core.client_disconnect import abort_if_client_gone
 from app.core.supabase_retry import with_postgrest_retry
 
@@ -29,8 +30,10 @@ from app.core.supabase_retry import with_postgrest_retry
 # 158: idem, e `series_days=0` passa a significar NENHUM dia de série (na v157 caía junto
 #      do NULL e pedia o período inteiro). É o que deixa as rotas de filhos não pagarem por
 #      uma mini-série que a tabela de variações não desenha: 35% menos dado saindo do banco.
-# Rollback: voltar para _v157 (e as rotas de filhos voltarem a pedir series_days=5).
-RPC_NAME = "fetch_entity_performance_v158"
+# 171: idem, com a regra "metrica de video nao se aplica a anuncio de imagem" (a da 170,
+#      que trata as linhas do Manager) — vale para totais, serie e curva de retencao.
+# Rollback: ANALYTICS_ENTITY_RPC=fetch_entity_performance_v158 (sem deploy); para voltar
+# alem disso, _v157 (e as rotas de filhos voltarem a pedir series_days=5).
 
 # Campos inteiros e somas ponderadas que a RPC devolve em `totals` e em cada dia.
 INT_FIELDS = ("impressions", "clicks", "inline_link_clicks", "lpv", "plays", "thruplays", "reach")
@@ -132,7 +135,7 @@ def fetch_entity_performance(
     abort_if_client_gone(f"drill:{entity}")
 
     def _run():
-        return sb.rpc(RPC_NAME, params).execute()
+        return sb.rpc(config.ANALYTICS_ENTITY_RPC, params).execute()
 
     try:
         res = with_postgrest_retry("entity_performance_rpc", _run)
