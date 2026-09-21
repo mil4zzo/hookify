@@ -34,7 +34,6 @@ from app.contracts.analytics_contracts import (
     validate_rankings_response,
     validate_detail_response,
     validate_history_response,
-    validate_dashboard_response,
 )
 
 
@@ -425,42 +424,6 @@ class ContractTestRunner:
         print_success("Contrato validado com sucesso")
         return True
     
-    def test_dashboard(self) -> bool:
-        """Testa o endpoint POST /analytics/dashboard.
-        
-        Returns:
-            True se passou, False caso contrário
-        """
-        print_section("Testando POST /analytics/dashboard")
-        
-        date_stop = datetime.now().strftime("%Y-%m-%d")
-        date_start = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d")
-        
-        payload = {
-            "date_start": date_start,
-            "date_stop": date_stop
-        }
-        
-        print_info(f"Payload: {payload}")
-        
-        resp = self.make_request("POST", "/analytics/dashboard", json=payload)
-        
-        if resp is None:
-            return False
-        
-        self.tested_endpoints.append("POST /analytics/dashboard")
-        
-        errors = validate_dashboard_response(resp)
-        
-        if errors:
-            for err in errors:
-                self.errors.append(f"POST /analytics/dashboard: {err}")
-                print_error(err)
-            return False
-        
-        print_success("Contrato validado com sucesso")
-        return True
-    
     def run_all(self) -> int:
         """Executa todos os testes de contrato.
         
@@ -494,9 +457,6 @@ class ContractTestRunner:
             
             if adset_id:
                 self.test_adset_details(adset_id)
-        
-        # 4. Testar dashboard
-        self.test_dashboard()
         
         # Resumo final
         print_section("Resumo dos Testes")

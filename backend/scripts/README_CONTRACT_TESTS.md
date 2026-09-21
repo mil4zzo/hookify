@@ -54,7 +54,6 @@ O runner testa automaticamente os seguintes endpoints:
 5. **GET /analytics/rankings/ad-name/{ad_name}/children** - Filhos de um ad_name
 6. **GET /analytics/rankings/ad-name/{ad_name}/history** - Histórico de um ad_name
 7. **GET /analytics/rankings/adset-id/{adset_id}** - Detalhes de um adset
-8. **POST /analytics/dashboard** - Dashboard agregado
 
 ## Estratégia de Teste
 

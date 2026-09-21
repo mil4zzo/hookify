@@ -14,7 +14,6 @@ from app.contracts.analytics_contracts import (
     validate_rankings_item,
     validate_detail_response,
     validate_history_response,
-    validate_dashboard_response,
     validate_averages,
     ContractValidationError,
     safe_float_eq,
@@ -222,28 +221,6 @@ def test_validate_history_response():
     print(f"{OK_SYMBOL} validate_history_response: OK")
 
 
-def test_validate_dashboard_response():
-    """Testa a validação de uma resposta de dashboard."""
-    valid_response = {
-        "totals": {
-            "impressions": 10000,
-            "clicks": 500,
-            "inline_link_clicks": 300,
-            "spend": 105.0,
-            "lpv": 200,
-            "ctr": 0.05,
-            "website_ctr": 0.03,
-            "connect_rate": 0.666666,
-            "cpm": 10.5,
-        }
-    }
-    
-    errors = validate_dashboard_response(valid_response)
-    assert len(errors) == 0, f"Resposta válida gerou erros: {errors}"
-    
-    print(f"{OK_SYMBOL} validate_dashboard_response: OK")
-
-
 def test_validate_averages():
     """Testa a validação do bloco averages."""
     valid_averages = {
@@ -290,7 +267,6 @@ def run_all_tests():
         test_validate_rankings_response,
         test_validate_detail_response,
         test_validate_history_response,
-        test_validate_dashboard_response,
         test_validate_averages,
     ]
     

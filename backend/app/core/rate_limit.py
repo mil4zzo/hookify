@@ -77,7 +77,6 @@ _RULES: Tuple[Tuple[str, re.Pattern[str], str, int], ...] = tuple(
         ("POST", r"^/user/meta-data-deletion-callback$", "meta-deletion", 60),
         # Analytics pesados (RPCs Supabase com histórico de statement_timeout)
         ("POST", r"^/analytics/(rankings|ad-performance)(/series|/retention)?$", "analytics-heavy", 120),
-        ("POST", r"^/analytics/dashboard$", "analytics-heavy", 120),
         ("GET", r"^/analytics/rankings/", "analytics-heavy", 120),
         # Link público de share: sem auth (chave vira IP) e o token tem só ~59 bits
         # de entropia (10 chars, Base58) — o default de 300/min por IP seria

@@ -238,12 +238,6 @@ class RankingsRetentionRequest(BaseModel):
         return _validate_iso_date(v)
 
 
-class DashboardRequest(BaseModel):
-    date_start: str
-    date_stop: str
-    adaccount_ids: Optional[List[str]] = None
-
-
 class DeletePackRequest(BaseModel):
     ad_ids: Optional[List[str]] = Field(default=None, description="Fallback opcional para packs antigos sem ad_ids salvos (geralmente nÃ£o necessÃ¡rio)")
 
@@ -279,7 +273,6 @@ class UpdatePackJudgmentRequest(BaseModel):
 _to_date = EP.to_date
 _axis_5_days = EP.axis_5_days
 _axis_date_range = EP.axis_date_range
-_safe_div = EP.safe_div
 
 
 def _resolve_mql_leadscore_min(user_id: str, pack_ids: Optional[List[str]] = None) -> Optional[float]:
@@ -1805,111 +1798,6 @@ def get_ad_name_history(
         pack_ids=pack_ids, group_by="entity", include_curve=False, series_days=None,
     )
     return {"data": EP.history_rows(EP.single_group(payload), axis, payload["mql_leadscore_min"])}
-
-
-def _ads_de_imagem(sb, rows: List[Dict[str, Any]]) -> set:
-    """Pares (user_id, ad_id) cujo formato e IMAGEM, entre os anuncios destas linhas.
-
-    Chave COMPOSTA de proposito: em pack compartilhado o mesmo `ad_id` existe para
-    dois donos, e cruzar so por `ad_id` mistura os silos (erro que ja custou um
-    numero errado em 2026-09-20). Falha de lote nao derruba a rota — o pior caso
-    volta a ser o total de antes, com o play fantasma.
-    """
-    ad_ids = sorted({str(r.get("ad_id") or "") for r in rows if r.get("ad_id")})
-    if not ad_ids:
-        return set()
-    imagem: set = set()
-    for i in range(0, len(ad_ids), 200):
-        lote = ad_ids[i : i + 200]
-        try:
-            ads_rows = supabase_repo._fetch_all_paginated(
-                sb,
-                "ads",
-                "user_id, ad_id, media_type",
-                lambda q, b=lote: q.in_("ad_id", b).eq("media_type", "image").order("ad_id"),
-            )
-        except Exception as e:
-            logger.warning("[dashboard] formato nao resolvido lote=%s err=%s", len(lote), e)
-            continue
-        for a in ads_rows:
-            imagem.add((str(a.get("user_id") or ""), str(a.get("ad_id") or "")))
-    return imagem
-
-
-@router.post("/dashboard")
-def get_dashboard(req: DashboardRequest, user=Depends(get_current_user)):
-    sb = get_supabase_for_user(user["token"])
-    
-    # Usar paginaÃ§Ã£o para contornar limite de 1000 linhas do Supabase
-    def metrics_filters(q):
-        q = q.gte("date", req.date_start).lte("date", req.date_stop)
-        if req.adaccount_ids:
-            q = q.in_("account_id", req.adaccount_ids)
-        return q
-    
-    rows = _fetch_all_paginated(
-        sb,
-        "ad_metrics",
-        "user_id,ad_id,date,clicks,impressions,inline_link_clicks,reach,video_total_plays,video_total_thruplays,spend,cpm,ctr,frequency,website_ctr,conversions,actions",
-        metrics_filters
-    )
-
-    totals = {
-        "spend": 0.0,
-        "impressions": 0,
-        "reach": 0,
-        "clicks": 0,
-        "inline_link_clicks": 0,
-        "video_total_plays": 0,
-        "video_total_thruplays": 0,
-        "lpv": 0,
-    }
-
-    # A Meta manda metrica de VIDEO em anuncio de imagem (play, thruplay espurios).
-    # As RPCs do Manager passaram a barrar isso no banco (migrations 170/171/172);
-    # esta rota le `ad_metrics` cru, entao a mesma regra e aplicada aqui.
-    imagem = _ads_de_imagem(sb, rows)
-
-    # 145: com a linha por pack, um anuncio-dia em dois packs sao duas linhas. Este
-    # total e do silo inteiro (sem pack), entao dedup por (ad_id, date) — a semantica
-    # de sempre: uma linha por anuncio-dia.
-    seen_ad_days: set = set()
-    for r in rows:
-        ad_day = (r.get("ad_id"), r.get("date"))
-        if ad_day in seen_ad_days:
-            continue
-        seen_ad_days.add(ad_day)
-        totals["spend"] += float(r.get("spend") or 0)
-        totals["impressions"] += int(r.get("impressions") or 0)
-        totals["reach"] += int(r.get("reach") or 0)
-        totals["clicks"] += int(r.get("clicks") or 0)
-        totals["inline_link_clicks"] += int(r.get("inline_link_clicks") or 0)
-        if (str(r.get("user_id") or ""), str(r.get("ad_id") or "")) not in imagem:
-            totals["video_total_plays"] += int(r.get("video_total_plays") or 0)
-            totals["video_total_thruplays"] += int(r.get("video_total_thruplays") or 0)
-        try:
-            for a in (r.get("actions") or []):
-                if str(a.get("action_type")) == "landing_page_view":
-                    totals["lpv"] += int(a.get("value") or 0)
-        except Exception:
-            pass
-
-    ctr = _safe_div(totals["clicks"], totals["impressions"])
-    cpm = (_safe_div(totals["spend"], totals["impressions"]) * 1000.0)
-    frequency = _safe_div(totals["impressions"], totals["reach"]) if totals["reach"] else 0
-    website_ctr = _safe_div(totals["inline_link_clicks"], totals["impressions"]) if totals["impressions"] else 0
-    connect_rate = _safe_div(totals["lpv"], totals["inline_link_clicks"]) if totals["inline_link_clicks"] else 0
-
-    return {
-        "totals": {
-            **totals,
-            "ctr": ctr,
-            "cpm": cpm,
-            "frequency": frequency,
-            "website_ctr": website_ctr,
-            "connect_rate": connect_rate,
-        }
-    }
 
 
 @router.get("/packs")
