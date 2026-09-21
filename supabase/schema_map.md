@@ -191,6 +191,55 @@ Itens individuais de um job de criação em lote de anúncios no Meta.
 
 ---
 
+### chat_conversations
+
+| Coluna | Tipo | Flags |
+|--------|------|-------|
+| id | uuid | NOT NULL, DEFAULT |
+| user_id | uuid | NOT NULL |
+| title | text |  |
+| pack_ids | uuid[] | NOT NULL |
+| action_type | text |  |
+| focus_date_start | date | NOT NULL |
+| focus_date_stop | date | NOT NULL |
+| status | text | NOT NULL, DEFAULT |
+| cancel_requested_at | timestamp |  |
+| archived_at | timestamp |  |
+| created_at | timestamp | NOT NULL, DEFAULT |
+| updated_at | timestamp | NOT NULL, DEFAULT |
+
+---
+
+### chat_messages
+
+| Coluna | Tipo | Flags |
+|--------|------|-------|
+| id | uuid | NOT NULL, DEFAULT |
+| conversation_id | uuid | NOT NULL |
+| user_id | uuid | NOT NULL |
+| role | text | NOT NULL |
+| content | text |  |
+| status | text | NOT NULL, DEFAULT |
+| failure_reason | text |  |
+| progress | jsonb | NOT NULL, DEFAULT |
+| tool_calls | jsonb | NOT NULL, DEFAULT |
+| usage | jsonb |  |
+| action_type | text |  |
+| created_at | timestamp | NOT NULL, DEFAULT |
+| completed_at | timestamp |  |
+
+---
+
+### chat_user_leases
+
+| Coluna | Tipo | Flags |
+|--------|------|-------|
+| user_id | uuid | NOT NULL |
+| busy_until | timestamp | NOT NULL |
+| message_id | uuid |  |
+
+---
+
 ### conversion_keys
 
 | Coluna | Tipo | Flags |
@@ -492,4 +541,4 @@ Preferências e configurações personalizadas por usuário.
 
 ---
 
-*Gerado em: 2026-09-20 — via `supabase/generate_schema_map.py`*
+*Gerado em: 2026-09-21 — via `supabase/generate_schema_map.py`*
