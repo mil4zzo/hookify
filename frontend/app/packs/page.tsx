@@ -49,7 +49,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuLabel, DropdownMenuRadio
 import { cn } from "@/lib/utils/cn";
 import { isPackRefreshingOnServer } from "@/lib/utils/packRefreshState";
 import { useFolders } from "@/lib/hooks/useFolders";
-import { PackFolderTree, TreeRowMenuTrigger, type FolderView } from "@/components/packs/PackFolderTree";
+import { ALL_PACKS_VIEW, PackFolderTree, TreeRowMenuTrigger, type FolderView } from "@/components/packs/PackFolderTree";
 import { FolderActionsMenu } from "@/components/packs/FolderActionsMenu";
 import { PackActionsMenu } from "@/components/packs/PackActionsMenu";
 import { FolderCard } from "@/components/packs/FolderCard";
@@ -301,7 +301,7 @@ export default function PacksPage() {
 
   // ── Pastas (migration 168) ────────────────────────────────────────────────
   // O agrupamento é derivado no cliente sobre os packs que a página já carregou.
-  const { buckets, loosePacks, folderIdByPack, createFolder, renameFolder, deleteFolder, movePacks, undoMove } = useFolders(packs);
+  const { buckets, loosePacks, folderIdByPack, createFolder, renameFolder, deleteFolder, moveFolder, movePacks, undoMove } = useFolders(packs);
   const [folderView, setFolderView] = useState<FolderView>(null);
   const [draggingPackIds, setDraggingPackIds] = useState<string[]>([]);
   const [dropTargetFolderId, setDropTargetFolderId] = useState<string | null>(null);
@@ -312,16 +312,23 @@ export default function PacksPage() {
 
   // Pasta apagada em outra aba deixaria a tela vazia e sem saída — volta para a raiz.
   useEffect(() => {
-    if (folderView && !buckets.some((b) => b.folder.id === folderView)) setFolderView(null);
+    if (folderView === ALL_PACKS_VIEW ? buckets.length === 0 : folderView && !buckets.some((b) => b.folder.id === folderView)) setFolderView(null);
   }, [folderView, buckets]);
 
+  // A busca procura na Biblioteca INTEIRA, qualquer que seja a vista: quem digita
+  // "EI.27" quer os EI.27 das três pastas, não só os da pasta aberta. Por isso,
+  // buscando, a grade é a de "Todos os packs"; limpar a busca devolve a vista de antes.
+  const gridView: FolderView = isSearching ? ALL_PACKS_VIEW : folderView;
+  const isAllView = gridView === ALL_PACKS_VIEW;
+
   // O universo da tela: na raiz, os packs SOLTOS (os em pasta estão colapsados nela);
-  // dentro de uma pasta, só os dela. A busca continua valendo por cima disso.
+  // dentro de uma pasta, só os dela; em "Todos", todos. A busca filtra por cima.
   const packsInView = useMemo(() => {
-    const base = folderView ? currentBucket?.packs ?? [] : loosePacks;
+    if (gridView === ALL_PACKS_VIEW) return filterPacksBySearch(sortedPacks, packSearch, { accountNameById: adAccountNameById });
+    const base = gridView ? currentBucket?.packs ?? [] : loosePacks;
     const ordered = sortPacks(base, packSortKey, { accountNameById: adAccountNameById, direction: packSortDirection });
     return filterPacksBySearch(ordered, packSearch, { accountNameById: adAccountNameById });
-  }, [folderView, currentBucket, loosePacks, packSortKey, packSortDirection, adAccountNameById, packSearch]);
+  }, [gridView, sortedPacks, currentBucket, loosePacks, packSortKey, packSortDirection, adAccountNameById, packSearch]);
 
   /**
    * Árvore filtrada pela busca: a pasta fica se ELA ou algum pack dela casa, e os
@@ -458,7 +465,8 @@ export default function PacksPage() {
   /** Clique num pack da árvore: abre a pasta dele (ou a raiz) e rola até o card. */
   const handleSelectPackFromTree = (packId: string) => {
     const target = folderIdByPack[packId] ?? null;
-    if (target !== folderView) {
+    // Em "Todos" o card já está na grade: não há para onde ir.
+    if (folderView !== ALL_PACKS_VIEW && target !== folderView) {
       setFolderView(target);
       clearPackSelection();
     }
@@ -986,13 +994,18 @@ export default function PacksPage() {
             <PackFolderTree
               buckets={treeBuckets}
               loosePacks={treeLoosePacks}
-              view={folderView}
+              view={gridView}
               search={packSearch}
               onSearchChange={setPackSearch}
               matchCount={packsInView.length}
-              totalInView={folderView ? currentBucket?.packs.length ?? 0 : loosePacks.length}
+              totalInView={packs.length}
+              allCount={packs.length}
+              showAllRow={buckets.length > 0}
               onNavigate={(next) => {
                 setFolderView(next);
+                // Buscando, a grade é a de "Todos": escolher um lugar na árvore é sair
+                // da busca para ele, senão o clique não mudaria nada na tela.
+                setPackSearch("");
                 clearPackSelection();
               }}
               onSelectPack={handleSelectPackFromTree}
@@ -1033,6 +1046,7 @@ export default function PacksPage() {
               )}
               onDropPacks={handleDropPacks}
               isDragging={draggingPackIds.length > 0}
+              onMoveFolder={moveFolder}
               onPackDragStart={handlePackDragStart}
               onPackDragEnd={handlePackDragEnd}
               isPackDragging={(packId) => draggingPackIds.includes(packId)}
@@ -1065,7 +1079,7 @@ export default function PacksPage() {
                 de virar uma faixa fixa que corta os cards no meio. */}
             <div className="-mx-1 flex min-w-0 flex-1 flex-col space-y-stack px-1 lg:min-h-0 lg:overflow-y-auto lg:overscroll-contain lg:pb-8">
           {/* Cabeçalho da pasta aberta */}
-          {folderView && currentBucket && (
+          {!isSearching && folderView && currentBucket && (
             <div className="flex flex-wrap items-center gap-3 rounded-md border border-border border-l-[3px] border-l-primary bg-primary-10 px-4 py-3">
               <Button variant="ghost" size="sm" onClick={() => { setFolderView(null); clearPackSelection(); }}>
                 <IconChevronLeft className="h-4 w-4" />
@@ -1094,13 +1108,13 @@ export default function PacksPage() {
             </div>
           )}
 
-          {/* Pastas — só na raiz; dentro de uma pasta a lista já é o conteúdo dela */}
-          {!isLoadingPacks && !folderView && visibleFolders.length > 0 && (
+          {/* Pastas — na raiz e nos resultados da busca; dentro de uma pasta a lista
+              já é o conteúdo dela, e "Todos os packs" é a lista corrida, sem pastas. */}
+          {!isLoadingPacks && (gridView === null || isSearching) && visibleFolders.length > 0 && (
             <section className="flex flex-col gap-4">
-              <div className="flex items-center gap-3">
-                <span className="text-2xs font-semibold uppercase tracking-wider text-muted-foreground">Pastas · {buckets.length}</span>
-                <span className="h-px flex-1 bg-border" />
-              </div>
+              {/* Título de seção, como num gerenciador de arquivos: sem divisor e sem
+                  contagem — o número de pastas está à vista logo abaixo. */}
+              <h2 className="text-lg font-semibold text-foreground">Pastas</h2>
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5 xl:grid-cols-6">
                 {visibleFolders.map(({ folder, packs: inside, totalSpend, hasSheet, hasShared }) => (
                   <FolderCard
@@ -1148,32 +1162,35 @@ export default function PacksPage() {
                 </StandardCard>
               </div>
             </div>
-          ) : (
+          ) : packsInView.length === 0 && (gridView === null || (isSearching && visibleFolders.length > 0)) ? null : (
+            // Na raiz, sem pack solto para mostrar, a seção inteira some: com tudo em
+            // pastas ela seria só um título sobre um vazio. Continua existindo quando
+            // uma busca não achou NADA (nem pasta), para dizer isso; se achou só pastas,
+            // os tiles já são a resposta. Para desarquivar
+            // arrastando, o alvo é "Sem pasta" na árvore, que reaparece durante o arrasto.
             <section
               className="flex flex-col gap-4"
-              onDragOver={(e) => { if (draggingPackIds.length && !folderView) { e.preventDefault(); setDropTargetFolderId("__loose__"); } }}
+              onDragOver={(e) => { if (draggingPackIds.length && gridView === null) { e.preventDefault(); setDropTargetFolderId("__loose__"); } }}
               onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDropTargetFolderId(null); }}
-              onDrop={(e) => { if (!folderView) { e.preventDefault(); handleDropPacks(null); } }}
+              onDrop={(e) => { if (gridView === null) { e.preventDefault(); handleDropPacks(null); } }}
             >
-              {!folderView && buckets.length > 0 && (
-                <div className="flex items-center gap-3">
-                  <span className="text-2xs font-semibold uppercase tracking-wider text-muted-foreground">Packs soltos · {loosePacks.length}</span>
-                  <span className="h-px flex-1 bg-border" />
-                </div>
+              {isAllView && !isSearching ? (
+                <h2 className="text-lg font-semibold text-foreground">Todos os packs</h2>
+              ) : (
+                (gridView === null || isSearching) && visibleFolders.length > 0 && packsInView.length > 0 && (
+                  <h2 className="text-lg font-semibold text-foreground">Packs</h2>
+                )
               )}
 
               {packsInView.length === 0 ? (
                 isSearching ? (
                   <StatePanel kind="empty" title="Nenhum pack encontrado" message={`Nenhum pack corresponde a "${packSearch.trim()}".`} action={<Button variant="outline" onClick={() => setPackSearch("")}>Limpar busca</Button>} />
                 ) : (
-                  <StatePanel
-                    kind="empty"
-                    title={folderView ? "Pasta vazia" : "Nenhum pack solto"}
-                    message={folderView ? "Arraste packs para cá, ou use o menu da pasta." : "Todos os seus packs estão em pastas. Arraste um para cá para tirá-lo da pasta."}
-                  />
+                  // Só alcançável dentro de uma pasta: na raiz a seção inteira some.
+                  <StatePanel kind="empty" title="Pasta vazia" message="Arraste packs para cá, ou use o menu da pasta." />
                 )
               ) : (
-                <div className={cn("grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-10 gap-y-8", dropTargetFolderId === "__loose__" && !folderView && "rounded-lg ring-1 ring-inset ring-primary")}>
+                <div className={cn("grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-10 gap-y-8", dropTargetFolderId === "__loose__" && gridView === null && "rounded-lg ring-1 ring-inset ring-primary")}>
                   {packsInView.map((pack) => (
                     <div
                       key={pack.id}

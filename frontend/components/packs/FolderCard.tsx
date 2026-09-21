@@ -4,6 +4,7 @@ import React, { useState } from "react";
 import { IconDots } from "@tabler/icons-react";
 import { FolderActionsMenu } from "./FolderActionsMenu";
 import { FolderGlyph } from "./FolderGlyph";
+import { FOLDER_DRAG_TYPE } from "./PackFolderTree";
 import { cn } from "@/lib/utils/cn";
 import type { PackFolder } from "@/lib/types";
 
@@ -56,6 +57,8 @@ export function FolderCard({
     <div
       className="group/folder relative"
       onDragOver={(e) => {
+        // Pasta arrastada (reordenar no explorer) não cai dentro de outra pasta.
+        if (e.dataTransfer.types.includes(FOLDER_DRAG_TYPE)) return;
         // Sem preventDefault o navegador recusa o drop e o cursor fica "proibido".
         e.preventDefault();
         e.dataTransfer.dropEffect = "move";

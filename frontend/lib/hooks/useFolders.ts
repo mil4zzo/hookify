@@ -135,6 +135,31 @@ export function useFolders(packs: AdsPack[]) {
   }, [folders, members]);
 
   /**
+   * Leva a pasta para antes ou depois de outra. A conta é sobre a lista INTEIRA,
+   * não a que a busca deixou na tela — senão reordenar com filtro gravaria posições
+   * só dos visíveis e embaralharia os escondidos.
+   */
+  const moveFolder = useCallback(async (folderId: string, targetId: string, edge: "before" | "after") => {
+    if (folderId === targetId) return;
+    const moving = folders.find((f) => f.id === folderId);
+    if (!moving) return;
+    const rest = folders.filter((f) => f.id !== folderId);
+    const at = rest.findIndex((f) => f.id === targetId);
+    if (at < 0) return;
+    rest.splice(edge === "before" ? at : at + 1, 0, moving);
+    if (rest.every((f, i) => f.id === folders[i].id)) return;
+
+    const previous = folders;
+    setFolders(rest.map((f, i) => ({ ...f, position: i })));
+    try {
+      await api.folders.reorder(rest.map((f) => f.id));
+    } catch (error) {
+      setFolders(previous);
+      showError(error instanceof Error ? error : new Error("Erro ao reordenar as pastas"));
+    }
+  }, [folders]);
+
+  /**
    * Move packs. `folderId` nulo tira da pasta.
    * Devolve o estado anterior para quem quiser oferecer "Desfazer" — arrasto erra
    * em silêncio, e sem volta o engano só aparece muito depois.
@@ -200,5 +225,5 @@ export function useFolders(packs: AdsPack[]) {
     }
   }, [load]);
 
-  return { folders, buckets, loosePacks, folderIdByPack, isLoading, createFolder, renameFolder, deleteFolder, movePacks, undoMove, reload: load };
+  return { folders, buckets, loosePacks, folderIdByPack, isLoading, createFolder, renameFolder, deleteFolder, moveFolder, movePacks, undoMove, reload: load };
 }

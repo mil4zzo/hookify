@@ -600,6 +600,9 @@ export const api = {
     /** Desfaz a pasta. Os packs FICAM — voltam para "soltos" pela cascata da FK. */
     remove: (folderId: string): Promise<{ success: boolean; deleted: boolean; id: string }> =>
       apiClient.delete(`/folders/${folderId}`),
+    /** Ordem COMPLETA das pastas, de cima para baixo. Uma ida só, grava só o que mudou. */
+    reorder: (folderIds: string[]): Promise<{ success: boolean; changed: number }> =>
+      apiClient.post('/folders/reorder', { folder_ids: folderIds }),
     /** `folderId` nulo tira os packs da pasta (voltam para soltos). */
     move: (packIds: string[], folderId: string | null): Promise<{ success: boolean; moved: number; folder_id: string | null }> =>
       apiClient.post('/folders/move', { pack_ids: packIds, folder_id: folderId }),

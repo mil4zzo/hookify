@@ -55,15 +55,21 @@ export function FolderGlyph({ hasSheet = false, hasShared = false, isDropTarget 
         <defs>
           {/* Luz na diagonal. Mesma receita do `.control-lit`, com o dobro da
               intensidade: a pasta é uma área grande e escura, onde o véu de um
-              controle de 40px some. As paradas vêm de `.folder-glyph-lit`. */}
+              controle de 40px some.
+
+              A cor mora NO PRÓPRIO <stop>, via classe. Antes ela vinha de
+              variáveis definidas numa classe do <path> — só que os <stop> vivem
+              em <defs>, não dentro do path, então não herdavam nada: a variável
+              ficava indefinida, a cor caía no padrão (preto opaco) e esse véu
+              preto cobria a pasta inteira. */}
           <linearGradient id={litId} x1="0" y1="0" x2="1" y2="1">
-            <stop offset="0" stopColor="var(--lit-start)" />
-            <stop offset="0.52" stopColor="var(--lit-mid)" />
-            <stop offset="1" stopColor="var(--lit-end)" />
+            <stop offset="0" className="folder-lit-start" />
+            <stop offset="0.52" className="folder-lit-mid" />
+            <stop offset="1" className="folder-lit-end" />
           </linearGradient>
         </defs>
-        <path d={BACK_PATH} fill="var(--folder-back)" />
-        <path d={BACK_PATH} fill={`url(#${litId})`} className="folder-glyph-lit" />
+        <path d={BACK_PATH} style={{ fill: "var(--folder-back)" }} />
+        <path d={BACK_PATH} fill={`url(#${litId})`} />
       </svg>
 
       {/* Camada da frente — inclina quando é alvo de arrasto */}
@@ -75,8 +81,8 @@ export function FolderGlyph({ hasSheet = false, hasShared = false, isDropTarget 
           isDropTarget && "[transform:perspective(300px)_rotateX(-12deg)]",
         )}
       >
-        <path d={FRONT_PATH} fill="var(--folder-front)" />
-        <path d={FRONT_PATH} fill={`url(#${litId})`} className="folder-glyph-lit" />
+        <path d={FRONT_PATH} style={{ fill: "var(--folder-front)" }} />
+        <path d={FRONT_PATH} fill={`url(#${litId})`} />
         <path
           d={FRONT_PATH}
           fill="none"

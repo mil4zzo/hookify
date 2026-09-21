@@ -49,6 +49,11 @@ class FolderRename(BaseModel):
     name: str = Field(min_length=1, max_length=MAX_NAME_LEN)
 
 
+class ReorderRequest(BaseModel):
+    # Ordem COMPLETA das pastas, de cima para baixo. A posicao vira o indice.
+    folder_ids: List[str] = Field(min_length=1, max_length=MAX_FOLDERS_PER_USER)
+
+
 class MoveRequest(BaseModel):
     pack_ids: List[str] = Field(min_length=1)
     # None = tirar da pasta (volta para "packs soltos").
@@ -174,10 +179,19 @@ def create_folder(payload: FolderCreate = Body(...), user=Depends(get_current_us
     name = _clean_name(payload.name)
     pack_ids = _valid_uuids(payload.pack_ids, "pack_id")
 
-    count = with_postgrest_retry(
+    # Uma ida so traz a contagem (limite) e a maior posicao (pasta nova vai para
+    # o FIM da lista, nao para o meio da ordem que o usuario montou).
+    last = with_postgrest_retry(
         "folders.count",
-        lambda: sb.table("folders").select("id", count="exact").eq("user_id", actor_id).limit(1).execute(),
-    ).count or 0
+        lambda: sb.table("folders")
+        .select("position", count="exact")
+        .eq("user_id", actor_id)
+        .order("position", desc=True)
+        .limit(1)
+        .execute(),
+    )
+    count = last.count or 0
+    next_position = (int((last.data or [{}])[0].get("position") or 0) + 1) if last.data else 0
     if count >= MAX_FOLDERS_PER_USER:
         raise HTTPException(status_code=422, detail=f"Limite de {MAX_FOLDERS_PER_USER} pastas atingido.")
 
@@ -186,7 +200,7 @@ def create_folder(payload: FolderCreate = Body(...), user=Depends(get_current_us
 
     created = with_postgrest_retry(
         "folders.create",
-        lambda: sb.table("folders").insert({"user_id": actor_id, "name": name}).execute(),
+        lambda: sb.table("folders").insert({"user_id": actor_id, "name": name, "position": next_position}).execute(),
     ).data
     if not created:
         raise HTTPException(status_code=500, detail="Erro ao criar a pasta.")
@@ -225,6 +239,26 @@ def delete_folder(folder_id: str, user=Depends(get_current_user)):
 
     with_postgrest_retry("folders.delete", lambda: sb.table("folders").delete().eq("id", folder_id).execute())
     return {"success": True, "deleted": True, "id": folder_id}
+
+
+@router.post("/reorder")
+def reorder_folders(payload: ReorderRequest = Body(...), user=Depends(get_current_user)):
+    """Grava a ordem das pastas numa ida so (RPC reorder_folders, migration 173).
+
+    Um UPDATE por pasta seriam N idas em serie; a RPC faz um UPDATE com a lista
+    inteira e escreve so as linhas cuja posicao mudou. Id de pasta alheia e
+    ignorado pela RLS e pelo filtro da propria funcao.
+    """
+    sb = get_supabase_for_user(user["token"])
+    folder_ids = _valid_uuids(payload.folder_ids, "folder_id")
+    if not folder_ids:
+        raise HTTPException(status_code=422, detail="Nenhuma pasta informada.")
+
+    changed = with_postgrest_retry(
+        "folders.reorder",
+        lambda: sb.rpc("reorder_folders", {"p_folder_ids": folder_ids}).execute(),
+    ).data
+    return {"success": True, "changed": int(changed or 0)}
 
 
 def _upsert_members(sb, actor_id: str, pack_ids: List[str], folder_id: str) -> int:

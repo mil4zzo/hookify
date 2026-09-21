@@ -1,15 +1,27 @@
 "use client";
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { IconChevronRight, IconDots, IconFolder, IconFolderOpenFilled } from "@tabler/icons-react";
+import { IconChevronRight, IconDots, IconFolder, IconFolderOpenFilled, IconLayoutGrid } from "@tabler/icons-react";
 import { SearchInputWithClear } from "@/components/common/SearchInputWithClear";
 import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils/cn";
 import type { AdsPack, PackFolder } from "@/lib/types";
 import type { FolderBucket } from "@/lib/hooks/useFolders";
 
-/** `null` = raiz da Biblioteca. */
+/** `null` = raiz da Biblioteca; `ALL_PACKS_VIEW` = todos os packs, sem pastas. */
 export type FolderView = string | null;
+
+/** Vista "Todos os packs". Não é pasta: não existe no banco e não recebe pack. */
+export const ALL_PACKS_VIEW = "__all__";
+
+/**
+ * Tipo do `dataTransfer` quando o que se arrasta é uma PASTA. Os alvos de pack
+ * (tile de pasta, "Sem pasta") conferem esse tipo para não acender — soltar uma
+ * pasta em outra ainda não significa nada.
+ */
+export const FOLDER_DRAG_TYPE = "application/x-hookify-folder";
+
+type InsertEdge = "before" | "after";
 
 export interface PackFolderTreeProps {
   buckets: FolderBucket[];
@@ -17,9 +29,13 @@ export interface PackFolderTreeProps {
   view: FolderView;
   search: string;
   onSearchChange: (value: string) => void;
-  /** Quantos packs a busca deixou na vista atual, e de quantos. */
+  /** Quantos packs a busca achou, e de quantos. */
   matchCount?: number;
   totalInView?: number;
+  /** Total da Biblioteca, na linha "Todos os packs". */
+  allCount: number;
+  /** Sem pasta nenhuma, "Todos" repetiria "Sem pasta" — a linha some. */
+  showAllRow: boolean;
   onNavigate: (view: FolderView) => void;
   /** Vai até o pack: abre a pasta dele (ou a raiz) e destaca o card. */
   onSelectPack: (packId: string) => void;
@@ -30,6 +46,8 @@ export interface PackFolderTreeProps {
   /** Soltar packs arrastados: `null` tira da pasta. */
   onDropPacks: (folderId: string | null) => void;
   isDragging: boolean;
+  /** Reordena: leva `folderId` para antes ou depois de `targetId`. */
+  onMoveFolder: (folderId: string, targetId: string, edge: InsertEdge) => void;
   /** Arrastar a PARTIR da árvore. Mesmos handlers dos cards — uma origem só de verdade. */
   onPackDragStart: (packId: string) => (event: React.DragEvent<HTMLDivElement>) => void;
   onPackDragEnd: () => void;
@@ -66,12 +84,15 @@ export function PackFolderTree({
   onSearchChange,
   matchCount,
   totalInView,
+  allCount,
+  showAllRow,
   onNavigate,
   onSelectPack,
   renderPackMenu,
   renderFolderMenu,
   onDropPacks,
   isDragging,
+  onMoveFolder,
   onPackDragStart,
   onPackDragEnd,
   isPackDragging,
@@ -82,15 +103,33 @@ export function PackFolderTree({
   className,
 }: PackFolderTreeProps) {
   const navRef = useRef<HTMLElement>(null);
-  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [dropTarget, setDropTarget] = useState<string | "loose" | null>(null);
+  // Arrasto de PASTA. A ref responde na hora (dragover chega antes do próximo
+  // render); o estado desenha. `folderDragActive` entra um tick depois do
+  // dragstart: mexer no DOM dentro do próprio dragstart cancela o arrasto no Chrome.
+  const draggingFolderRef = useRef<string | null>(null);
+  const [folderDragActive, setFolderDragActive] = useState(false);
+  const [insertAt, setInsertAt] = useState<{ id: string; edge: InsertEdge } | null>(null);
 
   const isSearching = search.trim().length > 0;
-  // Aberto por padrão: a graça da árvore é ver os packs sem precisar abrir nada.
-  // Durante a busca, força aberto — contagem sem os itens embaixo seria um beco.
-  const isOpen = (key: string) => isSearching || !collapsed.has(key);
+  // FECHADO por padrão: com dezenas de packs a árvore aberta vira uma lista comprida
+  // e deixa de ser o mapa das pastas. Abre-se a que interessa. Durante a busca, força
+  // aberto — contagem sem os itens embaixo seria um beco.
+  // Arrastando pasta, a árvore mostra SÓ as pastas: com o conteúdo aberto, "depois
+  // da pasta X" ficaria a dezenas de linhas do ponteiro, abaixo dos packs dela.
+  const isOpen = (key: string) => !folderDragActive && (isSearching || expanded.has(key));
+  // Abrir a pasta pelo nome só EXPANDE: com o caret separado, recolher é papel dele.
+  const expand = (key: string) => {
+    setExpanded((prev) => {
+      if (prev.has(key)) return prev;
+      const next = new Set(prev);
+      next.add(key);
+      return next;
+    });
+  };
   const toggle = (key: string) => {
-    setCollapsed((prev) => {
+    setExpanded((prev) => {
       const next = new Set(prev);
       if (next.has(key)) next.delete(key);
       else next.add(key);
@@ -108,7 +147,57 @@ export function PackFolderTree({
     [buckets, loosePacks],
   );
 
-  useEdgeAutoScroll(navRef, isDragging);
+  useEdgeAutoScroll(navRef, isDragging || folderDragActive);
+
+  const endFolderDrag = () => {
+    draggingFolderRef.current = null;
+    setFolderDragActive(false);
+    setInsertAt(null);
+  };
+
+  const folderDragProps = (folderId: string) => ({
+    draggable: true,
+    onDragStart: (e: React.DragEvent) => {
+      draggingFolderRef.current = folderId;
+      e.dataTransfer.effectAllowed = "move";
+      e.dataTransfer.setData(FOLDER_DRAG_TYPE, folderId);
+      window.setTimeout(() => setFolderDragActive(true), 0);
+    },
+    onDragEnd: endFolderDrag,
+  });
+
+  /** Metade de cima da linha = antes; de baixo = depois. */
+  const folderInsertProps = (targetId: string) => ({
+    onDragOver: (e: React.DragEvent) => {
+      const dragged = draggingFolderRef.current;
+      if (!dragged) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "move";
+      if (dragged === targetId) {
+        setInsertAt(null);
+        return;
+      }
+      const rect = e.currentTarget.getBoundingClientRect();
+      const edge: InsertEdge = e.clientY < rect.top + rect.height / 2 ? "before" : "after";
+      setInsertAt((prev) => (prev?.id === targetId && prev.edge === edge ? prev : { id: targetId, edge }));
+    },
+    onDrop: (e: React.DragEvent) => {
+      const dragged = draggingFolderRef.current;
+      if (!dragged) return;
+      e.preventDefault();
+      if (insertAt && insertAt.id === targetId) onMoveFolder(dragged, targetId, insertAt.edge);
+      endFolderDrag();
+    },
+  });
+
+  /** Alt+↑/↓ no nome da pasta: o mesmo reordenar, sem mouse. */
+  const moveByKeyboard = (e: React.KeyboardEvent, index: number) => {
+    if (!e.altKey || (e.key !== "ArrowUp" && e.key !== "ArrowDown")) return;
+    e.preventDefault();
+    const folderId = buckets[index].folder.id;
+    if (e.key === "ArrowUp" && index > 0) onMoveFolder(folderId, buckets[index - 1].folder.id, "before");
+    if (e.key === "ArrowDown" && index < buckets.length - 1) onMoveFolder(folderId, buckets[index + 1].folder.id, "after");
+  };
 
   const dropProps = (key: string | "loose", folderId: string | null) => ({
     onDragOver: (e: React.DragEvent) => {
@@ -137,14 +226,30 @@ export function PackFolderTree({
         <SearchInputWithClear value={search} onChange={onSearchChange} placeholder="Buscar pack ou pasta..." aria-label="Buscar na Biblioteca" />
         {isSearching && typeof matchCount === "number" && typeof totalInView === "number" && (
           <span className="px-1 text-xs text-muted-foreground tabular-nums">
-            {matchCount} de {totalInView} nesta vista
+            {matchCount} de {totalInView} packs
           </span>
         )}
       </div>
 
       <nav ref={navRef} className="scroll-faded -mx-1 flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto overscroll-contain px-1 lg:pb-8" aria-label="Pastas e packs">
-        {buckets.map(({ folder, packs }) => {
+        {/* "Todos os packs": uma VISTA, não uma pasta — ícone de grade, sem caret
+            (abrir listaria a Biblioteca inteira, o que a árvore fechada evita) e não
+            recebe pack arrastado. */}
+        {showAllRow && (
+        <TreeRow
+          label="Todos os packs"
+          count={allCount}
+          icon={<IconLayoutGrid className="h-4 w-4" />}
+          isCurrent={view === ALL_PACKS_VIEW}
+          isOpen={false}
+          onClick={() => onNavigate(ALL_PACKS_VIEW)}
+        />
+        )}
+
+        {buckets.map(({ folder, packs }, index) => {
           const open = isOpen(folder.id);
+          const pack = dropProps(folder.id, folder.id);
+          const order = folderInsertProps(folder.id);
           return (
             <div key={folder.id}>
               <TreeRow
@@ -157,9 +262,16 @@ export function PackFolderTree({
                 menu={renderFolderMenu(folder, packs.length)}
                 onClick={() => {
                   onNavigate(folder.id);
-                  toggle(folder.id);
+                  expand(folder.id);
                 }}
-                {...dropProps(folder.id, folder.id)}
+                onToggle={() => toggle(folder.id)}
+                onMainKeyDown={(e) => moveByKeyboard(e, index)}
+                isDraggingSelf={folderDragActive && draggingFolderRef.current === folder.id}
+                insertEdge={insertAt?.id === folder.id ? insertAt.edge : undefined}
+                {...folderDragProps(folder.id)}
+                onDragOver={(e) => { pack.onDragOver(e); order.onDragOver(e); }}
+                onDragLeave={pack.onDragLeave}
+                onDrop={(e) => { if (draggingFolderRef.current) order.onDrop(e); else pack.onDrop(e); }}
               />
               {open && (
                 <TreeChildren>
@@ -175,9 +287,11 @@ export function PackFolderTree({
         })}
 
         {/* "Sem pasta": mesmo tratamento de um grupo, e é o alvo de arrasto para TIRAR
-            da pasta. Aparece sempre — é para onde os packs voltam, e sem ele não haveria
+            da pasta. Só aparece se houver pack sem pasta — com tudo arquivado seria um grupo
+            vazio. A exceção é DURANTE um arrasto: aí ele volta, porque é o único lugar
             onde soltar um pack que se quer desarquivar. Não tem `⋯`: renomear e desfazer
             não se aplicam a um grupo que não existe no banco. */}
+        {(loosePacks.length > 0 || isDragging) && (
         <div>
           <TreeRow
             label="Sem pasta"
@@ -188,8 +302,9 @@ export function PackFolderTree({
             isOpen={isOpen("__loose__")}
             onClick={() => {
               onNavigate(null);
-              toggle("__loose__");
+              expand("__loose__");
             }}
+            onToggle={() => toggle("__loose__")}
             {...dropProps("loose", null)}
           />
           {isOpen("__loose__") && (
@@ -202,6 +317,7 @@ export function PackFolderTree({
             </TreeChildren>
           )}
         </div>
+        )}
 
         {isSearching && buckets.length === 0 && loosePacks.length === 0 && (
           <span className="px-2 py-3 text-xs text-muted-foreground">Nada encontrado.</span>
@@ -223,23 +339,32 @@ interface TreeRowProps extends React.HTMLAttributes<HTMLDivElement> {
   isDropTarget?: boolean;
   isOpen: boolean;
   menu?: React.ReactNode;
+  /** Linha fina de "vai cair aqui" ao arrastar uma pasta. */
+  insertEdge?: InsertEdge;
+  isDraggingSelf?: boolean;
+  onMainKeyDown?: (event: React.KeyboardEvent) => void;
+  /** Abre a pasta na grade. */
   onClick: () => void;
+  /** Só abre e fecha o conteúdo na árvore. Sem ele, a linha não tem caret. */
+  onToggle?: () => void;
 }
 
 /**
- * Linha de pasta. Caret, ícone, nome e contagem vivem DENTRO de um botão só: são
- * a mesma ação — abrir a pasta e expandir —, então dividir em alvos separados
- * deixaria pedaços mortos no meio da linha.
+ * Linha de pasta. Dois alvos, com papéis diferentes:
+ * - o CARET só abre e fecha o conteúdo na árvore, sem abrir a pasta na grade;
+ * - o resto da linha (ícone, nome, contagem) abre a pasta.
+ * O caret não tem fundo de hover próprio — ele reage junto com a linha.
  *
- * O `⋯` é irmão desse botão, nunca filho: botão dentro de botão é HTML inválido e
+ * O `⋯` é irmão desses botões, nunca filho: botão dentro de botão é HTML inválido e
  * o clique no menu acabaria disparando a navegação.
  */
-function TreeRow({ label, count, icon, isCurrent, isDropTarget = false, isOpen, menu, onClick, ...dragProps }: TreeRowProps) {
+function TreeRow({ label, count, icon, isCurrent, isDropTarget = false, isOpen, menu, insertEdge, isDraggingSelf = false, onMainKeyDown, onClick, onToggle, ...dragProps }: TreeRowProps) {
   return (
     <div
       {...dragProps}
       className={cn(
-        "group/row flex items-center rounded-md transition-colors",
+        "group/row relative flex items-center rounded-md pr-1 transition-colors",
+        isDraggingSelf && "opacity-40",
         // Com o menu aberto o ponteiro está SOBRE o menu, não sobre a linha: sem o
         // `has-` o hover morre e não sobra marca de qual item foi clicado.
         !isCurrent && "hover:bg-surface has-[[data-state=open]]:bg-surface",
@@ -249,16 +374,27 @@ function TreeRow({ label, count, icon, isCurrent, isDropTarget = false, isOpen, 
         isDropTarget && "bg-surface ring-1 ring-inset ring-primary",
       )}
     >
+      {onToggle ? (
+        <button
+          type="button"
+          onClick={onToggle}
+          aria-label={isOpen ? `Recolher ${label}` : `Expandir ${label}`}
+          aria-expanded={isOpen}
+          className="focus-inset grid h-7 w-6 shrink-0 place-items-center rounded-md text-muted-foreground transition-colors hover:text-foreground"
+        >
+          <IconChevronRight className={cn("h-3.5 w-3.5 transition-transform", isOpen && "rotate-90")} />
+        </button>
+      ) : (
+        // Mesmo recuo do caret: o ícone fica na coluna dos ícones das pastas.
+        <span aria-hidden className="h-7 w-6 shrink-0" />
+      )}
       <button
         type="button"
         onClick={onClick}
+        onKeyDown={onMainKeyDown}
         aria-current={isCurrent ? "true" : undefined}
-        aria-expanded={isOpen}
-        className={cn("focus-inset flex min-w-0 flex-1 items-center gap-2 rounded-md py-1.5 pl-1 pr-2 text-left text-sm", isCurrent && "font-medium")}
+        className={cn("focus-inset flex min-w-0 flex-1 items-center gap-2 rounded-md py-1.5 pr-1 text-left text-sm", isCurrent && "font-medium")}
       >
-        <span className="grid h-5 w-5 shrink-0 place-items-center text-muted-foreground" aria-hidden="true">
-          <IconChevronRight className={cn("h-3.5 w-3.5 transition-transform", isOpen && "rotate-90")} />
-        </span>
         <span className={cn("shrink-0", isCurrent ? "text-foreground" : "text-muted-foreground")}>{icon}</span>
         <span className="flex-1 truncate">{label}</span>
         <span className={cn("shrink-0 rounded-sm bg-surface-2 px-1.5 text-2xs font-medium tabular-nums", isCurrent ? "text-foreground" : "text-muted-foreground")}>
@@ -266,6 +402,10 @@ function TreeRow({ label, count, icon, isCurrent, isDropTarget = false, isOpen, 
         </span>
       </button>
       {menu}
+      {insertEdge && (
+        // Na fresta entre as linhas (gap-0.5), não em cima do texto.
+        <span aria-hidden className={cn("pointer-events-none absolute inset-x-1 h-0.5 rounded-full bg-primary", insertEdge === "before" ? "-top-0.5" : "-bottom-0.5")} />
+      )}
     </div>
   );
 }
@@ -322,7 +462,9 @@ function PackRow({
           que está selecionado ficar legível de relance. */}
       <span
         className={cn(
-          "transition-opacity",
+          // `flex`: como span inline, o checkbox (inline-block) sentava na linha de
+          // base do texto e sobrava o espaço da descendente embaixo — ficava ~2px acima.
+          "flex transition-opacity",
           // `focus-visible` e não `focus-within`: o clique do mouse também dá foco, e
           // com `focus-within` o checkbox ficava aceso depois de desmarcar, até o foco
           // sair. Com `focus-visible` só o foco de TECLADO o mantém — que é o caso em
@@ -430,7 +572,13 @@ export const TreeRowMenuTrigger = React.forwardRef<HTMLButtonElement, React.Butt
         aria-label={label}
         {...props}
         className={cn(
-          "focus-inset mr-1 grid h-6 w-6 shrink-0 place-items-center rounded-sm text-muted-foreground opacity-0 transition-opacity hover:text-foreground focus-visible:opacity-100 group-hover/row:opacity-100 data-[state=open]:opacity-100",
+          // Largura ZERO em repouso: um `⋯` só invisível continuaria ocupando 24px e
+          // empurraria o contador para longe da borda direita. No hover a largura
+          // cresce e o contador desliza para a esquerda, abrindo espaço para ele.
+          "focus-inset grid h-6 w-0 shrink-0 place-items-center overflow-hidden rounded-sm text-muted-foreground opacity-0 transition-[width,opacity,margin] duration-200 ease-out hover:text-foreground",
+          "group-hover/row:ml-0.5 group-hover/row:w-6 group-hover/row:opacity-100",
+          "focus-visible:ml-0.5 focus-visible:w-6 focus-visible:opacity-100",
+          "data-[state=open]:ml-0.5 data-[state=open]:w-6 data-[state=open]:opacity-100",
           className,
         )}
       >

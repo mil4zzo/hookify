@@ -183,11 +183,12 @@
    com o dobro da intensidade — a pasta e uma area grande e escura, onde o veu suave
    de um controle de 40px desaparece. Por ser transparencia e nao um cinza fixo,
    funciona sobre qualquer nivel e nos dois temas. */
-.folder-glyph-lit {
-  --lit-start: oklch(1 0 0 / 0.13);
-  --lit-mid: oklch(1 0 0 / 0);
-  --lit-end: oklch(0 0 0 / 0.13);
-}
+/* As classes vão nos <stop> do degradê, NUNCA num ancestral do <path>: os stops
+   vivem em <defs> e não herdam do path — variável posta lá fica indefinida e a
+   parada vira preto opaco. */
+.folder-lit-start { stop-color: oklch(1 0 0); stop-opacity: 0.13; }
+.folder-lit-mid { stop-color: oklch(1 0 0); stop-opacity: 0; }
+.folder-lit-end { stop-color: oklch(0 0 0); stop-opacity: 0.13; }
 
 .folder-tile:hover { background-color: var(--folder-hover-veil); }
 
