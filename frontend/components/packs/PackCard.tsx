@@ -2,19 +2,17 @@
 
 import React, { useState, useRef, useEffect } from "react";
 import { StandardCard } from "@/components/common/StandardCard";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { ToggleSwitch } from "@/components/common/ToggleSwitch";
-import { PackActivityDialog } from "@/components/packs/PackActivityDialog";
-import { PackShareDialog } from "@/components/packs/PackShareDialog";
+import { PackActionsMenu } from "@/components/packs/PackActionsMenu";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
-import { IconLogout, IconUsers, IconFilter, IconTrash, IconLoader2, IconRotateClockwise, IconPencil, IconTableExport, IconAlertTriangle, IconAlertCircle, IconMicrophone, IconTargetArrow, IconHistory, IconCalendarEvent } from "@tabler/icons-react";
+import { IconUsers, IconFilter, IconLoader2, IconAlertTriangle, IconAlertCircle } from "@tabler/icons-react";
 import { MetaIcon, GoogleSheetsIcon } from "@/components/icons";
 import { FilterRule } from "@/lib/api/schemas";
 import { AdsPack } from "@/lib/types";
 import { api } from "@/lib/api/endpoints";
-import { showError, showSuccess } from "@/lib/utils/toast";
+import { showError } from "@/lib/utils/toast";
 import { useClientPacks } from "@/lib/hooks/useClientSession";
 import { getTodayLocal } from "@/lib/utils/dateFilters";
 import { attributionWindowLabel, lookbackDaysForPack } from "@/lib/utils/refreshWindow";
@@ -76,17 +74,10 @@ export function PackCard({ pack, adAccountName, formatCurrency, formatDate, onRe
   const stats = pack.stats;
   // Conta de anúncio de origem: prefere o nome resolvido; cai para o id cru (act_...) se ainda não carregou/não resolveu.
   const adAccountLabel = adAccountName || pack.adaccount_id;
-  // Algum critério de julgamento definido — null/undefined significa NÃO DEFINIDO.
-  const hasJudgmentOverride =
-    (pack.mql_leadscore_min !== null && pack.mql_leadscore_min !== undefined) ||
-    (pack.target_cpr !== null && pack.target_cpr !== undefined);
   // ── Compartilhamento (P3.7): a UI gateia por papel; a autorização REAL é do
   // backend. shared_role presente = pack recebido de outra conta.
   const isSharedGuest = !!pack.shared_role;
   const isViewer = pack.shared_role === "viewer";
-  const [isShareDialogOpen, setIsShareDialogOpen] = useState(false);
-  const [isActivityDialogOpen, setIsActivityDialogOpen] = useState(false);
-  const [isLeaving, setIsLeaving] = useState(false);
   const [isRenameNoticeOpen, setIsRenameNoticeOpen] = useState(false);
   const [isDismissingRename, setIsDismissingRename] = useState(false);
 
@@ -115,20 +106,7 @@ export function PackCard({ pack, adAccountName, formatCurrency, formatDate, onRe
     }
   };
 
-  const handleLeavePack = async () => {
-    if (!confirm(`Sair do pack "${pack.name}"? Você deixará de ver os dados dele.`)) return;
-    setIsLeaving(true);
-    try {
-      await api.packShares.leave(pack.id);
-      removePack(pack.id);
-      showSuccess(`Você saiu do pack "${pack.name}".`);
-    } catch (e: any) {
-      showError(e);
-    } finally {
-      setIsLeaving(false);
-    }
-  };
-  const { updatePack, removePack, packs } = useClientPacks();
+  const { updatePack, packs } = useClientPacks();
   const [isEditingName, setIsEditingName] = useState(false);
   const [editingName, setEditingName] = useState(pack.name);
   const [hasNameError, setHasNameError] = useState(false);
@@ -311,8 +289,18 @@ export function PackCard({ pack, adAccountName, formatCurrency, formatDate, onRe
       <div className={cn("absolute inset-x-0 top-4 bottom-0 rounded-lg bg-card border opacity-60 pointer-events-none transition-[transform,opacity] duration-500 ease-[cubic-bezier(0.34,1.56,0.64,1)] group-hover:-rotate-[1.5deg] group-hover:-translate-y-3 group-hover:opacity-85", isSelected ? "border-primary-40" : "border-border")} />
       <div className={cn("absolute inset-x-0 top-4 bottom-0 rounded-lg bg-card border opacity-60 pointer-events-none transition-[transform,opacity] duration-500 ease-[cubic-bezier(0.34,1.56,0.64,1)] group-hover:rotate-[1.5deg] group-hover:-translate-y-3 group-hover:opacity-85", isSelected ? "border-primary-40" : "border-border")} />
 
-      <DropdownMenu open={isEditingName ? false : undefined}>
-        <DropdownMenuTrigger asChild>
+      <PackActionsMenu
+        pack={pack}
+        isUpdating={isUpdating}
+        onRefresh={onRefresh}
+        onRemove={onRemove}
+        onEditDateRange={onEditDateRange}
+        onTranscribeAds={onTranscribeAds}
+        onEditJudgment={onEditJudgment}
+        onEditSheetIntegration={onEditSheetIntegration}
+        onDeleteSheetIntegration={onDeleteSheetIntegration}
+        disabled={isEditingName}
+      >
           <StandardCard
             variant="default"
             padding="none"
@@ -672,103 +660,7 @@ export function PackCard({ pack, adAccountName, formatCurrency, formatDate, onRe
               </div>
             </div>
           </StandardCard>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="start" side="right">
-          <DropdownMenuItem onClick={() => onRefresh(pack.id)} disabled={isUpdating}>
-            <IconRotateClockwise className="w-4 h-4 mr-2" />
-            Atualizar pack
-          </DropdownMenuItem>
-          {onEditDateRange && !isSharedGuest && (
-            <DropdownMenuItem onClick={() => onEditDateRange(pack)} disabled={isUpdating}>
-              <IconCalendarEvent className="w-4 h-4 mr-2" />
-              Editar período
-            </DropdownMenuItem>
-          )}
-          {onTranscribeAds && !isSharedGuest && (
-            <DropdownMenuItem onClick={() => onTranscribeAds(pack.id, pack.name)} disabled={isUpdating}>
-              <IconMicrophone className="w-4 h-4 mr-2" />
-              Transcrever anúncios
-            </DropdownMenuItem>
-          )}
-          {onEditJudgment && !isViewer && (
-            <DropdownMenuItem onClick={() => onEditJudgment(pack)}>
-              <IconTargetArrow className="w-4 h-4 mr-2" />
-              <div className="flex flex-col items-start">
-                <span>Critérios de julgamento</span>
-                {hasJudgmentOverride && (
-                  <span className="text-2xs text-muted-foreground">Este pack usa critérios próprios</span>
-                )}
-              </div>
-            </DropdownMenuItem>
-          )}
-          {pack.sheet_integration ? (
-            <>
-              <DropdownMenuItem disabled className="opacity-100">
-                <IconTableExport className="w-4 h-4 mr-2 text-success" />
-                <div className="flex flex-col items-start">
-                  <span className="text-xs font-medium text-success">Planilha conectada</span>
-                  <span className="text-xs text-muted-foreground">
-                    {pack.sheet_integration.spreadsheet_name || "Planilha"} • {pack.sheet_integration.worksheet_title || "Aba"}
-                  </span>
-                  {/* Largura travada: o nome antigo é texto do usuário e pode ser
-                      longo — sem isto ele esticaria o menu inteiro. A frase completa
-                      fica no title e no tooltip da face do card. */}
-                  {renameNotice && (
-                    <span title={renameNotice} className="text-2xs text-warning block max-w-[15rem] truncate">
-                      {renameNotice}
-                    </span>
-                  )}
-                </div>
-              </DropdownMenuItem>
-              {onEditSheetIntegration && !isSharedGuest && (
-                <DropdownMenuItem onClick={() => onEditSheetIntegration(pack)}>
-                  <IconPencil className="w-4 h-4 mr-2" />
-                  Editar integração
-                </DropdownMenuItem>
-              )}
-              {onDeleteSheetIntegration && !isSharedGuest && (
-                <DropdownMenuItem onClick={() => onDeleteSheetIntegration(pack)} className="text-destructive focus:text-destructive focus:bg-destructive-10">
-                  <IconTrash className="w-4 h-4 mr-2" />
-                  Desconectar planilha
-                </DropdownMenuItem>
-              )}
-            </>
-          ) : null}
-          {!isSharedGuest && (
-            <DropdownMenuItem onClick={() => setIsShareDialogOpen(true)}>
-              <IconUsers className="w-4 h-4 mr-2" />
-              Compartilhar
-            </DropdownMenuItem>
-          )}
-          {/* Qualquer membro lê o histórico, viewer inclusive: todos já veem os
-              EFEITOS das ações, esconder o autor não protegeria nada. */}
-          <DropdownMenuItem onClick={() => setIsActivityDialogOpen(true)}>
-            <IconHistory className="w-4 h-4 mr-2" />
-            Histórico
-          </DropdownMenuItem>
-          <DropdownMenuSeparator />
-          {isSharedGuest ? (
-            // Convidado não apaga o pack do dono — ele SAI (remove o próprio grant).
-            <DropdownMenuItem onClick={handleLeavePack} disabled={isLeaving} className="text-destructive focus:text-destructive focus:bg-destructive-10">
-              <IconLogout className="w-4 h-4 mr-2" />
-              Sair do pack
-            </DropdownMenuItem>
-          ) : (
-            <DropdownMenuItem onClick={() => onRemove(pack.id)} className="text-destructive focus:text-destructive focus:bg-destructive-10">
-              <IconTrash className="w-4 h-4 mr-2" />
-              Remover pack
-            </DropdownMenuItem>
-          )}
-        </DropdownMenuContent>
-      </DropdownMenu>
-      {!isSharedGuest && (
-        <PackShareDialog pack={pack} open={isShareDialogOpen} onOpenChange={setIsShareDialogOpen} />
-      )}
-      {/* Montado só depois do primeiro clique: o feed é uma tela rara e o card
-          é renderizado dezenas de vezes na página de packs. */}
-      {isActivityDialogOpen && (
-        <PackActivityDialog pack={pack} open={isActivityDialogOpen} onOpenChange={setIsActivityDialogOpen} />
-      )}
+      </PackActionsMenu>
     </div>
   );
 }
