@@ -165,8 +165,11 @@ function areTableContentPropsEqual(prev: TableContentProps, next: TableContentPr
   return true;
 }
 
-/** Colunas que ficam congeladas na variante compacta: a identificacao do anuncio. */
-const PINNED_COLUMN_IDS = new Set(["select", "ad_name"]);
+/** Colunas que ficam congeladas na variante compacta: a identificacao do anuncio.
+ *  `status` fica ENTRE selecao e nome nas abas que o tem (todas menos por-anuncio):
+ *  fora da lista, a divisoria caia 80px antes do fim do nome e, ao rolar, o nome
+ *  congelava por cima do status, que passava por baixo como uma "segunda coluna". */
+const PINNED_COLUMN_IDS = new Set(["select", "status", "ad_name"]);
 
 export const TableContent = React.memo(function TableContent({ table, isLoadingEffective, isError, currentTab, setSelectedAd, sorting, rowSelection, pinSelectionToTop = false, onVisibleRowKeysChange, onOpenDrill, globalFilter, variant = "detailed" }: TableContentProps) {
   const tableContainerRef = useRef<HTMLDivElement | null>(null);
