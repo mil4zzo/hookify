@@ -28,8 +28,6 @@ import { useFormatCurrency } from "@/lib/utils/currency";
 import { PageContainer } from "@/components/common/PageContainer";
 import { PageActions } from "@/components/common/PageActions";
 import { StatePanel, InlineNotice } from "@/components/common/States";
-// design-system-exception: direct-skeleton-import - skeleton replica o card de pack (efeito leque) com formato real, fora do escopo dos variants de StateSkeleton
-import { Skeleton } from "@/components/ui/skeleton";
 import { PageBodyStack } from "@/components/common/layout";
 import { getTodayLocal, formatDateLocal } from "@/lib/utils/dateFilters";
 import { lookbackDaysForPack, refreshUntil, sinceLastRefreshStart } from "@/lib/utils/refreshWindow";
@@ -53,6 +51,7 @@ import { ALL_PACKS_VIEW, PackFolderTree, TreeRowMenuTrigger, type FolderView } f
 import { FolderActionsMenu } from "@/components/packs/FolderActionsMenu";
 import { PackActionsMenu } from "@/components/packs/PackActionsMenu";
 import { FolderCard } from "@/components/packs/FolderCard";
+import { PacksActionsSkeleton, PacksLibrarySkeleton } from "@/components/packs/PacksLibrarySkeleton";
 import { FolderNameDialog } from "@/components/packs/FolderNameDialog";
 import type { PackFolder } from "@/lib/types";
 
@@ -65,43 +64,20 @@ const DEFAULT_REFRESH_TOGGLES: RefreshToggles = {
   transcription: false,
 };
 
-function PacksGridSkeleton() {
-  return (
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-6">
-      {Array.from({ length: 4 }).map((_, i) => (
-        <div key={i} className="relative inline-block w-full">
-          <div className="absolute inset-x-0 top-4 bottom-0 rounded-md bg-card border border-border origin-bottom -rotate-[1.5deg] opacity-60 pointer-events-none" />
-          <div className="absolute inset-x-0 top-4 bottom-0 rounded-md bg-card border border-border origin-bottom rotate-[1.5deg] opacity-60 pointer-events-none" />
-          <div className="relative z-10 rounded-md border border-border bg-card overflow-hidden">
-            <div className="p-6 flex flex-col gap-6">
-              <div className="flex flex-col items-center gap-3">
-                <Skeleton className="h-7 w-32" />
-                <Skeleton className="h-4 w-20" />
-              </div>
-              <div className="flex flex-col items-center gap-2">
-                <Skeleton className="h-8 w-28" />
-                <Skeleton className="h-4 w-16" />
-              </div>
-              <div className="grid grid-cols-4 gap-2">
-                <Skeleton className="h-10 rounded-md" />
-                <Skeleton className="h-10 rounded-md" />
-                <Skeleton className="h-10 rounded-md" />
-                <Skeleton className="h-10 rounded-md" />
-              </div>
-              <Skeleton className="h-6 w-24 self-center" />
-            </div>
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
+// Mesmas props de layout da página real, para o esqueleto ocupar o mesmo lugar.
 function PacksPageSkeleton() {
   return (
-    <PageContainer variant="standard" title="Biblioteca" description="Gerencie seus Packs de anúncios.">
-      <PageBodyStack>
-        <PacksGridSkeleton />
+    <PageContainer
+      variant="standard"
+      title="Biblioteca"
+      description="Gerencie seus Packs de anúncios."
+      contentScroll
+      className="lg:flex lg:min-h-0 lg:flex-1 lg:flex-col"
+      contentClassName="lg:flex lg:min-h-0 lg:flex-1 lg:flex-col"
+      actions={<PacksActionsSkeleton />}
+    >
+      <PageBodyStack className="lg:flex lg:min-h-0 lg:flex-1 lg:flex-col">
+        <PacksLibrarySkeleton />
       </PageBodyStack>
     </PageContainer>
   );
@@ -301,7 +277,10 @@ export default function PacksPage() {
 
   // ── Pastas (migration 168) ────────────────────────────────────────────────
   // O agrupamento é derivado no cliente sobre os packs que a página já carregou.
-  const { buckets, loosePacks, folderIdByPack, createFolder, renameFolder, deleteFolder, moveFolder, movePacks, undoMove } = useFolders(packs);
+  const { buckets, loosePacks, folderIdByPack, isLoading: isLoadingFolders, createFolder, renameFolder, deleteFolder, moveFolder, movePacks, undoMove } = useFolders(packs);
+  // A Biblioteca só é desenhada com packs E pastas na mão: sem esperar as pastas, a
+  // grade mostrava todos os packs soltos por um instante e eles "pulavam" para dentro.
+  const isLoadingLibrary = isLoadingPacks || isLoadingFolders;
   const [folderView, setFolderView] = useState<FolderView>(null);
   const [draggingPackIds, setDraggingPackIds] = useState<string[]>([]);
   const [dropTargetFolderId, setDropTargetFolderId] = useState<string | null>(null);
@@ -990,6 +969,9 @@ export default function PacksPage() {
         <PageBodyStack className="lg:flex lg:min-h-0 lg:flex-1 lg:flex-col">
           {/* Explorer (busca + árvore) acoplado ao conteúdo: empilha no celular,
               vira coluna ao lado da grade a partir de `lg`. */}
+          {isLoadingLibrary ? (
+            <PacksLibrarySkeleton />
+          ) : (
           <div className="flex flex-col items-stretch gap-6 lg:min-h-0 lg:flex-1 lg:flex-row xl:gap-8">
             <PackFolderTree
               buckets={treeBuckets}
@@ -1110,7 +1092,7 @@ export default function PacksPage() {
 
           {/* Pastas — na raiz e nos resultados da busca; dentro de uma pasta a lista
               já é o conteúdo dela, e "Todos os packs" é a lista corrida, sem pastas. */}
-          {!isLoadingPacks && (gridView === null || isSearching) && visibleFolders.length > 0 && (
+          {(gridView === null || isSearching) && visibleFolders.length > 0 && (
             <section className="flex flex-col gap-4">
               {/* Título de seção, como num gerenciador de arquivos: sem divisor e sem
                   contagem — o número de pastas está à vista logo abaixo. */}
@@ -1140,9 +1122,7 @@ export default function PacksPage() {
           )}
 
           {/* Packs */}
-          {isLoadingPacks ? (
-            <PacksGridSkeleton />
-          ) : packs.length === 0 ? (
+          {packs.length === 0 ? (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-6">
               <div className="relative inline-block w-full">
                 <div className="absolute inset-x-0 top-4 bottom-0 rounded-md bg-card border border-border origin-bottom -rotate-[1.5deg] opacity-60 pointer-events-none" />
@@ -1227,6 +1207,7 @@ export default function PacksPage() {
           )}
             </div>
           </div>
+          )}
         </PageBodyStack>
 
         {/* `fixed` sobrepõe o `absolute` da barra: a página de packs rola, então ancorar na
