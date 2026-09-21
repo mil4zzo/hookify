@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict 5vqy5SfSHojEmJrtqmBvittGOeVVvuC0rc9buZjgX4Hn0Dludq3YGsLZ5A8V9Ue
+\restrict IYEnJW1GkcuvWIPZCds190I9iL4Du0IVqzO0HceQGf1Uwm76hyxdGJpJ4GiL1aL
 
 -- Dumped from database version 17.6
 -- Dumped by pg_dump version 17.6
@@ -1496,6 +1496,78 @@ ALTER FUNCTION public.detect_pack_conflicts(p_pack_ids uuid[], p_actor_id uuid) 
 --
 
 COMMENT ON FUNCTION public.detect_pack_conflicts(p_pack_ids uuid[], p_actor_id uuid) IS 'Pares de packs acessiveis ao ator que compartilham ao menos um (ad_id, dia) — qualquer dono, desde a 145. Le o pertencimento do mapa, sem pre-filtro por metadado do pack: janela e ad_ids do pack podem estar defasados do mapa e esconderiam conflito real (146). statement_timeout proprio de 25s porque o papel de servico do PostgREST so tem 8s.';
+
+
+--
+-- Name: dissolve_folder(uuid); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION public.dissolve_folder(p_folder_id uuid) RETURNS jsonb
+    LANGUAGE plpgsql
+    SET search_path TO ''
+    AS $$
+DECLARE
+  v_uid uuid := (SELECT auth.uid());
+  v_parent uuid;
+  v_pos integer;
+  v_folders integer;
+  v_packs integer;
+BEGIN
+  -- Mesma trava da árvore que o trigger usa: sem ela, outra aba movendo uma pasta
+  -- (ou um pack) para dentro desta DEPOIS da foto abaixo e ANTES do DELETE veria o
+  -- conteúdo novo cair na raiz pela FK, em vez de subir um nível.
+  PERFORM pg_advisory_xact_lock(hashtextextended('folders_tree:' || v_uid::text, 0));
+
+  SELECT parent_id, position INTO v_parent, v_pos
+  FROM public.folders WHERE id = p_folder_id AND user_id = v_uid
+  FOR UPDATE;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'folder_not_found' USING ERRCODE = 'P0001', HINT = 'Pasta nao encontrada.';
+  END IF;
+
+  SELECT count(*)::integer INTO v_folders FROM public.folders WHERE parent_id = p_folder_id AND user_id = v_uid;
+
+  -- Nova ordem do grupo de cima: os irmãos como estavam, com as subpastas da
+  -- desfeita entrando no lugar dela (mesma posição, e a ordem interna delas).
+  WITH grp AS (
+    SELECT id, position AS p1, 0 AS lvl, 0 AS p2, name
+    FROM public.folders
+    WHERE user_id = v_uid AND parent_id IS NOT DISTINCT FROM v_parent AND id <> p_folder_id
+    UNION ALL
+    SELECT id, v_pos, 1, position, name
+    FROM public.folders
+    WHERE user_id = v_uid AND parent_id = p_folder_id
+  ),
+  ranked AS (
+    SELECT id, (row_number() OVER (ORDER BY p1, lvl, p2, name) - 1)::integer AS pos FROM grp
+  )
+  UPDATE public.folders f
+  SET parent_id = v_parent, position = r.pos
+  FROM ranked r
+  WHERE f.id = r.id
+    AND (f.parent_id IS DISTINCT FROM v_parent OR f.position IS DISTINCT FROM r.pos);
+
+  IF v_parent IS NULL THEN
+    DELETE FROM public.pack_folder_members WHERE folder_id = p_folder_id AND user_id = v_uid;
+  ELSE
+    UPDATE public.pack_folder_members SET folder_id = v_parent WHERE folder_id = p_folder_id AND user_id = v_uid;
+  END IF;
+  GET DIAGNOSTICS v_packs = ROW_COUNT;
+
+  DELETE FROM public.folders WHERE id = p_folder_id AND user_id = v_uid;
+
+  RETURN jsonb_build_object('parent_id', v_parent, 'folders_moved', v_folders, 'packs_moved', v_packs);
+END;
+$$;
+
+
+ALTER FUNCTION public.dissolve_folder(p_folder_id uuid) OWNER TO postgres;
+
+--
+-- Name: FUNCTION dissolve_folder(p_folder_id uuid); Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON FUNCTION public.dissolve_folder(p_folder_id uuid) IS 'Desfaz a pasta: subpastas e packs sobem para a pasta de cima, no lugar dela; na raiz os packs ficam soltos (migration 174).';
 
 
 --
@@ -10819,6 +10891,50 @@ COMMENT ON FUNCTION public.fetch_manager_rankings_v170(p_user_id uuid, p_date_st
 
 
 --
+-- Name: folders_check_parent(); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION public.folders_check_parent() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO ''
+    AS $$
+BEGIN
+  IF NEW.parent_id IS NULL THEN
+    RETURN NEW;
+  END IF;
+
+  -- Uma árvore por usuário: serializa quem mexe em pai na MESMA árvore.
+  PERFORM pg_advisory_xact_lock(hashtextextended('folders_tree:' || NEW.user_id::text, 0));
+
+  IF NOT EXISTS (
+    SELECT 1 FROM public.folders p WHERE p.id = NEW.parent_id AND p.user_id = NEW.user_id
+  ) THEN
+    RAISE EXCEPTION 'folder_parent_not_found' USING ERRCODE = 'P0001',
+      HINT = 'A pasta de destino nao existe.';
+  END IF;
+
+  -- Sobe a partir do pai novo; se passar pela própria pasta, seria ciclo.
+  -- UNION (não UNION ALL): termina mesmo se um ciclo já existisse.
+  IF EXISTS (
+    WITH RECURSIVE up AS (
+      SELECT f.id, f.parent_id FROM public.folders f WHERE f.id = NEW.parent_id
+      UNION
+      SELECT f.id, f.parent_id FROM public.folders f JOIN up ON f.id = up.parent_id
+    )
+    SELECT 1 FROM up WHERE up.id = NEW.id
+  ) THEN
+    RAISE EXCEPTION 'folder_cycle' USING ERRCODE = 'P0001',
+      HINT = 'Uma pasta nao pode ir para dentro dela mesma.';
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+
+ALTER FUNCTION public.folders_check_parent() OWNER TO postgres;
+
+--
 -- Name: get_admin_users_list(); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
@@ -11260,6 +11376,62 @@ ALTER FUNCTION public.pack_trim_preview(p_owner uuid, p_pack uuid, p_start date,
 --
 
 COMMENT ON FUNCTION public.pack_trim_preview(p_owner uuid, p_pack uuid, p_start date, p_stop date) IS 'Previa do recorte de periodo de um pack (migration 167): dias, investimento, linhas e anuncios que ficam FORA de [p_start, p_stop]. Conta o dado real, inclusive linhas fora da janela declarada do pack. So leitura.';
+
+
+--
+-- Name: place_folder(uuid, uuid, uuid[]); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION public.place_folder(p_folder_id uuid, p_parent_id uuid, p_sibling_ids uuid[]) RETURNS integer
+    LANGUAGE plpgsql
+    SET search_path TO ''
+    AS $$
+DECLARE
+  v_uid uuid := (SELECT auth.uid());
+  v_changed integer;
+BEGIN
+  IF NOT (p_folder_id = ANY (p_sibling_ids)) THEN
+    RAISE EXCEPTION 'folder_not_in_siblings' USING ERRCODE = 'P0001',
+      HINT = 'A lista de irmaos precisa conter a pasta movida.';
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM public.folders WHERE id = p_folder_id AND user_id = v_uid) THEN
+    RAISE EXCEPTION 'folder_not_found' USING ERRCODE = 'P0001', HINT = 'Pasta nao encontrada.';
+  END IF;
+
+  UPDATE public.folders
+  SET parent_id = p_parent_id
+  WHERE id = p_folder_id AND user_id = v_uid AND parent_id IS DISTINCT FROM p_parent_id;
+
+  WITH wanted AS (
+    SELECT t.id, (t.ord - 1)::integer AS pos
+    FROM unnest(p_sibling_ids) WITH ORDINALITY AS t(id, ord)
+  ),
+  changed AS (
+    UPDATE public.folders f
+    SET position = w.pos
+    FROM wanted w
+    WHERE f.id = w.id
+      AND f.user_id = v_uid
+      -- Só quem está MESMO nesse grupo: id de outro nível na lista é ignorado.
+      AND f.parent_id IS NOT DISTINCT FROM p_parent_id
+      AND f.position IS DISTINCT FROM w.pos
+    RETURNING 1
+  )
+  SELECT count(*)::integer INTO v_changed FROM changed;
+
+  RETURN v_changed;
+END;
+$$;
+
+
+ALTER FUNCTION public.place_folder(p_folder_id uuid, p_parent_id uuid, p_sibling_ids uuid[]) OWNER TO postgres;
+
+--
+-- Name: FUNCTION place_folder(p_folder_id uuid, p_parent_id uuid, p_sibling_ids uuid[]); Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON FUNCTION public.place_folder(p_folder_id uuid, p_parent_id uuid, p_sibling_ids uuid[]) IS 'Move a pasta para p_parent_id (NULL = raiz) e grava a ordem completa do grupo de destino; so escreve o que mudou (migration 174).';
 
 
 --
@@ -12689,7 +12861,7 @@ COMMENT ON TABLE public.folders IS 'Pasta da Biblioteca de packs. E de QUEM ORGA
 -- Name: COLUMN folders.parent_id; Type: COMMENT; Schema: public; Owner: postgres
 --
 
-COMMENT ON COLUMN public.folders.parent_id IS 'Pasta dentro de pasta: schema pronto, UI ainda plana (migration 168). Enquanto a UI for plana este campo e sempre NULL.';
+COMMENT ON COLUMN public.folders.parent_id IS 'Pasta de cima (NULL = raiz). Ciclo e pai de outro usuario barrados por trg_folders_check_parent (migration 174).';
 
 
 --
@@ -13749,6 +13921,13 @@ CREATE INDEX facebook_connections_user_idx ON public.facebook_connections USING 
 
 
 --
+-- Name: folders_parent_idx; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX folders_parent_idx ON public.folders USING btree (parent_id) WHERE (parent_id IS NOT NULL);
+
+
+--
 -- Name: folders_user_position_idx; Type: INDEX; Schema: public; Owner: postgres
 --
 
@@ -13994,6 +14173,13 @@ CREATE TRIGGER trg_facebook_connections_set_updated_at BEFORE UPDATE ON public.f
 
 
 --
+-- Name: folders trg_folders_check_parent; Type: TRIGGER; Schema: public; Owner: postgres
+--
+
+CREATE TRIGGER trg_folders_check_parent BEFORE INSERT OR UPDATE OF parent_id ON public.folders FOR EACH ROW EXECUTE FUNCTION public.folders_check_parent();
+
+
+--
 -- Name: folders trg_folders_set_updated_at; Type: TRIGGER; Schema: public; Owner: postgres
 --
 
@@ -14122,7 +14308,7 @@ ALTER TABLE ONLY public.facebook_connections
 --
 
 ALTER TABLE ONLY public.folders
-    ADD CONSTRAINT folders_parent_id_fkey FOREIGN KEY (parent_id) REFERENCES public.folders(id) ON DELETE CASCADE;
+    ADD CONSTRAINT folders_parent_id_fkey FOREIGN KEY (parent_id) REFERENCES public.folders(id) ON DELETE SET NULL;
 
 
 --
@@ -14885,6 +15071,15 @@ GRANT ALL ON FUNCTION public.detect_pack_conflicts(p_pack_ids uuid[], p_actor_id
 
 
 --
+-- Name: FUNCTION dissolve_folder(p_folder_id uuid); Type: ACL; Schema: public; Owner: postgres
+--
+
+REVOKE ALL ON FUNCTION public.dissolve_folder(p_folder_id uuid) FROM PUBLIC;
+GRANT ALL ON FUNCTION public.dissolve_folder(p_folder_id uuid) TO authenticated;
+GRANT ALL ON FUNCTION public.dissolve_folder(p_folder_id uuid) TO service_role;
+
+
+--
 -- Name: FUNCTION fetch_entity_performance_v145(p_user_id uuid, p_date_start date, p_date_stop date, p_entity text, p_entity_id text, p_pack_ids uuid[], p_group_by text, p_include_curve boolean, p_series_days integer, p_include_custom boolean); Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -15033,6 +15228,15 @@ GRANT ALL ON FUNCTION public.fetch_manager_rankings_v170(p_user_id uuid, p_date_
 
 
 --
+-- Name: FUNCTION folders_check_parent(); Type: ACL; Schema: public; Owner: postgres
+--
+
+REVOKE ALL ON FUNCTION public.folders_check_parent() FROM PUBLIC;
+GRANT ALL ON FUNCTION public.folders_check_parent() TO authenticated;
+GRANT ALL ON FUNCTION public.folders_check_parent() TO service_role;
+
+
+--
 -- Name: FUNCTION get_admin_users_list(); Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -15120,6 +15324,15 @@ GRANT ALL ON FUNCTION public.pack_trim_head(p_owner uuid, p_pack uuid, p_from da
 
 REVOKE ALL ON FUNCTION public.pack_trim_preview(p_owner uuid, p_pack uuid, p_start date, p_stop date) FROM PUBLIC;
 GRANT ALL ON FUNCTION public.pack_trim_preview(p_owner uuid, p_pack uuid, p_start date, p_stop date) TO service_role;
+
+
+--
+-- Name: FUNCTION place_folder(p_folder_id uuid, p_parent_id uuid, p_sibling_ids uuid[]); Type: ACL; Schema: public; Owner: postgres
+--
+
+REVOKE ALL ON FUNCTION public.place_folder(p_folder_id uuid, p_parent_id uuid, p_sibling_ids uuid[]) FROM PUBLIC;
+GRANT ALL ON FUNCTION public.place_folder(p_folder_id uuid, p_parent_id uuid, p_sibling_ids uuid[]) TO authenticated;
+GRANT ALL ON FUNCTION public.place_folder(p_folder_id uuid, p_parent_id uuid, p_sibling_ids uuid[]) TO service_role;
 
 
 --
@@ -15575,5 +15788,5 @@ ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA public GRANT ALL ON T
 -- PostgreSQL database dump complete
 --
 
-\unrestrict 5vqy5SfSHojEmJrtqmBvittGOeVVvuC0rc9buZjgX4Hn0Dludq3YGsLZ5A8V9Ue
+\unrestrict IYEnJW1GkcuvWIPZCds190I9iL4Du0IVqzO0HceQGf1Uwm76hyxdGJpJ4GiL1aL
 
