@@ -68,7 +68,12 @@ export function showError(error: AppError | Error | string | unknown) {
   );
 }
 
-export function showSuccess(message: string) {
+/**
+ * `ReactNode` e nao `string` para caber uma acao inline — o "Desfazer" do arrasto
+ * de packs para pasta. `emitStatusToast` ja aceitava; era so a assinatura que
+ * estreitava. Toda chamada existente passa string e continua valendo.
+ */
+export function showSuccess(message: ReactNode) {
   emitStatusToast("success", message);
 }
 

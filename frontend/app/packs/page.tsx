@@ -8,7 +8,6 @@ import { PackJudgmentDialog } from "@/components/packs/PackJudgmentDialog";
 import { PackDateRangeDialog } from "@/components/packs/PackDateRangeDialog";
 import { TranscriptionStatusDialog } from "@/components/packs/TranscriptionStatusDialog";
 import { Input } from "@/components/ui/input";
-import { SearchInputWithClear } from "@/components/common/SearchInputWithClear";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { AppDialog } from "@/components/common/AppDialog";
 import { ConfirmDialog } from "@/components/common/ConfirmDialog";
@@ -21,7 +20,7 @@ import { useClientAuth, useClientPacks } from "@/lib/hooks/useClientSession";
 import { useOnboardingGate } from "@/lib/hooks/useOnboardingGate";
 import { showSuccess, showError } from "@/lib/utils/toast";
 import { api } from "@/lib/api/endpoints";
-import { IconFilter, IconPlus, IconTrash, IconChartBar, IconLoader2, IconCircleCheck, IconCircleX, IconCircleDot, IconInfoCircle, IconArrowsSort, IconRefresh, IconChevronUp, IconChevronDown } from "@tabler/icons-react";
+import { IconFilter, IconPlus, IconTrash, IconChartBar, IconLoader2, IconCircleCheck, IconCircleX, IconCircleDot, IconInfoCircle, IconRefresh, IconChevronLeft, IconPencil, IconFolderPlus, IconSortAscending, IconSortDescending } from "@tabler/icons-react";
 
 import { FilterRule, ClearEnrichmentResult } from "@/lib/api/schemas";
 import { AdsPack } from "@/lib/types";
@@ -41,13 +40,21 @@ import { usePackCreation } from "@/lib/hooks/usePackCreation";
 import { MetaIcon, GoogleSheetsIcon } from "@/components/icons";
 import { logger } from "@/lib/utils/logger";
 import { usePackSortStore } from "@/lib/store/packSort";
-import { PACK_SORT_OPTIONS, filterPacksBySearch, sortPacks, type PackSortKey } from "@/lib/utils/packSort";
+import { PACK_SORT_OPTIONS, filterPacksBySearch, sortPacks, type PackSortKey, type PackSortDirection } from "@/lib/utils/packSort";
 import { useMultiSelect } from "@/lib/hooks/useMultiSelect";
 import { useBulkPackDelete } from "@/lib/hooks/useBulkPackDelete";
 import { BulkActionsBar, type BulkAction } from "@/components/common/BulkActionsBar";
 import { Checkbox } from "@/components/ui/checkbox";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuLabel, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils/cn";
 import { isPackRefreshingOnServer } from "@/lib/utils/packRefreshState";
+import { useFolders } from "@/lib/hooks/useFolders";
+import { PackFolderTree, TreeRowMenuTrigger, type FolderView } from "@/components/packs/PackFolderTree";
+import { FolderActionsMenu } from "@/components/packs/FolderActionsMenu";
+import { PackActionsMenu } from "@/components/packs/PackActionsMenu";
+import { FolderCard } from "@/components/packs/FolderCard";
+import { FolderNameDialog } from "@/components/packs/FolderNameDialog";
+import type { PackFolder } from "@/lib/types";
 
 const STORAGE_KEY_DATE_RANGE = "hookify-packs-date-range";
 const STORAGE_KEY_REFRESH_TOGGLES = "hookify:refresh-toggles";
@@ -60,7 +67,7 @@ const DEFAULT_REFRESH_TOGGLES: RefreshToggles = {
 
 function PacksGridSkeleton() {
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-x-6 gap-y-6">
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-6">
       {Array.from({ length: 4 }).map((_, i) => (
         <div key={i} className="relative inline-block w-full">
           <div className="absolute inset-x-0 top-4 bottom-0 rounded-md bg-card border border-border origin-bottom -rotate-[1.5deg] opacity-60 pointer-events-none" />
@@ -279,19 +286,71 @@ export default function PacksPage() {
   const packSortKey = usePackSortStore((state) => state.sortKey);
   const packSortDirection = usePackSortStore((state) => state.direction);
   const setPackSortKey = usePackSortStore((state) => state.setSortKey);
-  const togglePackSortDirection = usePackSortStore((state) => state.toggleDirection);
+  const setPackSortDirection = usePackSortStore((state) => state.setDirection);
 
-  // Ordena antes de filtrar para sobrar a lista ordenada COMPLETA: a seleção pode conter
-  // packs que a busca escondeu, e eles precisam de uma ordem definida na hora de agir.
+  // Lista ordenada COMPLETA (sem busca e sem recorte de pasta): a seleção pode conter
+  // packs que a busca escondeu ou que estão em outra pasta, e eles precisam de uma
+  // ordem definida na hora de agir. O recorte da tela vive em `packsInView`.
+  const sortLabel = PACK_SORT_OPTIONS.find((option) => option.value === packSortKey)?.label ?? "";
+
   const sortedPacks = useMemo(() => sortPacks(packs, packSortKey, { accountNameById: adAccountNameById, direction: packSortDirection }), [packs, packSortKey, packSortDirection, adAccountNameById]);
-  const visiblePacks = useMemo(() => filterPacksBySearch(sortedPacks, packSearch, { accountNameById: adAccountNameById }), [sortedPacks, packSearch, adAccountNameById]);
 
   const isSearching = packSearch.trim().length > 0;
   // Com 0 ou 1 pack a barra é só ruído — nada a buscar, ordenar ou selecionar.
   const showPacksToolbar = !isLoadingPacks && packs.length > 1;
 
+  // ── Pastas (migration 168) ────────────────────────────────────────────────
+  // O agrupamento é derivado no cliente sobre os packs que a página já carregou.
+  const { buckets, loosePacks, folderIdByPack, createFolder, renameFolder, deleteFolder, movePacks, undoMove } = useFolders(packs);
+  const [folderView, setFolderView] = useState<FolderView>(null);
+  const [draggingPackIds, setDraggingPackIds] = useState<string[]>([]);
+  const [dropTargetFolderId, setDropTargetFolderId] = useState<string | null>(null);
+  const [folderDialog, setFolderDialog] = useState<{ mode: "create" | "rename"; folder?: PackFolder; packIds: string[] } | null>(null);
+  const [folderToDelete, setFolderToDelete] = useState<PackFolder | null>(null);
+
+  const currentBucket = useMemo(() => buckets.find((b) => b.folder.id === folderView) ?? null, [buckets, folderView]);
+
+  // Pasta apagada em outra aba deixaria a tela vazia e sem saída — volta para a raiz.
+  useEffect(() => {
+    if (folderView && !buckets.some((b) => b.folder.id === folderView)) setFolderView(null);
+  }, [folderView, buckets]);
+
+  // O universo da tela: na raiz, os packs SOLTOS (os em pasta estão colapsados nela);
+  // dentro de uma pasta, só os dela. A busca continua valendo por cima disso.
+  const packsInView = useMemo(() => {
+    const base = folderView ? currentBucket?.packs ?? [] : loosePacks;
+    const ordered = sortPacks(base, packSortKey, { accountNameById: adAccountNameById, direction: packSortDirection });
+    return filterPacksBySearch(ordered, packSearch, { accountNameById: adAccountNameById });
+  }, [folderView, currentBucket, loosePacks, packSortKey, packSortDirection, adAccountNameById, packSearch]);
+
+  /**
+   * Árvore filtrada pela busca: a pasta fica se ELA ou algum pack dela casa, e os
+   * packs listados dentro dela são só os que casam. Sem isso, procurar por um pack
+   * arquivado mostrava a pasta com a contagem cheia e nenhuma pista de onde ele está.
+   */
+  const treeBuckets = useMemo(() => {
+    const term = packSearch.trim();
+    if (!term) return buckets;
+    const lowered = term.toLocaleLowerCase("pt-BR");
+    return buckets
+      .map((bucket) => ({ ...bucket, packs: filterPacksBySearch(bucket.packs, term, { accountNameById: adAccountNameById }) }))
+      .filter((bucket) => bucket.packs.length > 0 || bucket.folder.name.toLocaleLowerCase("pt-BR").includes(lowered));
+  }, [buckets, packSearch, adAccountNameById]);
+
+  const treeLoosePacks = useMemo(
+    () => filterPacksBySearch(loosePacks, packSearch, { accountNameById: adAccountNameById }),
+    [loosePacks, packSearch, adAccountNameById],
+  );
+
+  // Os tiles seguem a MESMA regra de quais pastas aparecem, mas com a contagem
+  // cheia: o tile é o resumo da pasta, não a lista de resultados.
+  const visibleFolders = useMemo(() => {
+    const ids = new Set(treeBuckets.map((bucket) => bucket.folder.id));
+    return buckets.filter((bucket) => ids.has(bucket.folder.id));
+  }, [buckets, treeBuckets]);
+
   // Selecionável = o que está visível (a busca define o universo do "selecionar todos").
-  const visiblePackIds = useMemo(() => visiblePacks.map((p) => p.id), [visiblePacks]);
+  const visiblePackIds = useMemo(() => packsInView.map((p) => p.id), [packsInView]);
   const {
     selectedKeys: selectedPackKeys,
     selectedCount: selectedPackCount,
@@ -347,6 +406,82 @@ export default function PacksPage() {
     } else {
       showError({ message: `Falha ao desconectar a planilha de: ${failed.join(", ")}.` });
     }
+  };
+
+  /** Arrastar um pack que está selecionado leva a seleção inteira. */
+  const handlePackDragStart = (packId: string) => (event: React.DragEvent<HTMLDivElement>) => {
+    const ids = selectedPackKeys.has(packId) && selectedPackCount > 1 ? Array.from(selectedPackKeys) : [packId];
+    setDraggingPackIds(ids);
+    event.dataTransfer.effectAllowed = "move";
+    try {
+      event.dataTransfer.setData("text/plain", ids.join(","));
+    } catch {
+      // Firefox exige setData para iniciar o arrasto; se falhar, o estado local basta.
+    }
+  };
+
+  const handlePackDragEnd = () => {
+    setDraggingPackIds([]);
+    setDropTargetFolderId(null);
+  };
+
+  /** Solta os packs arrastados. `folderId` nulo tira da pasta. */
+  const handleDropPacks = async (folderId: string | null) => {
+    const ids = draggingPackIds;
+    setDraggingPackIds([]);
+    setDropTargetFolderId(null);
+    if (!ids.length) return;
+    // Soltar onde já estava não é movimento — não vale toast nem escrita.
+    if (ids.every((id) => (folderIdByPack[id] ?? null) === folderId)) return;
+
+    const result = await movePacks(ids, folderId);
+    if (!result) return;
+    clearPackSelection();
+
+    const targetName = folderId ? buckets.find((b) => b.folder.id === folderId)?.folder.name : null;
+    const label = targetName
+      ? `${ids.length} ${ids.length === 1 ? "pack movido" : "packs movidos"} para “${targetName}”`
+      : `${ids.length} ${ids.length === 1 ? "pack retirado" : "packs retirados"} da pasta`;
+
+    // Arrasto erra em silêncio — solta na pasta vizinha e ninguém percebe. O
+    // "Desfazer" é o que torna o gesto seguro o bastante para existir.
+    showSuccess(
+      <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
+        {label}
+        <button type="button" onClick={() => undoMove(result.packIds, result.before)} className="focus-inset rounded-sm font-semibold underline underline-offset-2">
+          Desfazer
+        </button>
+      </span>,
+    );
+  };
+
+  /** Clique num pack da árvore: abre a pasta dele (ou a raiz) e rola até o card. */
+  const handleSelectPackFromTree = (packId: string) => {
+    const target = folderIdByPack[packId] ?? null;
+    if (target !== folderView) {
+      setFolderView(target);
+      clearPackSelection();
+    }
+    setPackSearch("");
+    // Depois do render: o card pode não existir ainda quando a vista muda.
+    requestAnimationFrame(() => {
+      document.getElementById(`pack-card-${packId}`)?.scrollIntoView({ block: "center", behavior: "smooth" });
+    });
+  };
+
+  const handleRefreshFolder = (folder: PackFolder) => {
+    const ids = buckets.find((b) => b.folder.id === folder.id)?.packs.map((p) => p.id) ?? [];
+    if (!ids.length) return;
+    setPacksToRefresh(ids);
+    setRefreshType("since_last_refresh");
+  };
+
+  const handleConfirmDeleteFolder = async () => {
+    const folder = folderToDelete;
+    setFolderToDelete(null);
+    if (!folder) return;
+    if (folderView === folder.id) setFolderView(null);
+    await deleteFolder(folder.id);
   };
 
   const handleBulkDeletePacks = async () => {
@@ -792,8 +927,51 @@ export default function PacksPage() {
         variant="standard"
         title="Biblioteca"
         description="Gerencie seus Packs de anúncios."
+        // A partir de `lg` quem rola é a grade de packs, não a página: cabeçalho,
+        // ações e explorer ficam sempre visíveis. Abaixo disso a página rola normal.
+        contentScroll
+        className="lg:flex lg:min-h-0 lg:flex-1 lg:flex-col"
+        contentClassName="lg:flex lg:min-h-0 lg:flex-1 lg:flex-col"
         actions={
-          <PageActions className="sm:flex-nowrap">
+          <PageActions>
+            {showPacksToolbar && (
+              // Um controle só. Antes eram dois — um seletor de campo e um botão de
+              // direção — e ninguém lia os dois como a mesma decisão. Aqui todo estado
+              // é EXPLÍCITO no menu: nada de "clique de novo no campo ativo para
+              // inverter", que é o truque do Finder e que ninguém descobre sozinho.
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" size="icon" aria-label={`Ordenar packs: ${sortLabel}, ${packSortDirection === "asc" ? "crescente" : "decrescente"}`} title={`Ordenar: ${sortLabel}`}>
+                    {packSortDirection === "asc" ? <IconSortAscending className="h-4 w-4" /> : <IconSortDescending className="h-4 w-4" />}
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-56">
+                  <DropdownMenuLabel>Ordenar por</DropdownMenuLabel>
+                  <DropdownMenuRadioGroup value={packSortKey} onValueChange={(value) => setPackSortKey(value as PackSortKey)}>
+                    {PACK_SORT_OPTIONS.map((option) => (
+                      <DropdownMenuRadioItem key={option.value} value={option.value}>
+                        {option.label}
+                      </DropdownMenuRadioItem>
+                    ))}
+                  </DropdownMenuRadioGroup>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuRadioGroup value={packSortDirection} onValueChange={(value) => setPackSortDirection(value as PackSortDirection)}>
+                    <DropdownMenuRadioItem value="asc">
+                      <IconSortAscending className="h-4 w-4" />
+                      Crescente
+                    </DropdownMenuRadioItem>
+                    <DropdownMenuRadioItem value="desc">
+                      <IconSortDescending className="h-4 w-4" />
+                      Decrescente
+                    </DropdownMenuRadioItem>
+                  </DropdownMenuRadioGroup>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
+            <Button variant="outline" className="flex items-center gap-2" onClick={() => setFolderDialog({ mode: "create", packIds: selectedPackIds })}>
+              <IconFolderPlus className="w-4 h-4" />
+              Nova pasta
+            </Button>
             <Button className="flex items-center gap-2" onClick={() => setIsDialogOpen(true)}>
               <IconPlus className="w-4 h-4" />
               Novo Pack
@@ -801,51 +979,157 @@ export default function PacksPage() {
           </PageActions>
         }
       >
-        <PageBodyStack>
-          {/* Busca + ordenação */}
-          {showPacksToolbar && (
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <SearchInputWithClear value={packSearch} onChange={setPackSearch} placeholder="Buscar por nome ou conta..." wrapperClassName="w-full sm:w-80" aria-label="Buscar packs" />
-              <div className="flex items-center gap-3">
-                {isSearching && (
-                  <span className="text-sm text-muted-foreground whitespace-nowrap">
-                    {visiblePacks.length} de {packs.length}
-                  </span>
-                )}
-                <Select value={packSortKey} onValueChange={(value) => setPackSortKey(value as PackSortKey)}>
-                  <SelectTrigger className="w-full sm:w-[210px]" aria-label="Ordenar packs">
-                    <div className="flex items-center gap-2 min-w-0">
-                      <IconArrowsSort className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
-                      <SelectValue />
-                    </div>
-                  </SelectTrigger>
-                  <SelectContent>
-                    {PACK_SORT_OPTIONS.map((option) => (
-                      <SelectItem key={option.value} value={option.value}>
-                        {option.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="icon"
-                  onClick={togglePackSortDirection}
-                  aria-label={packSortDirection === "asc" ? "Ordem crescente. Clique para inverter para decrescente." : "Ordem decrescente. Clique para inverter para crescente."}
-                  title={packSortDirection === "asc" ? "Crescente" : "Decrescente"}
+        <PageBodyStack className="lg:flex lg:min-h-0 lg:flex-1 lg:flex-col">
+          {/* Explorer (busca + árvore) acoplado ao conteúdo: empilha no celular,
+              vira coluna ao lado da grade a partir de `lg`. */}
+          <div className="flex flex-col items-stretch gap-6 lg:min-h-0 lg:flex-1 lg:flex-row xl:gap-8">
+            <PackFolderTree
+              buckets={treeBuckets}
+              loosePacks={treeLoosePacks}
+              view={folderView}
+              search={packSearch}
+              onSearchChange={setPackSearch}
+              matchCount={packsInView.length}
+              totalInView={folderView ? currentBucket?.packs.length ?? 0 : loosePacks.length}
+              onNavigate={(next) => {
+                setFolderView(next);
+                clearPackSelection();
+              }}
+              onSelectPack={handleSelectPackFromTree}
+              // O MESMO menu do card, num `⋯` ao lado do nome. Passado como render
+              // prop para a árvore não precisar conhecer nenhum handler de pack.
+              renderPackMenu={(pack) => (
+                <PackActionsMenu
+                  pack={pack}
+                  align="start"
+                  side="right"
+                  isUpdating={isPackUpdating(pack.id) || isPackRefreshingOnServer(pack)}
+                  onRefresh={handleRefreshPack}
+                  onRemove={handleRemovePack}
+                  onEditDateRange={setDateRangePack}
+                  onTranscribeAds={(packId, packName) => setTranscriptionDialogPack({ id: packId, name: packName })}
+                  onEditJudgment={setJudgmentPack}
+                  onEditSheetIntegration={handleEditSheetIntegration}
+                  onDeleteSheetIntegration={handleDeleteSheetIntegration}
                 >
-                  {packSortDirection === "asc" ? <IconChevronUp className="h-4 w-4" /> : <IconChevronDown className="h-4 w-4" />}
+                  <TreeRowMenuTrigger label="Ações do pack" />
+                </PackActionsMenu>
+              )}
+              // Mesmo menu do tile de pasta. "Atualizar todos" age sobre TODOS os
+              // packs dela — é a ação em massa que existe hoje a nível de pasta.
+              renderFolderMenu={(folder, packCount) => (
+                <FolderActionsMenu
+                  folder={folder}
+                  packCount={packCount}
+                  align="start"
+                  side="right"
+                  onOpen={(id) => { setFolderView(id); clearPackSelection(); }}
+                  onRename={(f) => setFolderDialog({ mode: "rename", folder: f, packIds: [] })}
+                  onDelete={setFolderToDelete}
+                  onRefreshAll={handleRefreshFolder}
+                >
+                  <TreeRowMenuTrigger label={`Ações da pasta ${folder.name}`} />
+                </FolderActionsMenu>
+              )}
+              onDropPacks={handleDropPacks}
+              isDragging={draggingPackIds.length > 0}
+              onPackDragStart={handlePackDragStart}
+              onPackDragEnd={handlePackDragEnd}
+              isPackDragging={(packId) => draggingPackIds.includes(packId)}
+              // A MESMA seleção dos cards: duas superfícies, um estado só. A árvore
+              // é a única com ordem linear, então é onde o shift+clique por intervalo
+              // funciona sem ambiguidade — numa grade de 4 colunas "o que está entre
+              // estes dois" não tem resposta.
+              isPackSelected={isPackSelected}
+              onTogglePack={togglePack}
+              onPackCheckboxClick={handlePackCheckboxClick}
+              hasSelection={selectedPackCount > 0}
+              // A busca mora dentro do explorer, então ele NÃO pode sumir no celular —
+              // some a única busca da tela junto. Abaixo de `lg` ele empilha acima da
+              // grade com altura limitada; a partir daí vira coluna fixa ao lado.
+              //
+              // `lg:top-8` é o mesmo respiro de 32px que o componente usa para calcular
+              // o teto de altura — os dois têm de bater, senão o espaço de cima e o de
+              // baixo saem diferentes quando o painel gruda.
+              // O `lg:max-h-*` é só o primeiro quadro, antes de o componente medir:
+              // sem ele o painel nasceria com a altura inteira da lista e encolheria
+              // à vista. A medida real substitui logo em seguida.
+              // Sem caixa em volta, o painel também encosta na borda e o respiro do
+              // fim vem de dentro da própria árvore — mesmo padrão da grade ao lado.
+              className="max-h-72 w-full shrink-0 self-start lg:max-h-none lg:w-56 lg:self-stretch xl:w-64"
+            />
+
+            {/* O container que rola. `-mx-1 px-1` dá folga para o anel de foco dos
+                cards não ser cortado pela borda da área de rolagem, e o `lg:pb-8`
+                mora AQUI DENTRO: assim o respiro só aparece ao chegar no fim, em vez
+                de virar uma faixa fixa que corta os cards no meio. */}
+            <div className="-mx-1 flex min-w-0 flex-1 flex-col space-y-stack px-1 lg:min-h-0 lg:overflow-y-auto lg:overscroll-contain lg:pb-8">
+          {/* Cabeçalho da pasta aberta */}
+          {folderView && currentBucket && (
+            <div className="flex flex-wrap items-center gap-3 rounded-md border border-border border-l-[3px] border-l-primary bg-primary-10 px-4 py-3">
+              <Button variant="ghost" size="sm" onClick={() => { setFolderView(null); clearPackSelection(); }}>
+                <IconChevronLeft className="h-4 w-4" />
+                Biblioteca
+              </Button>
+              <div className="flex min-w-0 flex-col">
+                <span className="truncate text-sm font-semibold text-foreground">{currentBucket.folder.name}</span>
+                <span className="text-xs text-muted-foreground tabular-nums">
+                  {currentBucket.packs.length} {currentBucket.packs.length === 1 ? "pack" : "packs"} · {formatCurrency(currentBucket.totalSpend)}
+                </span>
+              </div>
+              <div className="ml-auto flex flex-wrap items-center gap-3">
+                <Button variant="outline" size="sm" onClick={() => handleRefreshFolder(currentBucket.folder)} disabled={currentBucket.packs.length === 0}>
+                  <IconRefresh className="h-4 w-4" />
+                  Atualizar todos
+                </Button>
+                <Button variant="outline" size="sm" onClick={() => setFolderDialog({ mode: "rename", folder: currentBucket.folder, packIds: [] })}>
+                  <IconPencil className="h-4 w-4" />
+                  Renomear
+                </Button>
+                <Button variant="destructiveOutline" size="sm" onClick={() => setFolderToDelete(currentBucket.folder)}>
+                  <IconTrash className="h-4 w-4" />
+                  Desfazer pasta
                 </Button>
               </div>
             </div>
           )}
 
-          {/* Packs Grid */}
+          {/* Pastas — só na raiz; dentro de uma pasta a lista já é o conteúdo dela */}
+          {!isLoadingPacks && !folderView && visibleFolders.length > 0 && (
+            <section className="flex flex-col gap-4">
+              <div className="flex items-center gap-3">
+                <span className="text-2xs font-semibold uppercase tracking-wider text-muted-foreground">Pastas · {buckets.length}</span>
+                <span className="h-px flex-1 bg-border" />
+              </div>
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5 xl:grid-cols-6">
+                {visibleFolders.map(({ folder, packs: inside, totalSpend, hasSheet, hasShared }) => (
+                  <FolderCard
+                    key={folder.id}
+                    folder={folder}
+                    packCount={inside.length}
+                    totalSpend={totalSpend}
+                    hasSheet={hasSheet}
+                    hasShared={hasShared}
+                    isCurrent={false}
+                    isDropTarget={dropTargetFolderId === folder.id}
+                    formatCurrency={formatCurrency}
+                    onOpen={(id) => { setFolderView(id); clearPackSelection(); }}
+                    onRename={(f) => setFolderDialog({ mode: "rename", folder: f, packIds: [] })}
+                    onDelete={setFolderToDelete}
+                    onRefreshAll={handleRefreshFolder}
+                    onDropPacks={handleDropPacks}
+                    onDragStateChange={setDropTargetFolderId}
+                  />
+                ))}
+              </div>
+            </section>
+          )}
+
+          {/* Packs */}
           {isLoadingPacks ? (
             <PacksGridSkeleton />
           ) : packs.length === 0 ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-x-6 gap-y-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-6">
               <div className="relative inline-block w-full">
                 <div className="absolute inset-x-0 top-4 bottom-0 rounded-md bg-card border border-border origin-bottom -rotate-[1.5deg] opacity-60 pointer-events-none" />
                 <div className="absolute inset-x-0 top-4 bottom-0 rounded-md bg-card border border-border origin-bottom rotate-[1.5deg] opacity-60 pointer-events-none" />
@@ -864,35 +1148,68 @@ export default function PacksPage() {
                 </StandardCard>
               </div>
             </div>
-          ) : visiblePacks.length === 0 ? (
-            <StatePanel kind="empty" title="Nenhum pack encontrado" message={`Nenhum pack corresponde a "${packSearch.trim()}".`} action={<Button variant="outline" onClick={() => setPackSearch("")}>Limpar busca</Button>} />
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-x-10 gap-y-8">
-              {visiblePacks.map((pack) => (
-                <div key={pack.id} className="group/select relative">
-                  {showPacksToolbar && (
-                    // O card inteiro é um DropdownMenuTrigger — parar a propagação aqui evita
-                    // que marcar o checkbox abra o menu do pack.
-                    <div
-                      className={cn("absolute left-3 top-3 z-20 transition-opacity", isPackSelected(pack.id) || selectedPackCount > 0 ? "opacity-100" : "opacity-0 focus-within:opacity-100 group-hover/select:opacity-100")}
-                      onClick={(e) => e.stopPropagation()}
-                      onPointerDown={(e) => e.stopPropagation()}
-                      onMouseDown={(e) => e.stopPropagation()}
-                    >
-                      <Checkbox
-                        checked={isPackSelected(pack.id)}
-                        onCheckedChange={(v) => togglePack(pack.id, !!v)}
-                        onMouseDown={(e) => { if (e.shiftKey) e.preventDefault(); }}
-                        onClick={(e) => handlePackCheckboxClick(e, pack.id)}
-                        aria-label={`Selecionar ${pack.name}`}
-                      />
-                    </div>
-                  )}
-                <PackCard pack={pack} adAccountName={adAccountNameById.get(pack.adaccount_id)} formatCurrency={formatCurrency} formatDate={formatDate} onRefresh={handleRefreshPack} onRemove={handleRemovePack} onToggleAutoRefresh={handleToggleAutoRefresh} onSetSheetIntegration={setSheetIntegrationPack} onEditSheetIntegration={handleEditSheetIntegration} onDeleteSheetIntegration={handleDeleteSheetIntegration} onEditJudgment={setJudgmentPack} onEditDateRange={setDateRangePack} onTranscribeAds={(packId, packName) => setTranscriptionDialogPack({ id: packId, name: packName })} isSelected={isPackSelected(pack.id)} isUpdating={isPackUpdating(pack.id) || isPackRefreshingOnServer(pack)} updatingByName={isPackRefreshingOnServer(pack) ? pack.refresh_actor_name : null} isTogglingAutoRefresh={isTogglingAutoRefresh} packToDisableAutoRefresh={packToDisableAutoRefresh} />
+            <section
+              className="flex flex-col gap-4"
+              onDragOver={(e) => { if (draggingPackIds.length && !folderView) { e.preventDefault(); setDropTargetFolderId("__loose__"); } }}
+              onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDropTargetFolderId(null); }}
+              onDrop={(e) => { if (!folderView) { e.preventDefault(); handleDropPacks(null); } }}
+            >
+              {!folderView && buckets.length > 0 && (
+                <div className="flex items-center gap-3">
+                  <span className="text-2xs font-semibold uppercase tracking-wider text-muted-foreground">Packs soltos · {loosePacks.length}</span>
+                  <span className="h-px flex-1 bg-border" />
                 </div>
-              ))}
-            </div>
+              )}
+
+              {packsInView.length === 0 ? (
+                isSearching ? (
+                  <StatePanel kind="empty" title="Nenhum pack encontrado" message={`Nenhum pack corresponde a "${packSearch.trim()}".`} action={<Button variant="outline" onClick={() => setPackSearch("")}>Limpar busca</Button>} />
+                ) : (
+                  <StatePanel
+                    kind="empty"
+                    title={folderView ? "Pasta vazia" : "Nenhum pack solto"}
+                    message={folderView ? "Arraste packs para cá, ou use o menu da pasta." : "Todos os seus packs estão em pastas. Arraste um para cá para tirá-lo da pasta."}
+                  />
+                )
+              ) : (
+                <div className={cn("grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-10 gap-y-8", dropTargetFolderId === "__loose__" && !folderView && "rounded-lg ring-1 ring-inset ring-primary")}>
+                  {packsInView.map((pack) => (
+                    <div
+                      key={pack.id}
+                      id={`pack-card-${pack.id}`}
+                      className={cn("group/select relative transition-opacity", draggingPackIds.includes(pack.id) && "opacity-40")}
+                      draggable
+                      onDragStart={handlePackDragStart(pack.id)}
+                      onDragEnd={handlePackDragEnd}
+                    >
+                      {showPacksToolbar && (
+                        // O card inteiro é um DropdownMenuTrigger — parar a propagação aqui evita
+                        // que marcar o checkbox abra o menu do pack.
+                        <div
+                          className={cn("absolute left-3 top-3 z-20 transition-opacity", isPackSelected(pack.id) || selectedPackCount > 0 ? "opacity-100" : "opacity-0 has-[:focus-visible]:opacity-100 group-hover/select:opacity-100")}
+                          onClick={(e) => e.stopPropagation()}
+                          onPointerDown={(e) => e.stopPropagation()}
+                          onMouseDown={(e) => e.stopPropagation()}
+                        >
+                          <Checkbox
+                            checked={isPackSelected(pack.id)}
+                            onCheckedChange={(v) => togglePack(pack.id, !!v)}
+                            onMouseDown={(e) => { if (e.shiftKey) e.preventDefault(); }}
+                            onClick={(e) => handlePackCheckboxClick(e, pack.id)}
+                            aria-label={`Selecionar ${pack.name}`}
+                          />
+                        </div>
+                      )}
+                    <PackCard pack={pack} adAccountName={adAccountNameById.get(pack.adaccount_id)} formatCurrency={formatCurrency} formatDate={formatDate} onRefresh={handleRefreshPack} onRemove={handleRemovePack} onToggleAutoRefresh={handleToggleAutoRefresh} onSetSheetIntegration={setSheetIntegrationPack} onEditSheetIntegration={handleEditSheetIntegration} onDeleteSheetIntegration={handleDeleteSheetIntegration} onEditJudgment={setJudgmentPack} onEditDateRange={setDateRangePack} onTranscribeAds={(packId, packName) => setTranscriptionDialogPack({ id: packId, name: packName })} isSelected={isPackSelected(pack.id)} isUpdating={isPackUpdating(pack.id) || isPackRefreshingOnServer(pack)} updatingByName={isPackRefreshingOnServer(pack) ? pack.refresh_actor_name : null} isTogglingAutoRefresh={isTogglingAutoRefresh} packToDisableAutoRefresh={packToDisableAutoRefresh} />
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
           )}
+            </div>
+          </div>
         </PageBodyStack>
 
         {/* `fixed` sobrepõe o `absolute` da barra: a página de packs rola, então ancorar na
@@ -908,6 +1225,35 @@ export default function PacksPage() {
           className="fixed"
         />
       </PageContainer>
+
+      <FolderNameDialog
+        isOpen={!!folderDialog}
+        mode={folderDialog?.mode ?? "create"}
+        initialName={folderDialog?.folder?.name ?? ""}
+        packCount={folderDialog?.packIds.length ?? 0}
+        existingNames={buckets.map((b) => b.folder.name)}
+        onClose={() => setFolderDialog(null)}
+        onConfirm={async (name) => {
+          if (!folderDialog) return;
+          if (folderDialog.mode === "rename" && folderDialog.folder) {
+            await renameFolder(folderDialog.folder.id, name);
+          } else {
+            await createFolder(name, folderDialog.packIds);
+            clearPackSelection();
+          }
+        }}
+      />
+
+      <ConfirmDialog
+        isOpen={!!folderToDelete}
+        onClose={() => setFolderToDelete(null)}
+        title={`Desfazer a pasta "${folderToDelete?.name ?? ""}"?`}
+        message="Os packs NÃO são apagados — eles voltam para a Biblioteca como packs soltos. Só o agrupamento desaparece."
+        confirmText="Desfazer pasta"
+        variant="destructive"
+        confirmIcon={<IconTrash className="h-5 w-5" />}
+        onConfirm={handleConfirmDeleteFolder}
+      />
 
       {/* Load Pack Modal */}
       <AppDialog isOpen={isDialogOpen} onClose={() => setIsDialogOpen(false)} title="Carregar Pack de Anúncios" size="2xl" padding="md" closeOnOverlayClick closeOnEscape showCloseButton>

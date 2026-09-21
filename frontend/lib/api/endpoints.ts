@@ -1,4 +1,5 @@
 import { apiClient } from './client'
+import type { PackFolder, PackFolderMembers } from '@/lib/types'
 import { getActiveCustomColumns } from '@/lib/metrics/customColumnsRegistry'
 import { asRowPayload, type ColumnarPayload } from './managerColumns'
 import { ANALYTICS_REQUEST_TIMEOUT_MS } from './limits'
@@ -578,6 +579,30 @@ export const api = {
     /** Convidado sai do pack sem depender do dono. */
     leave: (packId: string): Promise<{ success: boolean }> =>
       apiClient.delete(`/pack-shares/${packId}/me`),
+  },
+
+  /**
+   * Pastas da Biblioteca (migration 168). A pasta e de QUEM ORGANIZA, nao do
+   * pack: nao ha pack_ids de contexto aqui como em /tags, porque nao existe silo
+   * a resolver — o dono da pasta e sempre o ator.
+   *
+   * NAO existe compartilhamento de pasta. "Compartilhar pasta" na UI e acucar
+   * sobre /pack-shares, um pack de cada vez, com o conteudo daquele momento.
+   */
+  folders: {
+    /** Pastas + vinculo {pack_id: folder_id} na mesma resposta: a tela desenha uma vez so. */
+    list: (options?: { signal?: AbortSignal }): Promise<{ success: boolean; folders: PackFolder[]; members: PackFolderMembers }> =>
+      apiClient.get('/folders', { signal: options?.signal }),
+    create: (name: string, packIds: string[] = []): Promise<{ success: boolean; folder: PackFolder; moved: number }> =>
+      apiClient.post('/folders', { name, pack_ids: packIds }),
+    rename: (folderId: string, name: string): Promise<{ success: boolean; folder: PackFolder }> =>
+      apiClient.patch(`/folders/${folderId}`, { name }),
+    /** Desfaz a pasta. Os packs FICAM — voltam para "soltos" pela cascata da FK. */
+    remove: (folderId: string): Promise<{ success: boolean; deleted: boolean; id: string }> =>
+      apiClient.delete(`/folders/${folderId}`),
+    /** `folderId` nulo tira os packs da pasta (voltam para soltos). */
+    move: (packIds: string[], folderId: string | null): Promise<{ success: boolean; moved: number; folder_id: string | null }> =>
+      apiClient.post('/folders/move', { pack_ids: packIds, folder_id: folderId }),
   },
 
   /**

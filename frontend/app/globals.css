@@ -161,6 +161,64 @@
   outline-offset: -2px;
 }
 
+/* PASTA (Biblioteca de packs) — a unica ilustracao do app que precisa de tom proprio.
+   Ela NAO sai da escada de superficies, e isso e deliberado: a escada e relativa a
+   pagina e anda em direcoes opostas conforme o tema (no escuro subir e clarear, no
+   claro e escurecer). Isso e certo para superficie de interface, e errado para um
+   OBJETO desenhado, que precisa guardar a mesma distancia ate a pagina nos dois temas.
+   Entao a pasta e um veu da cor do texto sobre o fundo — mesmo principio do
+   `.btn-tonal`, que ja resolve isso para botao secundario.
+
+   O hover do tile usa o MESMO veu, muito mais raso. Como os dois saem da mesma
+   formula, a distancia entre eles e fixa por construcao: o fundo do hover nunca
+   alcanca a cor da pasta, em nenhum dos dois temas. Pintar o hover com `surface-2`
+   (o valor obvio) colidia exatamente assim. */
+:root {
+  --folder-back: color-mix(in oklab, var(--background) 85%, var(--foreground) 15%);
+  --folder-front: color-mix(in oklab, var(--background) 75%, var(--foreground) 25%);
+  --folder-hover-veil: color-mix(in oklab, var(--foreground) 6%, transparent);
+}
+
+/* Relevo das duas camadas: a receita de luz do `.control-lit`, aqui na diagonal e
+   com o dobro da intensidade — a pasta e uma area grande e escura, onde o veu suave
+   de um controle de 40px desaparece. Por ser transparencia e nao um cinza fixo,
+   funciona sobre qualquer nivel e nos dois temas. */
+.folder-glyph-lit {
+  --lit-start: oklch(1 0 0 / 0.13);
+  --lit-mid: oklch(1 0 0 / 0);
+  --lit-end: oklch(0 0 0 / 0.13);
+}
+
+.folder-tile:hover { background-color: var(--folder-hover-veil); }
+
+/* ROLAGEM SEM BARRA, COM SINAL DE CONTINUAÇÃO.
+   Usado na árvore da Biblioteca. Ali a barra não cabe por dois motivos: ela some e
+   reaparece (a largura das linhas pula), e reservar o espaço com `scrollbar-gutter`
+   deixa as linhas 10px mais estreitas que o campo de busca logo acima — desalinhado.
+
+   Esconder a barra sozinha apagaria a única pista de que há mais conteúdo. O
+   degradê de saída devolve essa pista: o conteúdo desbota ao encostar na base e
+   fica nítido quando a lista acaba (com a lista curta, o degradê cai sobre espaço
+   vazio e não aparece). A área desbotada casa com o `pb-8` do fim da rolagem, então
+   no fim da lista o último item já está acima dela.
+
+   `scrollbar-width` fica sob o mesmo @supports do resto do arquivo: no Chromium,
+   declarar a propriedade padrão desliga o estilo `::-webkit-scrollbar` (medido em
+   2026-09-18, ver a regra global de scrollbars abaixo). */
+.scroll-faded::-webkit-scrollbar { display: none; }
+@supports not selector(::-webkit-scrollbar) {
+  .scroll-faded { scrollbar-width: none; }
+}
+/* Nas duas linhas abaixo a cor é ESTÊNCIL DE OPACIDADE, não cor de tema: numa máscara
+   só o canal alfa é lido, e o que importa é opaco contra transparente. Um token ali não
+   pintaria nada e ainda mudaria de significado entre os temas. */
+.scroll-faded {
+  /* design-system-exception: raw-color - estêncil de opacidade da máscara, não cor. */
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 2rem), transparent 100%);
+  /* design-system-exception: raw-color - estêncil de opacidade da máscara, não cor. */
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 2rem), transparent 100%);
+}
+
 .primary-gradient {
   --gradient-fill: radial-gradient(
     circle at 50% 100%,

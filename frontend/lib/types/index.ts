@@ -158,6 +158,23 @@ export interface AppConfig {
   timezone: string
 }
 
+/**
+ * Pasta da Biblioteca (migration 168). É de QUEM ORGANIZA, não do pack: um
+ * convidado arquiva pack compartilhado na pasta dele sem tocar no pack do dono.
+ * `parent_id` existe no schema mas a UI ainda é plana — sempre null por ora.
+ */
+export interface PackFolder {
+  id: string
+  name: string
+  parent_id: string | null
+  position: number
+  created_at?: string
+  updated_at?: string
+}
+
+/** {pack_id: folder_id} — o vínculo, resolvido no cliente sobre os packs já carregados. */
+export type PackFolderMembers = Record<string, string>
+
 // Tipos para notificações
 export interface Notification {
   id: string

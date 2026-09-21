@@ -18,8 +18,15 @@ export interface MultiSelect {
   selectedInOrder: string[];
   toggleOne: (key: string, checked: boolean) => void;
   toggleAll: (checked: boolean) => void;
-  /** onClick do checkbox de linha: mantém a âncora e resolve o intervalo com shift. */
-  handleCheckboxClick: (event: React.MouseEvent, key: string) => void;
+  /**
+   * onClick do checkbox de linha: mantém a âncora e resolve o intervalo com shift.
+   *
+   * `order` sobrescreve a lista usada para resolver o intervalo. Existe porque a
+   * mesma seleção é operada por superfícies com ORDENS DIFERENTES — a grade ordena
+   * por métrica, a árvore agrupa por pasta. Sem isso, um shift+clique na árvore
+   * marcaria o intervalo da grade, que é outro conjunto de linhas.
+   */
+  handleCheckboxClick: (event: React.MouseEvent, key: string, order?: string[]) => void;
   clear: () => void;
 }
 
@@ -61,12 +68,13 @@ export function useMultiSelect(orderedSelectableKeys: string[]): MultiSelect {
   );
 
   const handleCheckboxClick = useCallback(
-    (event: React.MouseEvent, key: string) => {
+    (event: React.MouseEvent, key: string, order?: string[]) => {
       event.stopPropagation();
+      const list = order && order.length ? order : orderedSelectableKeys;
       const anchor = anchorRef.current;
       if (event.shiftKey && anchor && anchor !== key) {
-        const anchorPos = orderedSelectableKeys.indexOf(anchor);
-        const clickedPos = orderedSelectableKeys.indexOf(key);
+        const anchorPos = list.indexOf(anchor);
+        const clickedPos = list.indexOf(key);
         if (anchorPos !== -1 && clickedPos !== -1) {
           // Suprime o toggle nativo do Radix (ele checa defaultPrevented) — senão a
           // linha clicada re-alterna por cima do intervalo que acabamos de aplicar.
@@ -76,8 +84,8 @@ export function useMultiSelect(orderedSelectableKeys: string[]): MultiSelect {
             const next = new Set(prev);
             const value = !prev.has(key);
             for (let i = start; i <= end; i++) {
-              if (value) next.add(orderedSelectableKeys[i]);
-              else next.delete(orderedSelectableKeys[i]);
+              if (value) next.add(list[i]);
+              else next.delete(list[i]);
             }
             return next;
           });

@@ -17,6 +17,8 @@ interface PackSortStore {
   direction: PackSortDirection
   /** Troca o critério e reseta a direção para a natural dele (mesmo padrão do Manager: getManagerChildSortInitialDirection). */
   setSortKey: (sortKey: PackSortKey) => void
+  /** Direção explícita. O menu de ordenação lista as duas opções, em vez de alternar. */
+  setDirection: (direction: PackSortDirection) => void
   toggleDirection: () => void
 }
 
@@ -26,6 +28,7 @@ export const usePackSortStore = create<PackSortStore>()(
       sortKey: DEFAULT_PACK_SORT,
       direction: PACK_SORT_DEFAULT_DIRECTION[DEFAULT_PACK_SORT],
       setSortKey: (sortKey) => set({ sortKey, direction: PACK_SORT_DEFAULT_DIRECTION[sortKey] }),
+      setDirection: (direction) => set({ direction }),
       toggleDirection: () => set((state) => ({ direction: state.direction === 'asc' ? 'desc' : 'asc' })),
     }),
     {
