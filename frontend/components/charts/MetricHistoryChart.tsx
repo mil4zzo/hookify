@@ -1,5 +1,6 @@
 "use client";
 
+import { StatePanel } from "@/components/common/States";
 import { useMemo, useState, useEffect, type ReactNode } from "react";
 import { scaleLinear } from "@visx/scale";
 import { AreaClosed, LinePath } from "@visx/shape";
@@ -388,7 +389,7 @@ function MetricHistoryChartInner({ data, formatValue, actionType, availableMetri
             const h = Math.max(0, innerHeight - margin.top - margin.bottom);
 
             if (data.length === 0) {
-              return <div className="flex items-center justify-center h-full text-muted-foreground text-sm">Sem dados disponíveis</div>;
+              return <StatePanel kind="empty" density="compact" message="Sem dados disponíveis." className="h-full" />;
             }
 
             // Garantir dimensões mínimas

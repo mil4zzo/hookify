@@ -53,7 +53,7 @@ export default function GoldPage() {
   if (!validatedRankings || validatedRankings.length === 0) {
     return (
       <PageContainer variant="analytics" title="G.O.L.D." description="Classificação de anúncios por performance">
-        <WorkspaceState kind="empty" message="Nenhum anúncio encontrado para os filtros selecionados." framed={false} fill />
+        <WorkspaceState kind="empty" frame="dashed" message="Nenhum anúncio encontrado para os filtros selecionados." fill />
       </PageContainer>
     );
   }

@@ -1,5 +1,6 @@
 "use client";
 
+import { StatePanel } from "@/components/common/States";
 import React, { useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { PageContainer } from "@/components/common/PageContainer";
@@ -164,8 +165,8 @@ export default function AdminPage() {
                 ))
               ) : users.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="px-4 py-8 text-center text-muted-foreground text-sm">
-                    Nenhum usuário encontrado.
+                  <td colSpan={9}>
+                    <StatePanel kind="empty" layout="inline" message="Nenhum usuário encontrado." />
                   </td>
                 </tr>
               ) : (

@@ -1,7 +1,7 @@
 "use client";
 
 import type { ComponentProps, HTMLAttributes, ReactNode } from "react";
-import { StatePanel, type StateDensity, type StateTone } from "@/components/common/States";
+import { StatePanel, type StateDensity, type StateFrame, type StateTone } from "@/components/common/States";
 import { StandardCard } from "@/components/common/StandardCard";
 import { TabbedContent, type TabbedContentProps } from "@/components/common/TabbedContent";
 import { KanbanScrollContainer } from "@/components/common/KanbanScrollContainer";
@@ -90,7 +90,7 @@ export interface WorkspaceStateProps {
   label?: string;
   message?: ReactNode;
   action?: ReactNode;
-  framed?: boolean;
+  frame?: StateFrame;
   fill?: boolean;
   density?: StateDensity;
   className?: string;
@@ -103,7 +103,7 @@ export function WorkspaceState({
   label,
   message,
   action,
-  framed = true,
+  frame = "none",
   fill = false,
   density = "default",
   className,
@@ -114,7 +114,7 @@ export function WorkspaceState({
       title={title}
       message={message || (kind === "error" ? "Nao foi possivel carregar os dados." : label)}
       action={action}
-      framed={framed}
+      frame={frame}
       fill={fill}
       density={density}
       className={className}

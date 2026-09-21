@@ -1,8 +1,9 @@
 "use client"
 
+import { StatePanel } from "@/components/common/States";
 import { useEffect, useMemo, useState } from "react"
 import Image from "next/image"
-import { IconPhoto } from "@tabler/icons-react"
+import { IconPhoto, IconSearch } from "@tabler/icons-react"
 import { SearchInputWithClear } from "@/components/common/SearchInputWithClear"
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion"
 import { Button } from "@/components/ui/button"
@@ -60,9 +61,7 @@ export default function AdTree({ data, selectedAdId, onSelect }: AdTreeProps) {
       <SearchInputWithClear value={query} onChange={setQuery} placeholder="Buscar anuncio modelo" />
 
       {filtered.length === 0 ? (
-        <div className="rounded-lg border border-dashed p-6 text-sm text-muted-foreground">
-          Nenhum anuncio encontrado para essa busca.
-        </div>
+        <StatePanel kind="empty" frame="dashed" density="compact" icon={IconSearch} message="Nenhum anúncio encontrado para essa busca." />
       ) : null}
 
       <Accordion

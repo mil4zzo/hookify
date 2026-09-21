@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
-import { LoadingState, ErrorState, EmptyState } from "@/components/common/States";
+import { LoadingState, ErrorState, StatePanel } from "@/components/common/States";
 import { useMe, useAds, useAuthUrl, useAuthToken } from "@/lib/api/hooks";
 import { useClientAuth, useClientPacks, useClientAdAccounts } from "@/lib/hooks/useClientSession";
 import { showSuccess, showError } from "@/lib/utils/toast";
@@ -286,7 +286,7 @@ export default function ApiTestPage() {
           {Array.isArray(adAccountsData) ? (
             <div className="space-y-2">
               {adAccountsData.length === 0 ? (
-                <EmptyState message="Nenhuma conta de anúncios encontrada" />
+                <StatePanel kind="empty" message="Nenhuma conta de anúncios encontrada" />
               ) : (
                 <>
                   {adAccountsData.map((account: any) => (
@@ -379,7 +379,7 @@ export default function ApiTestPage() {
           {jobProgress.data && jobProgress.status === "completed" && (
             <div className="space-y-2">
               {!jobProgress.data || jobProgress.data.length === 0 ? (
-                <EmptyState message="Nenhum anúncio encontrado" />
+                <StatePanel kind="empty" message="Nenhum anúncio encontrado" />
               ) : (
                 <>
                   <p>
@@ -566,7 +566,7 @@ export default function ApiTestPage() {
         </CardHeader>
         <CardContent>
           {packs.length === 0 ? (
-            <EmptyState message="Nenhum pack salvo" />
+            <StatePanel kind="empty" message="Nenhum pack salvo" />
           ) : (
             <div className="space-y-4">
               {packs.map((pack) => (

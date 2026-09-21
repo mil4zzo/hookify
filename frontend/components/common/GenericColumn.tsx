@@ -1,5 +1,6 @@
 "use client";
 
+import { StatePanel } from "@/components/common/States";
 import React from "react";
 import { IconInfoCircle } from "@tabler/icons-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -82,7 +83,7 @@ export function GenericColumn({ title, items, colorScheme, averageValue, renderC
       </div>
 
       <div className={cn("space-y-4", maxHeight && "min-h-0 flex-1 overflow-y-auto")} style={maxHeight ? { maxHeight } : undefined}>
-        {items.length === 0 ? <div className="rounded-md border border-dashed border-border bg-background-40 px-4 py-6 text-center text-sm text-muted-foreground">{emptyMessage}</div> : items.map((item, index) => renderCard(item, index, colorScheme))}
+        {items.length === 0 ? <StatePanel kind="empty" frame="dashed" density="compact" showIcon={false} message={emptyMessage} /> : items.map((item, index) => renderCard(item, index, colorScheme))}
       </div>
     </div>
   );

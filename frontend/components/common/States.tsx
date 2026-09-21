@@ -2,14 +2,12 @@
 
 import type { ComponentType, ReactNode } from "react";
 import { IconAlertTriangle, IconCircleCheck, IconFolderOpen, IconInfoCircle, IconLoader2 } from "@tabler/icons-react";
-import { StandardCard } from "@/components/common/StandardCard";
 // design-system-exception: direct-skeleton-import - canonical state skeleton definitions
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils/cn";
 
 export type StateTone = "loading" | "empty" | "error" | "success" | "warning" | "info";
 export type StateDensity = "compact" | "default" | "spacious";
-export type StateAlign = "left" | "center";
 
 const toneIcon: Record<StateTone, ComponentType<{ className?: string }>> = {
   loading: IconLoader2,
@@ -42,16 +40,38 @@ const densityClass: Record<StateDensity, string> = {
   spacious: "p-widget-spacious",
 };
 
+// Empilhado precisa de mais ar vertical que o padding de widget: o bloco é curto e
+// centralizado, e com 16px ele gruda na moldura tracejada.
+const stackDensityClass: Record<StateDensity, string> = {
+  compact: "px-4 py-6 gap-1.5",
+  default: "px-6 py-10 gap-2",
+  spacious: "px-6 py-14 gap-2.5",
+};
+
+/**
+ * Moldura do estado — escolha pelo LUGAR onde ele aparece:
+ * - `dashed`: no lugar de uma lista, grade ou coluna, no corpo da página. Tracejado
+ *   apagado (`.frame-placeholder`), fundo transparente. Nunca em erro.
+ * - `none`: dentro de algo que já tem moldura (card, modal, tabela, painel), e todo erro.
+ * Não existe card elevado: estado vazio não é algo em que se age.
+ */
+export type StateFrame = "dashed" | "none";
+
+/** `stack`: ícone em cima, título, mensagem, ação. `inline`: uma linha, para linha de tabela ou lista densa. */
+export type StateLayout = "stack" | "inline";
+
 export interface StatePanelProps {
   kind: StateTone;
   title?: ReactNode;
   message?: ReactNode;
   action?: ReactNode;
   icon?: ComponentType<{ className?: string }>;
+  /** false esconde o ícone (coluna estreita de kanban, por exemplo). */
+  showIcon?: boolean;
   fill?: boolean;
-  framed?: boolean;
+  frame?: StateFrame;
+  layout?: StateLayout;
   density?: StateDensity;
-  align?: StateAlign;
   className?: string;
 }
 
@@ -61,38 +81,54 @@ export function StatePanel({
   message,
   action,
   icon,
+  showIcon = true,
   fill = false,
-  framed = true,
+  frame = "none",
+  layout = "stack",
   density = "default",
-  align = "center",
   className,
 }: StatePanelProps) {
   const Icon = icon ?? toneIcon[kind];
-  const content = (
-    <div
-      className={cn(
-        "flex gap-3",
-        align === "center" ? "items-center justify-center text-center" : "items-start text-left",
-        fill && "min-h-[18rem] flex-1",
-        densityClass[density],
-        className,
-      )}
-    >
-      <Icon className={cn("mt-0.5 h-5 w-5 flex-shrink-0", toneClass[kind], kind === "loading" && "animate-spin")} />
-      <div className={cn("min-w-0 space-y-1", align === "center" && "max-w-xl")}>
-        {title && <div className="font-medium text-foreground">{title}</div>}
-        {message && <div className="text-sm text-muted-foreground">{message}</div>}
-        {action && <div className="pt-2">{action}</div>}
-      </div>
-    </div>
-  );
+  const iconMotion = kind === "loading" && "animate-spin";
+  // Erro nunca é tracejado: não é um lugar esperando conteúdo, é um problema.
+  const dashed = frame === "dashed" && kind !== "error";
 
-  if (!framed) return content;
+  if (layout === "inline") {
+    return (
+      <div
+        className={cn("flex items-center gap-2 text-xs text-muted-foreground", densityClass[density], dashed && "frame-placeholder rounded-md", className)}
+        role={kind === "error" ? "alert" : undefined}
+      >
+        {showIcon && <Icon className={cn("h-4 w-4 flex-shrink-0", toneClass[kind], iconMotion)} />}
+        <div className="min-w-0">
+          {title && <span className="font-medium text-foreground">{title} </span>}
+          {message}
+        </div>
+        {action && <div className="ml-auto flex-shrink-0">{action}</div>}
+      </div>
+    );
+  }
 
   return (
-    <StandardCard padding="none" className={cn("flex", fill && "min-h-[18rem] flex-1")}>
-      {content}
-    </StandardCard>
+    <div
+      className={cn(
+        "flex w-full min-w-0 flex-col items-center justify-center text-center",
+        stackDensityClass[density],
+        fill && "min-h-[18rem] flex-1",
+        dashed && "frame-placeholder rounded-lg",
+        className,
+      )}
+      role={kind === "error" ? "alert" : undefined}
+    >
+      {showIcon && (
+        <div className={cn("state-icon-veil mb-1 grid flex-shrink-0 place-items-center rounded-full", density === "compact" ? "h-8 w-8" : "h-10 w-10")}>
+          <Icon className={cn(density === "compact" ? "h-4 w-4" : "h-5 w-5", toneClass[kind], iconMotion)} />
+        </div>
+      )}
+      {title && <div className="text-balance text-sm font-medium text-foreground">{title}</div>}
+      {message && <div className={cn("max-w-md text-pretty text-muted-foreground", density === "compact" ? "text-xs" : "text-sm")}>{message}</div>}
+      {action && <div className="flex flex-wrap justify-center gap-3 pt-2">{action}</div>}
+    </div>
   );
 }
 
@@ -175,15 +211,6 @@ export function ErrorState({ message, action }: { message: string; action?: Reac
       <IconAlertTriangle className="h-5 w-5" />
       <span className="text-foreground">{message}</span>
       {action}
-    </div>
-  );
-}
-
-export function EmptyState({ message = "Sem dados para exibir" }: { message?: string }) {
-  return (
-    <div className="flex items-center gap-3 text-muted-foreground">
-      <IconFolderOpen className="h-5 w-5" />
-      <span>{message}</span>
     </div>
   );
 }

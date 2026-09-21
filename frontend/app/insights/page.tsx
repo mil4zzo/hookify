@@ -308,9 +308,9 @@ export default function InsightsPage() {
           {isLoadingData ? (
             <StateSkeleton variant="page" rows={4} />
           ) : !hasData ? (
-            <StatePanel kind="empty" message="Sem dados no período selecionado. Ajuste os filtros acima para buscar em outro período." framed={false} fill />
+            <StatePanel kind="empty" frame="dashed" message="Sem dados no período selecionado. Ajuste os filtros acima para buscar em outro período." fill />
           ) : !actionType ? (
-            <StatePanel kind="empty" message="Selecione um evento de conversão no topo para ver o diagnóstico do dia." framed={false} fill />
+            <StatePanel kind="empty" frame="dashed" message="Selecione um evento de conversão no topo para ver o diagnóstico do dia." fill />
           ) : (
             <div className="flex flex-col gap-4 overflow-visible">
               <DayComparisonBlock
@@ -360,7 +360,7 @@ export default function InsightsPage() {
           {isLoadingData ? (
             <OpportunitiesSkeleton />
           ) : !hasData ? (
-            <StatePanel kind="empty" message="Sem dados no período selecionado. Ajuste os filtros acima para buscar em outro período." framed={false} fill />
+            <StatePanel kind="empty" frame="dashed" message="Sem dados no período selecionado. Ajuste os filtros acima para buscar em outro período." fill />
           ) : (
             <div>
               <OpportunityWidget rows={opportunityRows} averages={averages} actionType={actionType} onAdClick={handleOpportunityCardClick} globalMetricRanks={globalMetricRanks} gemsTopHook={topHookFromGems} gemsTopWebsiteCtr={topWebsiteCtrFromGems} gemsTopCtr={topCtrFromGems} gemsTopPageConv={topPageConvFromGems} gemsTopHoldRate={topHoldRateFromGems} />
@@ -373,11 +373,11 @@ export default function InsightsPage() {
           {isLoadingData ? (
             <InsightsSkeleton />
           ) : !hasData ? (
-            <StatePanel kind="empty" message="Sem dados no período selecionado. Ajuste os filtros acima para buscar em outro período." framed={false} fill />
+            <StatePanel kind="empty" frame="dashed" message="Sem dados no período selecionado. Ajuste os filtros acima para buscar em outro período." fill />
           ) : !isEmptyRuleTree(validationCriteria) && !loading && averages ? (
             <InsightsKanbanWidget ads={validatedAds} averages={averages} actionType={actionType} validationCriteria={validationCriteria} names={names} dateStart={dateRange.start} dateStop={dateRange.end} availableConversionTypes={actionTypeOptions} packIds={Array.from(selectedPackIds)} />
           ) : (
-            <StatePanel kind="empty" message="Configure critérios de validação nas configurações para ver insights." framed={false} fill />
+            <StatePanel kind="empty" frame="dashed" message="Configure critérios de validação nas configurações para ver insights." fill />
           )}
         </TabbedContentItem>
 
@@ -386,11 +386,11 @@ export default function InsightsPage() {
           {isLoadingData ? (
             <GemsSkeleton />
           ) : !hasData ? (
-            <StatePanel kind="empty" message="Sem dados no período selecionado. Ajuste os filtros acima para buscar em outro período." framed={false} fill />
+            <StatePanel kind="empty" frame="dashed" message="Sem dados no período selecionado. Ajuste os filtros acima para buscar em outro período." fill />
           ) : !isEmptyRuleTree(validationCriteria) && !loading && averages ? (
             <GemsWidget ads={validatedAds} averages={averages} actionType={actionType} validationCriteria={validationCriteria} names={names} limit={5} dateStart={dateRange.start} dateStop={dateRange.end} availableConversionTypes={actionTypeOptions} activeColumns={activeGemsColumns} packIds={Array.from(selectedPackIds)} />
           ) : (
-            <StatePanel kind="empty" message="Configure critérios de validação nas configurações para ver gems." framed={false} fill />
+            <StatePanel kind="empty" frame="dashed" message="Configure critérios de validação nas configurações para ver gems." fill />
           )}
         </TabbedContentItem>
         </TabbedWorkspace>

@@ -258,7 +258,7 @@ export function ExplorerPage() {
   if (status.kind === "needs-packs" || status.kind === "needs-range") {
     return (
       <PageContainer variant="analytics" title="Breakdown" description="Veja onde melhorar e o que fazer." fullWidth hideHeader contentClassName="min-w-0">
-        <WorkspaceState kind="empty" message={status.message} fill />
+        <WorkspaceState kind="empty" frame="dashed" message={status.message} fill />
       </PageContainer>
     );
   }
@@ -274,7 +274,7 @@ export function ExplorerPage() {
   if (listItems.length === 0) {
     return (
       <PageContainer variant="analytics" title="Breakdown" description="Veja onde melhorar e o que fazer." fullWidth hideHeader contentClassName="min-w-0">
-        <WorkspaceState kind="empty" message="Nenhum criativo de video foi encontrado para os filtros atuais." fill />
+        <WorkspaceState kind="empty" frame="dashed" message="Nenhum criativo de video foi encontrado para os filtros atuais." fill />
       </PageContainer>
     );
   }

@@ -1,5 +1,6 @@
 "use client";
 
+import { StatePanel } from "@/components/common/States";
 import { useState, useEffect, useMemo } from "react";
 import Link from "next/link";
 import Image from "next/image";
@@ -633,14 +634,17 @@ export default function Topbar() {
           ))}
         </div>
       ) : (
-        <div className="text-center py-12">
-          <IconBrandFacebook className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-          <p className="text-muted-foreground mb-4">Nenhuma conta do Facebook conectada</p>
-          <Button variant="default" onClick={handleConnectFacebook} disabled={connect.isPending} className="flex items-center gap-2 mx-auto">
-            {connect.isPending ? <IconLoader2 className="h-4 w-4 animate-spin" /> : <IconBrandFacebook className="h-4 w-4" />}
-            {connect.isPending ? "Conectando..." : "Conectar Facebook"}
-          </Button>
-        </div>
+        <StatePanel
+          kind="empty"
+          icon={IconBrandFacebook}
+          title="Nenhuma conta do Facebook conectada"
+          action={
+            <Button variant="default" onClick={handleConnectFacebook} disabled={connect.isPending} className="flex items-center gap-2">
+              {connect.isPending ? <IconLoader2 className="h-4 w-4 animate-spin" /> : <IconBrandFacebook className="h-4 w-4" />}
+              {connect.isPending ? "Conectando..." : "Conectar Facebook"}
+            </Button>
+          }
+        />
       )}
 
       {/* Zona de perigo */}

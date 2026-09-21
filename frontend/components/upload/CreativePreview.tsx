@@ -10,7 +10,7 @@ import {
 import type { AdCreativeDetailResponse } from "@/lib/api/schemas"
 import { useAdCreative, useImageSource, useVideoSource } from "@/lib/api/hooks"
 import { extractActorIdFromCreative, normalizeMediaType, resolvePrimaryVideoId } from "@/lib/ads/mediaDetection"
-import { InlineNotice } from "@/components/common/States"
+import { InlineNotice, StatePanel } from "@/components/common/States"
 import { Skeleton } from "@/components/ui/skeleton"
 import { VideoPlayer } from "@/components/common/VideoPlayer"
 
@@ -195,13 +195,7 @@ export default function CreativePreview({ creative, adId }: CreativePreviewProps
 
   if (!creative) {
     return (
-      <div className="flex min-h-[200px] flex-col items-center justify-center gap-3 rounded-md border border-dashed border-border bg-surface-2 p-6 text-center">
-        <IconPhoto className="h-8 w-8 text-muted-foreground opacity-30" />
-        <div className="space-y-1">
-          <div className="text-sm font-medium text-muted-foreground">Nenhum anúncio selecionado</div>
-          <div className="text-xs text-muted-foreground opacity-60">Selecione um modelo ao lado para ver a prévia</div>
-        </div>
-      </div>
+      <StatePanel kind="empty" frame="dashed" icon={IconPhoto} title="Nenhum anúncio selecionado" message="Selecione um modelo ao lado para ver a prévia." className="min-h-[200px]" />
     )
   }
 

@@ -192,6 +192,20 @@
 
 .folder-tile:hover { background-color: var(--folder-hover-veil); }
 
+/* ESTADO VAZIO (StatePanel frame="dashed") — tracejado APAGADO, de proposito mais fraco
+   que `border-border`. O tom da borda diz o papel da area: estado vazio so informa e
+   recua (le como "nada aqui"); area que RECEBE arrasto (upload, soltar em pasta) pede
+   acao e usa a borda padrao, que fica primary durante o arrasto. Sao os dois unicos
+   donos de tracejado no app — o checker barra tracejado fora deles.
+   Veu da cor do texto, nao degrau da escada: guarda a mesma distancia ate o fundo nos
+   dois temas e em qualquer nivel (pagina, cartao, coluna de kanban). */
+:root {
+  --placeholder-border: color-mix(in oklab, var(--foreground) 16%, transparent);
+  --state-icon-veil: color-mix(in oklab, var(--foreground) 6%, transparent);
+}
+.frame-placeholder { border: 1px dashed var(--placeholder-border); background-color: transparent; }
+.state-icon-veil { background-color: var(--state-icon-veil); }
+
 /* ROLAGEM SEM BARRA, COM SINAL DE CONTINUAÇÃO.
    Usado na árvore da Biblioteca. Ali a barra não cabe por dois motivos: ela some e
    reaparece (a largura das linhas pula), e reservar o espaço com `scrollbar-gutter`

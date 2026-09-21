@@ -1,5 +1,6 @@
 "use client";
 
+import { StatePanel } from "@/components/common/States";
 import { useState } from "react";
 import type { ActionPlan, Verdict } from "@/lib/utils/actionPlan";
 import type { RankingsResponse } from "@/lib/api/schemas";
@@ -63,9 +64,7 @@ export function ActionPlanList({
 
   if (totalActions === 0 && plan.observar.length === 0) {
     return (
-      <div className="py-12 text-center text-muted-foreground text-sm">
-        Nenhum anúncio encontrado para gerar o plano de ação.
-      </div>
+      <StatePanel kind="empty" frame="dashed" message="Nenhum anúncio encontrado para gerar o plano de ação." />
     );
   }
 

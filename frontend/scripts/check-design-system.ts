@@ -125,6 +125,18 @@ const REGEX_RULES: RegexRule[] = [
     description: "Use shadow-elevation-flat/raised/overlay instead of raw Tailwind shadows.",
     pattern: /\bshadow-(?:xs|sm|md|lg|xl|2xl)\b/,
   },
+  {
+    id: "ad-hoc-dashed-border",
+    description:
+      "Tracejado tem dois donos, e o tom da borda diz qual: estado vazio (StatePanel frame=\"dashed\", tracejado APAGADO) e area que recebe arrasto (borda padrao, primary durante o arrasto). Estado vazio feito a mao: use StatePanel. Area de soltar: marque a excecao na linha.",
+    pattern: /(?<![\w-])border-dashed(?![\w-])/,
+  },
+  {
+    id: "placeholder-frame-outside-state",
+    description:
+      "`.frame-placeholder` (tracejado apagado) e exclusivo do estado vazio e so o StatePanel aplica. Fora dele vira um segundo tom de borda sem papel. Use <StatePanel frame=\"dashed\" />.",
+    pattern: /(?<![\w-])frame-placeholder(?![\w-])/,
+  },
 ];
 
 const COLOR_RULES = ["hardcoded-tailwind-color", "large-radius", "raw-color", "emoji-icon"];
@@ -154,6 +166,9 @@ const RULE_ALLOWLIST: RuleAllowlistEntry[] = [
   { pattern: /^app\/(?:api-test|ui-demo|design-system|pv|waitlist|waitlist-v2)\//, rules: [DIRECT_PRIMITIVE_RULE, DIRECT_SKELETON_RULE, INLINE_NOTICE_RULE, "emoji-icon"], reason: "dev/demo/public surfaces" },
   { pattern: /^lib\/store\/activeJobs\.ts$/, rules: ["emoji-icon"], reason: "emoji markers in console diagnostics, not UI" },
   { pattern: /^components\/share\//, rules: ["emoji-icon"], reason: "public share viewer (/s) uses deliberate playful emoji in expiry states" },
+  { pattern: /^components\/upload\/(?:SlotUploadZone|FileUploadZone|BundleUploadZone)\.tsx$/, rules: ["ad-hoc-dashed-border"], reason: "drop zones: o outro dono do tracejado (borda padrao, primary no arrasto)" },
+  { pattern: /^app\/design-system\//, rules: ["ad-hoc-dashed-border"], reason: "vitrine do design system desenha amostras de densidade" },
+  { pattern: /^(?:components\/common\/States\.tsx|app\/globals\.css)$/, rules: ["placeholder-frame-outside-state"], reason: "definicao e unico consumidor do tracejado apagado" },
   { pattern: /^components\/waitlist\/(?:WaitlistV2|CanvasRevealEffect)\.tsx$/, rules: [...COLOR_RULES, DIRECT_PRIMITIVE_RULE], reason: "cinematic public waitlist v2 keeps a raw black/white/accent palette" },
 
   // ── Backlog da escada de superficie ─────────────────────────────────────────

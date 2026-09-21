@@ -1,5 +1,6 @@
 "use client"
 
+import { StatePanel } from "@/components/common/States";
 import { useRef } from "react"
 import { IconPhoto, IconPlus, IconTrash, IconUpload, IconVideo, IconX } from "@tabler/icons-react"
 import { StandardCard } from "@/components/common/StandardCard"
@@ -266,9 +267,7 @@ export default function BundleUploadZone({
                             <div className="text-xs text-muted-foreground">{formatFileSize(selectedFile.file)}</div>
                           </div>
                         ) : (
-                          <div className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">
-                            Nenhum arquivo selecionado
-                          </div>
+                          <StatePanel kind="empty" frame="dashed" layout="inline" showIcon={false} message="Nenhum arquivo selecionado" />
                         )}
                         <label className="inline-flex cursor-pointer">
                           <input

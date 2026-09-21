@@ -2,6 +2,7 @@
 
 // design-system-exception: hardcoded-tailwind-color - chart components compare computed runtime colors
 
+import { StatePanel } from "@/components/common/States";
 import { useMemo, useState } from "react";
 import { ParentSize } from "@visx/responsive";
 import { scaleLinear } from "@visx/scale";
@@ -122,7 +123,7 @@ function DriverWaterfallInner({ decomposition, selectedDriver, onSelectDriver }:
   }, [decomposition]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (bars.length === 0) {
-    return <div className="h-full flex items-center justify-center text-sm text-muted-foreground">Sem dados para o waterfall.</div>;
+    return <StatePanel kind="empty" density="compact" message="Sem dados para o waterfall." className="h-full" />;
   }
 
   return (

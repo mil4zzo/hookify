@@ -562,7 +562,6 @@ export const TableContent = React.memo(function TableContent({ table, isLoadingE
                   <StatePanel
                     kind={isError ? "error" : "empty"}
                     message={isError ? "Erro ao carregar dados. Tente reduzir o período ou selecionar menos packs." : "Nenhum resultado com esses filtros."}
-                    framed={false}
                     density="compact"
                   />
                 </td>

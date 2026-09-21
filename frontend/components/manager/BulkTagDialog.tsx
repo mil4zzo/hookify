@@ -176,6 +176,7 @@ export function BulkTagDialog({ open, onOpenChange, selection, onApplied }: Bulk
                 key={stagedKey(tag)}
                 name={stagedName(tag)}
                 color={isDraft(tag) ? undefined : tag.color}
+                // design-system-exception: ad-hoc-dashed-border - tag em rascunho: ainda não existe, é um placeholder
                 className={isDraft(tag) ? "border-dashed" : undefined}
                 onRemove={() => setStaged((prev) => prev.filter((t) => stagedKey(t) !== stagedKey(tag)))}
               />

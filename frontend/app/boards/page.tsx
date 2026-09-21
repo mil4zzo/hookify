@@ -365,16 +365,18 @@ export default function BoardsPage() {
           {boards.length === 0 ? (
             <StatePanel
               kind="empty"
+              frame="dashed"
               icon={IconLayoutBoard}
               title="Nenhum board ainda"
               message="Um board é uma lente sobre os seus criativos: você cria grupos, cada grupo tem uma condição, e todo criativo do recorte que atender aparece nele. Os grupos não são exclusivos — o mesmo criativo pode estar em vários. Packs e período continuam vindo do filtro do topo, então o mesmo board serve qualquer recorte."
               fill
             />
           ) : !activeBoard ? (
-            <StatePanel kind="empty" icon={IconLayoutBoard} title="Escolha um board" fill />
+            <StatePanel kind="empty" frame="dashed" icon={IconLayoutBoard} title="Escolha um board" fill />
           ) : activeBoard.groups.length === 0 ? (
             <StatePanel
               kind="empty"
+              frame="dashed"
               icon={IconLayoutBoard}
               title={`"${activeBoard.name}" ainda não tem grupos`}
               message="Crie o primeiro grupo e dê a ele uma condição — por exemplo, uma tag de hook, ou CPR acima do seu alvo."

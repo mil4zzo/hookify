@@ -146,7 +146,7 @@ export default function PlanoPage() {
   if (selectedPackIds.size === 0) {
     return (
       <PageContainer variant="analytics" title="Plano de Ação" description="To-do list de anúncios">
-        <WorkspaceState kind="empty" message="Selecione ao menos um pack para gerar o plano." framed={false} fill />
+        <WorkspaceState kind="empty" frame="dashed" message="Selecione ao menos um pack para gerar o plano." fill />
       </PageContainer>
     );
   }
@@ -157,7 +157,7 @@ export default function PlanoPage() {
   if (filteredRankings.length === 0) {
     return (
       <PageContainer variant="analytics" title="Plano de Ação" description="To-do list de anúncios">
-        <WorkspaceState kind="empty" message="Nenhum anúncio encontrado para os filtros selecionados." framed={false} fill />
+        <WorkspaceState kind="empty" frame="dashed" message="Nenhum anúncio encontrado para os filtros selecionados." fill />
       </PageContainer>
     );
   }
@@ -165,7 +165,7 @@ export default function PlanoPage() {
   if (!actionType) {
     return (
       <PageContainer variant="analytics" title="Plano de Ação" description="To-do list de anúncios">
-        <WorkspaceState kind="empty" message="Selecione um tipo de conversão para gerar o plano." framed={false} fill />
+        <WorkspaceState kind="empty" frame="dashed" message="Selecione um tipo de conversão para gerar o plano." fill />
       </PageContainer>
     );
   }
@@ -239,12 +239,12 @@ export default function PlanoPage() {
         ) : (
           <WorkspaceState
             kind="empty"
+            frame="dashed"
             message={
               !isEmptyRuleTree(validationCriteria) && (!validatedAds || validatedAds.length === 0)
                 ? "Nenhum anúncio passou nos critérios de validação para entrar no plano de ação — o diagnóstico acima considera todos os anúncios. Ajuste os critérios ou selecione outro período."
                 : "Nenhum dado disponível para gerar o plano."
             }
-            framed={false}
             fill
           />
         )}

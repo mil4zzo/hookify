@@ -340,12 +340,12 @@ export default function DesignSystemPage() {
               <ToggleSwitch id="ds-toggle" checked={switchOn} onCheckedChange={setSwitchOn} label="Agrupar por packs" variant="minimal" />
             </WidgetPanel>
 
-            <WidgetPanel title="StatePanel" description="estados de painel" density="compact">
+            <WidgetPanel title="StatePanel" description="frame: dashed no lugar de lista · none dentro de moldura · inline em linha de tabela" density="compact">
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                <StatePanel kind="empty" title="Sem resultados" message="Ajuste os filtros." framed={false} align="left" />
-                <StatePanel kind="error" title="Erro" message="Não foi possível carregar." framed={false} align="left" />
-                <StatePanel kind="loading" message="Carregando…" framed={false} align="left" />
-                <StatePanel kind="info" title="Dica" message="Texto informativo." framed={false} align="left" />
+                <StatePanel kind="empty" frame="dashed" density="compact" title="Pasta vazia" message="Crie ou mova packs para cá." />
+                <StatePanel kind="empty" density="compact" title="Sem resultados" message="Ajuste os filtros." />
+                <StatePanel kind="empty" layout="inline" message="Sem conjuntos no período." />
+                <StatePanel kind="error" layout="inline" message="Não foi possível carregar." />
               </div>
             </WidgetPanel>
 
@@ -360,8 +360,8 @@ export default function DesignSystemPage() {
 
             <WidgetPanel title="WorkspaceState" description="empty / error de corpo" density="compact">
               <div className="space-y-3">
-                <WorkspaceState kind="empty" title="Nada por aqui" message="Sem dados para o filtro atual." framed={false} />
-                <WorkspaceState kind="error" framed={false} />
+                <WorkspaceState kind="empty" frame="dashed" title="Nada por aqui" message="Sem dados para o filtro atual." />
+                <WorkspaceState kind="error" />
               </div>
             </WidgetPanel>
 

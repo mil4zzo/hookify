@@ -5,7 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Skeleton } from "@/components/ui/skeleton";
 import { AppDialog } from "@/components/common/AppDialog";
 import { useState } from "react";
-import { LoadingState, ErrorState, EmptyState } from "@/components/common/States";
+import { LoadingState, ErrorState, StatePanel } from "@/components/common/States";
 import { showSuccess, showError, showInfo } from "@/lib/utils/toast";
 import { IconRocket } from "@tabler/icons-react";
 
@@ -140,8 +140,8 @@ export default function UIDemo() {
                 <CardTitle>Empty</CardTitle>
               </CardHeader>
               <CardContent>
-                <EmptyState />
-                <EmptyState message="Nenhum resultado encontrado" />
+                <StatePanel kind="empty" message="Sem dados para exibir" />
+                <StatePanel kind="empty" message="Nenhum resultado encontrado" />
               </CardContent>
             </Card>
           </div>

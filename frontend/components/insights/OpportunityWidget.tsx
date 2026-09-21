@@ -1,3 +1,4 @@
+import { StatePanel } from "@/components/common/States";
 import { OpportunityRow } from "@/lib/utils/opportunity";
 import { RankingsResponse } from "@/lib/api/schemas";
 import { getValueColor } from "@/lib/utils/metricColor";
@@ -189,17 +190,13 @@ export function OpportunityWidget({ rows, averages, actionType, onAdClick, globa
 
   if (rows.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center py-12 px-4 rounded-lg border border-dashed border-border bg-background">
-        <div className="flex flex-col items-center gap-3 text-center max-w-md">
-          <div className="p-4 rounded-full bg-surface-2">
-            <IconMoodEmptyFilled className="h-8 w-8 text-muted-foreground" />
-          </div>
-          <div className="space-y-1">
-            <h3 className="text-lg font-semibold text-foreground">Nenhuma oportunidade encontrada</h3>
-            <p className="text-sm text-muted-foreground">Não há anúncios com potencial de melhoria no período selecionado. Tente ajustar os filtros ou selecionar outro período.</p>
-          </div>
-        </div>
-      </div>
+      <StatePanel
+        kind="empty"
+        frame="dashed"
+        icon={IconMoodEmptyFilled}
+        title="Nenhuma oportunidade encontrada"
+        message="Não há anúncios com potencial de melhoria no período selecionado. Tente ajustar os filtros ou selecionar outro período."
+      />
     );
   }
 

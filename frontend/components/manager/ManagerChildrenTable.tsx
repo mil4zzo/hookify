@@ -340,15 +340,15 @@ export function ManagerChildrenTable({
   const metricColumnClass = "cursor-pointer select-none px-4 py-3 text-center hover:text-primary";
 
   const loadingContent = (
-    <StatePanel kind="loading" message={`Carregando ${childrenLabel}...`} framed={false} density="compact" align="left" />
+    <StatePanel kind="loading" message={`Carregando ${childrenLabel}...`} density="compact" layout="inline" />
   );
 
   const errorContent = (
-    <StatePanel kind="error" message={`Erro ao carregar ${childrenLabel}.`} framed={false} density="compact" align="left" />
+    <StatePanel kind="error" message={`Erro ao carregar ${childrenLabel}.`} density="compact" layout="inline" />
   );
 
   const emptyContent = (
-    <StatePanel kind="empty" message={`Sem ${childrenLabel} no período.`} framed={false} density="compact" align="left" />
+    <StatePanel kind="empty" message={`Sem ${childrenLabel} no período.`} density="compact" layout="inline" />
   );
 
   if (isLoading) {
@@ -428,7 +428,6 @@ export function ManagerChildrenTable({
                   : config.emptyForSearch(searchTerm)
                 : config.emptyForFilters
             }
-            framed={false}
             density="compact"
           />
           <div className="mt-2 flex flex-wrap items-center justify-center gap-2">

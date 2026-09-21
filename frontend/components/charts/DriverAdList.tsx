@@ -1,5 +1,6 @@
 "use client";
 
+import { StatePanel } from "@/components/common/States";
 import { IconTrendingDown, IconArrowsShuffle, IconChevronRight } from "@tabler/icons-react";
 import type { DriverAttribution, AdAttribution, DriverKey } from "@/lib/metrics/diagnostics";
 import { getDriverLabel } from "@/lib/metrics/diagnostics";
@@ -129,7 +130,7 @@ export function DriverAdList({ attribution, driver, driverDirection, adMap, onOp
 
       {/* Ad rows */}
       {rankedAds.length === 0 && (
-        <div className="text-xs text-muted-foreground py-2">Nenhum ad encontrado com impacto significativo.</div>
+        <StatePanel kind="empty" layout="inline" density="compact" message="Nenhum anúncio com impacto significativo." />
       )}
       {rankedAds.map((attr) => (
         <AdAttributionRow
@@ -144,6 +145,7 @@ export function DriverAdList({ attribution, driver, driverDirection, adMap, onOp
 
       {/* Collapsed remainder */}
       {remainder && remainder.count > 0 && (
+        // design-system-exception: ad-hoc-dashed-border - resumo dos ads recolhidos, lido como "os que não aparecem"
         <div className="flex items-center justify-between px-2.5 py-1.5 rounded-md border border-dashed border-border text-2xs text-muted-foreground">
           <span>+{remainder.count} outros ads</span>
           <span className="font-medium">

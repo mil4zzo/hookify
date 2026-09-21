@@ -1,5 +1,6 @@
 "use client";
 
+import { StatePanel } from "@/components/common/States";
 import { useEffect, useMemo, useState } from "react";
 import { api } from "@/lib/api/endpoints";
 import { RankingsItem } from "@/lib/api/schemas";
@@ -128,8 +129,8 @@ export function AdsetDetailsDialog({ adsetId, adsetName, dateStart, dateStop, ac
                 <tbody>
                   {children.length === 0 ? (
                     <tr>
-                      <td className="px-4 py-6 text-center text-muted-foreground" colSpan={4}>
-                        Nenhum anúncio encontrado para este conjunto.
+                      <td colSpan={4}>
+                        <StatePanel kind="empty" layout="inline" message="Nenhum anúncio encontrado para este conjunto." />
                       </td>
                     </tr>
                   ) : (

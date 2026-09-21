@@ -1,5 +1,6 @@
 "use client"
 
+import { StatePanel } from "@/components/common/States";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react"
 import Image from "next/image"
 import {
@@ -263,10 +264,7 @@ const AdGrid = memo(function AdGrid({ selectedAdId, onSelect }: AdGridProps) {
             ))}
           </div>
         ) : items.length === 0 ? (
-          <div className="flex flex-col items-center justify-center gap-2 py-12 text-sm text-muted-foreground">
-            <IconSearch className="h-6 w-6 opacity-30" />
-            <span>Nenhum anúncio encontrado para essa busca.</span>
-          </div>
+          <StatePanel kind="empty" icon={IconSearch} message="Nenhum anúncio encontrado para essa busca." />
         ) : (
           <div style={{ height: virtualizer.getTotalSize(), width: "100%", position: "relative" }}>
             {virtualizer.getVirtualItems().map((virtualRow) => {

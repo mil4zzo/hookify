@@ -1,5 +1,6 @@
 "use client";
 
+import { StatePanel } from "@/components/common/States";
 import { useEffect, useMemo, useState } from "react";
 import { IconChevronDown, IconChevronUp } from "@tabler/icons-react";
 import { SearchInputWithClear } from "@/components/common/SearchInputWithClear";
@@ -157,7 +158,7 @@ export function ExplorerAdsKanbanList({ ads, selectedGroupKey, onSelectAd, avera
       <div className="mt-3 min-w-0 md:min-h-0 md:flex-1 md:overflow-y-auto md:overflow-x-hidden [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
         <div className="min-w-0 max-w-full space-y-4">
           {filteredAds.length === 0 ? (
-            <div className="rounded-md border border-dashed border-border bg-background-40 px-4 py-8 text-center text-sm text-muted-foreground">Nenhum anuncio encontrado para essa busca.</div>
+            <StatePanel kind="empty" frame="dashed" density="compact" showIcon={false} message="Nenhum anúncio encontrado para essa busca." />
           ) : (
             filteredAds.map((item) => (
               <ExplorerAdSidebarCard

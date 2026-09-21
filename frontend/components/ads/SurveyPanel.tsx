@@ -133,14 +133,13 @@ function CategoryCard({ mapping, hist }: { mapping: SheetColumnMapping; hist: Re
 
 export function SurveyPanel({ histograms, mappings, spend, isLoading = false, subjectLabel = "este anúncio" }: SurveyPanelProps) {
   if (isLoading) {
-    return <StatePanel kind="loading" message="Carregando respostas da pesquisa..." framed={false} density="compact" />;
+    return <StatePanel kind="loading" message="Carregando respostas da pesquisa..." density="compact" />;
   }
   if (mappings.length === 0) {
     return (
       <StatePanel
         kind="empty"
         message="Nenhuma coluna da planilha vinculada aos packs selecionados. Vincule colunas na integração da planilha."
-        framed={false}
         density="compact"
       />
     );
@@ -154,7 +153,6 @@ export function SurveyPanel({ histograms, mappings, spend, isLoading = false, su
       <StatePanel
         kind="empty"
         message={`Nenhum lead de ${subjectLabel} com resposta nas colunas vinculadas neste período.`}
-        framed={false}
         density="compact"
       />
     );

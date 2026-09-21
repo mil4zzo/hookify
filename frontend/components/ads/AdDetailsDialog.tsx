@@ -755,7 +755,7 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
           {isCreativeLoading ? (
             <VideoTabSkeleton />
           ) : !isImageAd && (!resolvedVideoId || !resolvedActorId) && !resolvedIgMediaId ? (
-            <StatePanel kind="empty" message="Mídia não disponível para este anúncio." framed={false} fill />
+            <StatePanel kind="empty" message="Mídia não disponível para este anúncio." fill />
           ) : (
             <div className={`flex-1 flex flex-col md:flex-row min-h-0 ${detailsTabContentGapClassName}`}>
               {/* Player de vídeo ou imagem (compartilhado — nunca desmonta ao trocar entre Geral e Copy) */}
@@ -766,14 +766,14 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
                   ) : resolvedCreativeImageUrl ? (
                     <img src={resolvedCreativeImageUrl} alt={adName} className="w-full h-full object-contain rounded-lg" />
                   ) : (
-                    <StatePanel kind="empty" message="Imagem não disponível." framed={false} fill />
+                    <StatePanel kind="empty" message="Imagem não disponível." fill />
                   )
                 ) : (
                   <>
                     {resolvedLoadingVideo && <RetentionVideoPlayerSkeleton />}
-                    {resolvedVideoError && <StatePanel kind="error" message="Falha ao carregar o vídeo. Tente novamente mais tarde." framed={false} fill />}
+                    {resolvedVideoError && <StatePanel kind="error" message="Falha ao carregar o vídeo. Tente novamente mais tarde." fill />}
                     {!resolvedLoadingVideo && !resolvedVideoError && resolvedVideoSourceUrl && <RetentionVideoPlayer src={resolvedVideoSourceUrl} autoplay={shouldAutoplay} initialTime={initialVideoTime} onTimeSet={() => setInitialVideoTime(null)} retentionCurve={resolvedRetentionSeries} showRetentionLoadingOverlay={isRetentionLoadingForResolvedVideo} />}
-                    {!resolvedLoadingVideo && !resolvedVideoError && !resolvedVideoSourceUrl && <StatePanel kind="empty" message="URL do vídeo não disponível." framed={false} fill />}
+                    {!resolvedLoadingVideo && !resolvedVideoError && !resolvedVideoSourceUrl && <StatePanel kind="empty" message="URL do vídeo não disponível." fill />}
                   </>
                 )}
               </div>
@@ -913,13 +913,12 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
                       <Skeleton className="h-4 w-4/5" />
                     </div>
                   ) : isTranscribing || transcriptionPending || transcriptionData?.status === "processing" ? (
-                    <StatePanel kind="loading" icon={IconMicrophone} message="Transcrevendo..." framed={false} fill />
+                    <StatePanel kind="loading" icon={IconMicrophone} message="Transcrevendo..." fill />
                   ) : transcriptionError ? (
                     <StatePanel
                       kind="error"
                       icon={IconMicrophone}
                       message="Erro ao carregar transcrição."
-                      framed={false}
                       fill
                       action={
                         <Button variant="outline" size="sm" disabled={isTranscribing || transcriptionPending} onClick={handleTranscribeAd}>
@@ -932,7 +931,6 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
                       kind="empty"
                       icon={IconMicrophone}
                       message="Esse anúncio ainda não foi transcrito."
-                      framed={false}
                       fill
                       action={
                         <Button variant="outline" size="sm" disabled={isTranscribing || transcriptionPending} onClick={handleTranscribeAd}>
@@ -945,7 +943,6 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
                       kind="error"
                       icon={IconMicrophone}
                       message="A transcrição falhou para este anúncio."
-                      framed={false}
                       fill
                       action={
                         <Button variant="outline" size="sm" disabled={isTranscribing || transcriptionPending} onClick={handleTranscribeAd}>
@@ -1023,7 +1020,7 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
                 </div>
               </div>
             ) : !historyData?.data || historyData.data.length === 0 ? (
-              <StatePanel kind="empty" message="Sem dados históricos disponíveis para o período selecionado." framed={false} fill />
+              <StatePanel kind="empty" message="Sem dados históricos disponíveis para o período selecionado." fill />
             ) : (
               <div className="flex-1 min-h-0">
                 <MetricHistoryChart data={historyData.data} dateStart={historyDateRange.start || dateStart || ""} dateStop={historyDateRange.end || dateStop || ""} actionType={localActionType} availableMetrics={AVAILABLE_METRICS} selectedMetrics={selectedMetrics} onMetricsChange={handleMetricsChange} layoutGapClassName={detailsTabContentGapClassName} />

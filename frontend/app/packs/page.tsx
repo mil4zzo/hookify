@@ -1,8 +1,7 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { Button } from "@/components/ui/button";
-import { StandardCard } from "@/components/common/StandardCard";
 import { PackCard } from "@/components/packs/PackCard";
 import { PackJudgmentDialog } from "@/components/packs/PackJudgmentDialog";
 import { PackDateRangeDialog } from "@/components/packs/PackDateRangeDialog";
@@ -20,7 +19,7 @@ import { useClientAuth, useClientPacks } from "@/lib/hooks/useClientSession";
 import { useOnboardingGate } from "@/lib/hooks/useOnboardingGate";
 import { showSuccess, showError } from "@/lib/utils/toast";
 import { api } from "@/lib/api/endpoints";
-import { IconFilter, IconPlus, IconTrash, IconChartBar, IconLoader2, IconCircleCheck, IconCircleX, IconCircleDot, IconInfoCircle, IconRefresh, IconChevronLeft, IconPencil, IconFolderPlus, IconSortAscending, IconSortDescending } from "@tabler/icons-react";
+import { IconFilter, IconPlus, IconTrash, IconChartBar, IconSearch, IconLoader2, IconCircleCheck, IconCircleX, IconCircleDot, IconInfoCircle, IconRefresh, IconChevronLeft, IconPencil, IconFolderPlus, IconSortAscending, IconSortDescending } from "@tabler/icons-react";
 
 import { FilterRule, ClearEnrichmentResult } from "@/lib/api/schemas";
 import { AdsPack } from "@/lib/types";
@@ -170,8 +169,15 @@ export default function PacksPage() {
   const [transcriptionDialogPack, setTranscriptionDialogPack] = useState<{ id: string; name: string } | null>(null);
   const { isPackUpdating } = useUpdatingPacksStore();
   const { refreshPack, isRefreshing, startTranscriptionOnly } = usePackRefresh();
+  // Pasta aberta quando a criação começou: o pack nasce solto no servidor, então é
+  // movido para ela ao terminar. Ref (não estado) porque o job termina depois, e a
+  // vista pode ter mudado no meio — vale a pasta de onde o usuário pediu.
+  const creationFolderRef = useRef<string | null>(null);
   const { startCreation, isCreating } = usePackCreation({
-    onComplete: () => {
+    onComplete: ({ packId }) => {
+      const folderId = creationFolderRef.current;
+      creationFolderRef.current = null;
+      if (folderId) void movePacks([packId], folderId);
       setFormData((prev) => ({
         ...prev,
         name: getNextPackName(),
@@ -299,6 +305,8 @@ export default function PacksPage() {
   // buscando, a grade é a de "Todos os packs"; limpar a busca devolve a vista de antes.
   const gridView: FolderView = isSearching ? ALL_PACKS_VIEW : folderView;
   const isAllView = gridView === ALL_PACKS_VIEW;
+  // Pasta onde um pack criado agora vai parar (a aberta; buscando, nenhuma).
+  const creationFolder = gridView && !isAllView ? currentBucket?.folder ?? null : null;
 
   // O universo da tela: na raiz, os packs SOLTOS (os em pasta estão colapsados nela);
   // dentro de uma pasta, só os dela; em "Todos", todos. A busca filtra por cima.
@@ -645,6 +653,7 @@ export default function PacksPage() {
     }
 
     try {
+      creationFolderRef.current = creationFolder?.id ?? null;
       const result = await startCreation({
         adaccount_id: formData.adaccount_id,
         date_start: formData.date_start,
@@ -660,8 +669,11 @@ export default function PacksPage() {
       if (result) {
         // Job iniciado — fechar modal, o progresso segue no toast
         setIsDialogOpen(false);
+      } else {
+        creationFolderRef.current = null;
       }
     } catch (error) {
+      creationFolderRef.current = null;
       logger.error("packs/page: erro ao iniciar criação do pack", error);
       showError(error as any);
     }
@@ -1123,25 +1135,20 @@ export default function PacksPage() {
 
           {/* Packs */}
           {packs.length === 0 ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-6">
-              <div className="relative inline-block w-full">
-                <div className="absolute inset-x-0 top-4 bottom-0 rounded-md bg-card border border-border origin-bottom -rotate-[1.5deg] opacity-60 pointer-events-none" />
-                <div className="absolute inset-x-0 top-4 bottom-0 rounded-md bg-card border border-border origin-bottom rotate-[1.5deg] opacity-60 pointer-events-none" />
-                <StandardCard variant="default" padding="none" className="relative flex flex-col z-10 w-full overflow-hidden">
-                  <div className="p-6 flex flex-col items-center justify-center gap-4 h-full relative z-10 min-h-[220px]">
-                    <IconChartBar className="w-8 h-8 text-muted-foreground" />
-                    <div className="flex flex-col items-center gap-1 text-center">
-                      <span className="text-xl font-semibold">Nenhum Pack Carregado</span>
-                      <span className="text-sm text-muted-foreground">Carregue seu primeiro pack de anúncios para começar a análise</span>
-                    </div>
-                    <Button onClick={() => setIsDialogOpen(true)}>
-                      <IconPlus className="w-4 h-4 mr-2" />
-                      Carregar Primeiro Pack
-                    </Button>
-                  </div>
-                </StandardCard>
-              </div>
-            </div>
+            <StatePanel
+              kind="empty"
+              frame="dashed"
+              density="spacious"
+              icon={IconChartBar}
+              title="Nenhum pack carregado"
+              message="Um pack reúne os anúncios de uma conta num período. Carregue o primeiro para começar a análise."
+              action={
+                <Button onClick={() => setIsDialogOpen(true)}>
+                  <IconPlus className="w-4 h-4" />
+                  Novo pack
+                </Button>
+              }
+            />
           ) : packsInView.length === 0 && (gridView === null || (isSearching && visibleFolders.length > 0)) ? null : (
             // Na raiz, sem pack solto para mostrar, a seção inteira some: com tudo em
             // pastas ela seria só um título sobre um vazio. Continua existindo quando
@@ -1164,10 +1171,23 @@ export default function PacksPage() {
 
               {packsInView.length === 0 ? (
                 isSearching ? (
-                  <StatePanel kind="empty" title="Nenhum pack encontrado" message={`Nenhum pack corresponde a "${packSearch.trim()}".`} action={<Button variant="outline" onClick={() => setPackSearch("")}>Limpar busca</Button>} />
+                  <StatePanel kind="empty" frame="dashed" icon={IconSearch} title="Nenhum pack encontrado" message={`Nenhum pack corresponde a "${packSearch.trim()}".`} action={<Button variant="outline" onClick={() => setPackSearch("")}>Limpar busca</Button>} />
                 ) : (
-                  // Só alcançável dentro de uma pasta: na raiz a seção inteira some.
-                  <StatePanel kind="empty" title="Pasta vazia" message="Arraste packs para cá, ou use o menu da pasta." />
+                  // Só alcançável dentro de uma pasta: na raiz a seção inteira some. A área
+                  // não recebe arrasto (daqui não há pack para arrastar) — por isso é
+                  // estado vazio, e o "mover" acontece soltando na pasta, na árvore.
+                  <StatePanel
+                    kind="empty"
+                    frame="dashed"
+                    title="Esta pasta está vazia"
+                    message="Crie ou mova packs para cá."
+                    action={
+                      <Button variant="outline" onClick={() => setIsDialogOpen(true)}>
+                        <IconPlus className="w-4 h-4" />
+                        Novo pack
+                      </Button>
+                    }
+                  />
                 )
               ) : (
                 <div className={cn("grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-10 gap-y-8", dropTargetFolderId === "__loose__" && gridView === null && "rounded-lg ring-1 ring-inset ring-primary")}>
@@ -1257,7 +1277,10 @@ export default function PacksPage() {
       <AppDialog isOpen={isDialogOpen} onClose={() => setIsDialogOpen(false)} title="Carregar Pack de Anúncios" size="2xl" padding="md" closeOnOverlayClick closeOnEscape showCloseButton>
         <div className="space-y-1.5 mb-6">
           <h2 className="text-lg font-semibold leading-none tracking-tight">Carregar Pack de Anúncios</h2>
-          <p className="text-sm text-muted-foreground">Configure os parâmetros para carregar um novo pack de anúncios</p>
+          <p className="text-sm text-muted-foreground">
+            Configure os parâmetros para carregar um novo pack de anúncios
+            {creationFolder && <> · ele vai para a pasta <span className="font-medium text-foreground">{creationFolder.name}</span></>}
+          </p>
         </div>
 
         <div className="space-y-6">

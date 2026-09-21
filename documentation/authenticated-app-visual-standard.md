@@ -97,10 +97,44 @@ Exemplos:
 ```tsx
 <StateSkeleton variant="page" rows={4} />
 <WorkspaceState kind="error" message="Nao foi possivel carregar os dados." fill />
-<StatePanel kind="empty" message="Nenhum resultado com esses filtros." framed={false} />
+<StatePanel kind="empty" frame="dashed" message="Nenhum resultado com esses filtros." />
 <InlineNotice tone="destructive">Falha ao validar os dados.</InlineNotice>
 <StateSkeleton variant="widget" rows={3} />
 ```
+
+### Estado vazio: um componente, a moldura pelo lugar
+
+Todo estado vazio é `StatePanel` (ou `WorkspaceState`, que repassa para ele). Layout
+empilhado e centralizado: ícone em cima, sobre um véu circular da cor do texto; título;
+mensagem; ação. Não existe card elevado para estado — card elevado diz "aqui se age", e
+estado vazio só informa. O que muda é a moldura, escolhida pelo lugar:
+
+| Onde o estado aparece | Uso |
+|---|---|
+| No lugar de uma lista, grade ou coluna, no corpo da página | `frame="dashed"` — tracejado apagado, fundo transparente |
+| Dentro de card, modal, painel, widget ou gráfico | `frame="none"` (padrão) — o recipiente já é a moldura |
+| Linha de tabela ou lista densa | `layout="inline"` — uma linha, sem título nem ação |
+| Erro, em qualquer lugar | nunca tracejado (o componente ignora `dashed` em erro); se não substitui o conteúdo, `InlineNotice` |
+| Opção vazia em popover, select ou combobox | não usa o componente — "Nenhuma tag disponível" é uma linha da lista |
+
+Botão da ação: `outline` (tonal) por padrão; `default` (principal) só quando a ação é o
+próximo passo óbvio, como no vazio inicial ("Novo pack", "Criar primeiro grupo").
+Coluna estreita (kanban) usa `density="compact"` e `showIcon={false}`.
+
+**O tom do tracejado diz o papel da área.** Só dois elementos podem ser tracejados:
+
+- **Estado vazio** — tracejado **apagado** (`.frame-placeholder`, véu de 16% da cor do
+  texto). Lê como "nada aqui": recua, não chama o clique. Só o `StatePanel` aplica a classe.
+- **Área que recebe arrasto** (upload, soltar em pasta) — tracejado com a **borda padrão**
+  (`border-border`), que fica `primary` durante o arrasto. Pede uma ação, então o contorno
+  precisa ser bem visível.
+
+Uma área só é de soltar se de fato aceita o arrasto. Texto de estado vazio não promete
+arrasto que a própria área não recebe (a pasta vazia do /packs diz "Crie ou mova packs
+para cá" e oferece "Novo pack"; o mover acontece soltando na pasta, na árvore).
+
+O checker barra `border-dashed` fora das zonas de upload (`ad-hoc-dashed-border`) e
+`.frame-placeholder` fora do `StatePanel` (`placeholder-frame-outside-state`).
 
 ## Densidade
 

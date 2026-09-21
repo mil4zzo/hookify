@@ -1,5 +1,6 @@
 "use client";
 
+import { StatePanel } from "@/components/common/States";
 import { useMemo, useState } from "react";
 import { RankingsItem, RankingsResponse } from "@/lib/api/schemas";
 import { useFormatCurrency } from "@/lib/utils/currency";
@@ -273,7 +274,7 @@ export function GoldTable({ ads, averages, actionType }: GoldTableProps) {
   };
 
   if (adsWithMetrics.length === 0) {
-    return <div className="rounded-lg border border-border bg-card p-8 text-center text-muted-foreground">Nenhum anúncio encontrado</div>;
+    return <StatePanel kind="empty" frame="dashed" message="Nenhum anúncio encontrado." />;
   }
 
   return (

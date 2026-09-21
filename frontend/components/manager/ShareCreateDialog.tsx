@@ -1,5 +1,6 @@
 "use client";
 
+import { StatePanel } from "@/components/common/States";
 import React, { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { IconCopy, IconLink, IconLoader2, IconShare2, IconX } from "@tabler/icons-react";
@@ -157,7 +158,7 @@ export function ShareCreateDialog({ isOpen, onClose, rows, dateStart, dateStop, 
             </div>
           ))}
           {items.length === 0 && (
-            <p className="py-6 text-center text-sm text-muted-foreground">Nenhum criativo na lista.</p>
+            <StatePanel kind="empty" density="compact" message="Nenhum criativo na lista." />
           )}
         </div>
 

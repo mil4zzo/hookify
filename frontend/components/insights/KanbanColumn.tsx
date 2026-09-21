@@ -1,5 +1,6 @@
 "use client";
 
+import { StatePanel } from "@/components/common/States";
 import { StandardCard } from "@/components/common/StandardCard";
 import { KanbanCard } from "./KanbanCard";
 import { cn } from "@/lib/utils/cn";
@@ -38,7 +39,7 @@ export function KanbanColumn({ title, items, variant = "success" }: KanbanColumn
         <p className="text-xs text-muted-foreground">Top {items.length}</p>
         <h2 className={cn("text-lg font-semibold", styles.title)}>{title}</h2>
       </div>
-      <div className="space-y-3">{items.length === 0 ? <div className="rounded-md border border-border text-center py-8 text-muted-foreground text-sm">Nenhum item encontrado</div> : items.map((item, index) => <KanbanCard key={item.ad_id} ad={item} metricLabel={title} variant={variant} rank={index + 1} />)}</div>
+      <div className="space-y-3">{items.length === 0 ? <StatePanel kind="empty" frame="dashed" density="compact" showIcon={false} message="Nenhum item encontrado." /> : items.map((item, index) => <KanbanCard key={item.ad_id} ad={item} metricLabel={title} variant={variant} rank={index + 1} />)}</div>
     </StandardCard>
   );
 }
