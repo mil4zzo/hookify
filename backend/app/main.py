@@ -32,6 +32,7 @@ from app.routes.shares import router as shares_router
 from app.routes.pack_shares import router as pack_shares_router
 from app.routes.tags import router as tags_router
 from app.routes.boards import router as boards_router
+from app.routes.folders import router as folders_router
 
 # Configure logging
 logging.basicConfig(level=getattr(logging, LOG_LEVEL.upper()))
@@ -172,6 +173,7 @@ app.include_router(shares_router)
 app.include_router(pack_shares_router)
 app.include_router(tags_router)
 app.include_router(boards_router)
+app.include_router(folders_router)
 
 @app.on_event("startup")
 async def _cap_threadpool() -> None:
