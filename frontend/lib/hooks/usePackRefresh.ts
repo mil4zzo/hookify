@@ -1484,13 +1484,16 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
               metaSucceeded = false;
               metaOutcomeOk = false;
               if (!activeRefresh.metaCancelled) {
-                logger.error(`Erro ao atualizar pack ${packId} (Meta):`, error);
+                // O apiClient rejeita com AppError (objeto, não Error): sem parseError
+                // o toast dizia "Erro desconhecido" e o Sentry, "[object Object]".
+                const { message } = parseError(error);
+                logger.error(`Erro ao atualizar pack ${packId} (Meta): ${message}`, error);
                 finishProgressToast(
                   toastId, false,
-                  `Erro ao atualizar "${packName}": ${error instanceof Error ? error.message : "Erro desconhecido"}`
+                  `Erro ao atualizar "${packName}": ${message}`
                 );
                 if (mountedRef.current) {
-                  optionsRef.current?.onError?.(error instanceof Error ? error : new Error(String(error)));
+                  optionsRef.current?.onError?.(error instanceof Error ? error : new Error(message));
                 }
               }
             }
@@ -1547,11 +1550,12 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
                     }
                   })
                   .catch((error) => {
-                    logger.error(`Erro no Leadscore do pack ${packId}:`, error);
-                    leadscoreResult = { success: false, error: error instanceof Error ? error.message : String(error) };
+                    const { message } = parseError(error);
+                    logger.error(`Erro no Leadscore do pack ${packId}: ${message}`, error);
+                    leadscoreResult = { success: false, error: message };
                     if (!activeRefresh.sheetsCancelled && mountedRef.current) {
                       optionsRef.current?.onError?.(
-                        error instanceof Error ? error : new Error(String(error))
+                        error instanceof Error ? error : new Error(message)
                       );
                     }
                   })

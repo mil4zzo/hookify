@@ -93,10 +93,14 @@ export function parseError(err: unknown): AppError {
     }
   }
   
-  // Erro genérico
-  return { 
-    message: (anyErr?.message as string) ?? 'Erro desconhecido', 
-    details: err,
+  // Erro genérico — inclusive um AppError já parseado: o interceptor do apiClient
+  // rejeita com AppError, e quem chama parseError de novo sobre ele perdia `status`
+  // e `details` (o 409 do refresh de pack deixava de re-anexar e virava toast de erro).
+  const message = typeof anyErr?.message === 'string' && anyErr.message ? anyErr.message : 'Erro desconhecido'
+  return {
+    status: typeof anyErr?.status === 'number' ? anyErr.status : undefined,
+    message,
+    details: anyErr && typeof anyErr === 'object' && 'details' in anyErr ? anyErr.details : err,
     code: anyErr?.code || 'UNKNOWN'
   }
 }
