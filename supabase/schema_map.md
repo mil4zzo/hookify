@@ -31,65 +31,6 @@ Contas de anúncios do Meta vinculadas a um usuário.
 
 ---
 
-### ad_metric_pack_map
-Mapa de relacionamento entre métricas de anúncios e packs (tabela de junção).
-
-| Coluna | Tipo | Flags |
-|--------|------|-------|
-| user_id | uuid | NOT NULL |
-| pack_id | uuid | NOT NULL |
-| ad_id | text | NOT NULL |
-| metric_date | date | NOT NULL |
-| created_at | timestamp | NOT NULL, DEFAULT |
-
----
-
-### ad_metrics
-Métricas diárias de performance de cada anúncio, importadas da Meta API.
-
-| Coluna | Tipo | Flags |
-|--------|------|-------|
-| user_id | uuid | NOT NULL |
-| ad_id | text | NOT NULL |
-| account_id | text |  |
-| campaign_id | text |  |
-| campaign_name | text |  |
-| adset_id | text |  |
-| adset_name | text |  |
-| ad_name | text |  |
-| date | date | NOT NULL |
-| clicks | integer |  |
-| impressions | integer |  |
-| inline_link_clicks | integer |  |
-| reach | integer |  |
-| video_total_plays | integer |  |
-| video_total_thruplays | integer |  |
-| video_watched_p50 | integer |  |
-| spend | numeric |  |
-| cpm | numeric |  |
-| ctr | numeric |  |
-| frequency | numeric |  |
-| website_ctr | numeric |  |
-| actions | jsonb |  |
-| conversions | jsonb |  |
-| cost_per_conversion | jsonb |  |
-| video_play_curve_actions | jsonb |  |
-| connect_rate | numeric |  |
-| profile_ctr | numeric |  |
-| created_at | timestamp | DEFAULT |
-| updated_at | timestamp | DEFAULT |
-| id | text | NOT NULL |
-| hold_rate | numeric |  |
-| leadscore_values | numeric[] |  |
-| lpv | integer | NOT NULL, DEFAULT |
-| hook_rate | numeric |  |
-| scroll_stop_rate | numeric |  |
-| video_watched_p75 | integer |  |
-| custom_hist | jsonb |  |
-| pack_id | uuid | NOT NULL |
-
----
-
 ### ad_pack_inventory
 
 | Coluna | Tipo | Flags |
@@ -107,40 +48,6 @@ Métricas diárias de performance de cada anúncio, importadas da Meta API.
 | last_active_date | date | NOT NULL |
 | created_at | timestamp | NOT NULL, DEFAULT |
 | updated_at | timestamp | NOT NULL, DEFAULT |
-
----
-
-### ad_performance_daily
-
-| Coluna | Tipo | Flags |
-|--------|------|-------|
-| user_id | uuid | NOT NULL |
-| ad_id | text | NOT NULL |
-| date | date | NOT NULL |
-| conv_key_ids | integer[] | NOT NULL, DEFAULT |
-| conv_values | numeric[] | NOT NULL, DEFAULT |
-| lead_scores | numeric[] | NOT NULL, DEFAULT |
-| lead_qtys | integer[] | NOT NULL, DEFAULT |
-| account_id | text |  |
-| campaign_id | text |  |
-| adset_id | text |  |
-| ad_name | text |  |
-| impressions | bigint | NOT NULL, DEFAULT |
-| clicks | bigint | NOT NULL, DEFAULT |
-| inline_link_clicks | bigint | NOT NULL, DEFAULT |
-| spend | numeric | NOT NULL, DEFAULT |
-| lpv | bigint | NOT NULL, DEFAULT |
-| plays | bigint | NOT NULL, DEFAULT |
-| thruplays | bigint | NOT NULL, DEFAULT |
-| video_watched_p50 | numeric | NOT NULL, DEFAULT |
-| video_watched_p75 | numeric | NOT NULL, DEFAULT |
-| hold_rate | numeric | NOT NULL, DEFAULT |
-| reach | bigint | NOT NULL, DEFAULT |
-| frequency | numeric | NOT NULL, DEFAULT |
-| hook_value | numeric | NOT NULL, DEFAULT |
-| scroll_stop_value | numeric | NOT NULL, DEFAULT |
-| custom_hist | jsonb |  |
-| pack_id | uuid | NOT NULL |
 
 ---
 
@@ -220,47 +127,6 @@ Transcrições de áudio/vídeo dos criativos de anúncios via AssemblyAI.
 | created_at | timestamp | DEFAULT |
 | updated_at | timestamp | DEFAULT |
 | ad_ids | text[] | DEFAULT |
-
----
-
-### ads
-Anúncios importados da Meta API com metadados do criativo.
-
-| Coluna | Tipo | Flags |
-|--------|------|-------|
-| ad_id | text | NOT NULL |
-| user_id | uuid | NOT NULL |
-| account_id | text |  |
-| campaign_id | text |  |
-| campaign_name | text |  |
-| adset_id | text |  |
-| adset_name | text |  |
-| ad_name | text |  |
-| effective_status | text |  |
-| creative | jsonb |  |
-| creative_video_id | text |  |
-| thumbnail_url | text |  |
-| instagram_permalink_url | text |  |
-| created_at | timestamp | DEFAULT |
-| updated_at | timestamp | DEFAULT |
-| pack_ids | uuid[] | DEFAULT |
-| adcreatives_videos_ids | jsonb |  |
-| adcreatives_videos_thumbs | jsonb |  |
-| leadscore | numeric |  |
-| thumb_storage_path | text |  |
-| thumb_cached_at | timestamp |  |
-| thumb_source_url | text |  |
-| transcription_id | uuid |  |
-| video_owner_page_id | text |  |
-| primary_video_id | text |  |
-| media_type | text | NOT NULL, DEFAULT |
-| adset_status | text |  |
-| campaign_status | text |  |
-| video_source_url | text |  |
-| video_source_expires_at | timestamp |  |
-| image_source_url | text |  |
-| image_source_expires_at | timestamp |  |
-| meta_created_time | timestamp |  |
 
 ---
 
@@ -359,6 +225,20 @@ Conexões OAuth do Facebook vinculadas a usuários.
 
 ---
 
+### folders
+
+| Coluna | Tipo | Flags |
+|--------|------|-------|
+| id | uuid | NOT NULL, DEFAULT |
+| user_id | uuid | NOT NULL |
+| name | text | NOT NULL |
+| parent_id | uuid |  |
+| "position" | integer | NOT NULL, DEFAULT |
+| created_at | timestamp | NOT NULL, DEFAULT |
+| updated_at | timestamp | NOT NULL, DEFAULT |
+
+---
+
 ### google_accounts
 Contas Google OAuth vinculadas a usuários (para acesso ao Sheets).
 
@@ -445,6 +325,17 @@ Jobs assíncronos de longa duração (ex: criação em lote de anúncios).
 | status | text | NOT NULL, DEFAULT |
 | error | text |  |
 | route | text |  |
+
+---
+
+### pack_folder_members
+
+| Coluna | Tipo | Flags |
+|--------|------|-------|
+| user_id | uuid | NOT NULL |
+| pack_id | uuid | NOT NULL |
+| folder_id | uuid | NOT NULL |
+| created_at | timestamp | NOT NULL, DEFAULT |
 
 ---
 
@@ -601,4 +492,4 @@ Preferências e configurações personalizadas por usuário.
 
 ---
 
-*Gerado em: 2026-09-15 — via `supabase/generate_schema_map.py`*
+*Gerado em: 2026-09-20 — via `supabase/generate_schema_map.py`*
