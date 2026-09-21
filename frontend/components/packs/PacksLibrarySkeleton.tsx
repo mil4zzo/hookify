@@ -31,11 +31,11 @@ function TreeRowSkeleton({ index }: { index: number }) {
   );
 }
 
-/** Tile do FolderCard: desenho da pasta (170:128) + nome + "N packs · R$". */
+/** Tile do FolderCard: desenho da pasta (155:106) + nome + "N packs · R$". */
 function FolderTileSkeleton() {
   return (
-    <div className="flex flex-col items-center gap-2 px-1.5 pb-2.5 pt-2">
-      <Skeleton className="w-full rounded-lg" style={{ aspectRatio: "170 / 128" }} />
+    <div className="flex flex-col items-center gap-2 p-2">
+      <Skeleton className="w-full rounded-lg" style={{ aspectRatio: "155 / 106" }} />
       <div className="flex w-full flex-col items-center gap-0.5 px-1">
         <div className="flex h-5 items-center">
           <Skeleton className="h-3.5 w-12" />
@@ -50,7 +50,7 @@ function FolderTileSkeleton() {
 
 export function PacksLibrarySkeleton() {
   return (
-    <div className="flex flex-col items-stretch gap-6 lg:min-h-0 lg:flex-1 lg:flex-row xl:gap-8" aria-busy="true" aria-label="Carregando Biblioteca">
+    <div className="flex flex-col items-stretch gap-6 lg:min-h-0 lg:flex-1 lg:flex-row lg:gap-10 xl:gap-12" aria-busy="true" aria-label="Carregando Biblioteca">
       {/* Explorer: mesma coluna do PackFolderTree (busca + árvore). */}
       <div className="flex w-full shrink-0 flex-col gap-4 self-start lg:w-56 xl:w-64">
         <Skeleton className="h-control-default w-full" />

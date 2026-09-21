@@ -102,7 +102,8 @@ export function FolderCard({
         onClick={() => onOpen(folder.id)}
         aria-label={`Abrir pasta ${folder.name}`}
         className={cn(
-          "folder-tile focus-inset flex w-full flex-col items-center gap-2 rounded-lg px-1.5 pb-2.5 pt-2 text-center transition-colors",
+          // Respiro igual nos quatro lados: o desenho já não traz margem própria.
+          "folder-tile focus-inset flex w-full flex-col items-center gap-2 rounded-lg p-2 text-center transition-colors",
           // Neutro, como a árvore. O azul do alvo de arrasto fica no contorno da
           // lombada (FolderGlyph), não no fundo do tile.
           // `menuOpen` entra junto: com o menu aberto o ponteiro saiu do tile, e sem

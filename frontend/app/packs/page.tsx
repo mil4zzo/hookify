@@ -1060,7 +1060,10 @@ export default function PacksPage() {
           {isLoadingLibrary ? (
             <PacksLibrarySkeleton />
           ) : (
-          <div className="flex flex-col items-stretch gap-6 lg:min-h-0 lg:flex-1 lg:flex-row xl:gap-8">
+          <div className="flex flex-col items-stretch gap-6 lg:min-h-0 lg:flex-1 lg:flex-row lg:gap-10 xl:gap-12">
+            {/* Entre as colunas, MAIS espaço do que entre um título e o conteúdo dele
+                (proximidade da Gestalt): com 24–32px o título "Pastas" ficava tão
+                perto da busca quanto das próprias pastas, e os grupos se misturavam. */}
             <PackFolderTree
               roots={treeRoots}
               loosePacks={treeLoosePacks}

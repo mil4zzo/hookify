@@ -18,18 +18,27 @@ import { cn } from "@/lib/utils/cn";
  * saem da escada de superfícies de propósito — ver o comentário lá.
  */
 
-const VIEW_BOX = "0 0 170 128";
+/**
+ * Recortado na pasta: o desenho ocupa x 6–157 e y 10–112, e sobram só 2 unidades
+ * iguais em volta — a folga do contorno de 2,5 do alvo de arrasto. Com a caixa
+ * antiga (0 0 170 128) a margem era 6 à esquerda e 13 à direita, 10 em cima e 16
+ * embaixo: a pasta ficava descentralizada no tile e o nome, longe dela. O respiro
+ * agora é do tile, igual nos quatro lados.
+ */
+const VIEW_BOX = "4 8 155 106";
+const ASPECT = "155 / 106";
 
 const BACK_PATH = "M18 10H144Q156 10 156 22V94Q156 107 143 107H18Q6 107 6 94V22Q6 10 18 10Z";
 const FRONT_PATH = "M6 29Q6 16 19 16H62C70 16 77 18 85 24C93 30 98 31 108 31H143Q157 31 157 44V98Q157 112 143 112H19Q6 112 6 99Z";
 
 /**
- * Recuo dos selos medido DENTRO da lombada, não da caixa: 13 unidades do viewBox
- * a partir da borda esquerda (x=6) e da base (y=112) da camada da frente. Em
+ * Recuo dos selos medido DENTRO da lombada, não da caixa: 13 unidades a partir da
+ * borda esquerda (x=6) e da base (y=112) da camada da frente — x=19 e y=99, que no
+ * viewBox recortado (origem 4,8; 155×106) dão 15 da esquerda e 15 da base. Em
  * porcentagem para acompanhar a pasta quando ela muda de tamanho.
  */
-const BADGE_LEFT = `${(19 / 170) * 100}%`;
-const BADGE_BOTTOM = `${(29 / 128) * 100}%`;
+const BADGE_LEFT = `${(15 / 155) * 100}%`;
+const BADGE_BOTTOM = `${(15 / 106) * 100}%`;
 
 export interface FolderGlyphProps {
   /** Selos do que existe dentro, sem precisar abrir. */
@@ -49,7 +58,7 @@ export function FolderGlyph({ hasSheet = false, hasShared = false, isDropTarget 
   const litId = `folder-lit-${rawId.replace(/:/g, "")}`;
 
   return (
-    <div className={cn("relative w-full", className)} style={{ aspectRatio: "170 / 128" }}>
+    <div className={cn("relative w-full", className)} style={{ aspectRatio: ASPECT }}>
       {/* Camada de trás */}
       <svg viewBox={VIEW_BOX} aria-hidden="true" className="absolute inset-0 h-full w-full">
         <defs>
