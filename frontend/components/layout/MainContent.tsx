@@ -12,6 +12,15 @@ export type MainContentLayoutConfig = {
   pageSidebar: ReactNode | null;
   pageSidebarClassName?: string;
   pageSidebarMobileBehavior: PageSidebarMobileBehavior;
+  /**
+   * Quem rola é um container DENTRO da página, não a página.
+   * O shell então trava a altura (`overflow-hidden` + `min-h-0` na cadeia) e a
+   * página fica responsável por dizer qual pedaço rola. Serve para tela de duas
+   * colunas onde uma delas deve ficar sempre visível — na /packs, o explorer.
+   * Só a partir de `lg`: em tela estreita a rolagem volta a ser da página, porque
+   * altura travada em viewport de celular briga com a barra do navegador.
+   */
+  contentScroll: boolean;
 };
 
 export const DEFAULT_MAIN_CONTENT_LAYOUT_CONFIG: MainContentLayoutConfig = {
@@ -19,6 +28,7 @@ export const DEFAULT_MAIN_CONTENT_LAYOUT_CONFIG: MainContentLayoutConfig = {
   pageSidebar: null,
   pageSidebarClassName: undefined,
   pageSidebarMobileBehavior: "stack",
+  contentScroll: false,
 };
 
 type MainContentLayoutContextValue = {
@@ -41,7 +51,8 @@ export function MainContent({ children }: { children: React.ReactNode }) {
         current.fullWidth === value.fullWidth &&
         current.pageSidebar === value.pageSidebar &&
         current.pageSidebarClassName === value.pageSidebarClassName &&
-        current.pageSidebarMobileBehavior === value.pageSidebarMobileBehavior
+        current.pageSidebarMobileBehavior === value.pageSidebarMobileBehavior &&
+        current.contentScroll === value.contentScroll
       ) {
         return current;
       }
@@ -56,6 +67,8 @@ export function MainContent({ children }: { children: React.ReactNode }) {
   const usesWideShell = layoutConfig.fullWidth || hasPageSidebar;
   const shouldHideMobileSidebar = layoutConfig.pageSidebarMobileBehavior === "hidden" || layoutConfig.pageSidebarMobileBehavior === "drawer";
   const usesSidebarShell = hasPageSidebar;
+  // Rolagem interna só onde a página pediu, e nunca nas rotas que já têm casca própria.
+  const usesContentScroll = layoutConfig.contentScroll && !usesSidebarShell && !isAuthRoute && !isManagerRoute;
 
   const layoutValue = useMemo(() => ({ layoutConfig, setLayoutConfig: updateLayoutConfig }), [layoutConfig, updateLayoutConfig]);
 
@@ -72,7 +85,7 @@ export function MainContent({ children }: { children: React.ReactNode }) {
           usesSidebarShell ? "flex w-full max-w-none flex-col md:flex-row" : "flex flex-col",
           !usesSidebarShell && "w-full max-w-none",
           isAuthRoute && "p-0",
-          usesSidebarShell ? (isManagerRoute ? "overflow-hidden" : "overflow-y-auto md:overflow-hidden") : !isAuthRoute && !isManagerRoute ? cn("overflow-y-auto", !isContainedPage && cn(APP_PAGE_SHELL_X, APP_PAGE_SHELL_Y)) : undefined,
+          usesSidebarShell ? (isManagerRoute ? "overflow-hidden" : "overflow-y-auto md:overflow-hidden") : !isAuthRoute && !isManagerRoute ? cn("overflow-y-auto", usesContentScroll && "lg:overflow-hidden", !isContainedPage && cn(APP_PAGE_SHELL_X, APP_PAGE_SHELL_Y)) : undefined,
           !usesSidebarShell && isManagerRoute && cn("overflow-hidden", APP_PAGE_SHELL_X, APP_PAGE_SHELL_Y),
         )}
       >
@@ -92,12 +105,18 @@ export function MainContent({ children }: { children: React.ReactNode }) {
           className={cn(
             "min-w-0 flex flex-1 flex-col",
             (usesSidebarShell || isManagerRoute) && "min-h-0",
+            usesContentScroll && "lg:min-h-0",
             isContainedPage && "container mx-auto",
             usesSidebarShell && !isAuthRoute && APP_PAGE_SHELL_X,
             usesSidebarShell && !isAuthRoute && APP_PAGE_SHELL_Y,
             isContainedPage && APP_PAGE_SHELL_X,
             isContainedPage && APP_PAGE_SHELL_Y,
             !isAuthRoute && !isManagerRoute && APP_PAGE_SHELL_BOTTOM_SCROLL,
+            // Com rolagem interna o respiro de baixo é do CONTAINER QUE ROLA, não do
+            // shell: aqui fora ele vira uma faixa morta que corta o conteúdo no meio
+            // em vez de aparecer no fim da rolagem. Vem depois do `pb-*` acima de
+            // propósito — `lg` é gerado depois de `md`, então ganha a partir do lg.
+            usesContentScroll && "lg:pb-0",
             usesSidebarShell && (isManagerRoute ? "overflow-hidden" : "md:overflow-y-auto"),
           )}
         >

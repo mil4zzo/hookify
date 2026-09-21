@@ -27,6 +27,13 @@ export interface PageContainerProps {
   /** Uso restrito (Explorer). Faz o shell ocupar largura total da main. */
   fullWidth?: boolean;
 
+  /**
+   * A rolagem passa a ser de um container DENTRO da página, não da página.
+   * A página fica responsável por marcar qual pedaço rola (`overflow-y-auto` +
+   * `min-h-0`); o shell só trava a altura, a partir de `lg`.
+   */
+  contentScroll?: boolean;
+
   /** Uso restrito (Explorer). Conteúdo lateral fixo ao lado do children. */
   pageSidebar?: ReactNode;
   pageSidebarClassName?: string;
@@ -47,6 +54,7 @@ export function PageContainer({
   variant = "standard",
   fullHeight = false,
   fullWidth = false,
+  contentScroll = false,
   pageSidebar = null,
   pageSidebarClassName,
   pageSidebarMobileBehavior = "stack",
@@ -57,11 +65,12 @@ export function PageContainer({
   const layoutConfig = useMemo(
     () => ({
       fullWidth,
+      contentScroll,
       pageSidebar,
       pageSidebarClassName,
       pageSidebarMobileBehavior,
     }),
-    [fullWidth, pageSidebar, pageSidebarClassName, pageSidebarMobileBehavior],
+    [fullWidth, contentScroll, pageSidebar, pageSidebarClassName, pageSidebarMobileBehavior],
   );
 
   useEffect(() => {
