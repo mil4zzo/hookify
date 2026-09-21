@@ -7,6 +7,7 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { StatePanel } from "@/components/common/States";
 // design-system-exception: direct-skeleton-import - dense table rows keep row-shaped skeletons
 import { Skeleton } from "@/components/ui/skeleton";
+import { SparklineSkeleton } from "@/components/common/SparklineSkeleton";
 import type { RankingsItem } from "@/lib/api/schemas";
 import { MANAGER_ROW_HEIGHT, type SharedTableContentProps } from "@/components/manager/tableContentTypes";
 import { orderSelectedFirst } from "@/lib/manager/selectionComparison";
@@ -38,15 +39,15 @@ const VARIANT_STYLES = {
     row: (isResizing: boolean) => `bg-background transition-colors ${isResizing ? "cursor-col-resize" : "hover:bg-muted cursor-pointer"}`,
     cell: (cellAlign: string, isFirst: boolean, isLast: boolean, padless = false) => `${padless ? "relative p-0" : "p-4"} ${cellAlign} border-y border-border ${isFirst ? "rounded-l-md border-l" : ""} ${isLast ? "rounded-r-md border-r" : ""}`,
     emptyTd: "p-4",
-    skeletonThumb: "w-14 h-14",
-    skeletonName: (
-      <div className="flex-1 min-w-0 space-y-2">
-        <Skeleton className="h-4 w-3/4" />
-        <Skeleton className="h-3 w-1/2" />
-      </div>
-    ),
-    skeletonNameGap: "gap-3",
-    skeletonValue: "h-4 w-16 mx-auto",
+    // `border-spacing-y-4`: o espaco entre linhas nao entra na altura medida da linha.
+    rowGap: 16,
+    // O esqueleto copia a CAIXA de cada celula real (AdNameCell, MetricCell...), nao so
+    // um risco: e isso que faz a linha falsa ter a mesma altura da verdadeira.
+    skeletonThumb: "w-14 h-14", // ThumbnailImage size="md"
+    skeletonNameLine: "h-5", // text-sm
+    skeletonValue: "h-4 w-16", // text-base leading-none
+    skeletonStackGap: "gap-3",
+    skeletonSparklineMinimal: false,
   },
   minimal: {
     estimateSize: MANAGER_ROW_HEIGHT.minimal,
@@ -69,10 +70,12 @@ const VARIANT_STYLES = {
     row: (isResizing: boolean) => `bg-background transition-colors ${isResizing ? "cursor-col-resize" : "hover:bg-muted cursor-pointer"}`,
     cell: (cellAlign: string, _isFirst: boolean, _isLast: boolean, padless = false) => `${padless ? "relative p-0" : "py-1.5 px-2"} ${cellAlign} border-b border-surface-3`,
     emptyTd: "p-2",
-    skeletonThumb: "w-8 h-8",
-    skeletonName: <Skeleton className="h-3 w-24" />,
-    skeletonNameGap: "gap-2",
-    skeletonValue: "h-3 w-12 mx-auto",
+    rowGap: 0,
+    skeletonThumb: "w-10 h-10", // ThumbnailImage size="sm"
+    skeletonNameLine: "h-4", // text-xs
+    skeletonValue: "h-3 w-12", // text-xs leading-none
+    skeletonStackGap: "gap-1",
+    skeletonSparklineMinimal: true,
   },
 } as const;
 
@@ -171,7 +174,10 @@ function areTableContentPropsEqual(prev: TableContentProps, next: TableContentPr
  *  congelava por cima do status, que passava por baixo como uma "segunda coluna". */
 const PINNED_COLUMN_IDS = new Set(["select", "status", "ad_name"]);
 
-export const TableContent = React.memo(function TableContent({ table, isLoadingEffective, isError, currentTab, setSelectedAd, sorting, rowSelection, pinSelectionToTop = false, onVisibleRowKeysChange, onOpenDrill, globalFilter, variant = "detailed" }: TableContentProps) {
+/** Colunas de dimensao (uma linha de texto) — o resto com largura e metrica (MetricCell). */
+const SKELETON_TEXT_COLUMN_IDS = new Set(["tags", "pack", "account", "created_date"]);
+
+export const TableContent = React.memo(function TableContent({ table, isLoadingEffective, isError, currentTab, setSelectedAd, sorting, rowSelection, pinSelectionToTop = false, onVisibleRowKeysChange, onOpenDrill, globalFilter, groupByAdNameEffective, cellMode = "trend", variant = "detailed" }: TableContentProps) {
   const tableContainerRef = useRef<HTMLDivElement | null>(null);
   const resizeObserverRef = useRef<ResizeObserver | null>(null);
   const styles = VARIANT_STYLES[variant];
@@ -308,10 +314,17 @@ export const TableContent = React.memo(function TableContent({ table, isLoadingE
     [isResizing, currentTab, onOpenDrill, setSelectedAd],
   );
 
-  // ESQUELETO PREENCHE A ALTURA VISIVEL. Eram 8 linhas fixas: no modo detalhado (linha
-  // de 120px) isso cobre a tela, no compacto (40px) sobrava um vazio embaixo do
-  // carregamento. A conta usa a altura medida do proprio container.
-  const skeletonRowCount = Math.max(6, Math.ceil((containerHeight || 640) / styles.estimateSize) + 1);
+  // ESQUELETO PREENCHE A ALTURA VISIVEL. A conta usa a altura medida do container E a da
+  // propria linha de esqueleto: pela estimativa fixa (40px) a linha real saia menor que
+  // isso e sobrava um vazio embaixo do carregamento.
+  const [skeletonRowHeight, setSkeletonRowHeight] = useState(0);
+  const measureSkeletonRow = useCallback((element: HTMLTableRowElement | null) => {
+    if (!element) return;
+    const height = element.getBoundingClientRect().height;
+    setSkeletonRowHeight((previous) => (height <= 0 || Math.abs(previous - height) < 1 ? previous : height));
+  }, []);
+  const skeletonRowPitch = (skeletonRowHeight || styles.estimateSize) + styles.rowGap;
+  const skeletonRowCount = Math.max(6, Math.ceil((containerHeight || 640) / skeletonRowPitch) + 1);
 
   const rowVirtualizer = useVirtualizer({
     count: isLoadingEffective ? skeletonRowCount : rows.length,
@@ -349,6 +362,49 @@ export const TableContent = React.memo(function TableContent({ table, isLoadingE
     if (keys.length === 0) return;
     onVisibleRowKeysChange(Array.from(new Set(keys)));
   }, [virtualRows, rows, getSeriesGroupKey, onVisibleRowKeysChange, isLoadingEffective]);
+
+  // Celulas do esqueleto: mesmas caixas das celulas reais, para a linha ter a mesma altura.
+  const skeletonShowThumbnail = currentTab !== "por-conjunto" && currentTab !== "por-campanha";
+  // Mesma condicao do AdNameCell: a segunda linha vira o botao de drill (py-1 → 24px).
+  const skeletonCanDrill = !!onOpenDrill && (groupByAdNameEffective || currentTab === "por-conjunto" || currentTab === "por-campanha");
+  const skeletonNameCell = (
+    <div className="flex w-full items-center gap-3">
+      {skeletonShowThumbnail && <Skeleton className={cn(styles.skeletonThumb, "flex-shrink-0 rounded-sm")} />}
+      <div className="min-w-0 flex-1">
+        <div className={cn("flex items-center", styles.skeletonNameLine)}>
+          <Skeleton className="h-3 w-3/4" />
+        </div>
+        {skeletonCanDrill ? (
+          <div className="mt-1 flex h-6 items-center px-2">
+            <Skeleton className="h-3 w-20" />
+          </div>
+        ) : (
+          <div className="flex h-4 items-center">
+            <Skeleton className="h-3 w-1/2" />
+          </div>
+        )}
+      </div>
+    </div>
+  );
+  // BudgetCell: valor (text-sm) + "Diário" (text-xs leading-none) dentro de py-0.5.
+  const skeletonBudgetCell = (
+    <div className="flex flex-col items-center py-0.5">
+      <div className="flex h-5 items-center">
+        <Skeleton className="h-3 w-16" />
+      </div>
+      <div className="flex h-3 items-center">
+        <Skeleton className="h-2 w-10" />
+      </div>
+    </div>
+  );
+  // MetricCell: o que fica acima do numero depende do modo (tendencia / variacao / valor).
+  const skeletonMetricCell = (
+    <div className={cn("flex flex-col items-center", styles.skeletonStackGap)}>
+      {cellMode === "trend" && <SparklineSkeleton minimal={styles.skeletonSparklineMinimal} />}
+      {cellMode === "delta" && <Skeleton className="h-4 w-10 rounded-sm" />}
+      <Skeleton className={styles.skeletonValue} />
+    </div>
+  );
 
   // Calculate padding for virtualization
   const paddingTop = virtualRows.length > 0 ? virtualRows[0]?.start || 0 : 0;
@@ -454,7 +510,15 @@ export const TableContent = React.memo(function TableContent({ table, isLoadingE
             {isLoadingEffective ? (
               // Loading skeletons
               virtualRows.map((virtualRow) => (
-                <tr key={`skeleton-${virtualRow.index}`} className={styles.skeletonRow}>
+                <tr
+                  key={`skeleton-${virtualRow.index}`}
+                  data-index={virtualRow.index}
+                  ref={(element) => {
+                    rowVirtualizer.measureElement(element);
+                    if (virtualRow.index === 0) measureSkeletonRow(element);
+                  }}
+                  className={styles.skeletonRow}
+                >
                   {table.getVisibleLeafColumns().map((column, colIndex) => {
                     const isFirstColumn = column.id === "ad_name";
                     const cellAlign = isFirstColumn ? "text-left" : "text-center";
@@ -466,16 +530,18 @@ export const TableContent = React.memo(function TableContent({ table, isLoadingE
                     // skeleton dobrado que aparecia logo antes da coluna Spend.
                     let content: React.ReactNode = null;
                     if (isFirstColumn) {
-                      content = (
-                        <div className={`flex items-center ${styles.skeletonNameGap}`}>
-                          {currentTab !== "por-conjunto" && currentTab !== "por-campanha" && <Skeleton className={`${styles.skeletonThumb} rounded-sm flex-shrink-0`} />}
-                          {styles.skeletonName}
-                        </div>
-                      );
+                      content = skeletonNameCell;
                     } else if (column.id === "select") {
                       content = <Skeleton className="mx-auto h-4 w-4 rounded-sm" />;
+                    } else if (column.id === "status") {
+                      // Switch: h-6 w-11
+                      content = <Skeleton className="mx-auto h-6 w-11 rounded-full" />;
+                    } else if (column.id === "budget") {
+                      content = skeletonBudgetCell;
+                    } else if (SKELETON_TEXT_COLUMN_IDS.has(column.id)) {
+                      content = <Skeleton className={cn(styles.skeletonValue, "mx-auto")} />;
                     } else if (column.getSize() > 0) {
-                      content = <Skeleton className={styles.skeletonValue} />;
+                      content = skeletonMetricCell;
                     }
                     return (
                       <td
