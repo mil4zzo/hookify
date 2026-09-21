@@ -309,7 +309,12 @@ export function PackCard({ pack, adAccountName, formatCurrency, formatDate, onRe
               "relative flex flex-col cursor-pointer z-10 w-full overflow-hidden transition-colors hover:shadow-elevation-overlay",
               // As variantes de hover precisam ser repetidas no estado selecionado: o hover
               // base reseta borda/fundo e apagaria o destaque justamente ao passar o mouse.
-              isSelected ? "border-primary bg-primary-10 ring-2 ring-primary-20 hover:border-primary hover:bg-primary-10" : "hover:bg-card hover:border-border",
+              // `bg-accent` e NÃO `bg-primary-10`: a escala `-N` é alpha real, então ela
+              // SUBSTITUÍA o fundo opaco do card. O resultado era um card transparente —
+              // acima de 16px aparecia a página, abaixo apareciam os cartões decorativos
+              // (que começam em `top-4`), criando uma emenda visível no topo.
+              // `accent` é a mesma tinta primária, porém opaca, e é token oficial.
+              isSelected ? "border-primary bg-accent ring-2 ring-primary-20 hover:border-primary hover:bg-accent" : "hover:bg-card hover:border-border",
             )}
           >
             {/* Feedback visual de atualização */}
