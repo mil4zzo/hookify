@@ -11,15 +11,17 @@ export interface FolderNameDialogProps {
   initialName?: string;
   /** Quantos packs vão junto ao criar — muda a copy do botão e do subtítulo. */
   packCount?: number;
-  /** Nomes já usados, para avisar antes de o servidor recusar. */
+  /** Nomes já usados NO MESMO NÍVEL, para avisar antes. */
   existingNames?: string[];
+  /** Criando dentro de outra pasta: o nome dela, para dizer onde a nova vai nascer. */
+  parentName?: string | null;
   onClose: () => void;
   onConfirm: (name: string) => void;
 }
 
 const MAX_NAME_LEN = 60; // espelha o CHECK folders_name_max_len da migration 168
 
-export function FolderNameDialog({ isOpen, mode, initialName = "", packCount = 0, existingNames = [], onClose, onConfirm }: FolderNameDialogProps) {
+export function FolderNameDialog({ isOpen, mode, initialName = "", packCount = 0, existingNames = [], parentName = null, onClose, onConfirm }: FolderNameDialogProps) {
   const [name, setName] = useState(initialName);
 
   useEffect(() => {
@@ -37,10 +39,11 @@ export function FolderNameDialog({ isOpen, mode, initialName = "", packCount = 0
   };
 
   const isCreate = mode === "create";
+  const where = parentName ? `Dentro de “${parentName}”. ` : "";
   const subtitle = isCreate
     ? packCount > 0
-      ? `${packCount} ${packCount === 1 ? "pack vai" : "packs vão"} para dentro dela.`
-      : "Depois é só arrastar packs para dentro."
+      ? `${where}${packCount} ${packCount === 1 ? "pack vai" : "packs vão"} para dentro dela.`
+      : `${where}Depois é só arrastar packs para dentro.`
     : "Só o nome muda — os packs continuam onde estão.";
 
   return (
@@ -48,7 +51,7 @@ export function FolderNameDialog({ isOpen, mode, initialName = "", packCount = 0
       <div className="flex flex-col gap-6">
         {/* O `title` do AppDialog é só para leitor de tela — o título visível é este. */}
         <header className="space-y-1">
-          <h2 className="text-lg font-semibold text-foreground">{isCreate ? "Nova pasta" : "Renomear pasta"}</h2>
+          <h2 className="text-lg font-semibold text-foreground">{isCreate ? (parentName ? "Nova subpasta" : "Nova pasta") : "Renomear pasta"}</h2>
           <p className="text-sm text-muted-foreground">{subtitle}</p>
         </header>
 
@@ -71,7 +74,7 @@ export function FolderNameDialog({ isOpen, mode, initialName = "", packCount = 0
             }}
             aria-invalid={isDuplicate}
           />
-          {isDuplicate && <span className="text-xs text-destructive">Já existe uma pasta com esse nome.</span>}
+          {isDuplicate && <span className="text-xs text-destructive">Já existe uma pasta com esse nome aqui.</span>}
         </div>
 
         <div className="flex justify-end gap-3">

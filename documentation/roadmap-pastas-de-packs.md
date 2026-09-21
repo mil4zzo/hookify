@@ -4,11 +4,18 @@
 >
 > Criado em: 2026-09-04 · Lote 3 medido em 2026-09-05 · status atualizado em 2026-09-21
 >
-> **Status — no código (branch `feat/pastas-de-packs`), ainda não em produção:**
-> - Migration 168 **APLICADA** em produção em 2026-09-20 (RLS, policies, chaves e
->   exclusividade verificadas no banco). Rota `/folders` e frontend **sem deploy**.
+> **Status — em produção desde 2026-09-21** (migrations 168 e 173 aplicadas; 174 no código):
 > - **Lote 2 feito**: pastas, explorer (busca única + árvore) acoplado à grade, tiles,
 >   arrastar da grade e da árvore com "Desfazer", menus de pasta e de pack.
+> - **Ordem das pastas** (173): arrastar na árvore ou Alt+↑/↓; `reorder_folders` grava
+>   num UPDATE só e só o que mudou. Pasta nova entra no fim.
+> - **"Todos os packs"** (vista, não pasta) e **busca global**: buscando, a grade mostra
+>   os resultados de todas as pastas.
+> - **Subpastas** (174): arrastar pasta para antes/dentro/depois de outra (terço da
+>   linha), "Nova subpasta" no menu, caminho no topo da grade. Contagem, gasto e
+>   "Atualizar todos" incluem as subpastas; a busca mantém as pastas acima de um
+>   resultado. Ciclo e pai de outro usuário barrados por trigger; "Desfazer pasta"
+>   (`dissolve_folder`) não apaga nada — subpastas e packs sobem um nível, no lugar dela.
 > - **Parte do Lote 1 feita, por outro caminho**: seleção múltipla na ÁRVORE (shift+
 >   clique por intervalo) e ordenação num controle só. **Não feitos**: checkbox mestre
 >   no toolbar, repintura da `BulkActionsBar`, compartilhar/transcrever em massa.
@@ -176,6 +183,8 @@ Regra geral que fica: **classificação de conteúdo é do silo; organização d
 para depois (decisão do idealizador, e concordo para a UI). Mas a coluna auto-referente
 custa ~zero agora e custa migration + rework de toda a navegação depois. Schema pronto,
 tela plana. Enquanto a UI for plana, `parent_id` é sempre `NULL`.
+*(2026-09-21: a aposta pagou — a 174 trouxe subpastas sem mexer na tabela, só trigger e
+RPCs.)*
 
 **Decisão 3 — a pasta é atalho de seleção, não sujeito de permissão.** "Compartilhar
 pasta" compartilha os packs que estão nela **naquele momento**, e a tela diz isso com
@@ -312,7 +321,7 @@ a metade menos interessante.
 
 ## Fora de escopo
 
-**Pasta dentro de pasta.** Schema pronto (`parent_id`), UI não. Revisitar com uso real.
+**Pasta dentro de pasta.** Feito na 174 (ver status no topo).
 
 **Etiqueta de pack.** Ver "O que se perde" acima. Só com evidência de que o recorte
 transversal dói.

@@ -2,12 +2,14 @@
 
 import React from "react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { IconFolderOpen, IconPencil, IconRefresh, IconTrash } from "@tabler/icons-react";
+import { IconFolderOpen, IconFolderPlus, IconPencil, IconRefresh, IconTrash } from "@tabler/icons-react";
 import type { PackFolder } from "@/lib/types";
 
 export interface FolderActionsMenuProps {
   folder: PackFolder;
+  /** Já inclui os packs das subpastas. */
   packCount: number;
+  hasSubfolders?: boolean;
   /** O gatilho. Vira `DropdownMenuTrigger asChild` — o `⋯` do tile ou o da árvore. */
   children: React.ReactNode;
   align?: "start" | "center" | "end";
@@ -17,6 +19,7 @@ export interface FolderActionsMenuProps {
   onRename: (folder: PackFolder) => void;
   onDelete: (folder: PackFolder) => void;
   onRefreshAll: (folder: PackFolder) => void;
+  onCreateSubfolder: (folder: PackFolder) => void;
 }
 
 /**
@@ -33,6 +36,7 @@ export interface FolderActionsMenuProps {
 export function FolderActionsMenu({
   folder,
   packCount,
+  hasSubfolders = false,
   children,
   align = "end",
   side,
@@ -41,6 +45,7 @@ export function FolderActionsMenu({
   onRename,
   onDelete,
   onRefreshAll,
+  onCreateSubfolder,
 }: FolderActionsMenuProps) {
   const noun = packCount === 1 ? "pack" : "packs";
 
@@ -58,11 +63,15 @@ export function FolderActionsMenu({
           <div className="flex flex-col items-start">
             <span>Atualizar todos</span>
             <span className="text-2xs text-muted-foreground">
-              {packCount} {noun} desta pasta
+              {packCount} {noun} {hasSubfolders ? "com as subpastas" : "desta pasta"}
             </span>
           </div>
         </DropdownMenuItem>
         <DropdownMenuSeparator />
+        <DropdownMenuItem onClick={() => onCreateSubfolder(folder)}>
+          <IconFolderPlus className="h-4 w-4" />
+          Nova subpasta
+        </DropdownMenuItem>
         <DropdownMenuItem onClick={() => onRename(folder)}>
           <IconPencil className="h-4 w-4" />
           Renomear
@@ -71,7 +80,8 @@ export function FolderActionsMenu({
           <IconTrash className="h-4 w-4" />
           <div className="flex flex-col items-start">
             <span>Desfazer pasta</span>
-            <span className="text-2xs text-muted-foreground">Os packs não são apagados</span>
+            {/* Nada é apagado: o conteúdo sobe um nível (migration 174). */}
+            <span className="text-2xs text-muted-foreground">O conteúdo sobe um nível</span>
           </div>
         </DropdownMenuItem>
       </DropdownMenuContent>

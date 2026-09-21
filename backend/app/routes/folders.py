@@ -11,6 +11,10 @@ A pasta e de QUEM ORGANIZA, nao do pack (migration 168). Consequencias no codigo
     upsert nessa chave, nunca delete + insert — senao duas chamadas concorrentes
     deixariam o pack sem pasta nenhuma no meio do caminho.
 
+Subpastas (migration 174): o banco garante sem ciclo e sem pai alheio (trigger),
+mover e desfazer sao RPCs de uma transacao so. Os erros do trigger/RPC chegam
+como P0001 com a mensagem-codigo e viram 4xx em `_folder_rpc_error`.
+
 NAO existe compartilhamento de pasta, e nao deve passar a existir: ver Decisao 3
 na migration 168. "Compartilhar pasta" e acucar de UI sobre /pack-shares, um
 pack de cada vez, com os packs que estao na pasta NAQUELE momento.
@@ -23,6 +27,7 @@ import uuid
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Body, Depends, HTTPException
+from postgrest.exceptions import APIError
 from pydantic import BaseModel, Field
 
 from app.core.auth import get_current_user
@@ -43,6 +48,15 @@ ID_BATCH = 200
 class FolderCreate(BaseModel):
     name: str = Field(min_length=1, max_length=MAX_NAME_LEN)
     pack_ids: List[str] = Field(default_factory=list)
+    # None = na raiz.
+    parent_id: Optional[str] = None
+
+
+class PlaceRequest(BaseModel):
+    # None = raiz.
+    parent_id: Optional[str] = None
+    # Ordem COMPLETA do grupo de destino, ja com a pasta movida no lugar dela.
+    sibling_ids: List[str] = Field(min_length=1, max_length=MAX_FOLDERS_PER_USER)
 
 
 class FolderRename(BaseModel):
@@ -131,6 +145,25 @@ def _assert_packs_accessible(pack_ids: List[str], user: Dict[str, Any]) -> None:
         raise HTTPException(status_code=403, detail=f"Sem acesso a {len(missing)} pack(s) informado(s).")
 
 
+# Mensagens-codigo levantadas pelo trigger e pelas RPCs da 174.
+_FOLDER_ERRORS = {
+    "folder_cycle": (422, "Uma pasta nao pode ir para dentro dela mesma."),
+    "folder_parent_not_found": (404, "A pasta de destino nao existe."),
+    "folder_not_found": (404, "Pasta nao encontrada."),
+    "folder_not_in_siblings": (422, "Ordem invalida para a pasta movida."),
+}
+
+
+def _folder_rpc_error(e: Exception) -> HTTPException:
+    """Erro de regra da arvore vira 4xx legivel; o resto segue como 500."""
+    message = getattr(e, "message", None) or str(e)
+    for code, (status, detail) in _FOLDER_ERRORS.items():
+        if code in message:
+            return HTTPException(status_code=status, detail=detail)
+    logger.exception("[FOLDERS] Erro inesperado: %s", e)
+    return HTTPException(status_code=500, detail="Erro ao salvar as pastas.")
+
+
 def _members_for(sb, actor_id: str) -> List[Dict[str, Any]]:
     res = with_postgrest_retry(
         "folders.members",
@@ -178,6 +211,10 @@ def create_folder(payload: FolderCreate = Body(...), user=Depends(get_current_us
     actor_id = str(user["user_id"])
     name = _clean_name(payload.name)
     pack_ids = _valid_uuids(payload.pack_ids, "pack_id")
+    parent_id = (payload.parent_id or "").strip() or None
+    if parent_id:
+        _valid_uuids([parent_id], "parent_id")
+        _assert_folder_owner(sb, parent_id, actor_id)
 
     # Uma ida so traz a contagem (limite) e a maior posicao (pasta nova vai para
     # o FIM da lista, nao para o meio da ordem que o usuario montou).
@@ -198,10 +235,15 @@ def create_folder(payload: FolderCreate = Body(...), user=Depends(get_current_us
     if pack_ids:
         _assert_packs_accessible(pack_ids, user)
 
-    created = with_postgrest_retry(
-        "folders.create",
-        lambda: sb.table("folders").insert({"user_id": actor_id, "name": name, "position": next_position}).execute(),
-    ).data
+    try:
+        created = with_postgrest_retry(
+            "folders.create",
+            lambda: sb.table("folders")
+            .insert({"user_id": actor_id, "name": name, "position": next_position, "parent_id": parent_id})
+            .execute(),
+        ).data
+    except APIError as e:
+        raise _folder_rpc_error(e)
     if not created:
         raise HTTPException(status_code=500, detail="Erro ao criar a pasta.")
     folder = created[0]
@@ -230,15 +272,55 @@ def rename_folder(folder_id: str, payload: FolderRename = Body(...), user=Depend
 
 @router.delete("/{folder_id}")
 def delete_folder(folder_id: str, user=Depends(get_current_user)):
-    """Desfaz a pasta. Os PACKS FICAM — voltam para "soltos" pela cascata da FK.
+    """Desfaz a pasta. Nada e apagado alem dela: subpastas e packs SOBEM um nivel,
+    no lugar que ela ocupava; na raiz, os packs ficam soltos (RPC dissolve_folder).
 
-    Nenhum dado de pack e tocado aqui: o vinculo e que some.
+    Nenhum dado de pack e tocado aqui: so o vinculo muda de pasta.
     """
     sb = get_supabase_for_user(user["token"])
-    _assert_folder_owner(sb, folder_id, str(user["user_id"]))
+    _valid_uuids([folder_id], "folder_id")
+    try:
+        result = with_postgrest_retry(
+            "folders.dissolve",
+            lambda: sb.rpc("dissolve_folder", {"p_folder_id": folder_id}).execute(),
+        ).data or {}
+    except APIError as e:
+        raise _folder_rpc_error(e)
+    return {
+        "success": True,
+        "deleted": True,
+        "id": folder_id,
+        "parent_id": result.get("parent_id"),
+        "folders_moved": int(result.get("folders_moved") or 0),
+        "packs_moved": int(result.get("packs_moved") or 0),
+    }
 
-    with_postgrest_retry("folders.delete", lambda: sb.table("folders").delete().eq("id", folder_id).execute())
-    return {"success": True, "deleted": True, "id": folder_id}
+
+@router.post("/{folder_id}/place")
+def place_folder(folder_id: str, payload: PlaceRequest = Body(...), user=Depends(get_current_user)):
+    """Move a pasta para outro pai (ou a raiz) e grava a ordem do grupo de destino,
+    numa transacao so (RPC place_folder). Ciclo e pai alheio: barrados no banco.
+    """
+    sb = get_supabase_for_user(user["token"])
+    _valid_uuids([folder_id], "folder_id")
+    parent_id = (payload.parent_id or "").strip() or None
+    if parent_id:
+        _valid_uuids([parent_id], "parent_id")
+    sibling_ids = _valid_uuids(payload.sibling_ids, "folder_id")
+    if folder_id not in sibling_ids:
+        raise HTTPException(status_code=422, detail="Ordem invalida para a pasta movida.")
+
+    try:
+        changed = with_postgrest_retry(
+            "folders.place",
+            lambda: sb.rpc(
+                "place_folder",
+                {"p_folder_id": folder_id, "p_parent_id": parent_id, "p_sibling_ids": sibling_ids},
+            ).execute(),
+        ).data
+    except APIError as e:
+        raise _folder_rpc_error(e)
+    return {"success": True, "changed": int(changed or 0), "parent_id": parent_id}
 
 
 @router.post("/reorder")

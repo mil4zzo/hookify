@@ -6,7 +6,7 @@ import { SearchInputWithClear } from "@/components/common/SearchInputWithClear";
 import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils/cn";
 import type { AdsPack, PackFolder } from "@/lib/types";
-import type { FolderBucket } from "@/lib/hooks/useFolders";
+import { folderPath, subtreeIds, type FolderBucket, type FolderDropEdge } from "@/lib/utils/folderTree";
 
 /** `null` = raiz da Biblioteca; `ALL_PACKS_VIEW` = todos os packs, sem pastas. */
 export type FolderView = string | null;
@@ -15,16 +15,18 @@ export type FolderView = string | null;
 export const ALL_PACKS_VIEW = "__all__";
 
 /**
- * Tipo do `dataTransfer` quando o que se arrasta é uma PASTA. Os alvos de pack
- * (tile de pasta, "Sem pasta") conferem esse tipo para não acender — soltar uma
- * pasta em outra ainda não significa nada.
+ * Tipo do `dataTransfer` quando o que se arrasta é uma PASTA. Os alvos que só
+ * sabem receber pack (tile de pasta, "Sem pasta") conferem esse tipo para não
+ * acender — mover pasta é gesto da árvore.
  */
 export const FOLDER_DRAG_TYPE = "application/x-hookify-folder";
 
-type InsertEdge = "before" | "after";
+/** Quanto tempo parado sobre uma pasta fechada, arrastando, até ela abrir. */
+const HOVER_EXPAND_MS = 700;
 
 export interface PackFolderTreeProps {
-  buckets: FolderBucket[];
+  /** Topo da árvore; cada nó traz as subpastas em `children`. */
+  roots: FolderBucket[];
   loosePacks: AdsPack[];
   view: FolderView;
   search: string;
@@ -41,13 +43,21 @@ export interface PackFolderTreeProps {
   onSelectPack: (packId: string) => void;
   /** O `⋯` de cada pack. Recebe o pack e devolve o mesmo menu do card. */
   renderPackMenu: (pack: AdsPack) => React.ReactNode;
-  /** O `⋯` de cada pasta. Ações que valem para todos os packs dela. */
+  /** O `⋯` de cada pasta. `packCount` já inclui as subpastas. */
   renderFolderMenu: (folder: PackFolder, packCount: number) => React.ReactNode;
   /** Soltar packs arrastados: `null` tira da pasta. */
   onDropPacks: (folderId: string | null) => void;
   isDragging: boolean;
-  /** Reordena: leva `folderId` para antes ou depois de `targetId`. */
-  onMoveFolder: (folderId: string, targetId: string, edge: InsertEdge) => void;
+  /** Move a pasta para antes, depois ou para dentro de `targetId`. */
+  onMoveFolder: (folderId: string, targetId: string, edge: FolderDropEdge) => void;
+  /**
+   * Arrasto de pasta compartilhado com a grade: a árvore avisa quando começa um, e
+   * recebe o que começou num TILE — dá para soltar um tile numa linha da árvore.
+   */
+  onFolderDragChange: (folderId: string | null) => void;
+  externalDraggingFolderId: string | null;
+  /** A pasta arrastada e tudo abaixo dela, calculado sobre a árvore INTEIRA. */
+  externalForbiddenIds: Set<string>;
   /** Arrastar a PARTIR da árvore. Mesmos handlers dos cards — uma origem só de verdade. */
   onPackDragStart: (packId: string) => (event: React.DragEvent<HTMLDivElement>) => void;
   onPackDragEnd: () => void;
@@ -56,9 +66,9 @@ export interface PackFolderTreeProps {
   isPackSelected: (packId: string) => boolean;
   onTogglePack: (packId: string, checked: boolean) => void;
   /**
-   * `order` é a ordem ACHATADA da árvore (pastas na sequência em que aparecem,
-   * packs dentro de cada uma). O shift+clique resolve o intervalo por ela, não
-   * pela ordem da grade — que é outra.
+   * `order` é a ordem ACHATADA da árvore (subpastas antes dos packs, como é
+   * desenhada). O shift+clique resolve o intervalo por ela, não pela ordem da
+   * grade — que é outra.
    */
   onPackCheckboxClick: (event: React.MouseEvent, packId: string, order: string[]) => void;
   hasSelection: boolean;
@@ -70,14 +80,15 @@ export interface PackFolderTreeProps {
  *
  * A busca vive AQUI e é a única da tela — filtra a árvore e a grade ao mesmo tempo.
  *
- * Também é alvo de arrasto: soltar num nó move, e soltar em "Sem pasta" tira da
- * pasta. Sem isso, mover para uma pasta fora da tela exigiria rolar com o card na mão.
+ * Também é alvo de arrasto: soltar pack num nó move, e soltar em "Sem pasta" tira da
+ * pasta. Pasta arrastada cai antes, depois ou DENTRO de outra, pelo terço da linha
+ * onde o ponteiro está.
  *
  * Não mede nada nem gruda: a partir de `lg` quem rola é a grade, então a altura do
  * painel é a da coluna e a árvore rola por dentro.
  */
 export function PackFolderTree({
-  buckets,
+  roots,
   loosePacks,
   view,
   search,
@@ -93,6 +104,9 @@ export function PackFolderTree({
   onDropPacks,
   isDragging,
   onMoveFolder,
+  onFolderDragChange,
+  externalDraggingFolderId,
+  externalForbiddenIds,
   onPackDragStart,
   onPackDragEnd,
   isPackDragging,
@@ -105,20 +119,35 @@ export function PackFolderTree({
   const navRef = useRef<HTMLElement>(null);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [dropTarget, setDropTarget] = useState<string | "loose" | null>(null);
-  // Arrasto de PASTA. A ref responde na hora (dragover chega antes do próximo
+  // Arrasto de PASTA. As refs respondem na hora (dragover chega antes do próximo
   // render); o estado desenha. `folderDragActive` entra um tick depois do
   // dragstart: mexer no DOM dentro do próprio dragstart cancela o arrasto no Chrome.
   const draggingFolderRef = useRef<string | null>(null);
+  // A pasta arrastada e tudo abaixo dela: soltar ali criaria um ciclo.
+  const forbiddenRef = useRef<Set<string>>(new Set());
   const [folderDragActive, setFolderDragActive] = useState(false);
-  const [insertAt, setInsertAt] = useState<{ id: string; edge: InsertEdge } | null>(null);
+  const [insertAt, setInsertAt] = useState<{ id: string; edge: FolderDropEdge } | null>(null);
+  const hoverExpandRef = useRef<{ id: string; timer: number } | null>(null);
+  // Pasta arrastada, venha de onde vier: a ref cobre o arrasto que nasceu aqui
+  // (responde antes do próximo render); a prop cobre o que nasceu num tile.
+  const draggedFolderId = () => draggingFolderRef.current ?? externalDraggingFolderId;
+  const forbiddenIds = () => (draggingFolderRef.current ? forbiddenRef.current : externalForbiddenIds);
+  const isFolderDragging = folderDragActive || externalDraggingFolderId !== null;
+
+  // O arrasto de um tile termina na GRADE (dragend dispara lá): a marca de "vai
+  // cair aqui" que ficou na árvore tem de sair junto.
+  useEffect(() => {
+    if (externalDraggingFolderId === null) setInsertAt(null);
+  }, [externalDraggingFolderId]);
 
   const isSearching = search.trim().length > 0;
   // FECHADO por padrão: com dezenas de packs a árvore aberta vira uma lista comprida
   // e deixa de ser o mapa das pastas. Abre-se a que interessa. Durante a busca, força
   // aberto — contagem sem os itens embaixo seria um beco.
-  // Arrastando pasta, a árvore mostra SÓ as pastas: com o conteúdo aberto, "depois
-  // da pasta X" ficaria a dezenas de linhas do ponteiro, abaixo dos packs dela.
-  const isOpen = (key: string) => !folderDragActive && (isSearching || expanded.has(key));
+  const isOpen = (key: string) => isSearching || expanded.has(key);
+  // Arrastando pasta, os PACKS somem (as subpastas ficam): com eles na tela, "depois
+  // da pasta X" ficaria a dezenas de linhas do ponteiro.
+  const showPacks = !isFolderDragging;
   // Abrir a pasta pelo nome só EXPANDE: com o caret separado, recolher é papel dele.
   const expand = (key: string) => {
     setExpanded((prev) => {
@@ -137,88 +166,218 @@ export function PackFolderTree({
     });
   };
 
+  // Abrir uma subpasta pela GRADE (tile, caminho no topo) abre o caminho até ela na
+  // árvore — senão o lugar onde se está ficaria escondido dentro de pastas fechadas.
+  const rootsRef = useRef(roots);
+  rootsRef.current = roots;
+  useEffect(() => {
+    if (!view || view === ALL_PACKS_VIEW) return;
+    const byId = new Map<string, FolderBucket>();
+    const index = (nodes: FolderBucket[]) => nodes.forEach((n) => { byId.set(n.folder.id, n); index(n.children); });
+    index(rootsRef.current);
+    const ids = folderPath(byId, view).map((n) => n.folder.id);
+    if (ids.length === 0) return;
+    setExpanded((prev) => (ids.every((id) => prev.has(id)) ? prev : new Set([...prev, ...ids])));
+  }, [view]);
+
   /**
    * Ordem em que a árvore DESENHA os packs — inclui os de pastas recolhidas, de
    * propósito: recolher é esconder, não desmarcar, e um intervalo que pulasse os
    * escondidos marcaria um conjunto que ninguém pediu.
    */
-  const flatOrder = useMemo(
-    () => [...buckets.flatMap((bucket) => bucket.packs.map((pack) => pack.id)), ...loosePacks.map((pack) => pack.id)],
-    [buckets, loosePacks],
-  );
+  const flatOrder = useMemo(() => {
+    const walk = (node: FolderBucket): string[] => [...node.children.flatMap(walk), ...node.packs.map((p) => p.id)];
+    return [...roots.flatMap(walk), ...loosePacks.map((pack) => pack.id)];
+  }, [roots, loosePacks]);
 
-  useEdgeAutoScroll(navRef, isDragging || folderDragActive);
+  useEdgeAutoScroll(navRef, isDragging || isFolderDragging);
+
+  const cancelHoverExpand = () => {
+    if (hoverExpandRef.current) window.clearTimeout(hoverExpandRef.current.timer);
+    hoverExpandRef.current = null;
+  };
+  useEffect(() => cancelHoverExpand, []);
+
+  /** Parado sobre uma pasta fechada com subpastas, ela abre — para chegar mais fundo sem soltar. */
+  const scheduleHoverExpand = (node: FolderBucket) => {
+    if (node.children.length === 0 || isOpen(node.folder.id)) return;
+    if (hoverExpandRef.current?.id === node.folder.id) return;
+    cancelHoverExpand();
+    hoverExpandRef.current = {
+      id: node.folder.id,
+      timer: window.setTimeout(() => {
+        expand(node.folder.id);
+        hoverExpandRef.current = null;
+      }, HOVER_EXPAND_MS),
+    };
+  };
 
   const endFolderDrag = () => {
     draggingFolderRef.current = null;
+    forbiddenRef.current = new Set();
     setFolderDragActive(false);
     setInsertAt(null);
+    cancelHoverExpand();
+    onFolderDragChange(null);
   };
 
-  const folderDragProps = (folderId: string) => ({
+  const folderDragProps = (node: FolderBucket) => ({
     draggable: true,
     onDragStart: (e: React.DragEvent) => {
-      draggingFolderRef.current = folderId;
+      draggingFolderRef.current = node.folder.id;
+      forbiddenRef.current = subtreeIds(node);
       e.dataTransfer.effectAllowed = "move";
-      e.dataTransfer.setData(FOLDER_DRAG_TYPE, folderId);
-      window.setTimeout(() => setFolderDragActive(true), 0);
+      e.dataTransfer.setData(FOLDER_DRAG_TYPE, node.folder.id);
+      window.setTimeout(() => {
+        setFolderDragActive(true);
+        onFolderDragChange(node.folder.id);
+      }, 0);
     },
     onDragEnd: endFolderDrag,
   });
 
-  /** Metade de cima da linha = antes; de baixo = depois. */
-  const folderInsertProps = (targetId: string) => ({
+  /**
+   * Terço de cima = antes; de baixo = depois; o meio = dentro. Numa pasta ABERTA com
+   * subpastas, "depois" também vira "dentro": a linha logo abaixo é a primeira filha,
+   * e uma marca ali prometeria um lugar que não é o de depois da pasta.
+   */
+  const edgeAt = (e: React.DragEvent, node: FolderBucket): FolderDropEdge => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const ratio = (e.clientY - rect.top) / rect.height;
+    const edge: FolderDropEdge = ratio < 0.25 ? "before" : ratio > 0.75 ? "after" : "inside";
+    // Buscando, tudo está aberto à força e não dá para recolher: converter aqui
+    // tornaria impossível soltar depois da última pasta de um grupo.
+    if (edge === "after" && !isSearching && isOpen(node.folder.id) && node.children.length > 0) return "inside";
+    return edge;
+  };
+
+  const folderInsertProps = (node: FolderBucket) => ({
     onDragOver: (e: React.DragEvent) => {
-      const dragged = draggingFolderRef.current;
+      const dragged = draggedFolderId();
       if (!dragged) return;
-      e.preventDefault();
-      e.dataTransfer.dropEffect = "move";
-      if (dragged === targetId) {
+      const targetId = node.folder.id;
+      if (forbiddenIds().has(targetId)) {
+        // Sem preventDefault: o cursor mostra "proibido" e o drop não acontece.
         setInsertAt(null);
+        cancelHoverExpand();
         return;
       }
-      const rect = e.currentTarget.getBoundingClientRect();
-      const edge: InsertEdge = e.clientY < rect.top + rect.height / 2 ? "before" : "after";
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "move";
+      const edge = edgeAt(e, node);
+      if (edge === "inside") scheduleHoverExpand(node);
+      else cancelHoverExpand();
       setInsertAt((prev) => (prev?.id === targetId && prev.edge === edge ? prev : { id: targetId, edge }));
     },
     onDrop: (e: React.DragEvent) => {
-      const dragged = draggingFolderRef.current;
+      const dragged = draggedFolderId();
       if (!dragged) return;
       e.preventDefault();
-      if (insertAt && insertAt.id === targetId) onMoveFolder(dragged, targetId, insertAt.edge);
+      // A borda sai do PRÓPRIO evento, não do estado: cruzando rápido de uma linha
+      // para outra, o estado ainda seria o da anterior e o drop se perderia calado.
+      if (!forbiddenIds().has(node.folder.id)) {
+        const edge = edgeAt(e, node);
+        onMoveFolder(dragged, node.folder.id, edge);
+        if (edge === "inside") expand(node.folder.id);
+      }
       endFolderDrag();
     },
   });
 
-  /** Alt+↑/↓ no nome da pasta: o mesmo reordenar, sem mouse. */
-  const moveByKeyboard = (e: React.KeyboardEvent, index: number) => {
+  /** Alt+↑/↓ no nome da pasta: reordena entre as irmãs, sem mouse. */
+  const moveByKeyboard = (e: React.KeyboardEvent, siblings: FolderBucket[], index: number) => {
     if (!e.altKey || (e.key !== "ArrowUp" && e.key !== "ArrowDown")) return;
     e.preventDefault();
-    const folderId = buckets[index].folder.id;
-    if (e.key === "ArrowUp" && index > 0) onMoveFolder(folderId, buckets[index - 1].folder.id, "before");
-    if (e.key === "ArrowDown" && index < buckets.length - 1) onMoveFolder(folderId, buckets[index + 1].folder.id, "after");
+    const folderId = siblings[index].folder.id;
+    if (e.key === "ArrowUp" && index > 0) onMoveFolder(folderId, siblings[index - 1].folder.id, "before");
+    if (e.key === "ArrowDown" && index < siblings.length - 1) onMoveFolder(folderId, siblings[index + 1].folder.id, "after");
   };
 
-  const dropProps = (key: string | "loose", folderId: string | null) => ({
+  const dropProps = (key: string | "loose", folderId: string | null, node?: FolderBucket) => ({
     onDragOver: (e: React.DragEvent) => {
       if (!isDragging) return;
       e.preventDefault();
       e.dataTransfer.dropEffect = "move" as const;
       setDropTarget(key);
+      if (node) scheduleHoverExpand(node);
     },
     onDragLeave: (e: React.DragEvent) => {
-      if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDropTarget(null);
+      if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
+        setDropTarget(null);
+        cancelHoverExpand();
+      }
     },
     onDrop: (e: React.DragEvent) => {
       e.preventDefault();
       setDropTarget(null);
+      cancelHoverExpand();
       onDropPacks(folderId);
     },
   });
 
+  const renderPackRow = (pack: AdsPack) => (
+    <PackRow
+      key={pack.id}
+      label={pack.name}
+      menu={renderPackMenu(pack)}
+      isDragging={isPackDragging(pack.id)}
+      isSelected={isPackSelected(pack.id)}
+      showCheckbox={hasSelection}
+      onToggle={(checked) => onTogglePack(pack.id, checked)}
+      onCheckboxClick={(e) => onPackCheckboxClick(e, pack.id, flatOrder)}
+      onDragStart={onPackDragStart(pack.id)}
+      onDragEnd={onPackDragEnd}
+      onClick={() => onSelectPack(pack.id)}
+    />
+  );
+
+  const renderFolder = (node: FolderBucket, siblings: FolderBucket[], index: number): React.ReactNode => {
+    const { folder, packs, children, allPacks } = node;
+    const open = isOpen(folder.id);
+    const pack = dropProps(folder.id, folder.id, node);
+    const order = folderInsertProps(node);
+    const hasVisibleContent = children.length > 0 || showPacks;
+    return (
+      <div key={folder.id}>
+        <TreeRow
+          label={folder.name}
+          count={allPacks.length}
+          icon={view === folder.id ? <IconFolderOpenFilled className="h-4 w-4" /> : <IconFolder className="h-4 w-4" />}
+          isCurrent={view === folder.id}
+          isDropTarget={dropTarget === folder.id || (insertAt?.id === folder.id && insertAt.edge === "inside")}
+          isOpen={open}
+          menu={renderFolderMenu(folder, allPacks.length)}
+          onClick={() => {
+            onNavigate(folder.id);
+            expand(folder.id);
+          }}
+          onToggle={() => toggle(folder.id)}
+          onMainKeyDown={(e) => moveByKeyboard(e, siblings, index)}
+          isDraggingSelf={isFolderDragging && draggedFolderId() === folder.id}
+          insertEdge={insertAt?.id === folder.id && insertAt.edge !== "inside" ? insertAt.edge : undefined}
+          {...folderDragProps(node)}
+          onDragOver={(e) => { pack.onDragOver(e); order.onDragOver(e); }}
+          onDragLeave={pack.onDragLeave}
+          onDrop={(e) => { if (draggedFolderId()) order.onDrop(e); else pack.onDrop(e); }}
+        />
+        {open && hasVisibleContent && (
+          <TreeChildren>
+            {children.map((child, i) => renderFolder(child, children, i))}
+            {showPacks &&
+              (packs.length === 0 && children.length === 0 ? (
+                <span className="px-2 py-1.5 text-xs text-muted-foreground">Pasta vazia</span>
+              ) : (
+                packs.map(renderPackRow)
+              ))}
+          </TreeChildren>
+        )}
+      </div>
+    );
+  };
+
   // Sem nada E sem busca, o explorer não tem o que mostrar. COM busca ele precisa
   // continuar na tela: some o explorer, some o campo, e não há como limpar a busca.
-  if (buckets.length === 0 && loosePacks.length === 0 && !isSearching) return null;
+  if (roots.length === 0 && loosePacks.length === 0 && !isSearching) return null;
 
   return (
     <div className={cn("flex min-h-0 flex-col gap-4", className)}>
@@ -246,45 +405,7 @@ export function PackFolderTree({
         />
         )}
 
-        {buckets.map(({ folder, packs }, index) => {
-          const open = isOpen(folder.id);
-          const pack = dropProps(folder.id, folder.id);
-          const order = folderInsertProps(folder.id);
-          return (
-            <div key={folder.id}>
-              <TreeRow
-                label={folder.name}
-                count={packs.length}
-                icon={view === folder.id ? <IconFolderOpenFilled className="h-4 w-4" /> : <IconFolder className="h-4 w-4" />}
-                isCurrent={view === folder.id}
-                isDropTarget={dropTarget === folder.id}
-                isOpen={open}
-                menu={renderFolderMenu(folder, packs.length)}
-                onClick={() => {
-                  onNavigate(folder.id);
-                  expand(folder.id);
-                }}
-                onToggle={() => toggle(folder.id)}
-                onMainKeyDown={(e) => moveByKeyboard(e, index)}
-                isDraggingSelf={folderDragActive && draggingFolderRef.current === folder.id}
-                insertEdge={insertAt?.id === folder.id ? insertAt.edge : undefined}
-                {...folderDragProps(folder.id)}
-                onDragOver={(e) => { pack.onDragOver(e); order.onDragOver(e); }}
-                onDragLeave={pack.onDragLeave}
-                onDrop={(e) => { if (draggingFolderRef.current) order.onDrop(e); else pack.onDrop(e); }}
-              />
-              {open && (
-                <TreeChildren>
-                  {packs.length === 0 ? (
-                    <span className="px-2 py-1.5 text-xs text-muted-foreground">Pasta vazia</span>
-                  ) : (
-                    packs.map((pack) => <PackRow key={pack.id} label={pack.name} menu={renderPackMenu(pack)} isDragging={isPackDragging(pack.id)} isSelected={isPackSelected(pack.id)} showCheckbox={hasSelection} onToggle={(checked) => onTogglePack(pack.id, checked)} onCheckboxClick={(e) => onPackCheckboxClick(e, pack.id, flatOrder)} onDragStart={onPackDragStart(pack.id)} onDragEnd={onPackDragEnd} onClick={() => onSelectPack(pack.id)} />)
-                  )}
-                </TreeChildren>
-              )}
-            </div>
-          );
-        })}
+        {roots.map((node, index) => renderFolder(node, roots, index))}
 
         {/* "Sem pasta": mesmo tratamento de um grupo, e é o alvo de arrasto para TIRAR
             da pasta. Só aparece se houver pack sem pasta — com tudo arquivado seria um grupo
@@ -307,19 +428,19 @@ export function PackFolderTree({
             onToggle={() => toggle("__loose__")}
             {...dropProps("loose", null)}
           />
-          {isOpen("__loose__") && (
+          {isOpen("__loose__") && showPacks && (
             <TreeChildren>
               {loosePacks.length === 0 ? (
                 <span className="px-2 py-1.5 text-xs text-muted-foreground">{isDragging ? "Solte aqui para tirar da pasta" : "Todos os packs estão em pastas"}</span>
               ) : (
-                loosePacks.map((pack) => <PackRow key={pack.id} label={pack.name} menu={renderPackMenu(pack)} isDragging={isPackDragging(pack.id)} isSelected={isPackSelected(pack.id)} showCheckbox={hasSelection} onToggle={(checked) => onTogglePack(pack.id, checked)} onCheckboxClick={(e) => onPackCheckboxClick(e, pack.id, flatOrder)} onDragStart={onPackDragStart(pack.id)} onDragEnd={onPackDragEnd} onClick={() => onSelectPack(pack.id)} />)
+                loosePacks.map(renderPackRow)
               )}
             </TreeChildren>
           )}
         </div>
         )}
 
-        {isSearching && buckets.length === 0 && loosePacks.length === 0 && (
+        {isSearching && roots.length === 0 && loosePacks.length === 0 && (
           <span className="px-2 py-3 text-xs text-muted-foreground">Nada encontrado.</span>
         )}
       </nav>
@@ -339,8 +460,8 @@ interface TreeRowProps extends React.HTMLAttributes<HTMLDivElement> {
   isDropTarget?: boolean;
   isOpen: boolean;
   menu?: React.ReactNode;
-  /** Linha fina de "vai cair aqui" ao arrastar uma pasta. */
-  insertEdge?: InsertEdge;
+  /** Linha fina de "vai cair aqui" ao arrastar uma pasta ("dentro" usa o contorno). */
+  insertEdge?: "before" | "after";
   isDraggingSelf?: boolean;
   onMainKeyDown?: (event: React.KeyboardEvent) => void;
   /** Abre a pasta na grade. */

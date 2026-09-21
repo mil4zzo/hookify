@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo, useRef } from "react";
+import { Fragment, useState, useEffect, useMemo, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { PackCard } from "@/components/packs/PackCard";
 import { PackJudgmentDialog } from "@/components/packs/PackJudgmentDialog";
@@ -19,7 +19,7 @@ import { useClientAuth, useClientPacks } from "@/lib/hooks/useClientSession";
 import { useOnboardingGate } from "@/lib/hooks/useOnboardingGate";
 import { showSuccess, showError } from "@/lib/utils/toast";
 import { api } from "@/lib/api/endpoints";
-import { IconFilter, IconPlus, IconTrash, IconChartBar, IconSearch, IconLoader2, IconCircleCheck, IconCircleX, IconCircleDot, IconInfoCircle, IconRefresh, IconChevronLeft, IconPencil, IconFolderPlus, IconSortAscending, IconSortDescending } from "@tabler/icons-react";
+import { IconFilter, IconPlus, IconTrash, IconChartBar, IconSearch, IconLoader2, IconCircleCheck, IconCircleX, IconCircleDot, IconInfoCircle, IconRefresh, IconChevronLeft, IconChevronRight, IconPencil, IconFolderPlus, IconSortAscending, IconSortDescending } from "@tabler/icons-react";
 
 import { FilterRule, ClearEnrichmentResult } from "@/lib/api/schemas";
 import { AdsPack } from "@/lib/types";
@@ -52,6 +52,7 @@ import { PackActionsMenu } from "@/components/packs/PackActionsMenu";
 import { FolderCard } from "@/components/packs/FolderCard";
 import { PacksActionsSkeleton, PacksLibrarySkeleton } from "@/components/packs/PacksLibrarySkeleton";
 import { FolderNameDialog } from "@/components/packs/FolderNameDialog";
+import { filterFolderTree, flattenTree, folderPath, subtreeIds } from "@/lib/utils/folderTree";
 import type { PackFolder } from "@/lib/types";
 
 const STORAGE_KEY_DATE_RANGE = "hookify-packs-date-range";
@@ -283,17 +284,20 @@ export default function PacksPage() {
 
   // ── Pastas (migration 168) ────────────────────────────────────────────────
   // O agrupamento é derivado no cliente sobre os packs que a página já carregou.
-  const { buckets, loosePacks, folderIdByPack, isLoading: isLoadingFolders, createFolder, renameFolder, deleteFolder, moveFolder, movePacks, undoMove } = useFolders(packs);
+  const { rootBuckets, buckets, bucketById, loosePacks, folderIdByPack, isLoading: isLoadingFolders, createFolder, renameFolder, deleteFolder, moveFolder, movePacks, undoMove } = useFolders(packs);
   // A Biblioteca só é desenhada com packs E pastas na mão: sem esperar as pastas, a
   // grade mostrava todos os packs soltos por um instante e eles "pulavam" para dentro.
   const isLoadingLibrary = isLoadingPacks || isLoadingFolders;
   const [folderView, setFolderView] = useState<FolderView>(null);
   const [draggingPackIds, setDraggingPackIds] = useState<string[]>([]);
+  // Pasta sendo arrastada — na árvore ou num tile; os dois lados leem daqui.
+  const [draggingFolderId, setDraggingFolderId] = useState<string | null>(null);
   const [dropTargetFolderId, setDropTargetFolderId] = useState<string | null>(null);
-  const [folderDialog, setFolderDialog] = useState<{ mode: "create" | "rename"; folder?: PackFolder; packIds: string[] } | null>(null);
+  // `parentId` só na criação: onde a pasta nova nasce (null = raiz).
+  const [folderDialog, setFolderDialog] = useState<{ mode: "create" | "rename"; folder?: PackFolder; packIds: string[]; parentId?: string | null } | null>(null);
   const [folderToDelete, setFolderToDelete] = useState<PackFolder | null>(null);
 
-  const currentBucket = useMemo(() => buckets.find((b) => b.folder.id === folderView) ?? null, [buckets, folderView]);
+  const currentBucket = useMemo(() => (folderView && folderView !== ALL_PACKS_VIEW ? bucketById.get(folderView) ?? null : null), [bucketById, folderView]);
 
   // Pasta apagada em outra aba deixaria a tela vazia e sem saída — volta para a raiz.
   useEffect(() => {
@@ -318,30 +322,47 @@ export default function PacksPage() {
   }, [gridView, sortedPacks, currentBucket, loosePacks, packSortKey, packSortDirection, adAccountNameById, packSearch]);
 
   /**
-   * Árvore filtrada pela busca: a pasta fica se ELA ou algum pack dela casa, e os
-   * packs listados dentro dela são só os que casam. Sem isso, procurar por um pack
-   * arquivado mostrava a pasta com a contagem cheia e nenhuma pista de onde ele está.
+   * Árvore filtrada pela busca: a pasta fica se ELA casa, se algum pack dela casa ou
+   * se alguma subpasta ficou — assim as pastas acima de um resultado fundo continuam
+   * na tela, e dá para ver onde ele está. Os packs listados são só os que casam.
    */
-  const treeBuckets = useMemo(() => {
+  const treeRoots = useMemo(() => {
     const term = packSearch.trim();
-    if (!term) return buckets;
+    if (!term) return rootBuckets;
     const lowered = term.toLocaleLowerCase("pt-BR");
-    return buckets
-      .map((bucket) => ({ ...bucket, packs: filterPacksBySearch(bucket.packs, term, { accountNameById: adAccountNameById }) }))
-      .filter((bucket) => bucket.packs.length > 0 || bucket.folder.name.toLocaleLowerCase("pt-BR").includes(lowered));
-  }, [buckets, packSearch, adAccountNameById]);
+    const matched = new Set(filterPacksBySearch(packs, term, { accountNameById: adAccountNameById }).map((p) => p.id));
+    return filterFolderTree(rootBuckets, (p) => matched.has(p.id), (f) => f.name.toLocaleLowerCase("pt-BR").includes(lowered));
+  }, [rootBuckets, packs, packSearch, adAccountNameById]);
 
   const treeLoosePacks = useMemo(
     () => filterPacksBySearch(loosePacks, packSearch, { accountNameById: adAccountNameById }),
     [loosePacks, packSearch, adAccountNameById],
   );
 
-  // Os tiles seguem a MESMA regra de quais pastas aparecem, mas com a contagem
-  // cheia: o tile é o resumo da pasta, não a lista de resultados.
-  const visibleFolders = useMemo(() => {
-    const ids = new Set(treeBuckets.map((bucket) => bucket.folder.id));
-    return buckets.filter((bucket) => ids.has(bucket.folder.id));
-  }, [buckets, treeBuckets]);
+  /**
+   * Tiles de pasta da grade: na raiz, as de primeiro nível; dentro de uma pasta, as
+   * subpastas dela; em "Todos", nenhum (é a lista corrida). Buscando, as pastas que
+   * são RESULTADO — nome que casa ou pack direto que casa; as que só ficaram na
+   * árvore por serem caminho até um resultado não viram tile. A contagem é a cheia:
+   * o tile é o resumo da pasta, não a lista de resultados.
+   */
+  const folderTiles = useMemo(() => {
+    if (isSearching) {
+      const lowered = packSearch.trim().toLocaleLowerCase("pt-BR");
+      return flattenTree(treeRoots)
+        .filter((node) => node.packs.length > 0 || node.folder.name.toLocaleLowerCase("pt-BR").includes(lowered))
+        .map((node) => bucketById.get(node.folder.id) ?? node);
+    }
+    if (folderView === null) return rootBuckets;
+    if (folderView === ALL_PACKS_VIEW) return [];
+    return currentBucket?.children ?? [];
+  }, [isSearching, packSearch, treeRoots, bucketById, folderView, rootBuckets, currentBucket]);
+
+  // Da raiz até a pasta aberta — o caminho no topo da grade.
+  const currentPath = useMemo(() => folderPath(bucketById, currentBucket?.folder.id ?? null), [bucketById, currentBucket]);
+  // Onde uma pasta nova nasce: dentro da aberta (como "Nova pasta" num gerenciador de
+  // arquivos); na raiz, em "Todos" e durante a busca.
+  const newFolderParentId = !isSearching && currentBucket ? currentBucket.folder.id : null;
 
   // Selecionável = o que está visível (a busca define o universo do "selecionar todos").
   const visiblePackIds = useMemo(() => packsInView.map((p) => p.id), [packsInView]);
@@ -419,6 +440,59 @@ export default function PacksPage() {
     setDropTargetFolderId(null);
   };
 
+  // Onde a pasta arrastada NÃO pode cair: nela mesma e em qualquer descendente.
+  const folderDragForbidden = useMemo(() => {
+    const node = draggingFolderId ? bucketById.get(draggingFolderId) : undefined;
+    return node ? subtreeIds(node) : new Set<string>();
+  }, [draggingFolderId, bucketById]);
+
+  const handleFolderDragEnd = () => {
+    setDraggingFolderId(null);
+    setDropTargetFolderId(null);
+    setLevelDropTarget(null);
+  };
+
+  /**
+   * Soltar num NÍVEL (voltar, caminho no topo): a pasta ou os packs sobem para ele.
+   * `null` = a raiz. Pasta vai para o fim do nível ("dentro"); na raiz, que não é
+   * pasta, entra depois da pasta de primeiro nível de onde veio.
+   */
+  const [levelDropTarget, setLevelDropTarget] = useState<string | null>(null);
+  const levelDropProps = (levelId: string | null) => {
+    const key = levelId ?? "__root__";
+    const canTake = () => {
+      if (draggingFolderId) return !(levelId && folderDragForbidden.has(levelId)) && (bucketById.get(draggingFolderId)?.folder.parent_id ?? null) !== levelId;
+      return draggingPackIds.length > 0;
+    };
+    return {
+      onDragOver: (e: React.DragEvent) => {
+        if (!canTake()) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = "move";
+        setLevelDropTarget(key);
+      },
+      onDragLeave: (e: React.DragEvent) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setLevelDropTarget(null);
+      },
+      onDrop: (e: React.DragEvent) => {
+        e.preventDefault();
+        setLevelDropTarget(null);
+        if (draggingFolderId) {
+          const dragged = draggingFolderId;
+          handleFolderDragEnd();
+          if (levelId) void moveFolder(dragged, levelId, "inside");
+          else {
+            const top = folderPath(bucketById, dragged)[0];
+            if (top && top.folder.id !== dragged) void moveFolder(dragged, top.folder.id, "after");
+          }
+        } else {
+          void handleDropPacks(levelId);
+        }
+      },
+      isTarget: levelDropTarget === key,
+    };
+  };
+
   /** Solta os packs arrastados. `folderId` nulo tira da pasta. */
   const handleDropPacks = async (folderId: string | null) => {
     const ids = draggingPackIds;
@@ -432,7 +506,7 @@ export default function PacksPage() {
     if (!result) return;
     clearPackSelection();
 
-    const targetName = folderId ? buckets.find((b) => b.folder.id === folderId)?.folder.name : null;
+    const targetName = folderId ? bucketById.get(folderId)?.folder.name : null;
     const label = targetName
       ? `${ids.length} ${ids.length === 1 ? "pack movido" : "packs movidos"} para “${targetName}”`
       : `${ids.length} ${ids.length === 1 ? "pack retirado" : "packs retirados"} da pasta`;
@@ -465,7 +539,8 @@ export default function PacksPage() {
   };
 
   const handleRefreshFolder = (folder: PackFolder) => {
-    const ids = buckets.find((b) => b.folder.id === folder.id)?.packs.map((p) => p.id) ?? [];
+    // Com as subpastas (decisão de produto: a pasta responde pelo conteúdo inteiro).
+    const ids = bucketById.get(folder.id)?.allPacks.map((p) => p.id) ?? [];
     if (!ids.length) return;
     setPacksToRefresh(ids);
     setRefreshType("since_last_refresh");
@@ -475,7 +550,8 @@ export default function PacksPage() {
     const folder = folderToDelete;
     setFolderToDelete(null);
     if (!folder) return;
-    if (folderView === folder.id) setFolderView(null);
+    // O conteúdo sobe para a pasta de cima — é para lá que a vista vai junto.
+    if (folderView === folder.id) setFolderView(folder.parent_id ?? null);
     await deleteFolder(folder.id);
   };
 
@@ -967,7 +1043,7 @@ export default function PacksPage() {
                 </DropdownMenuContent>
               </DropdownMenu>
             )}
-            <Button variant="outline" className="flex items-center gap-2" onClick={() => setFolderDialog({ mode: "create", packIds: selectedPackIds })}>
+            <Button variant="outline" className="flex items-center gap-2" onClick={() => setFolderDialog({ mode: "create", packIds: selectedPackIds, parentId: newFolderParentId })}>
               <IconFolderPlus className="w-4 h-4" />
               Nova pasta
             </Button>
@@ -986,7 +1062,7 @@ export default function PacksPage() {
           ) : (
           <div className="flex flex-col items-stretch gap-6 lg:min-h-0 lg:flex-1 lg:flex-row xl:gap-8">
             <PackFolderTree
-              buckets={treeBuckets}
+              roots={treeRoots}
               loosePacks={treeLoosePacks}
               view={gridView}
               search={packSearch}
@@ -1027,13 +1103,17 @@ export default function PacksPage() {
               renderFolderMenu={(folder, packCount) => (
                 <FolderActionsMenu
                   folder={folder}
-                  packCount={packCount}
+                  // Contagem CHEIA: buscando, a árvore traz só os resultados, mas
+                  // "Atualizar todos" atualiza a pasta inteira — o número tem de bater.
+                  packCount={bucketById.get(folder.id)?.allPacks.length ?? packCount}
                   align="start"
                   side="right"
                   onOpen={(id) => { setFolderView(id); clearPackSelection(); }}
                   onRename={(f) => setFolderDialog({ mode: "rename", folder: f, packIds: [] })}
                   onDelete={setFolderToDelete}
                   onRefreshAll={handleRefreshFolder}
+                  onCreateSubfolder={(f) => setFolderDialog({ mode: "create", packIds: [], parentId: f.id })}
+                  hasSubfolders={(bucketById.get(folder.id)?.children.length ?? 0) > 0}
                 >
                   <TreeRowMenuTrigger label={`Ações da pasta ${folder.name}`} />
                 </FolderActionsMenu>
@@ -1041,6 +1121,9 @@ export default function PacksPage() {
               onDropPacks={handleDropPacks}
               isDragging={draggingPackIds.length > 0}
               onMoveFolder={moveFolder}
+              onFolderDragChange={setDraggingFolderId}
+              externalDraggingFolderId={draggingFolderId}
+              externalForbiddenIds={folderDragForbidden}
               onPackDragStart={handlePackDragStart}
               onPackDragEnd={handlePackDragEnd}
               isPackDragging={(packId) => draggingPackIds.includes(packId)}
@@ -1075,18 +1158,59 @@ export default function PacksPage() {
           {/* Cabeçalho da pasta aberta */}
           {!isSearching && folderView && currentBucket && (
             <div className="flex flex-wrap items-center gap-3 rounded-md border border-border border-l-[3px] border-l-primary bg-primary-10 px-4 py-3">
-              <Button variant="ghost" size="sm" onClick={() => { setFolderView(null); clearPackSelection(); }}>
+              {/* Voltar sobe UM nível — para a pasta de cima, não direto para a raiz. Também
+                  é alvo de arrasto: soltar aqui leva pasta ou packs para esse nível, o único
+                  jeito de TIRAR algo de dentro pela grade. */}
+              {(() => {
+                const back = levelDropProps(currentBucket.folder.parent_id ?? null);
+                return (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => { setFolderView(currentBucket.folder.parent_id ?? null); clearPackSelection(); }}
+                onDragOver={back.onDragOver}
+                onDragLeave={back.onDragLeave}
+                onDrop={back.onDrop}
+                className={cn(back.isTarget && "bg-surface ring-1 ring-inset ring-primary")}
+              >
                 <IconChevronLeft className="h-4 w-4" />
-                Biblioteca
+                <span className="max-w-40 truncate">{currentPath.length > 1 ? currentPath[currentPath.length - 2].folder.name : "Biblioteca"}</span>
               </Button>
+                );
+              })()}
               <div className="flex min-w-0 flex-col">
+                {/* Caminho completo só quando há de onde vir além da raiz. */}
+                {currentPath.length > 1 && (
+                  <nav aria-label="Caminho da pasta" className="flex min-w-0 flex-wrap items-center gap-1 text-xs text-muted-foreground">
+                    {(() => {
+                      const root = levelDropProps(null);
+                      return (
+                        <button type="button" className={cn("focus-inset rounded-sm px-0.5 hover:text-foreground", root.isTarget && "bg-surface text-foreground ring-1 ring-inset ring-primary")} onClick={() => { setFolderView(null); clearPackSelection(); }} onDragOver={root.onDragOver} onDragLeave={root.onDragLeave} onDrop={root.onDrop}>
+                          Biblioteca
+                        </button>
+                      );
+                    })()}
+                    {currentPath.slice(0, -1).map((node) => {
+                      const crumb = levelDropProps(node.folder.id);
+                      return (
+                        <Fragment key={node.folder.id}>
+                          <IconChevronRight className="h-3 w-3 shrink-0" />
+                          <button type="button" className={cn("focus-inset max-w-32 truncate rounded-sm px-0.5 hover:text-foreground", crumb.isTarget && "bg-surface text-foreground ring-1 ring-inset ring-primary")} onClick={() => { setFolderView(node.folder.id); clearPackSelection(); }} onDragOver={crumb.onDragOver} onDragLeave={crumb.onDragLeave} onDrop={crumb.onDrop}>
+                            {node.folder.name}
+                          </button>
+                        </Fragment>
+                      );
+                    })}
+                  </nav>
+                )}
                 <span className="truncate text-sm font-semibold text-foreground">{currentBucket.folder.name}</span>
                 <span className="text-xs text-muted-foreground tabular-nums">
-                  {currentBucket.packs.length} {currentBucket.packs.length === 1 ? "pack" : "packs"} · {formatCurrency(currentBucket.totalSpend)}
+                  {currentBucket.allPacks.length} {currentBucket.allPacks.length === 1 ? "pack" : "packs"}
+                  {currentBucket.children.length > 0 && ` em ${flattenTree([currentBucket]).length} pastas`} · {formatCurrency(currentBucket.totalSpend)}
                 </span>
               </div>
               <div className="ml-auto flex flex-wrap items-center gap-3">
-                <Button variant="outline" size="sm" onClick={() => handleRefreshFolder(currentBucket.folder)} disabled={currentBucket.packs.length === 0}>
+                <Button variant="outline" size="sm" onClick={() => handleRefreshFolder(currentBucket.folder)} disabled={currentBucket.allPacks.length === 0}>
                   <IconRefresh className="h-4 w-4" />
                   Atualizar todos
                 </Button>
@@ -1102,19 +1226,20 @@ export default function PacksPage() {
             </div>
           )}
 
-          {/* Pastas — na raiz e nos resultados da busca; dentro de uma pasta a lista
-              já é o conteúdo dela, e "Todos os packs" é a lista corrida, sem pastas. */}
-          {(gridView === null || isSearching) && visibleFolders.length > 0 && (
+          {/* Pastas — na raiz, as de primeiro nível; dentro de uma pasta, as subpastas;
+              na busca, as que são resultado. "Todos os packs" é a lista corrida. */}
+          {folderTiles.length > 0 && (
             <section className="flex flex-col gap-4">
               {/* Título de seção, como num gerenciador de arquivos: sem divisor e sem
                   contagem — o número de pastas está à vista logo abaixo. */}
               <h2 className="text-lg font-semibold text-foreground">Pastas</h2>
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5 xl:grid-cols-6">
-                {visibleFolders.map(({ folder, packs: inside, totalSpend, hasSheet, hasShared }) => (
+                {folderTiles.map(({ folder, allPacks, children: subfolders, totalSpend, hasSheet, hasShared }) => (
                   <FolderCard
                     key={folder.id}
                     folder={folder}
-                    packCount={inside.length}
+                    packCount={allPacks.length}
+                    hasSubfolders={subfolders.length > 0}
                     totalSpend={totalSpend}
                     hasSheet={hasSheet}
                     hasShared={hasShared}
@@ -1125,8 +1250,18 @@ export default function PacksPage() {
                     onRename={(f) => setFolderDialog({ mode: "rename", folder: f, packIds: [] })}
                     onDelete={setFolderToDelete}
                     onRefreshAll={handleRefreshFolder}
+                    onCreateSubfolder={(f) => setFolderDialog({ mode: "create", packIds: [], parentId: f.id })}
                     onDropPacks={handleDropPacks}
                     onDragStateChange={setDropTargetFolderId}
+                    onFolderDragStart={setDraggingFolderId}
+                    onFolderDragEnd={handleFolderDragEnd}
+                    acceptsFolderDrop={draggingFolderId !== null && !folderDragForbidden.has(folder.id)}
+                    onDropFolder={(targetId) => {
+                      const dragged = draggingFolderId;
+                      handleFolderDragEnd();
+                      if (dragged) void moveFolder(dragged, targetId, "inside");
+                    }}
+                    isDraggingSelf={draggingFolderId === folder.id}
                   />
                 ))}
               </div>
@@ -1149,11 +1284,12 @@ export default function PacksPage() {
                 </Button>
               }
             />
-          ) : packsInView.length === 0 && (gridView === null || (isSearching && visibleFolders.length > 0)) ? null : (
+          ) : packsInView.length === 0 && (gridView === null || folderTiles.length > 0) ? null : (
             // Na raiz, sem pack solto para mostrar, a seção inteira some: com tudo em
             // pastas ela seria só um título sobre um vazio. Continua existindo quando
             // uma busca não achou NADA (nem pasta), para dizer isso; se achou só pastas,
-            // os tiles já são a resposta. Para desarquivar
+            // os tiles já são a resposta — e o mesmo vale para uma pasta que só tem
+            // subpastas. Para desarquivar
             // arrastando, o alvo é "Sem pasta" na árvore, que reaparece durante o arrasto.
             <section
               className="flex flex-col gap-4"
@@ -1164,7 +1300,7 @@ export default function PacksPage() {
               {isAllView && !isSearching ? (
                 <h2 className="text-lg font-semibold text-foreground">Todos os packs</h2>
               ) : (
-                (gridView === null || isSearching) && visibleFolders.length > 0 && packsInView.length > 0 && (
+                folderTiles.length > 0 && packsInView.length > 0 && (
                   <h2 className="text-lg font-semibold text-foreground">Packs</h2>
                 )
               )}
@@ -1249,14 +1385,18 @@ export default function PacksPage() {
         mode={folderDialog?.mode ?? "create"}
         initialName={folderDialog?.folder?.name ?? ""}
         packCount={folderDialog?.packIds.length ?? 0}
-        existingNames={buckets.map((b) => b.folder.name)}
+        // Nome repetido só importa entre IRMÃS: "Vendas" dentro de dois clientes é normal.
+        existingNames={buckets
+          .filter((b) => (b.folder.parent_id ?? null) === (folderDialog?.mode === "rename" ? folderDialog.folder?.parent_id ?? null : folderDialog?.parentId ?? null))
+          .map((b) => b.folder.name)}
+        parentName={folderDialog?.mode === "create" && folderDialog.parentId ? bucketById.get(folderDialog.parentId)?.folder.name ?? null : null}
         onClose={() => setFolderDialog(null)}
         onConfirm={async (name) => {
           if (!folderDialog) return;
           if (folderDialog.mode === "rename" && folderDialog.folder) {
             await renameFolder(folderDialog.folder.id, name);
           } else {
-            await createFolder(name, folderDialog.packIds);
+            await createFolder(name, folderDialog.packIds, folderDialog.parentId ?? null);
             clearPackSelection();
           }
         }}
@@ -1266,7 +1406,14 @@ export default function PacksPage() {
         isOpen={!!folderToDelete}
         onClose={() => setFolderToDelete(null)}
         title={`Desfazer a pasta "${folderToDelete?.name ?? ""}"?`}
-        message="Os packs NÃO são apagados — eles voltam para a Biblioteca como packs soltos. Só o agrupamento desaparece."
+        message={(() => {
+          const parent = folderToDelete?.parent_id ? bucketById.get(folderToDelete.parent_id)?.folder.name : null;
+          const hasSubfolders = (folderToDelete && bucketById.get(folderToDelete.id)?.children.length) || 0;
+          const what = hasSubfolders ? "As subpastas e os packs dela" : "Os packs dela";
+          return parent
+            ? `Nada é apagado. ${what} sobem para “${parent}”, no lugar desta pasta. Só este agrupamento desaparece.`
+            : `Nada é apagado. ${what} voltam para a Biblioteca${hasSubfolders ? " (os packs como soltos)" : " como packs soltos"}. Só este agrupamento desaparece.`;
+        })()}
         confirmText="Desfazer pasta"
         variant="destructive"
         confirmIcon={<IconTrash className="h-5 w-5" />}

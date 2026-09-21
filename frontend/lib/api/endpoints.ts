@@ -593,16 +593,17 @@ export const api = {
     /** Pastas + vinculo {pack_id: folder_id} na mesma resposta: a tela desenha uma vez so. */
     list: (options?: { signal?: AbortSignal }): Promise<{ success: boolean; folders: PackFolder[]; members: PackFolderMembers }> =>
       apiClient.get('/folders', { signal: options?.signal }),
-    create: (name: string, packIds: string[] = []): Promise<{ success: boolean; folder: PackFolder; moved: number }> =>
-      apiClient.post('/folders', { name, pack_ids: packIds }),
+    create: (name: string, packIds: string[] = [], parentId: string | null = null): Promise<{ success: boolean; folder: PackFolder; moved: number }> =>
+      apiClient.post('/folders', { name, pack_ids: packIds, parent_id: parentId }),
     rename: (folderId: string, name: string): Promise<{ success: boolean; folder: PackFolder }> =>
       apiClient.patch(`/folders/${folderId}`, { name }),
     /** Desfaz a pasta. Os packs FICAM — voltam para "soltos" pela cascata da FK. */
-    remove: (folderId: string): Promise<{ success: boolean; deleted: boolean; id: string }> =>
+    /** Desfaz: subpastas e packs sobem um nível. Devolve quanto subiu. */
+    remove: (folderId: string): Promise<{ success: boolean; deleted: boolean; id: string; parent_id: string | null; folders_moved: number; packs_moved: number }> =>
       apiClient.delete(`/folders/${folderId}`),
-    /** Ordem COMPLETA das pastas, de cima para baixo. Uma ida só, grava só o que mudou. */
-    reorder: (folderIds: string[]): Promise<{ success: boolean; changed: number }> =>
-      apiClient.post('/folders/reorder', { folder_ids: folderIds }),
+    /** Muda o pai (null = raiz) e grava a ordem COMPLETA dos irmãos no destino — uma ida só. */
+    place: (folderId: string, parentId: string | null, siblingIds: string[]): Promise<{ success: boolean; changed: number; parent_id: string | null }> =>
+      apiClient.post(`/folders/${folderId}/place`, { parent_id: parentId, sibling_ids: siblingIds }),
     /** `folderId` nulo tira os packs da pasta (voltam para soltos). */
     move: (packIds: string[], folderId: string | null): Promise<{ success: boolean; moved: number; folder_id: string | null }> =>
       apiClient.post('/folders/move', { pack_ids: packIds, folder_id: folderId }),

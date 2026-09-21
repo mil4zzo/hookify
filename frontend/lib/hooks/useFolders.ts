@@ -5,14 +5,9 @@ import { api } from "@/lib/api/endpoints";
 import { showError, showSuccess } from "@/lib/utils/toast";
 import { logger } from "@/lib/utils/logger";
 import type { AdsPack, PackFolder, PackFolderMembers } from "@/lib/types";
+import { buildFolderTree, flattenTree, planFolderMove, type FolderBucket, type FolderDropEdge } from "@/lib/utils/folderTree";
 
-export interface FolderBucket {
-  folder: PackFolder;
-  packs: AdsPack[];
-  totalSpend: number;
-  hasSheet: boolean;
-  hasShared: boolean;
-}
+export type { FolderBucket } from "@/lib/utils/folderTree";
 
 /**
  * Pastas da Biblioteca. O vínculo vem do servidor como {pack_id: folder_id} e o
@@ -50,38 +45,20 @@ export function useFolders(packs: AdsPack[]) {
     return () => abortRef.current?.abort();
   }, [load]);
 
-  /** Pasta de cada pack, e os packs que não estão em nenhuma. */
-  const { buckets, loosePacks, folderIdByPack } = useMemo(() => {
-    const byId = new Map<string, AdsPack[]>();
-    folders.forEach((f) => byId.set(f.id, []));
-    const loose: AdsPack[] = [];
-
-    packs.forEach((pack) => {
-      const folderId = members[pack.id];
-      const bucket = folderId ? byId.get(folderId) : undefined;
-      // Vínculo órfão (pasta apagada em outra aba) cai em "soltos" em vez de sumir.
-      if (bucket) bucket.push(pack);
-      else loose.push(pack);
-    });
-
-    const list: FolderBucket[] = folders.map((folder) => {
-      const inside = byId.get(folder.id) || [];
-      return {
-        folder,
-        packs: inside,
-        totalSpend: inside.reduce((sum, p) => sum + (p.stats?.totalSpend || 0), 0),
-        hasSheet: inside.some((p) => !!p.sheet_integration?.id),
-        hasShared: inside.some((p) => !!p.shared_role),
-      };
-    });
-
-    return { buckets: list, loosePacks: loose, folderIdByPack: members };
+  /**
+   * A árvore. `buckets` é ela achatada na ordem desenhada (quem só precisa achar
+   * uma pasta por id continua funcionando); `rootBuckets` é o topo; `bucketById`
+   * é o atalho. Vínculo órfão (pasta apagada em outra aba) cai em "soltos".
+   */
+  const { rootBuckets, buckets, bucketById, loosePacks, folderIdByPack } = useMemo(() => {
+    const { roots, byId, loose } = buildFolderTree(folders, packs, members);
+    return { rootBuckets: roots, buckets: flattenTree(roots), bucketById: byId as Map<string, FolderBucket>, loosePacks: loose as AdsPack[], folderIdByPack: members };
   }, [folders, packs, members]);
 
   const createFolder = useCallback(
-    async (name: string, packIds: string[] = []) => {
+    async (name: string, packIds: string[] = [], parentId: string | null = null) => {
       try {
-        const res = await api.folders.create(name, packIds);
+        const res = await api.folders.create(name, packIds, parentId);
         setFolders((prev) => [...prev, res.folder].sort((a, b) => a.position - b.position || a.name.localeCompare(b.name, "pt-BR")));
         if (packIds.length) {
           setMembers((prev) => {
@@ -111,51 +88,73 @@ export function useFolders(packs: AdsPack[]) {
     }
   }, [folders]);
 
-  /** Desfaz a pasta. Os packs ficam: voltam para "soltos". */
+  /**
+   * Desfaz a pasta. Nada é apagado além dela: subpastas e packs SOBEM um nível, no
+   * lugar dela (na raiz, os packs ficam soltos). O otimista põe tudo no pai na hora;
+   * a ordem exata vem do servidor no `load()` seguinte.
+   */
   const deleteFolder = useCallback(async (folderId: string) => {
-    const prevFolders = folders;
-    const prevMembers = members;
-    const freed = Object.values(members).filter((id) => id === folderId).length;
+    const target = folders.find((f) => f.id === folderId);
+    if (!target) return;
+    const parentId = target.parent_id ?? null;
+    const parentName = parentId ? folders.find((f) => f.id === parentId)?.name : null;
 
-    setFolders((prev) => prev.filter((f) => f.id !== folderId));
+    setFolders((prev) =>
+      prev
+        .filter((f) => f.id !== folderId)
+        // Fração só para a ordem otimista ficar no lugar da desfeita até o reload.
+        .map((f) => (f.parent_id === folderId ? { ...f, parent_id: parentId, position: target.position + (f.position + 1) / 1000 } : f)),
+    );
     setMembers((prev) => {
       const next: PackFolderMembers = {};
-      Object.entries(prev).forEach(([packId, fid]) => { if (fid !== folderId) next[packId] = fid; });
+      Object.entries(prev).forEach(([packId, fid]) => {
+        if (fid !== folderId) next[packId] = fid;
+        else if (parentId) next[packId] = parentId;
+      });
       return next;
     });
 
     try {
-      await api.folders.remove(folderId);
-      showSuccess(freed > 0 ? `Pasta desfeita. ${freed} ${freed === 1 ? "pack voltou" : "packs voltaram"} para a Biblioteca.` : "Pasta desfeita.");
+      const res = await api.folders.remove(folderId);
+      const moved = (res.packs_moved || 0) + (res.folders_moved || 0);
+      const parts = [
+        res.packs_moved > 0 ? `${res.packs_moved} ${res.packs_moved === 1 ? "pack" : "packs"}` : null,
+        res.folders_moved > 0 ? `${res.folders_moved} ${res.folders_moved === 1 ? "subpasta" : "subpastas"}` : null,
+      ].filter(Boolean);
+      const where = parentName ? `para “${parentName}”` : "para a Biblioteca";
+      showSuccess(moved > 0 ? `Pasta desfeita. ${parts.join(" e ")} ${moved > 1 ? "subiram" : "subiu"} ${where}.` : "Pasta desfeita.");
     } catch (error) {
-      setFolders(prevFolders);
-      setMembers(prevMembers);
       showError(error instanceof Error ? error : new Error("Erro ao desfazer a pasta"));
+    } finally {
+      // A verdade vem do servidor nos dois casos: no sucesso, a ordem exata das
+      // subpastas que subiram; no erro, desfazer à mão um otimista de vários
+      // níveis seria mais frágil que reler.
+      load();
     }
-  }, [folders, members]);
+  }, [folders, load]);
 
   /**
-   * Leva a pasta para antes ou depois de outra. A conta é sobre a lista INTEIRA,
-   * não a que a busca deixou na tela — senão reordenar com filtro gravaria posições
-   * só dos visíveis e embaralharia os escondidos.
+   * Leva a pasta para antes, depois ou para DENTRO de outra. A conta é sobre a
+   * lista INTEIRA, não a que a busca deixou na tela — senão reordenar com filtro
+   * gravaria posições só dos visíveis e embaralharia os escondidos.
    */
-  const moveFolder = useCallback(async (folderId: string, targetId: string, edge: "before" | "after") => {
-    if (folderId === targetId) return;
-    const moving = folders.find((f) => f.id === folderId);
-    if (!moving) return;
-    const rest = folders.filter((f) => f.id !== folderId);
-    const at = rest.findIndex((f) => f.id === targetId);
-    if (at < 0) return;
-    rest.splice(edge === "before" ? at : at + 1, 0, moving);
-    if (rest.every((f, i) => f.id === folders[i].id)) return;
+  const moveFolder = useCallback(async (folderId: string, targetId: string, edge: FolderDropEdge) => {
+    const plan = planFolderMove(folders, folderId, targetId, edge);
+    if (!plan) return;
 
     const previous = folders;
-    setFolders(rest.map((f, i) => ({ ...f, position: i })));
+    const positionOf = new Map(plan.siblingIds.map((id, i) => [id, i]));
+    setFolders((prev) =>
+      prev.map((f) => {
+        if (f.id === folderId) return { ...f, parent_id: plan.parentId, position: positionOf.get(f.id)! };
+        return positionOf.has(f.id) ? { ...f, position: positionOf.get(f.id)! } : f;
+      }),
+    );
     try {
-      await api.folders.reorder(rest.map((f) => f.id));
+      await api.folders.place(folderId, plan.parentId, plan.siblingIds);
     } catch (error) {
       setFolders(previous);
-      showError(error instanceof Error ? error : new Error("Erro ao reordenar as pastas"));
+      showError(error instanceof Error ? error : new Error("Erro ao mover a pasta"));
     }
   }, [folders]);
 
@@ -225,5 +224,5 @@ export function useFolders(packs: AdsPack[]) {
     }
   }, [load]);
 
-  return { folders, buckets, loosePacks, folderIdByPack, isLoading, createFolder, renameFolder, deleteFolder, moveFolder, movePacks, undoMove, reload: load };
+  return { folders, rootBuckets, buckets, bucketById, loosePacks, folderIdByPack, isLoading, createFolder, renameFolder, deleteFolder, moveFolder, movePacks, undoMove, reload: load };
 }

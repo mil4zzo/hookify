@@ -22,8 +22,17 @@ export interface FolderCardProps {
   onRename: (folder: PackFolder) => void;
   onDelete: (folder: PackFolder) => void;
   onRefreshAll: (folder: PackFolder) => void;
+  onCreateSubfolder: (folder: PackFolder) => void;
+  hasSubfolders?: boolean;
   onDropPacks: (folderId: string) => void;
   onDragStateChange: (folderId: string | null) => void;
+  /** O tile também é arrastável: soltar em outro tile põe a pasta dentro dele. */
+  onFolderDragStart: (folderId: string) => void;
+  onFolderDragEnd: () => void;
+  /** Uma pasta está sendo arrastada E pode cair aqui (não é ela nem uma descendente). */
+  acceptsFolderDrop: boolean;
+  onDropFolder: (targetId: string) => void;
+  isDraggingSelf?: boolean;
 }
 
 /**
@@ -47,19 +56,33 @@ export function FolderCard({
   onRename,
   onDelete,
   onRefreshAll,
+  onCreateSubfolder,
+  hasSubfolders = false,
   onDropPacks,
   onDragStateChange,
+  onFolderDragStart,
+  onFolderDragEnd,
+  acceptsFolderDrop,
+  onDropFolder,
+  isDraggingSelf = false,
 }: FolderCardProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const noun = packCount === 1 ? "pack" : "packs";
 
   return (
     <div
-      className="group/folder relative"
+      className={cn("group/folder relative transition-opacity", isDraggingSelf && "opacity-40")}
+      draggable
+      onDragStart={(e) => {
+        e.dataTransfer.effectAllowed = "move";
+        e.dataTransfer.setData(FOLDER_DRAG_TYPE, folder.id);
+        onFolderDragStart(folder.id);
+      }}
+      onDragEnd={onFolderDragEnd}
       onDragOver={(e) => {
-        // Pasta arrastada (reordenar no explorer) não cai dentro de outra pasta.
-        if (e.dataTransfer.types.includes(FOLDER_DRAG_TYPE)) return;
-        // Sem preventDefault o navegador recusa o drop e o cursor fica "proibido".
+        // Pasta arrastada: só cai onde não criaria ciclo (nem nela mesma). Sem
+        // preventDefault o cursor mostra "proibido" e o drop não acontece.
+        if (e.dataTransfer.types.includes(FOLDER_DRAG_TYPE) && !acceptsFolderDrop) return;
         e.preventDefault();
         e.dataTransfer.dropEffect = "move";
         onDragStateChange(folder.id);
@@ -70,7 +93,8 @@ export function FolderCard({
       onDrop={(e) => {
         e.preventDefault();
         onDragStateChange(null);
-        onDropPacks(folder.id);
+        if (e.dataTransfer.types.includes(FOLDER_DRAG_TYPE)) onDropFolder(folder.id);
+        else onDropPacks(folder.id);
       }}
     >
       <button
@@ -103,6 +127,8 @@ export function FolderCard({
         onRename={onRename}
         onDelete={onDelete}
         onRefreshAll={onRefreshAll}
+        onCreateSubfolder={onCreateSubfolder}
+        hasSubfolders={hasSubfolders}
       >
         <button
           type="button"
