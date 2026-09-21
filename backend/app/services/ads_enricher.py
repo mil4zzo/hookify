@@ -75,6 +75,70 @@ def _is_reduce_data_error(http_err: requests.exceptions.HTTPError) -> bool:
     return '"code":1' in decoded_text and "reduce the amount of data" in decoded_text
 
 
+# Quantos textos por chave o spec enxuto guarda. O criativo dinamico da Meta aceita
+# ate 5 corpos/titulos; 10 e folga para nao truncar em silencio um caso fora da curva.
+_MAX_TEXTOS_POR_CHAVE = 10
+
+
+def _sem_copy_conhecida(existing_ad: Dict[str, Any]) -> bool:
+    """O anuncio guardado e criativo DINAMICO cujo texto nos jogamos fora.
+
+    Tres condicoes: nao tem `creative.body` (copy propria), TEM `asset_feed_spec`
+    (logo e dinamico, e a Meta tem texto para dar) e o spec nao tem `bodies` (o subset
+    enxuto de antes de 20/09 so guardava videos/images). Serve de gatilho para
+    re-enriquecer uma vez — igual ao que `video_owner_page_id` faz desde a sua
+    introducao.
+
+    Exigir o spec e o que segura a cauda: 669 anuncios em producao nao tem body NEM
+    spec (criativo sem dado nenhum) e entrariam em todo refresh para sempre sem ganhar
+    nada. A cauda que sobra e o dinamico que realmente nao tem texto — comparar com os
+    1.886 (2,6% do inventario) que o gatilho do page_id ja carrega.
+    """
+    creative = existing_ad.get("creative") or {}
+    if not isinstance(creative, dict):
+        return False
+    if str(creative.get("body") or "").strip():
+        return False
+    spec = creative.get("asset_feed_spec")
+    if not isinstance(spec, dict):
+        return False
+    return not spec.get("bodies")
+
+
+def _textos_do_asset_feed_spec(spec: Dict[str, Any]) -> Dict[str, Any]:
+    """Copy, headline e descricao do criativo DINAMICO, prontos para o spec enxuto.
+
+    Criativo dinamico nao preenche `creative.body`/`title`: poe N variacoes de texto em
+    `asset_feed_spec.bodies[].text` / `.titles[].text`. Medido em producao em 20/09:
+    de 46.086 anuncios sem copy, 43.607 tem spec gravado e NENHUM tem `bodies` — o texto
+    chegava na mesma resposta da Meta (`adcreatives{asset_feed_spec}`) e era descartado
+    aqui. Guardar nao custa chamada nova; custa ~950 bytes por anuncio (~40 MB no total).
+
+    A forma da Meta e preservada (lista de objetos com `text`) porque o dado e plural por
+    natureza: eleger "a" copy de um anuncio que tem tres seria inventar informacao.
+    """
+    out: Dict[str, Any] = {}
+    for chave in ("bodies", "titles", "descriptions"):
+        itens = spec.get(chave)
+        if not isinstance(itens, list):
+            continue
+        textos: List[Dict[str, str]] = []
+        vistos: set = set()
+        for item in itens:
+            if len(textos) >= _MAX_TEXTOS_POR_CHAVE:
+                break
+            if not isinstance(item, dict):
+                continue
+            texto = str(item.get("text") or "").strip()
+            if not texto or texto in vistos:
+                continue
+            vistos.add(texto)
+            textos.append({"text": texto})
+        if textos:
+            out[chave] = textos
+    return out
+
+
 class AdsEnricher:
     """Enriquece dados de anuncios com detalhes da Meta API."""
 
@@ -642,6 +706,8 @@ class AdsEnricher:
         primary_video_id_by_name: Dict[str, str] = {}
         page_id_by_id: Dict[str, str] = {}
         page_id_by_name: Dict[str, str] = {}
+        textos_by_id: Dict[str, Dict[str, Any]] = {}
+        textos_by_name: Dict[str, Dict[str, Any]] = {}
         source_ad_fallbacks = 0
 
         for detail in details:
@@ -703,6 +769,13 @@ class AdsEnricher:
                         page_id_by_id[ad_id] = page_id
                     if name:
                         page_id_by_name[name] = page_id
+
+                textos = _textos_do_asset_feed_spec(asset_feed_spec)
+                if textos:
+                    if ad_id:
+                        textos_by_id[ad_id] = textos
+                    if name:
+                        textos_by_name[name] = textos
 
         logger.info(
             "[AdsEnricher] merge_details: %d/%d detalhes sem dado proprio (fallback source_ad)",
@@ -776,6 +849,12 @@ class AdsEnricher:
                         {"hash": img.get("hash"), "url": img.get("url")}
                         for img in afs_images if isinstance(img, dict)
                     ]
+                afs_textos = (
+                    (textos_by_id.get(ad_id_key) if ad_id_key else None)
+                    or (textos_by_name.get(ad_name) if ad_name else None)
+                )
+                if afs_textos:
+                    afs_subset.update(afs_textos)
                 if afs_subset:
                     ad["creative"]["asset_feed_spec"] = afs_subset
 
@@ -819,7 +898,16 @@ class AdsEnricher:
                     if ad_id in existing_ads_map
                     and not str(existing_ads_map[ad_id].get("video_owner_page_id") or "").strip()
                 )
-                enrich_ad_ids_set = new_ad_ids_set | missing_owner_ad_ids_set
+                # Criativo dinamico cujo texto foi descartado pelo subset enxuto antes
+                # de 20/09: sem isto, parar de descartar so vale para anuncio NOVO e os
+                # 43.607 ja gravados ficam sem copy para sempre.
+                missing_copy_ad_ids_set = set(
+                    ad_id for ad_id in unique_ad_ids
+                    if ad_id in existing_ads_map and _sem_copy_conhecida(existing_ads_map[ad_id])
+                )
+                enrich_ad_ids_set = (
+                    new_ad_ids_set | missing_owner_ad_ids_set | missing_copy_ad_ids_set
+                )
                 new_unique_ads = self.deduplicate_by_name(
                     [
                         ad
@@ -830,10 +918,12 @@ class AdsEnricher:
                 rep_ids = list(new_unique_ads.values())
 
                 logger.info(
-                    "[AdsEnricher] Refresh otimizado: %d ads existentes reutilizados, %d ads novos, %d existentes sem video_owner_page_id para re-enriquecimento",
-                    len(existing_ads_map) - len(missing_owner_ad_ids_set),
+                    "[AdsEnricher] Refresh otimizado: %d ads existentes reutilizados, %d ads novos, "
+                    "%d sem video_owner_page_id, %d sem copy de criativo dinamico",
+                    len(existing_ads_map) - len(missing_owner_ad_ids_set | missing_copy_ad_ids_set),
                     len(new_ad_ids_set),
                     len(missing_owner_ad_ids_set),
+                    len(missing_copy_ad_ids_set),
                 )
 
             media_details = self.fetch_details(act_id, rep_ids)
