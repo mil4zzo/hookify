@@ -4714,6 +4714,21 @@ aplicadas. Regra: antes de qualquer deploy, conferir **todas** as migrations que
 o que está no ar e o `main` exigem — não só as da frente que está subindo — contra `pg_proc` de
 produção. Aviso "aplicar ANTES do backend" escrito num plano não protege quem sobe outra coisa.
 
+**4. Duas sessões na MESMA pasta dividem o índice e o HEAD (21/09).** Uma segunda sessão em
+`C:\projetos\Hookify` commitou `47ddc34` (correção do Manager) no branch que estava aberto ali —
+que era a `feat/pastas-de-packs` de outra sessão, três minutos antes do merge dela no `main`. O
+fast-forward levou o commit alheio junto, e ninguém percebeu até um `git log` mostrar um commit a
+mais no topo. O reflog confirmou: o `main` foi de `d6e9625` direto para `47ddc34`.
+
+Há uma tensão com o item 2: "trabalhar sempre da pasta principal" é justamente o que junta as
+sessões no mesmo índice. A saída é commitar sempre via `git -C <worktree>` quando o branch é de um
+worktree, e nunca dar `git commit` puro na pasta principal sem ser dono do checkout dela.
+
+Regra: antes de merge ou push, olhar `git reflog show <branch>` e `git log <base>..<branch>`
+procurando commit que não é seu, e conferir `.git/index.lock`. Ao commitar, `git add <arquivo>`
+explícito — nunca `-A` nem `.`, que levariam o que a outra sessão deixou no índice — e conferir
+`git diff --cached --name-only` antes.
+
 ## Leads "sem match" da planilha não são falha do Hookify — e a planilha não cria linha (2026-09-13)
 
 Investigado ao revisar o F5 do plano de eficiência. A cada sincronização, ~138 pares
