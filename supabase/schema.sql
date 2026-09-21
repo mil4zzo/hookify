@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict PZr6uewRFU6RnYq3LlLX3alLLDEtYcTMOsqBUZ8k6PbHFMYzktF1RW9QzirJthf
+\restrict 5vqy5SfSHojEmJrtqmBvittGOeVVvuC0rc9buZjgX4Hn0Dludq3YGsLZ5A8V9Ue
 
 -- Dumped from database version 17.6
 -- Dumped by pg_dump version 17.6
@@ -11566,6 +11566,40 @@ COMMENT ON FUNCTION public.renew_job_processing_lease(p_job_id text, p_user_id u
 
 
 --
+-- Name: reorder_folders(uuid[]); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION public.reorder_folders(p_folder_ids uuid[]) RETURNS integer
+    LANGUAGE sql
+    SET search_path TO ''
+    AS $$
+  WITH wanted AS (
+    SELECT t.id, (t.ord - 1)::integer AS pos
+    FROM unnest(p_folder_ids) WITH ORDINALITY AS t(id, ord)
+  ),
+  changed AS (
+    UPDATE public.folders f
+    SET position = w.pos
+    FROM wanted w
+    WHERE f.id = w.id
+      AND f.user_id = (SELECT auth.uid())
+      AND f.position IS DISTINCT FROM w.pos
+    RETURNING 1
+  )
+  SELECT count(*)::integer FROM changed;
+$$;
+
+
+ALTER FUNCTION public.reorder_folders(p_folder_ids uuid[]) OWNER TO postgres;
+
+--
+-- Name: FUNCTION reorder_folders(p_folder_ids uuid[]); Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON FUNCTION public.reorder_folders(p_folder_ids uuid[]) IS 'Grava a ordem das pastas do ator: p_folder_ids e a lista completa, de cima para baixo; position = indice. Um UPDATE so, escrevendo apenas o que mudou. Devolve quantas linhas mudaram (migration 173).';
+
+
+--
 -- Name: resolve_pack_access(uuid[], uuid); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
@@ -15135,6 +15169,15 @@ GRANT ALL ON FUNCTION public.renew_job_processing_lease(p_job_id text, p_user_id
 
 
 --
+-- Name: FUNCTION reorder_folders(p_folder_ids uuid[]); Type: ACL; Schema: public; Owner: postgres
+--
+
+REVOKE ALL ON FUNCTION public.reorder_folders(p_folder_ids uuid[]) FROM PUBLIC;
+GRANT ALL ON FUNCTION public.reorder_folders(p_folder_ids uuid[]) TO authenticated;
+GRANT ALL ON FUNCTION public.reorder_folders(p_folder_ids uuid[]) TO service_role;
+
+
+--
 -- Name: FUNCTION resolve_pack_access(p_pack_ids uuid[], p_actor_id uuid); Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -15532,5 +15575,5 @@ ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA public GRANT ALL ON T
 -- PostgreSQL database dump complete
 --
 
-\unrestrict PZr6uewRFU6RnYq3LlLX3alLLDEtYcTMOsqBUZ8k6PbHFMYzktF1RW9QzirJthf
+\unrestrict 5vqy5SfSHojEmJrtqmBvittGOeVVvuC0rc9buZjgX4Hn0Dludq3YGsLZ5A8V9Ue
 
