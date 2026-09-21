@@ -4705,6 +4705,15 @@ aberto, o usuário não a encontrava. Os worktrees chat/ds foram trabalhados a p
 principal (caminhos absolutos + `git -C`) e não tiveram o problema. Regra: trabalhar sempre da
 pasta principal; não mover a sessão para dentro do worktree.
 
+**3. Deploy do `main` leva backend de OUTRA frente, sem a migration dela (incidente de 20/09).**
+O backend da trava de refresh (166) e do recorte de período (167) entrou no `main` em 18–19/09
+com as migrations aplicadas só no laboratório. Em 20/09 a sessão do worktree chat subiu o `main`
+para lançar a 170–172, aplicou as migrations *dela* e o backend foi junto: toda atualização de
+pack de todos os usuários virou 500 (`PGRST202`, função inexistente) até a 166/167 serem
+aplicadas. Regra: antes de qualquer deploy, conferir **todas** as migrations que os commits entre
+o que está no ar e o `main` exigem — não só as da frente que está subindo — contra `pg_proc` de
+produção. Aviso "aplicar ANTES do backend" escrito num plano não protege quem sobe outra coisa.
+
 ## Leads "sem match" da planilha não são falha do Hookify — e a planilha não cria linha (2026-09-13)
 
 Investigado ao revisar o F5 do plano de eficiência. A cada sincronização, ~138 pares
@@ -5200,3 +5209,43 @@ produção. O mesmo grafo de conflito que produção faz em 1,3–2,4 s levou 16
 variou 10→37 s entre repetições **do mesmo estado** — ruído maior que o efeito procurado.
 Quem decide é a estrutura (idas à tabela, blocos, páginas marcadas), como a 165 já tinha
 feito. Medições em `documentation/plano-edicao-periodo-pack.md` §6.6.
+
+---
+
+## Pastas de packs: a escada de superfícies não serve para desenhar objeto (2026-09-20)
+
+Migration 168. A Biblioteca ganhou pastas, e o desenho da pasta expôs um limite real do
+design system que vale registrar porque ele vai reaparecer.
+
+**A escada de superfícies é RELATIVA à página e inverte de direção conforme o tema.** No
+escuro, subir de nível é clarear; no claro, é escurecer. Isso é correto para superfície
+de interface, que existe em relação ao fundo. É errado para um **objeto desenhado**, que
+precisa guardar a mesma distância até a página nos dois temas.
+
+Pintar a pasta com `surface-2`/`surface-3` parecia o caminho óbvio — usa token oficial,
+adapta sozinho. Mas produziu uma colisão garantida: o hover do tile também era
+`surface-2`, então passar o mouse levava o fundo exatamente até a cor da pasta. Não era
+questão de escolher outro tom: os dois andavam juntos por construção.
+
+**A saída já existia no próprio design system**, no `.btn-tonal`: *"a mesma luz sobre um
+véu da cor do texto — funciona em qualquer nível da escada, porque é transparência e não
+um cinza fixo"*. A pasta virou véu sobre o fundo (`--folder-back` 15%, `--folder-front`
+25%, em `globals.css`), e o hover é o mesmo véu a 6%. Como saem da mesma fórmula, a
+distância entre eles é fixa e simétrica nos dois temas.
+
+| tema escuro | luminosidade |
+|---|---|
+| página | 0,209 |
+| hover do tile | ~0,25 |
+| pasta, camada de trás | 0,323 |
+| pasta, camada da frente | 0,399 |
+
+**Regra que fica:** superfície de interface sai da escada; ilustração sai de um véu sobre
+o fundo. E antes de pintar um elemento novo, conferir com o que ele vai encostar — a
+colisão aqui só apareceu porque duas decisões certas isoladamente escolheram o mesmo
+nível.
+
+**Um detalhe de geometria que custou três tentativas:** numa pasta desenhada em duas
+camadas, a camada de trás tem o **topo reto**. O recorte de aba é ela aparecendo *acima*
+da frente, que é alta de um lado e desce em degrau. Desenhar a aba na camada de trás — o
+caminho intuitivo — produz uma caixa, não uma pasta.

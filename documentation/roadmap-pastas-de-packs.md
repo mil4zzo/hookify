@@ -2,11 +2,25 @@
 
 > **Documento vivo.** Atualize o status conforme os lotes forem concluídos.
 >
-> Criado em: 2026-09-04 · Lote 3 medido em 2026-09-05
-> Status: **desenho aprovado, nada implementado em produção**
+> Criado em: 2026-09-04 · Lote 3 medido em 2026-09-05 · status atualizado em 2026-09-21
 >
-> Mockup navegável (leque, seleção em massa, barra atual × proposta, três
-> densidades): https://claude.ai/code/artifact/45cb97c6-0ef1-461c-9780-1190a50b5cb3
+> **Status — no código (branch `feat/pastas-de-packs`), ainda não em produção:**
+> - Migration 168 **APLICADA** em produção em 2026-09-20 (RLS, policies, chaves e
+>   exclusividade verificadas no banco). Rota `/folders` e frontend **sem deploy**.
+> - **Lote 2 feito**: pastas, explorer (busca única + árvore) acoplado à grade, tiles,
+>   arrastar da grade e da árvore com "Desfazer", menus de pasta e de pack.
+> - **Parte do Lote 1 feita, por outro caminho**: seleção múltipla na ÁRVORE (shift+
+>   clique por intervalo) e ordenação num controle só. **Não feitos**: checkbox mestre
+>   no toolbar, repintura da `BulkActionsBar`, compartilhar/transcrever em massa.
+> - **Lote 3 não feito**: densidade (cartão/compacto/lista). A grade só passou a 3 colunas.
+>
+> **O layout mudou depois dos mockups.** O vigente é o do código, não o do v2:
+> explorer integrado à página (sem container), só a grade rola (`contentScroll`),
+> pasta desenhada como véu sobre o fundo. Os mockups ficam como registro do processo:
+> - v1 (2026-09-05) — leque, seleção em massa, barra atual × proposta, três
+>   densidades: https://claude.ai/code/artifact/45cb97c6-0ef1-461c-9780-1190a50b5cb3
+> - v2 (2026-09-19) — painel de pastas em árvore, arrastar para dentro, ações a
+>   nível de pasta: https://claude.ai/artifact/DtREgcNqeayz7dLbuzLTiE
 >
 > Capítulo irmão de [roadmap-pack-como-unidade.md](roadmap-pack-como-unidade.md).
 > Aquele move a unidade de **configuração e colaboração** do usuário para o pack.
@@ -30,7 +44,7 @@ Três frentes, nesta ordem:
 ```
 Lote 1 — Seleção e ações em massa    (não depende de banco; ganho imediato)
       ▼
-Lote 2 — Pastas                       (migration 141; resolve a poluição)
+Lote 2 — Pastas                       (migration 168; resolve a poluição)
       ▼
 Lote 3 — Densidade (cartão/compacto/lista)  (frente separada, sem dependência)
 ```
@@ -128,10 +142,10 @@ pack só, que é onde ela faz sentido.
 
 ## Lote 2 — Pastas
 
-### 2.1 Modelo de dados (migration 141)
+### 2.1 Modelo de dados (migration 168)
 
 ```
-folders(id, user_id, name, color, parent_id NULL → folders.id, created_at, updated_at)
+folders(id, user_id, name, parent_id NULL → folders.id, position, created_at, updated_at)
 pack_folder_members(user_id, pack_id, folder_id, created_at)
   UNIQUE (user_id, pack_id)          ← a exclusividade mora aqui
 ```
@@ -208,6 +222,49 @@ Aceitável porque a pasta é organização pessoal, não um link que se comparti
 
 **Criar pasta** é o gesto de seleção: selecionar N packs → "Mover para pasta" →
 pasta existente ou nova. Não há uma tela de "gerenciar pastas".
+
+### 2.3 Layout v2 — painel de pastas (2026-09-19)
+
+Redirecionado pelo idealizador a partir de uma referência visual (file explorer:
+árvore à esquerda, pastas em cima, arquivos soltos embaixo, arrastar para dentro).
+Substitui o "abrir expande no lugar" da 2.2 — a navegação passa a ser pela árvore e
+pelo breadcrumb. O leque continua, agora como as folhas que saem de dentro da pasta.
+
+**Onde encaixa no app:** o `MainContent` já tem o slot `pageSidebar` (ligado pelo
+`PageContainer`; hoje só o Explorer legado usa). O painel de pastas entra ali sem
+mexer na casca. Custo: 272px; em 1440px o grid ainda cabe 4 colunas, abaixo perde
+uma; o painel recolhe.
+
+**Arrastar tem Desfazer.** Arrasto erra em silêncio (solta na pasta vizinha). Cada
+movimento mostra toast com "Desfazer" por alguns segundos; arrastar um pack
+selecionado arrasta a seleção inteira. É o mesmo motivo pelo qual "drag aplica tag"
+foi rejeitado nos Boards — lá era tela de leitura; aqui é tela de organização, e o
+gesto é o do Explorer. Cabe, desde que tenha volta.
+
+**Ações a nível de pasta — o que é bulk-apply e o que NÃO é herança:**
+
+| Ação na pasta | Semântica | Por quê |
+|---|---|---|
+| Atualizar todos | atalho de seleção | igual à barra em massa |
+| Compartilhar pasta | atalho de seleção (**Decisão 3**) | pack que entra depois não herda acesso |
+| Transcrever | atalho de seleção, diálogo agregado | custo por minuto, total antes do botão |
+| Planilha do Google | **aplicar a todos os packs de agora** | cada pack continua dono do próprio vínculo |
+| Critérios (MQL, CPR alvo, métrica) | **aplicar a todos os packs de agora** | ver abaixo |
+
+**Por que critério por pasta é bulk-apply e nunca herança viva:** o P2 já pagou para
+revogar a herança de julgamento (critério herdado fazia dois membros verem vereditos
+diferentes no mesmo pack — ver `pack_owned_judgment_no_inheritance`). E a pasta é
+pessoal (Decisão 1): um critério que viesse da pasta seria, na prática, critério por
+usuário de novo, pela porta dos fundos. "Aplicar à pasta" escreve no pack, uma vez,
+e o pack segue dono do valor.
+
+**Planilha por pasta — custo escondido:** N packs apontando para a mesma planilha =
+N integrações lendo o mesmo arquivo a cada sync. Funciona, mas é desperdício (filosofia
+do projeto: caçar desperdício antes de otimizar). Ler uma vez e distribuir é
+otimização para depois, não bloqueio para o lançamento.
+
+**Não está no mockup v2:** pasta dentro de pasta (a árvore já é árvore; UI plana),
+aviso de conflito cross-owner ao selecionar pasta inteira, reordenar pastas por arrasto.
 
 ---
 
