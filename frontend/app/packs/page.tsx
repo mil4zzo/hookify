@@ -19,7 +19,7 @@ import { useClientAuth, useClientPacks } from "@/lib/hooks/useClientSession";
 import { useOnboardingGate } from "@/lib/hooks/useOnboardingGate";
 import { showSuccess, showError } from "@/lib/utils/toast";
 import { api } from "@/lib/api/endpoints";
-import { IconFilter, IconPlus, IconTrash, IconChartBar, IconSearch, IconLoader2, IconCircleCheck, IconCircleX, IconCircleDot, IconInfoCircle, IconRefresh, IconChevronLeft, IconChevronRight, IconPencil, IconFolderPlus, IconSortAscending, IconSortDescending } from "@tabler/icons-react";
+import { IconFilter, IconPlus, IconTrash, IconChartBar, IconSearch, IconLoader2, IconCircleCheck, IconCircleX, IconCircleDot, IconInfoCircle, IconRefresh, IconChevronLeft, IconChevronRight, IconPencil, IconFolderPlus, IconFolderSymlink, IconSortAscending, IconSortDescending } from "@tabler/icons-react";
 
 import { FilterRule, ClearEnrichmentResult } from "@/lib/api/schemas";
 import { AdsPack } from "@/lib/types";
@@ -49,6 +49,7 @@ import { useFolders } from "@/lib/hooks/useFolders";
 import { ALL_PACKS_VIEW, PackFolderTree, TreeRowMenuTrigger, type FolderView } from "@/components/packs/PackFolderTree";
 import { FolderActionsMenu } from "@/components/packs/FolderActionsMenu";
 import { PackActionsMenu } from "@/components/packs/PackActionsMenu";
+import { MoveToFolderDialog } from "@/components/packs/MoveToFolderDialog";
 import { FolderCard } from "@/components/packs/FolderCard";
 import { PacksActionsSkeleton, PacksLibrarySkeleton } from "@/components/packs/PacksLibrarySkeleton";
 import { FolderNameDialog } from "@/components/packs/FolderNameDialog";
@@ -168,6 +169,11 @@ export default function PacksPage() {
   const [packToDisableAutoRefresh, setPackToDisableAutoRefresh] = useState<{ id: string; name: string } | null>(null);
   const [isTogglingAutoRefresh, setIsTogglingAutoRefresh] = useState<string | null>(null);
   const [transcriptionDialogPack, setTranscriptionDialogPack] = useState<{ id: string; name: string } | null>(null);
+  /**
+   * Alvo do "Mover para pasta". Guarda os IDS, não os packs: entre abrir o diálogo e
+   * escolher a pasta a lista pode ser recarregada, e o objeto de pack ficaria velho.
+   */
+  const [moveTarget, setMoveTarget] = useState<{ ids: string[]; name: string | null } | null>(null);
   const { isPackUpdating } = useUpdatingPacksStore();
   const { refreshPack, isRefreshing, startTranscriptionOnly } = usePackRefresh();
   // Pasta aberta quando a criação começou: o pack nasce solto no servidor, então é
@@ -493,13 +499,15 @@ export default function PacksPage() {
     };
   };
 
-  /** Solta os packs arrastados. `folderId` nulo tira da pasta. */
-  const handleDropPacks = async (folderId: string | null) => {
-    const ids = draggingPackIds;
-    setDraggingPackIds([]);
-    setDropTargetFolderId(null);
+  /**
+   * O ÚNICO caminho de escrita de "mover": arrastar, a barra de ações e o menu do pack
+   * chamam esta função. Ela é que decide o que é movimento, escreve, limpa a seleção e
+   * oferece o "Desfazer" — três gestos com a mesma consequência precisam ter a mesma
+   * consequência visível, senão o "Desfazer" só existe no caminho que alguém lembrou.
+   */
+  const commitMove = async (ids: string[], folderId: string | null) => {
     if (!ids.length) return;
-    // Soltar onde já estava não é movimento — não vale toast nem escrita.
+    // Mover para onde já estava não é movimento — não vale toast nem escrita.
     if (ids.every((id) => (folderIdByPack[id] ?? null) === folderId)) return;
 
     const result = await movePacks(ids, folderId);
@@ -521,6 +529,24 @@ export default function PacksPage() {
         </button>
       </span>,
     );
+  };
+
+  /**
+   * Abre o "Mover para pasta" do menu de UM pack. Mesma regra do arrasto: agir num pack
+   * que está dentro da seleção age na seleção INTEIRA — o mesmo pack com a mesma intenção
+   * não pode ter escopo diferente só porque o gesto foi outro.
+   */
+  const openMoveDialog = (pack: AdsPack) => {
+    const withinSelection = selectedPackKeys.has(pack.id) && selectedPackCount > 1;
+    setMoveTarget(withinSelection ? { ids: selectedPackIds, name: null } : { ids: [pack.id], name: pack.name });
+  };
+
+  /** Solta os packs arrastados. `folderId` nulo tira da pasta. */
+  const handleDropPacks = async (folderId: string | null) => {
+    const ids = draggingPackIds;
+    setDraggingPackIds([]);
+    setDropTargetFolderId(null);
+    await commitMove(ids, folderId);
   };
 
   /** Clique num pack da árvore: abre a pasta dele (ou a raiz) e rola até o card. */
@@ -568,7 +594,9 @@ export default function PacksPage() {
       id: "refresh",
       label: "Atualizar",
       icon: <IconRefresh className="h-3.5 w-3.5" />,
-      className: "hover:bg-success hover:text-success-foreground",
+      // Azul (acento) porque é a ação DIÁRIA da Biblioteca: é o que se faz na maior
+      // parte das vezes em que se marca um punhado de packs.
+      tone: "accent",
       // Sem confirm: o próprio dialog de atualização é a confirmação, e ele traz as opções.
       onSelect: () => {
         setPacksToRefresh(selectedPackIds);
@@ -576,9 +604,19 @@ export default function PacksPage() {
       },
     },
     {
+      id: "move",
+      label: "Mover",
+      icon: <IconFolderSymlink className="h-3.5 w-3.5" />,
+      // Gatilho: abre a lista de pastas para escolher, então ganha o chevron.
+      opensList: true,
+      onSelect: () => setMoveTarget({ ids: selectedPackIds, name: null }),
+    },
+    {
       id: "remove-sheets",
       label: "Desconectar planilha",
       icon: <GoogleSheetsIcon className="h-3.5 w-3.5" />,
+      // Ocasional: vai para o menu "Mais" em vez de ocupar uma fatia da barra.
+      secondary: true,
       disabled: selectedPacksWithSheets.length === 0,
       confirm: {
         title: () => `Desconectar a planilha de ${selectedPacksWithSheets.length} ${selectedPacksWithSheets.length === 1 ? "pack" : "packs"}?`,
@@ -595,7 +633,7 @@ export default function PacksPage() {
       id: "delete",
       label: "Deletar",
       icon: <IconTrash className="h-3.5 w-3.5" />,
-      className: "hover:bg-destructive hover:text-destructive-foreground",
+      tone: "danger",
       showsLoading: true,
       confirm: {
         title: (count, noun) => `Deletar ${count} ${noun}?`,
@@ -1092,6 +1130,7 @@ export default function PacksPage() {
                   isUpdating={isPackUpdating(pack.id) || isPackRefreshingOnServer(pack)}
                   onRefresh={handleRefreshPack}
                   onRemove={handleRemovePack}
+                  onMove={openMoveDialog}
                   onEditDateRange={setDateRangePack}
                   onTranscribeAds={(packId, packName) => setTranscriptionDialogPack({ id: packId, name: packName })}
                   onEditJudgment={setJudgmentPack}
@@ -1357,7 +1396,7 @@ export default function PacksPage() {
                           />
                         </div>
                       )}
-                    <PackCard pack={pack} adAccountName={adAccountNameById.get(pack.adaccount_id)} formatCurrency={formatCurrency} formatDate={formatDate} onRefresh={handleRefreshPack} onRemove={handleRemovePack} onToggleAutoRefresh={handleToggleAutoRefresh} onSetSheetIntegration={setSheetIntegrationPack} onEditSheetIntegration={handleEditSheetIntegration} onDeleteSheetIntegration={handleDeleteSheetIntegration} onEditJudgment={setJudgmentPack} onEditDateRange={setDateRangePack} onTranscribeAds={(packId, packName) => setTranscriptionDialogPack({ id: packId, name: packName })} isSelected={isPackSelected(pack.id)} isUpdating={isPackUpdating(pack.id) || isPackRefreshingOnServer(pack)} updatingByName={isPackRefreshingOnServer(pack) ? pack.refresh_actor_name : null} isTogglingAutoRefresh={isTogglingAutoRefresh} packToDisableAutoRefresh={packToDisableAutoRefresh} />
+                    <PackCard pack={pack} adAccountName={adAccountNameById.get(pack.adaccount_id)} formatCurrency={formatCurrency} formatDate={formatDate} onRefresh={handleRefreshPack} onRemove={handleRemovePack} onMove={openMoveDialog} onToggleAutoRefresh={handleToggleAutoRefresh} onSetSheetIntegration={setSheetIntegrationPack} onEditSheetIntegration={handleEditSheetIntegration} onDeleteSheetIntegration={handleDeleteSheetIntegration} onEditJudgment={setJudgmentPack} onEditDateRange={setDateRangePack} onTranscribeAds={(packId, packName) => setTranscriptionDialogPack({ id: packId, name: packName })} isSelected={isPackSelected(pack.id)} isUpdating={isPackUpdating(pack.id) || isPackRefreshingOnServer(pack)} updatingByName={isPackRefreshingOnServer(pack) ? pack.refresh_actor_name : null} isTogglingAutoRefresh={isTogglingAutoRefresh} packToDisableAutoRefresh={packToDisableAutoRefresh} />
                     </div>
                   ))}
                 </div>
@@ -1373,6 +1412,7 @@ export default function PacksPage() {
             base do grid deixaria a barra fora da tela ao selecionar cards do topo. */}
         <BulkActionsBar
           selectedCount={selectedPackCount}
+          totalCount={visiblePackIds.length}
           isLoading={isBulkDeleting}
           allSelected={allPacksSelected}
           entityNoun={{ singular: "pack", plural: "packs" }}
@@ -1382,6 +1422,24 @@ export default function PacksPage() {
           className="fixed"
         />
       </PageContainer>
+
+      <MoveToFolderDialog
+        isOpen={!!moveTarget}
+        packIds={moveTarget?.ids ?? []}
+        singlePackName={moveTarget?.name ?? null}
+        rootBuckets={rootBuckets}
+        folderIdByPack={folderIdByPack}
+        onClose={() => setMoveTarget(null)}
+        onMove={(folderId) => { if (moveTarget) void commitMove(moveTarget.ids, folderId); }}
+        onCreateAndMove={async (name) => {
+          if (!moveTarget) return;
+          // Cria JÁ com os packs dentro: uma chamada só, e nada de pasta vazia se a
+          // segunda metade falhasse. Sem "Desfazer" aqui de propósito — desfazer
+          // deixaria uma pasta vazia recém-criada, que é pior que o movimento.
+          await createFolder(name, moveTarget.ids, null);
+          clearPackSelection();
+        }}
+      />
 
       <FolderNameDialog
         isOpen={!!folderDialog}

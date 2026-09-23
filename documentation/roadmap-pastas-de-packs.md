@@ -18,7 +18,14 @@
 >   (`dissolve_folder`) não apaga nada — subpastas e packs sobem um nível, no lugar dela.
 > - **Parte do Lote 1 feita, por outro caminho**: seleção múltipla na ÁRVORE (shift+
 >   clique por intervalo) e ordenação num controle só. **Não feitos**: checkbox mestre
->   no toolbar, repintura da `BulkActionsBar`, compartilhar/transcrever em massa.
+>   no toolbar, compartilhar/transcrever em massa.
+> - **Barra de ações repintada (2026-09-23)**: a `BulkActionsBar` virou a versão
+>   "segmentada" — superfície invertida, 48px, a barra inteira acesa de cima e cada ação
+>   uma fatia dela separada por um corte de 1px. Ordem em tres zonas (o que esta
+>   selecionado · o que fazer · a saida), cor em repouso so na tinta (azul = acao mais
+>   frequente da tela, vermelho = irreversivel, verde = religa) com preenchimento solido
+>   no hover, e menu "Mais" para o ocasional. Vale para /packs e /manager. Mockup das
+>   tres barras comparadas: https://claude.ai/artifact/9ct33qA2f1JuMKyMuKAyWz
 > - **Lote 3 não feito**: densidade (cartão/compacto/lista). A grade só passou a 3 colunas.
 >
 > **O layout mudou depois dos mockups.** O vigente é o do código, não o do v2:

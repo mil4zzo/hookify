@@ -316,7 +316,20 @@ componentes usam os tokens semanticos abaixo, nunca os niveis direto.
 
 Passo de 0,080 no escuro e 0,035 no claro (o claro tambem conta com borda e sombra).
 Flutuante (popover, menu, tooltip) e nivel 1 + `shadow-elevation-overlay`, o unico
-nivel que recebe essa sombra. A temperatura do cinza inteira mora em dois tokens,
+nivel que recebe essa sombra.
+
+**A unica excecao e a barra de acoes em massa** (`BulkActionsBar`, `.bulk-slab` no
+`globals.css`): ela INVERTE o tema — no claro e quase preta, no escuro quase branca.
+A escada e relativa a pagina, e essa barra flutua sobre qualquer nivel; enquanto ela
+era `bg-card` ficava exatamente da cor do fundo dos cartoes de pack e sumia dentro da
+grade. Invertida, ela se separa de qualquer nivel que esteja atras. Duas consequencias
+que valem para qualquer coisa desenhada DENTRO dela: (1) a tinta sai de `--background`
+(`text-background`, `bg-background-10`), nunca dos tokens de texto da pagina; (2)
+nenhuma acao tem cor em REPOUSO — a cor entra so no hover, preenchendo a fatia inteira
+com o passo escuro (`primary-600`, `destructive-600`, `success-800`) e a luz do
+`btn-lit` por cima. Tinta colorida em repouso seria medida contra a pagina, nao contra
+a barra, e daria a cada tela uma barra de cara diferente. O menu que abre dela veste a
+mesma pele, em vez do nivel 1: e o mesmo objeto, nao uma janela nova. A temperatura do cinza inteira mora em dois tokens,
 `neutral-chroma` e `neutral-hue`.
 
 **A regra — tres frases, nenhuma decisao caso a caso:**

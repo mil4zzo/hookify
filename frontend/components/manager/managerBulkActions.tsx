@@ -58,7 +58,7 @@ export function buildManagerBulkActions({ onPause, onActivate, onShare, onTags, 
       id: "pause",
       label: "Pausar",
       icon: <IconPlayerPause className="h-3.5 w-3.5" />,
-      className: "hover:bg-destructive hover:text-destructive-foreground",
+      tone: "danger",
       showsLoading: true,
       confirm: {
         title: (count, noun) => `Pausar ${count} ${noun}?`,
@@ -74,7 +74,7 @@ export function buildManagerBulkActions({ onPause, onActivate, onShare, onTags, 
       id: "activate",
       label: "Ativar",
       icon: <IconPlayerPlay className="h-3.5 w-3.5" />,
-      className: "hover:bg-success hover:text-success-foreground",
+      tone: "success",
       showsLoading: true,
       confirm: {
         title: (count, noun) => `Ativar ${count} ${noun}?`,
@@ -92,7 +92,8 @@ export function buildManagerBulkActions({ onPause, onActivate, onShare, onTags, 
       id: "share",
       label: "Compartilhar",
       icon: <IconShare2 className="h-3.5 w-3.5" />,
-      className: "text-primary hover:bg-primary hover:text-primary-foreground",
+      // Na aba Criativos a seleção existe PARA compartilhar — é ela que leva o acento.
+      tone: "accent",
       onSelect: onShare,
     });
   }

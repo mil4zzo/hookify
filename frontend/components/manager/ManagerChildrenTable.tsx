@@ -546,6 +546,7 @@ export function ManagerChildrenTable({
       {/* Ações em massa flutuantes — mesma barra da tabela principal, ancorada na base do modal. */}
       <BulkActionsBar
         selectedCount={selectedCount}
+        totalCount={orderedSelectableKeys.length}
         isLoading={bulk.isLoading}
         allSelected={allSelected}
         entityNoun={BULK_ENTITY_NOUN[config.bulkEntityType]}

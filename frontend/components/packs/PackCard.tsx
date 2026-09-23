@@ -40,6 +40,8 @@ export interface PackCardProps {
   // Handlers
   onRefresh: (packId: string) => void;
   onRemove: (packId: string) => void;
+  /** Abre o diálogo de mover para pasta com este pack. */
+  onMove?: (pack: AdsPack) => void;
   onToggleAutoRefresh: (packId: string, checked: boolean) => void;
   onSetSheetIntegration: (pack: AdsPack) => void;
   onEditSheetIntegration?: (pack: AdsPack) => void;
@@ -70,7 +72,7 @@ export interface PackCardProps {
  * - Métricas: Campanhas, Adsets, Anúncios (grid de 3 colunas)
  * - Footer: Última atualização (esquerda) + Atualização automática (direita)
  */
-export function PackCard({ pack, adAccountName, formatCurrency, formatDate, onRefresh, onRemove, onToggleAutoRefresh, onSetSheetIntegration, onEditSheetIntegration, onDeleteSheetIntegration, onEditJudgment, onEditDateRange, onTranscribeAds, isSelected = false, isUpdating, updatingByName, isTogglingAutoRefresh, packToDisableAutoRefresh }: PackCardProps) {
+export function PackCard({ pack, adAccountName, formatCurrency, formatDate, onRefresh, onRemove, onMove, onToggleAutoRefresh, onSetSheetIntegration, onEditSheetIntegration, onDeleteSheetIntegration, onEditJudgment, onEditDateRange, onTranscribeAds, isSelected = false, isUpdating, updatingByName, isTogglingAutoRefresh, packToDisableAutoRefresh }: PackCardProps) {
   const stats = pack.stats;
   // Conta de anúncio de origem: prefere o nome resolvido; cai para o id cru (act_...) se ainda não carregou/não resolveu.
   const adAccountLabel = adAccountName || pack.adaccount_id;
@@ -294,6 +296,7 @@ export function PackCard({ pack, adAccountName, formatCurrency, formatDate, onRe
         isUpdating={isUpdating}
         onRefresh={onRefresh}
         onRemove={onRemove}
+        onMove={onMove}
         onEditDateRange={onEditDateRange}
         onTranscribeAds={onTranscribeAds}
         onEditJudgment={onEditJudgment}

@@ -1403,6 +1403,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
           Na aba Criativos a seleção alimenta compartilhar (sem pausar/ativar — não há entidade única). */}
       <BulkActionsBar
         selectedCount={selectedCount}
+        totalCount={table.getRowModel().rows.length}
         isLoading={isBulkLoading}
         allSelected={table.getIsAllPageRowsSelected()}
         entityNoun={isCreativesTab ? { singular: "criativo", plural: "criativos" } : BULK_ENTITY_NOUN[bulkEntityType]}

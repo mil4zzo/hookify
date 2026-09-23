@@ -206,6 +206,72 @@
 .frame-placeholder { border: 1px dashed var(--placeholder-border); background-color: transparent; }
 .state-icon-veil { background-color: var(--state-icon-veil); }
 
+/* BARRA DE ACOES EM MASSA — a unica superficie do app que INVERTE o tema: no claro ela
+   e quase preta, no escuro quase branca. Ela fica FORA da escada de superficies de
+   proposito. A escada e relativa a pagina, e a barra flutua sobre qualquer nivel — ate
+   2026-09 ela era `bg-card`, exatamente a cor do fundo dos cartoes de pack, e sumia
+   dentro da grade. Invertida, ela se separa de qualquer nivel que esteja atras.
+
+   Aqui a barra INTEIRA e o controle: recebe a luz do `btn-lit` como uma lousa so
+   (degrade de cima, fio claro na primeira linha de pixels, fio escuro na ultima) e cada
+   acao e uma fatia dela, de topo a base. O que separa duas fatias e um corte de 1px
+   (`divide-x` na barra), nunca uma margem — por isso a altura da barra e a altura do
+   botao (`control-large`), e nao ha respiro nas pontas. */
+.bulk-slab {
+  background-color: var(--foreground);
+  color: var(--background);
+  background-image: linear-gradient(180deg, oklch(1 0 0 / 0.14), oklch(1 0 0 / 0) 52%, oklch(0 0 0 / 0.10));
+  /* O valor de `shadow-elevation-overlay` vem junto: a mesma propriedade carrega a luz
+     interna da lousa, entao aplicar a classe do token por cima apagaria uma das duas. */
+  box-shadow:
+    inset 0 1px 0 oklch(1 0 0 / 0.20),
+    inset 0 -1px 0 oklch(0 0 0 / 0.28),
+    0 18px 50px color-mix(in oklab, var(--foreground) 22%, transparent);
+}
+
+/* EM REPOUSO NENHUMA FATIA TEM COR: a barra e neutra ate o ponteiro chegar. Cor de tinta
+   aqui seria medida contra a PAGINA, nao contra a barra invertida, e ainda daria a cada
+   tela uma barra de aparencia diferente conforme o tom que ela declara.
+   O preenchimento SOLIDO e do hover, quando a acao esta prestes a acontecer, e sai do
+   passo ESCURO da cor — o tom de texto reprova no contraste com texto claro (a mesma
+   medicao de `btn-lit-success`). A luz de cima vem junto: sem ela, a cor solida cobriria
+   o degrade da lousa e aquela fatia deixaria de parecer parte da barra. */
+.bulk-tone-accent:hover:not(:disabled),
+.bulk-tone-danger:hover:not(:disabled),
+.bulk-tone-success:hover:not(:disabled) {
+  color: var(--surface-fill);
+  background-image: linear-gradient(180deg, oklch(1 0 0 / 0.16), oklch(1 0 0 / 0) 52%, oklch(0 0 0 / 0.10));
+  text-shadow: 0 1px 1px oklch(0 0 0 / 0.35);
+}
+.bulk-tone-accent:hover:not(:disabled) { background-color: var(--primary-600); }
+.bulk-tone-danger:hover:not(:disabled) { background-color: var(--destructive-600); }
+.bulk-tone-success:hover:not(:disabled) { background-color: var(--success-800); }
+
+/* O que JA foi acionado afunda: o `state-pressed`, com o veu da tinta no lugar do azul,
+   que aqui brigaria com a fatia de acento. Vale para o "Fixar no topo" do Manager. */
+.bulk-slab [aria-pressed="true"] {
+  background-color: oklch(from var(--background) l c h / 0.16);
+  box-shadow:
+    inset 0 1px 0 oklch(0 0 0 / 0.45),
+    inset 0 2px 2px -1px oklch(0 0 0 / 0.38),
+    inset 0 -1px 0 oklch(1 0 0 / 0.16);
+}
+.bulk-slab [aria-pressed="true"]:hover { background-color: oklch(from var(--background) l c h / 0.24); }
+
+/* O menu "Mais" veste a pele da barra — e o mesmo objeto, nao um popover da pagina. No
+   nivel 1 (a regra dos flutuantes) abriria uma janela clara saindo de uma barra escura:
+   dois objetos onde existe um. */
+.bulk-menu {
+  background-color: var(--foreground);
+  color: var(--background);
+}
+.bulk-menu-item:hover,
+.bulk-menu-item:focus,
+.bulk-menu-item[data-highlighted] {
+  background-color: oklch(from var(--background) l c h / 0.14);
+  color: var(--background);
+}
+
 /* ROLAGEM SEM BARRA, COM SINAL DE CONTINUAÇÃO.
    Usado na árvore da Biblioteca. Ali a barra não cabe por dois motivos: ela some e
    reaparece (a largura das linhas pula), e reservar o espaço com `scrollbar-gutter`

@@ -1,9 +1,9 @@
 "use client";
 
 import React from "react";
-import { IconLoader2, IconX } from "@tabler/icons-react";
-import { Button } from "@/components/ui/button";
+import { IconChevronDown, IconDots, IconLoader2, IconX } from "@tabler/icons-react";
 import { ConfirmDialog } from "@/components/common/ConfirmDialog";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils/cn";
 
 export interface BulkActionConfirm {
@@ -16,15 +16,32 @@ export interface BulkActionConfirm {
   icon?: React.ReactNode;
 }
 
+/**
+ * Cor da fatia. Em repouso ela aparece só na TINTA; o preenchimento sólido é do hover.
+ * - `accent` (azul): a ação mais FREQUENTE da tela — uma só por barra. Não é a mais
+ *   importante nem a mais simbólica: é a que a pessoa mais vai querer clicar (atualizar
+ *   no /packs, pausar/ativar no /manager). Se duas disputam, nenhuma é a principal.
+ * - `danger` (vermelho) e `success` (verde): semântica, não hierarquia — param e religam.
+ */
+export type BulkActionTone = "accent" | "danger" | "success";
+
 export interface BulkAction {
   id: string;
   label: string;
   icon?: React.ReactNode;
-  /** Classes extras do botão — tint de hover conforme a natureza da ação. */
-  className?: string;
   disabled?: boolean;
-  /** Ação de liga/desliga: quando true, o botão aparece pressionado (estado visível na barra). */
+  /** Ação de liga/desliga: quando true, a fatia aparece afundada (já acionada). */
   active?: boolean;
+  tone?: BulkActionTone;
+  /** Gatilho — abre lista/diálogo para escolher. Ganha o chevron, que promete a escolha. */
+  opensList?: boolean;
+  /**
+   * Ação OCASIONAL: sai da barra e vira item do menu "Mais". O critério não é
+   * "menos importante", é menos frequente — o que se faz uma vez por pack, o que
+   * custa dinheiro, o que envolve outra pessoa. O irreversível NÃO entra aqui:
+   * esconder "Deletar" atrás de um clique a mais não protege, só faz procurar.
+   */
+  secondary?: boolean;
   /** Troca o ícone por spinner enquanto `isLoading`. Só para ações que disparam a carga. */
   showsLoading?: boolean;
   /** Ausente = executa direto (ação não destrutiva). Presente = passa pelo ConfirmDialog. */
@@ -34,6 +51,8 @@ export interface BulkAction {
 
 export interface BulkActionsBarProps {
   selectedCount: number;
+  /** Universo do "selecionar todos" (pós-filtro). Presente, o contador vira "3 de 9". */
+  totalCount?: number;
   isLoading: boolean;
   /** True quando todas as linhas selecionáveis (pós-filtro) já estão selecionadas. */
   allSelected: boolean;
@@ -47,25 +66,48 @@ export interface BulkActionsBarProps {
   className?: string;
 }
 
+const TONE_CLASS: Record<BulkActionTone, string> = {
+  accent: "bulk-tone-accent",
+  danger: "bulk-tone-danger",
+  success: "bulk-tone-success",
+};
+
+/** A fatia: altura inteira da barra, sem raio e sem margem — quem separa é o `divide-x`. */
+const SEGMENT = "focus-inset inline-flex h-control-large shrink-0 items-center gap-2 whitespace-nowrap px-4 text-sm font-medium outline-none transition-colors disabled:pointer-events-none disabled:opacity-50 [&_svg]:size-4";
+/** Fatia sem cor própria: véu da tinta no hover. */
+const SEGMENT_NEUTRAL = "hover:bg-background-10";
+/** Controle de seleção (não é ação sobre os itens): recua até o ponteiro chegar. */
+const SEGMENT_QUIET = "text-background-60 hover:text-background";
+
 /**
  * Barra flutuante de ações em massa. Aparece centrada na base da área de conteúdo quando
  * há itens selecionados — perto de onde o usuário está clicando, sem disputar espaço com
  * o toolbar (busca/filtros). O pai precisa ser `relative`.
+ *
+ * A leitura é em três zonas, da esquerda para a direita: **o que está selecionado**
+ * (contador + selecionar todos), **o que fazer** (as ações, na ordem que o caller
+ * declara — por frequência) e **a saída** (✕). "Selecionar todos" não é ação sobre os
+ * itens: fala sobre a seleção, o mesmo assunto do contador ao lado.
  *
  * Ações destrutivas ou de alto impacto declaram `confirm` e passam por um dialog: diferente
  * do toggle individual, um clique aqui atinge N itens de uma vez — pausa acidental de dezenas
  * de anúncios já aconteceu. O dialog vive aqui dentro para que toda superfície que renderize
  * a barra ganhe a proteção sem duplicar estado.
  */
-export function BulkActionsBar({ selectedCount, isLoading, allSelected, entityNoun, actions, onToggleAll, onClear, className }: BulkActionsBarProps) {
+export function BulkActionsBar({ selectedCount, totalCount, isLoading, allSelected, entityNoun, actions, onToggleAll, onClear, className }: BulkActionsBarProps) {
   const [pendingActionId, setPendingActionId] = React.useState<string | null>(null);
+  // O menu devolve o foco ao gatilho ao fechar. Quando o item escolhido abre um dialog,
+  // essa devolução acontece DEPOIS do dialog montar e rouba o foco dele.
+  const confirmFromMenuRef = React.useRef(false);
 
   if (selectedCount === 0) return null;
 
   const noun = selectedCount === 1 ? entityNoun.singular : entityNoun.plural;
   const pendingAction = actions.find((action) => action.id === pendingActionId) ?? null;
+  const inlineActions = actions.filter((action) => !action.secondary);
+  const menuActions = actions.filter((action) => action.secondary);
 
-  const handleClick = (action: BulkAction) => {
+  const handleSelect = (action: BulkAction) => {
     if (action.confirm) setPendingActionId(action.id);
     else action.onSelect();
   };
@@ -76,25 +118,79 @@ export function BulkActionsBar({ selectedCount, isLoading, allSelected, entityNo
   };
 
   return (
-    <div className={cn("pointer-events-none absolute inset-x-0 bottom-6 z-sticky flex justify-center", className)}>
-      <div className="pointer-events-auto flex h-control-default items-center gap-2 rounded-lg border border-border bg-card px-3 text-sm shadow-elevation-overlay">
-        <span className="whitespace-nowrap font-medium text-muted-foreground">
-          {selectedCount} selecionado{selectedCount !== 1 ? "s" : ""}
+    <div className={cn("pointer-events-none absolute inset-x-0 bottom-6 z-sticky flex justify-center px-4", className)}>
+      <div className="bulk-slab pointer-events-auto flex max-w-full flex-wrap items-center divide-x divide-background-20 overflow-hidden rounded-lg">
+        <span className="inline-flex h-control-large shrink-0 items-center px-4 text-sm tabular-nums text-background-60">
+          <b className="font-semibold text-background">{selectedCount}</b>
+          {totalCount !== undefined ? (
+            <>
+              {" de "}
+              <b className="font-semibold text-background">{totalCount}</b>
+            </>
+          ) : null}
+          {` ${selectedCount === 1 ? "selecionado" : "selecionados"}`}
         </span>
-        <div className="h-4 w-px bg-border" />
-        {actions.map((action) => (
-          <Button key={action.id} variant="ghost" size="sm" aria-pressed={action.active} className={cn("h-auto gap-1 px-2 py-0.5 text-xs", action.active && "bg-primary-10 text-primary", action.className)} disabled={isLoading || action.disabled} onClick={() => handleClick(action)}>
-            {isLoading && action.showsLoading ? <IconLoader2 className="h-3.5 w-3.5 animate-spin" /> : action.icon}
-            {action.label}
-          </Button>
-        ))}
-        {actions.length > 0 && <div className="h-4 w-px bg-border" />}
-        <Button variant="ghost" size="sm" className="h-auto px-2 py-0.5 text-xs text-muted-foreground" disabled={isLoading} onClick={() => onToggleAll(!allSelected)}>
+
+        <button type="button" className={cn(SEGMENT, SEGMENT_NEUTRAL, SEGMENT_QUIET)} disabled={isLoading} onClick={() => onToggleAll(!allSelected)}>
           {allSelected ? "Desmarcar todos" : "Selecionar todos"}
-        </Button>
-        <Button variant="ghost" size="sm" className="h-auto px-1 py-0.5 text-muted-foreground" disabled={isLoading} onClick={onClear} aria-label="Limpar seleção">
-          <IconX className="h-3.5 w-3.5" />
-        </Button>
+        </button>
+
+        {inlineActions.map((action) => (
+          <button
+            key={action.id}
+            type="button"
+            aria-pressed={action.active}
+            className={cn(SEGMENT, action.tone ? TONE_CLASS[action.tone] : SEGMENT_NEUTRAL)}
+            disabled={isLoading || action.disabled}
+            onClick={() => handleSelect(action)}
+          >
+            {isLoading && action.showsLoading ? <IconLoader2 className="animate-spin" /> : action.icon}
+            {action.label}
+            {action.opensList ? <IconChevronDown className="opacity-60" /> : null}
+          </button>
+        ))}
+
+        {menuActions.length > 0 ? (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button type="button" className={cn(SEGMENT, SEGMENT_NEUTRAL, "data-[state=open]:bg-background-10")} disabled={isLoading}>
+                <IconDots />
+                Mais
+                <IconChevronDown className="opacity-60" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent
+              side="top"
+              align="end"
+              sideOffset={8}
+              className="bulk-menu w-60 rounded-lg border-0 p-1.5 shadow-elevation-overlay"
+              onCloseAutoFocus={(event) => {
+                if (!confirmFromMenuRef.current) return;
+                confirmFromMenuRef.current = false;
+                event.preventDefault();
+              }}
+            >
+              {menuActions.map((action) => (
+                <DropdownMenuItem
+                  key={action.id}
+                  disabled={isLoading || action.disabled}
+                  className="bulk-menu-item h-control-default gap-2.5 rounded-md px-3 text-sm font-medium [&_svg]:size-4"
+                  onSelect={() => {
+                    confirmFromMenuRef.current = !!action.confirm;
+                    handleSelect(action);
+                  }}
+                >
+                  {action.icon}
+                  {action.label}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        ) : null}
+
+        <button type="button" className={cn(SEGMENT, SEGMENT_NEUTRAL, SEGMENT_QUIET, "px-3.5")} disabled={isLoading} onClick={onClear} aria-label="Limpar seleção">
+          <IconX />
+        </button>
       </div>
 
       {/* Renderiza via portal (AppDialog/Radix) — escapa do wrapper pointer-events-none. */}

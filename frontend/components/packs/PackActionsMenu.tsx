@@ -2,7 +2,7 @@
 
 import React, { useState } from "react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { IconRotateClockwise, IconCalendarEvent, IconMicrophone, IconTargetArrow, IconTableExport, IconPencil, IconTrash, IconUsers, IconHistory, IconLogout } from "@tabler/icons-react";
+import { IconRotateClockwise, IconFolderSymlink, IconCalendarEvent, IconMicrophone, IconTargetArrow, IconTableExport, IconPencil, IconTrash, IconUsers, IconHistory, IconLogout } from "@tabler/icons-react";
 import { PackActivityDialog } from "@/components/packs/PackActivityDialog";
 import { PackShareDialog } from "@/components/packs/PackShareDialog";
 import { api } from "@/lib/api/endpoints";
@@ -21,6 +21,12 @@ export interface PackActionsMenuProps {
   side?: "top" | "right" | "bottom" | "left";
   onRefresh: (packId: string) => void;
   onRemove: (packId: string) => void;
+  /**
+   * Mover para pasta. Sem guarda de convidado de propósito: pasta é organização de
+   * QUEM VÊ (o vínculo é por usuário), então o convidado arruma a tela dele sem
+   * mexer no pack de ninguém — é a mesma regra do backend, que exige acesso e não posse.
+   */
+  onMove?: (pack: AdsPack) => void;
   onEditDateRange?: (pack: AdsPack) => void;
   onTranscribeAds?: (packId: string, packName: string) => void;
   onEditJudgment?: (pack: AdsPack) => void;
@@ -48,6 +54,7 @@ export function PackActionsMenu({
   side = "right",
   onRefresh,
   onRemove,
+  onMove,
   onEditDateRange,
   onTranscribeAds,
   onEditJudgment,
@@ -92,6 +99,12 @@ export function PackActionsMenu({
             <IconRotateClockwise className="w-4 h-4 mr-2" />
             Atualizar pack
           </DropdownMenuItem>
+          {onMove && (
+            <DropdownMenuItem onClick={() => onMove(pack)}>
+              <IconFolderSymlink className="w-4 h-4 mr-2" />
+              Mover para pasta…
+            </DropdownMenuItem>
+          )}
           {onEditDateRange && !isSharedGuest && (
             <DropdownMenuItem onClick={() => onEditDateRange(pack)} disabled={isUpdating}>
               <IconCalendarEvent className="w-4 h-4 mr-2" />
