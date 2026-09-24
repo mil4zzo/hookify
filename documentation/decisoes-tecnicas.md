@@ -5264,3 +5264,33 @@ nível.
 camadas, a camada de trás tem o **topo reto**. O recorte de aba é ela aparecendo *acima*
 da frente, que é alta de um lado e desce em degrau. Desenhar a aba na camada de trás — o
 caminho intuitivo — produz uma caixa, não uma pasta.
+
+---
+
+## Critério de vários packs na mesma tela: resolver por linha, não pela tela (2026-09-23)
+
+**Data:** 2026-09-23 · status: **decidido; implementação na F2 da economia do lead** (plano: `documentation/plano-economia-do-lead.md`, decisão D27)
+
+**Contexto:** quando vários packs estão selecionados e cada um tem o seu critério, o app
+resolvia o critério para a tela inteira: se os packs discordam, o número some de todas as
+linhas (é a regra do corte de MQL, espelhada em `resolveJudgment.ts`, no backend e no SQL).
+A economia do lead (teto de CPL e margem por anúncio) nasceu copiando essa regra.
+
+**Decisão (proposta do idealizador):** a economia do lead é resolvida **por linha**. Cada
+linha do Manager usa o cadastro dos packs de onde vêm os anúncios dela (`pack_ids` da
+linha); só a linha que junta packs com cadastros diferentes fica indisponível. A média
+pondera o resultado de cada linha pelos leads com nota — com um cadastro só, dá o mesmo
+número da conta sobre o histograma somado — e o cabeçalho avisa quando alguma linha ficou
+de fora.
+
+**Por que não a regra da tela:** o número de uma linha só depende do critério do pack dos
+leads dela, e um anúncio individual pertence a um pack só (medido). A regra da tela apagava
+tudo por causa de uma diferença que só afeta as linhas mistas, que só existem na visão
+agrupada por nome.
+
+**Pendente, de propósito:** o corte de MQL continua com a regra da tela. A mesma troca vale
+para ele, mas foi deixada para depois da economia do lead para não misturar as frentes. A
+troca mexe nos três lugares que precisam concordar (`resolveJudgment.ts`,
+`_resolve_mql_leadscore_min`, `resolve_pack_mql_leadscore_min`). Memória:
+`lead_economics_row_resolution_and_mql_followup.md`.
+
