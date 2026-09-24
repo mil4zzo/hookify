@@ -71,7 +71,8 @@ export function PackActionsMenu({
   const isViewer = pack.shared_role === "viewer";
   const hasJudgmentOverride =
     (pack.mql_leadscore_min !== null && pack.mql_leadscore_min !== undefined) ||
-    (pack.target_cpr !== null && pack.target_cpr !== undefined);
+    (pack.target_cpr !== null && pack.target_cpr !== undefined) ||
+    (pack.lead_economics !== null && pack.lead_economics !== undefined);
 
   const spreadsheetRenamedFrom = pack.sheet_integration?.spreadsheet_renamed_from || null;
   const renameNotice = spreadsheetRenamedFrom ? `Renomeada: antes era ${spreadsheetRenamedFrom}.` : null;

@@ -114,6 +114,9 @@ function describeDetail(entry: PackActivityEntry): string | null {
     if ("target_cpr" in d) {
       parts.push(d.target_cpr == null ? "CPR alvo removido" : "CPR alvo redefinido");
     }
+    if ("lead_economics" in d) {
+      parts.push(d.lead_economics == null ? "economia do lead removida" : "economia do lead redefinida");
+    }
     return parts.length ? parts.join(" · ") : null;
   }
   if (entry.action === "pack.refresh") {

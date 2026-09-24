@@ -24,6 +24,7 @@ import { IconFilter, IconPlus, IconTrash, IconChartBar, IconSearch, IconLoader2,
 import { FilterRule, ClearEnrichmentResult } from "@/lib/api/schemas";
 import { AdsPack } from "@/lib/types";
 import { useFormatCurrency } from "@/lib/utils/currency";
+import { findAdAccountCurrency } from "@/lib/utils/packJudgmentForm";
 import { PageContainer } from "@/components/common/PageContainer";
 import { PageActions } from "@/components/common/PageActions";
 import { StatePanel, InlineNotice } from "@/components/common/States";
@@ -1938,6 +1939,9 @@ export default function PacksPage() {
         onOpenChange={(open) => {
           if (!open) setJudgmentPack(null);
         }}
+        // Ticket da economia do lead na moeda da CONTA do pack (é com o gasto dela
+        // que ele se compara), não na preferência de quem vê.
+        accountCurrency={findAdAccountCurrency(adAccountsData, judgmentPack?.adaccount_id)}
       />
 
       {/* Edição do período do pack (só ampliar nesta etapa) */}
