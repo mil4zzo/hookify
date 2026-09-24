@@ -1,0 +1,4974 @@
+[
+  {
+    "name": "valido: 1 produto, 1 faixa",
+    "input": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "Mentoria",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ]
+    },
+    "expected_errors": [],
+    "expected_value": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "Mentoria",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ]
+    }
+  },
+  {
+    "name": "valido: exemplo da secao 5 (2 produtos, 3 faixas)",
+    "input": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "Mentoria",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        },
+        {
+          "id": "p2",
+          "name": "Ebook",
+          "ticket": 300,
+          "contribution_margin": 0.9,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p2",
+          "conversion": 0.005
+        },
+        {
+          "min": 60,
+          "product": "p1",
+          "conversion": 0.04
+        },
+        {
+          "min": 80,
+          "product": "p1",
+          "conversion": 0.12
+        }
+      ]
+    },
+    "expected_errors": [],
+    "expected_value": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "Mentoria",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        },
+        {
+          "id": "p2",
+          "name": "Ebook",
+          "ticket": 300,
+          "contribution_margin": 0.9,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p2",
+          "conversion": 0.005
+        },
+        {
+          "min": 60,
+          "product": "p1",
+          "conversion": 0.04
+        },
+        {
+          "min": 80,
+          "product": "p1",
+          "conversion": 0.12
+        }
+      ]
+    }
+  },
+  {
+    "name": "valido: canonico apara id/nome, colapsa espacos e descarta chaves extras",
+    "input": {
+      "products": [
+        {
+          "id": "  p1  ",
+          "name": "  Mentoria    Premium  ",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4,
+          "cor": "azul"
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": " p1 ",
+          "conversion": 0.04,
+          "rotulo": "tudo"
+        }
+      ],
+      "observacao": "chave desconhecida no topo"
+    },
+    "expected_errors": [],
+    "expected_value": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "Mentoria Premium",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ]
+    }
+  },
+  {
+    "name": "valido: primeira faixa sem a chave min",
+    "input": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "Mentoria",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ]
+    },
+    "expected_errors": [],
+    "expected_value": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "Mentoria",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ]
+    }
+  },
+  {
+    "name": "valido: id com 40 caracteres",
+    "input": {
+      "products": [
+        {
+          "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "name": "Mentoria",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "conversion": 0.04
+        }
+      ]
+    },
+    "expected_errors": [],
+    "expected_value": {
+      "products": [
+        {
+          "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "name": "Mentoria",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "conversion": 0.04
+        }
+      ]
+    }
+  },
+  {
+    "name": "valido: nome com 60 caracteres",
+    "input": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ]
+    },
+    "expected_errors": [],
+    "expected_value": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ]
+    }
+  },
+  {
+    "name": "valido: nome com 60 unidades UTF-16 contando emoji (58 + 😀)",
+    "input": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa😀",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ]
+    },
+    "expected_errors": [],
+    "expected_value": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa😀",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ]
+    }
+  },
+  {
+    "name": "valido: nome com BOM, NBSP e em-space vira 'Curso Online'",
+    "input": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "\ufeffCurso\u00a0\u00a0Online\u2003",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ]
+    },
+    "expected_errors": [],
+    "expected_value": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "Curso Online",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ]
+    }
+  },
+  {
+    "name": "valido: NEL (U+0085) nao e espaco no JS e fica no nome",
+    "input": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "Curso\u0085Online",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ]
+    },
+    "expected_errors": [],
+    "expected_value": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "Curso\u0085Online",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ]
+    }
+  },
+  {
+    "name": "valido: NUL no meio do nome vira espaco",
+    "input": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "Mentoria\u0000VIP",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ]
+    },
+    "expected_errors": [],
+    "expected_value": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "Mentoria VIP",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ]
+    }
+  },
+  {
+    "name": "valido: controles C0 e DEL viram espaco e colapsam",
+    "input": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "\u0001Mentoria\u001f\u007f VIP\b",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ]
+    },
+    "expected_errors": [],
+    "expected_value": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "Mentoria VIP",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ]
+    }
+  },
+  {
+    "name": "valido: surrogate alto solto no nome e removido",
+    "input": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "Mentoria\ud800 VIP",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ]
+    },
+    "expected_errors": [],
+    "expected_value": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "Mentoria VIP",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ]
+    }
+  },
+  {
+    "name": "valido: surrogate baixo solto no nome e removido",
+    "input": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "\udc00Mentoria VIP",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ]
+    },
+    "expected_errors": [],
+    "expected_value": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "Mentoria VIP",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ]
+    }
+  },
+  {
+    "name": "valido: emoji preservado ao lado de surrogate solto",
+    "input": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "Mentoria \ud800😀\ude00",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ]
+    },
+    "expected_errors": [],
+    "expected_value": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "Mentoria 😀",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ]
+    }
+  },
+  {
+    "name": "valido: id com NUL vira espaco (e a faixa que o cita tambem)",
+    "input": {
+      "products": [
+        {
+          "id": "p\u00001",
+          "name": "Mentoria",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p\u00001",
+          "conversion": 0.04
+        }
+      ]
+    },
+    "expected_errors": [],
+    "expected_value": {
+      "products": [
+        {
+          "id": "p 1",
+          "name": "Mentoria",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p 1",
+          "conversion": 0.04
+        }
+      ]
+    }
+  },
+  {
+    "name": "valido: contribution_margin 1",
+    "input": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "Mentoria",
+          "ticket": 3000,
+          "contribution_margin": 1,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ]
+    },
+    "expected_errors": [],
+    "expected_value": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "Mentoria",
+          "ticket": 3000,
+          "contribution_margin": 1,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ]
+    }
+  },
+  {
+    "name": "valido: target_margin 0",
+    "input": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "Mentoria",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ]
+    },
+    "expected_errors": [],
+    "expected_value": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "Mentoria",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ]
+    }
+  },
+  {
+    "name": "valido: ticket fracionario",
+    "input": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "Mentoria",
+          "ticket": 49.9,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ]
+    },
+    "expected_errors": [],
+    "expected_value": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "Mentoria",
+          "ticket": 49.9,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ]
+    }
+  },
+  {
+    "name": "valido: ticket inteiro enorme vira o double que o JS le",
+    "input": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "Mentoria",
+          "ticket": 12345678901234567890,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ]
+    },
+    "expected_errors": [],
+    "expected_value": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "Mentoria",
+          "ticket": 12345678901234567000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ]
+    }
+  },
+  {
+    "name": "valido: conversion 0",
+    "input": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "Mentoria",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0
+        }
+      ]
+    },
+    "expected_errors": [],
+    "expected_value": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "Mentoria",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0
+        }
+      ]
+    }
+  },
+  {
+    "name": "valido: conversion 1",
+    "input": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "Mentoria",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 1
+        }
+      ]
+    },
+    "expected_errors": [],
+    "expected_value": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "Mentoria",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 1
+        }
+      ]
+    }
+  },
+  {
+    "name": "valido: cortes negativos e crescentes",
+    "input": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "Mentoria",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        },
+        {
+          "min": -10,
+          "product": "p1",
+          "conversion": 0.04
+        },
+        {
+          "min": -5,
+          "product": "p1",
+          "conversion": 0.04
+        },
+        {
+          "min": 0,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ]
+    },
+    "expected_errors": [],
+    "expected_value": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "Mentoria",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        },
+        {
+          "min": -10,
+          "product": "p1",
+          "conversion": 0.04
+        },
+        {
+          "min": -5,
+          "product": "p1",
+          "conversion": 0.04
+        },
+        {
+          "min": 0,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ]
+    }
+  },
+  {
+    "name": "valido: cortes decimais crescentes",
+    "input": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "Mentoria",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        },
+        {
+          "min": 59.5,
+          "product": "p1",
+          "conversion": 0.04
+        },
+        {
+          "min": 60,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ]
+    },
+    "expected_errors": [],
+    "expected_value": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "Mentoria",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        },
+        {
+          "min": 59.5,
+          "product": "p1",
+          "conversion": 0.04
+        },
+        {
+          "min": 60,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ]
+    }
+  },
+  {
+    "name": "valido: 10 produtos e 10 faixas (no limite)",
+    "input": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "Produto 1",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        },
+        {
+          "id": "p2",
+          "name": "Produto 2",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        },
+        {
+          "id": "p3",
+          "name": "Produto 3",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        },
+        {
+          "id": "p4",
+          "name": "Produto 4",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        },
+        {
+          "id": "p5",
+          "name": "Produto 5",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        },
+        {
+          "id": "p6",
+          "name": "Produto 6",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        },
+        {
+          "id": "p7",
+          "name": "Produto 7",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        },
+        {
+          "id": "p8",
+          "name": "Produto 8",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        },
+        {
+          "id": "p9",
+          "name": "Produto 9",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        },
+        {
+          "id": "p10",
+          "name": "Produto 10",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        },
+        {
+          "min": 10,
+          "product": "p2",
+          "conversion": 0.04
+        },
+        {
+          "min": 20,
+          "product": "p3",
+          "conversion": 0.04
+        },
+        {
+          "min": 30,
+          "product": "p4",
+          "conversion": 0.04
+        },
+        {
+          "min": 40,
+          "product": "p5",
+          "conversion": 0.04
+        },
+        {
+          "min": 50,
+          "product": "p6",
+          "conversion": 0.04
+        },
+        {
+          "min": 60,
+          "product": "p7",
+          "conversion": 0.04
+        },
+        {
+          "min": 70,
+          "product": "p8",
+          "conversion": 0.04
+        },
+        {
+          "min": 80,
+          "product": "p9",
+          "conversion": 0.04
+        },
+        {
+          "min": 90,
+          "product": "p10",
+          "conversion": 0.04
+        }
+      ]
+    },
+    "expected_errors": [],
+    "expected_value": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "Produto 1",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        },
+        {
+          "id": "p2",
+          "name": "Produto 2",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        },
+        {
+          "id": "p3",
+          "name": "Produto 3",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        },
+        {
+          "id": "p4",
+          "name": "Produto 4",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        },
+        {
+          "id": "p5",
+          "name": "Produto 5",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        },
+        {
+          "id": "p6",
+          "name": "Produto 6",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        },
+        {
+          "id": "p7",
+          "name": "Produto 7",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        },
+        {
+          "id": "p8",
+          "name": "Produto 8",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        },
+        {
+          "id": "p9",
+          "name": "Produto 9",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        },
+        {
+          "id": "p10",
+          "name": "Produto 10",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        },
+        {
+          "min": 10,
+          "product": "p2",
+          "conversion": 0.04
+        },
+        {
+          "min": 20,
+          "product": "p3",
+          "conversion": 0.04
+        },
+        {
+          "min": 30,
+          "product": "p4",
+          "conversion": 0.04
+        },
+        {
+          "min": 40,
+          "product": "p5",
+          "conversion": 0.04
+        },
+        {
+          "min": 50,
+          "product": "p6",
+          "conversion": 0.04
+        },
+        {
+          "min": 60,
+          "product": "p7",
+          "conversion": 0.04
+        },
+        {
+          "min": 70,
+          "product": "p8",
+          "conversion": 0.04
+        },
+        {
+          "min": 80,
+          "product": "p9",
+          "conversion": 0.04
+        },
+        {
+          "min": 90,
+          "product": "p10",
+          "conversion": 0.04
+        }
+      ]
+    }
+  },
+  {
+    "name": "forma: null",
+    "input": null,
+    "expected_errors": [
+      "O cadastro da economia do lead está em um formato inválido."
+    ],
+    "expected_value": null
+  },
+  {
+    "name": "forma: string",
+    "input": "abc",
+    "expected_errors": [
+      "O cadastro da economia do lead está em um formato inválido."
+    ],
+    "expected_value": null
+  },
+  {
+    "name": "forma: numero",
+    "input": 42,
+    "expected_errors": [
+      "O cadastro da economia do lead está em um formato inválido."
+    ],
+    "expected_value": null
+  },
+  {
+    "name": "forma: lista",
+    "input": [],
+    "expected_errors": [
+      "O cadastro da economia do lead está em um formato inválido."
+    ],
+    "expected_value": null
+  },
+  {
+    "name": "forma: sem products",
+    "input": {
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ]
+    },
+    "expected_errors": [
+      "O cadastro da economia do lead está em um formato inválido."
+    ],
+    "expected_value": null
+  },
+  {
+    "name": "forma: sem bands",
+    "input": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "Mentoria",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ]
+    },
+    "expected_errors": [
+      "O cadastro da economia do lead está em um formato inválido."
+    ],
+    "expected_value": null
+  },
+  {
+    "name": "forma: products nao e lista",
+    "input": {
+      "products": {
+        "p1": {
+          "id": "p1",
+          "name": "Mentoria",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      },
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ]
+    },
+    "expected_errors": [
+      "O cadastro da economia do lead está em um formato inválido."
+    ],
+    "expected_value": null
+  },
+  {
+    "name": "forma: bands e string",
+    "input": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "Mentoria",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": "x"
+    },
+    "expected_errors": [
+      "O cadastro da economia do lead está em um formato inválido."
+    ],
+    "expected_value": null
+  },
+  {
+    "name": "forma: produto que nao e objeto",
+    "input": {
+      "products": [
+        "p1",
+        {
+          "id": "p1",
+          "name": "Mentoria",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ]
+    },
+    "expected_errors": [
+      "O cadastro da economia do lead está em um formato inválido."
+    ],
+    "expected_value": null
+  },
+  {
+    "name": "forma: faixa que nao e objeto no fim",
+    "input": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "Mentoria",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        },
+        5
+      ]
+    },
+    "expected_errors": [
+      "O cadastro da economia do lead está em um formato inválido."
+    ],
+    "expected_value": null
+  },
+  {
+    "name": "forma: faixa que nao e objeto no inicio (a proxima ainda e a de indice 1)",
+    "input": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "Mentoria",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        "x",
+        {
+          "min": 60,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ]
+    },
+    "expected_errors": [
+      "O cadastro da economia do lead está em um formato inválido."
+    ],
+    "expected_value": null
+  },
+  {
+    "name": "0 produtos",
+    "input": {
+      "products": [],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ]
+    },
+    "expected_errors": [
+      "Cadastre ao menos um produto.",
+      "Toda faixa precisa apontar para um produto cadastrado."
+    ],
+    "expected_value": null
+  },
+  {
+    "name": "11 produtos",
+    "input": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "Produto 1",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        },
+        {
+          "id": "p2",
+          "name": "Produto 2",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        },
+        {
+          "id": "p3",
+          "name": "Produto 3",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        },
+        {
+          "id": "p4",
+          "name": "Produto 4",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        },
+        {
+          "id": "p5",
+          "name": "Produto 5",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        },
+        {
+          "id": "p6",
+          "name": "Produto 6",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        },
+        {
+          "id": "p7",
+          "name": "Produto 7",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        },
+        {
+          "id": "p8",
+          "name": "Produto 8",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        },
+        {
+          "id": "p9",
+          "name": "Produto 9",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        },
+        {
+          "id": "p10",
+          "name": "Produto 10",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        },
+        {
+          "id": "p11",
+          "name": "Produto 11",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ]
+    },
+    "expected_errors": [
+      "Cadastre no máximo 10 produtos."
+    ],
+    "expected_value": null
+  },
+  {
+    "name": "0 faixas",
+    "input": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "Mentoria",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": []
+    },
+    "expected_errors": [
+      "Cadastre ao menos uma faixa de nota."
+    ],
+    "expected_value": null
+  },
+  {
+    "name": "11 faixas",
+    "input": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "Mentoria",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        },
+        {
+          "min": 10,
+          "product": "p1",
+          "conversion": 0.04
+        },
+        {
+          "min": 20,
+          "product": "p1",
+          "conversion": 0.04
+        },
+        {
+          "min": 30,
+          "product": "p1",
+          "conversion": 0.04
+        },
+        {
+          "min": 40,
+          "product": "p1",
+          "conversion": 0.04
+        },
+        {
+          "min": 50,
+          "product": "p1",
+          "conversion": 0.04
+        },
+        {
+          "min": 60,
+          "product": "p1",
+          "conversion": 0.04
+        },
+        {
+          "min": 70,
+          "product": "p1",
+          "conversion": 0.04
+        },
+        {
+          "min": 80,
+          "product": "p1",
+          "conversion": 0.04
+        },
+        {
+          "min": 90,
+          "product": "p1",
+          "conversion": 0.04
+        },
+        {
+          "min": 100,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ]
+    },
+    "expected_errors": [
+      "Cadastre no máximo 10 faixas de nota."
+    ],
+    "expected_value": null
+  },
+  {
+    "name": "id vazio",
+    "input": {
+      "products": [
+        {
+          "id": "",
+          "name": "Mentoria",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "",
+          "conversion": 0.04
+        }
+      ]
+    },
+    "expected_errors": [
+      "O cadastro da economia do lead está em um formato inválido.",
+      "Toda faixa precisa apontar para um produto cadastrado."
+    ],
+    "expected_value": null
+  },
+  {
+    "name": "id so espacos",
+    "input": {
+      "products": [
+        {
+          "id": "   ",
+          "name": "Mentoria",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ]
+    },
+    "expected_errors": [
+      "O cadastro da economia do lead está em um formato inválido.",
+      "Toda faixa precisa apontar para um produto cadastrado."
+    ],
+    "expected_value": null
+  },
+  {
+    "name": "id so com NUL vira id vazio",
+    "input": {
+      "products": [
+        {
+          "id": "\u0000",
+          "name": "Mentoria",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "\u0000",
+          "conversion": 0.04
+        }
+      ]
+    },
+    "expected_errors": [
+      "O cadastro da economia do lead está em um formato inválido.",
+      "Toda faixa precisa apontar para um produto cadastrado."
+    ],
+    "expected_value": null
+  },
+  {
+    "name": "id so com surrogate solto vira id vazio",
+    "input": {
+      "products": [
+        {
+          "id": "\udfff",
+          "name": "Mentoria",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "\udfff",
+          "conversion": 0.04
+        }
+      ]
+    },
+    "expected_errors": [
+      "O cadastro da economia do lead está em um formato inválido.",
+      "Toda faixa precisa apontar para um produto cadastrado."
+    ],
+    "expected_value": null
+  },
+  {
+    "name": "id ausente",
+    "input": {
+      "products": [
+        {
+          "name": "Mentoria",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ]
+    },
+    "expected_errors": [
+      "O cadastro da economia do lead está em um formato inválido.",
+      "Toda faixa precisa apontar para um produto cadastrado."
+    ],
+    "expected_value": null
+  },
+  {
+    "name": "id numerico",
+    "input": {
+      "products": [
+        {
+          "id": 1,
+          "name": "Mentoria",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ]
+    },
+    "expected_errors": [
+      "O cadastro da economia do lead está em um formato inválido.",
+      "Toda faixa precisa apontar para um produto cadastrado."
+    ],
+    "expected_value": null
+  },
+  {
+    "name": "id duplicado",
+    "input": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "Mentoria",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        },
+        {
+          "id": "p1",
+          "name": "Ebook",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ]
+    },
+    "expected_errors": [
+      "O cadastro da economia do lead está em um formato inválido."
+    ],
+    "expected_value": null
+  },
+  {
+    "name": "id duplicado depois de aparar",
+    "input": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "Mentoria",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        },
+        {
+          "id": " p1 ",
+          "name": "Ebook",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ]
+    },
+    "expected_errors": [
+      "O cadastro da economia do lead está em um formato inválido."
+    ],
+    "expected_value": null
+  },
+  {
+    "name": "id com 41 caracteres",
+    "input": {
+      "products": [
+        {
+          "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "name": "Mentoria",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "conversion": 0.04
+        }
+      ]
+    },
+    "expected_errors": [
+      "O cadastro da economia do lead está em um formato inválido.",
+      "Toda faixa precisa apontar para um produto cadastrado."
+    ],
+    "expected_value": null
+  },
+  {
+    "name": "id com 41 unidades UTF-16 contando emoji (39 + 😀)",
+    "input": {
+      "products": [
+        {
+          "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa😀",
+          "name": "Mentoria",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa😀",
+          "conversion": 0.04
+        }
+      ]
+    },
+    "expected_errors": [
+      "O cadastro da economia do lead está em um formato inválido.",
+      "Toda faixa precisa apontar para um produto cadastrado."
+    ],
+    "expected_value": null
+  },
+  {
+    "name": "nome vazio",
+    "input": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ]
+    },
+    "expected_errors": [
+      "Dê um nome a cada produto."
+    ],
+    "expected_value": null
+  },
+  {
+    "name": "nome so espacos",
+    "input": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "   ",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ]
+    },
+    "expected_errors": [
+      "Dê um nome a cada produto."
+    ],
+    "expected_value": null
+  },
+  {
+    "name": "nome ausente",
+    "input": {
+      "products": [
+        {
+          "id": "p1",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ]
+    },
+    "expected_errors": [
+      "Dê um nome a cada produto."
+    ],
+    "expected_value": null
+  },
+  {
+    "name": "nome so com NUL vira nome ausente",
+    "input": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "\u0000\u0000",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ]
+    },
+    "expected_errors": [
+      "Dê um nome a cada produto."
+    ],
+    "expected_value": null
+  },
+  {
+    "name": "nome numerico",
+    "input": {
+      "products": [
+        {
+          "id": "p1",
+          "name": 123,
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ]
+    },
+    "expected_errors": [
+      "Dê um nome a cada produto."
+    ],
+    "expected_value": null
+  },
+  {
+    "name": "nome vazio usa 'produto N' nas outras mensagens",
+    "input": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "",
+          "ticket": 0,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ]
+    },
+    "expected_errors": [
+      "Dê um nome a cada produto.",
+      "O ticket de \"produto 1\" precisa ser maior que zero."
+    ],
+    "expected_value": null
+  },
+  {
+    "name": "nome com 61 caracteres",
+    "input": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ]
+    },
+    "expected_errors": [
+      "O nome do produto pode ter no máximo 60 caracteres."
+    ],
+    "expected_value": null
+  },
+  {
+    "name": "nome com 61 unidades UTF-16 contando emoji (59 + 😀)",
+    "input": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa😀",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ]
+    },
+    "expected_errors": [
+      "O nome do produto pode ter no máximo 60 caracteres."
+    ],
+    "expected_value": null
+  },
+  {
+    "name": "nome longo ainda nomeia as outras mensagens",
+    "input": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "ticket": -1,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ]
+    },
+    "expected_errors": [
+      "O nome do produto pode ter no máximo 60 caracteres.",
+      "O ticket de \"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\" precisa ser maior que zero."
+    ],
+    "expected_value": null
+  },
+  {
+    "name": "nome duplicado ignorando caixa e espacos",
+    "input": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "Curso Online",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        },
+        {
+          "id": "p2",
+          "name": "  curso   ONLINE ",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ]
+    },
+    "expected_errors": [
+      "Dois produtos com o nome \"curso ONLINE\"."
+    ],
+    "expected_value": null
+  },
+  {
+    "name": "ticket 0",
+    "input": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "Mentoria",
+          "ticket": 0,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ]
+    },
+    "expected_errors": [
+      "O ticket de \"Mentoria\" precisa ser maior que zero."
+    ],
+    "expected_value": null
+  },
+  {
+    "name": "ticket negativo",
+    "input": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "Mentoria",
+          "ticket": -3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ]
+    },
+    "expected_errors": [
+      "O ticket de \"Mentoria\" precisa ser maior que zero."
+    ],
+    "expected_value": null
+  },
+  {
+    "name": "ticket string numerica",
+    "input": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "Mentoria",
+          "ticket": "3000",
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ]
+    },
+    "expected_errors": [
+      "O ticket de \"Mentoria\" precisa ser maior que zero."
+    ],
+    "expected_value": null
+  },
+  {
+    "name": "ticket true",
+    "input": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "Mentoria",
+          "ticket": true,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ]
+    },
+    "expected_errors": [
+      "O ticket de \"Mentoria\" precisa ser maior que zero."
+    ],
+    "expected_value": null
+  },
+  {
+    "name": "ticket null",
+    "input": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "Mentoria",
+          "ticket": null,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ]
+    },
+    "expected_errors": [
+      "O ticket de \"Mentoria\" precisa ser maior que zero."
+    ],
+    "expected_value": null
+  },
+  {
+    "name": "ticket ausente",
+    "input": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "Mentoria",
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ]
+    },
+    "expected_errors": [
+      "O ticket de \"Mentoria\" precisa ser maior que zero."
+    ],
+    "expected_value": null
+  },
+  {
+    "name": "contribution_margin 0",
+    "input": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "Mentoria",
+          "ticket": 3000,
+          "contribution_margin": 0,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ]
+    },
+    "expected_errors": [
+      "Quanto sobra de cada venda de \"Mentoria\" precisa ser maior que 0% e no máximo 100%."
+    ],
+    "expected_value": null
+  },
+  {
+    "name": "contribution_margin 1.01",
+    "input": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "Mentoria",
+          "ticket": 3000,
+          "contribution_margin": 1.01,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ]
+    },
+    "expected_errors": [
+      "Quanto sobra de cada venda de \"Mentoria\" precisa ser maior que 0% e no máximo 100%."
+    ],
+    "expected_value": null
+  },
+  {
+    "name": "contribution_margin true",
+    "input": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "Mentoria",
+          "ticket": 3000,
+          "contribution_margin": true,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ]
+    },
+    "expected_errors": [
+      "Quanto sobra de cada venda de \"Mentoria\" precisa ser maior que 0% e no máximo 100%."
+    ],
+    "expected_value": null
+  },
+  {
+    "name": "target_margin 1",
+    "input": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "Mentoria",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 1
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ]
+    },
+    "expected_errors": [
+      "A margem desejada de \"Mentoria\" precisa ser de 0% a menos de 100%."
+    ],
+    "expected_value": null
+  },
+  {
+    "name": "target_margin -0.01",
+    "input": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "Mentoria",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": -0.01
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ]
+    },
+    "expected_errors": [
+      "A margem desejada de \"Mentoria\" precisa ser de 0% a menos de 100%."
+    ],
+    "expected_value": null
+  },
+  {
+    "name": "target_margin string",
+    "input": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "Mentoria",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": "0.4"
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ]
+    },
+    "expected_errors": [
+      "A margem desejada de \"Mentoria\" precisa ser de 0% a menos de 100%."
+    ],
+    "expected_value": null
+  },
+  {
+    "name": "target_margin true",
+    "input": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "Mentoria",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": true
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ]
+    },
+    "expected_errors": [
+      "A margem desejada de \"Mentoria\" precisa ser de 0% a menos de 100%."
+    ],
+    "expected_value": null
+  },
+  {
+    "name": "target_margin false",
+    "input": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "Mentoria",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": false
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ]
+    },
+    "expected_errors": [
+      "A margem desejada de \"Mentoria\" precisa ser de 0% a menos de 100%."
+    ],
+    "expected_value": null
+  },
+  {
+    "name": "target igual a contribution",
+    "input": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "Mentoria",
+          "ticket": 3000,
+          "contribution_margin": 0.5,
+          "target_margin": 0.5
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ]
+    },
+    "expected_errors": [
+      "Nenhum lead de \"Mentoria\" se paga: a margem desejada precisa ser menor do que o que sobra de cada venda."
+    ],
+    "expected_value": null
+  },
+  {
+    "name": "target maior que contribution",
+    "input": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "Mentoria",
+          "ticket": 3000,
+          "contribution_margin": 0.5,
+          "target_margin": 0.6
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ]
+    },
+    "expected_errors": [
+      "Nenhum lead de \"Mentoria\" se paga: a margem desejada precisa ser menor do que o que sobra de cada venda."
+    ],
+    "expected_value": null
+  },
+  {
+    "name": "target e contribution invalidos nao geram a mensagem de comparacao",
+    "input": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "Mentoria",
+          "ticket": 3000,
+          "contribution_margin": 0,
+          "target_margin": 1
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ]
+    },
+    "expected_errors": [
+      "Quanto sobra de cada venda de \"Mentoria\" precisa ser maior que 0% e no máximo 100%.",
+      "A margem desejada de \"Mentoria\" precisa ser de 0% a menos de 100%."
+    ],
+    "expected_value": null
+  },
+  {
+    "name": "primeira faixa com min",
+    "input": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "Mentoria",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": 10,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ]
+    },
+    "expected_errors": [
+      "A primeira faixa não tem nota mínima."
+    ],
+    "expected_value": null
+  },
+  {
+    "name": "primeira faixa com min 0",
+    "input": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "Mentoria",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": 0,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ]
+    },
+    "expected_errors": [
+      "A primeira faixa não tem nota mínima."
+    ],
+    "expected_value": null
+  },
+  {
+    "name": "primeira faixa com min false",
+    "input": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "Mentoria",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": false,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ]
+    },
+    "expected_errors": [
+      "A primeira faixa não tem nota mínima."
+    ],
+    "expected_value": null
+  },
+  {
+    "name": "primeira faixa com min true",
+    "input": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "Mentoria",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": true,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ]
+    },
+    "expected_errors": [
+      "A primeira faixa não tem nota mínima."
+    ],
+    "expected_value": null
+  },
+  {
+    "name": "primeira faixa com min nao entra na ordem dos cortes",
+    "input": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "Mentoria",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": 100,
+          "product": "p1",
+          "conversion": 0.04
+        },
+        {
+          "min": 50,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ]
+    },
+    "expected_errors": [
+      "A primeira faixa não tem nota mínima."
+    ],
+    "expected_value": null
+  },
+  {
+    "name": "faixa sem min (chave ausente)",
+    "input": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "Mentoria",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        },
+        {
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ]
+    },
+    "expected_errors": [
+      "Toda faixa depois da primeira precisa de uma nota de corte."
+    ],
+    "expected_value": null
+  },
+  {
+    "name": "faixa com min null",
+    "input": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "Mentoria",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        },
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ]
+    },
+    "expected_errors": [
+      "Toda faixa depois da primeira precisa de uma nota de corte."
+    ],
+    "expected_value": null
+  },
+  {
+    "name": "faixa com min string",
+    "input": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "Mentoria",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        },
+        {
+          "min": "60",
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ]
+    },
+    "expected_errors": [
+      "Toda faixa depois da primeira precisa de uma nota de corte."
+    ],
+    "expected_value": null
+  },
+  {
+    "name": "faixa com min true",
+    "input": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "Mentoria",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        },
+        {
+          "min": true,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ]
+    },
+    "expected_errors": [
+      "Toda faixa depois da primeira precisa de uma nota de corte."
+    ],
+    "expected_value": null
+  },
+  {
+    "name": "faixa com min true depois de corte 0",
+    "input": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "Mentoria",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        },
+        {
+          "min": 0,
+          "product": "p1",
+          "conversion": 0.04
+        },
+        {
+          "min": true,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ]
+    },
+    "expected_errors": [
+      "Toda faixa depois da primeira precisa de uma nota de corte."
+    ],
+    "expected_value": null
+  },
+  {
+    "name": "min repetida",
+    "input": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "Mentoria",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        },
+        {
+          "min": 60,
+          "product": "p1",
+          "conversion": 0.04
+        },
+        {
+          "min": 60,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ]
+    },
+    "expected_errors": [
+      "As notas de corte precisam ser crescentes, sem repetir."
+    ],
+    "expected_value": null
+  },
+  {
+    "name": "min decrescente",
+    "input": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "Mentoria",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        },
+        {
+          "min": 80,
+          "product": "p1",
+          "conversion": 0.04
+        },
+        {
+          "min": 60,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ]
+    },
+    "expected_errors": [
+      "As notas de corte precisam ser crescentes, sem repetir."
+    ],
+    "expected_value": null
+  },
+  {
+    "name": "min inteira acima de 2^53 que o JS le igual a anterior",
+    "input": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "Mentoria",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        },
+        {
+          "min": 9007199254740992,
+          "product": "p1",
+          "conversion": 0.04
+        },
+        {
+          "min": 9007199254740993,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ]
+    },
+    "expected_errors": [
+      "As notas de corte precisam ser crescentes, sem repetir."
+    ],
+    "expected_value": null
+  },
+  {
+    "name": "min intermediaria invalida nao apaga o ultimo corte valido (60, x, 50)",
+    "input": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "Mentoria",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        },
+        {
+          "min": 60,
+          "product": "p1",
+          "conversion": 0.04
+        },
+        {
+          "min": "x",
+          "product": "p1",
+          "conversion": 0.04
+        },
+        {
+          "min": 50,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ]
+    },
+    "expected_errors": [
+      "Toda faixa depois da primeira precisa de uma nota de corte.",
+      "As notas de corte precisam ser crescentes, sem repetir."
+    ],
+    "expected_value": null
+  },
+  {
+    "name": "min intermediaria invalida seguida de corte maior (60, null, 70)",
+    "input": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "Mentoria",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        },
+        {
+          "min": 60,
+          "product": "p1",
+          "conversion": 0.04
+        },
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        },
+        {
+          "min": 70,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ]
+    },
+    "expected_errors": [
+      "Toda faixa depois da primeira precisa de uma nota de corte."
+    ],
+    "expected_value": null
+  },
+  {
+    "name": "produto inexistente na faixa",
+    "input": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "Mentoria",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p9",
+          "conversion": 0.04
+        }
+      ]
+    },
+    "expected_errors": [
+      "Toda faixa precisa apontar para um produto cadastrado."
+    ],
+    "expected_value": null
+  },
+  {
+    "name": "produto da faixa ausente",
+    "input": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "Mentoria",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "conversion": 0.04
+        }
+      ]
+    },
+    "expected_errors": [
+      "Toda faixa precisa apontar para um produto cadastrado."
+    ],
+    "expected_value": null
+  },
+  {
+    "name": "produto da faixa numerico",
+    "input": {
+      "products": [
+        {
+          "id": "1",
+          "name": "Mentoria",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": 1,
+          "conversion": 0.04
+        }
+      ]
+    },
+    "expected_errors": [
+      "Toda faixa precisa apontar para um produto cadastrado."
+    ],
+    "expected_value": null
+  },
+  {
+    "name": "faixa aponta para o id duplicado: o id vale pelo primeiro produto",
+    "input": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "Mentoria",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        },
+        {
+          "id": "p1",
+          "name": "Ebook",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        },
+        {
+          "min": 60,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ]
+    },
+    "expected_errors": [
+      "O cadastro da economia do lead está em um formato inválido."
+    ],
+    "expected_value": null
+  },
+  {
+    "name": "conversion -0.01",
+    "input": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "Mentoria",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": -0.01
+        }
+      ]
+    },
+    "expected_errors": [
+      "A conversão de cada faixa precisa estar entre 0% e 100%."
+    ],
+    "expected_value": null
+  },
+  {
+    "name": "conversion 1.01",
+    "input": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "Mentoria",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 1.01
+        }
+      ]
+    },
+    "expected_errors": [
+      "A conversão de cada faixa precisa estar entre 0% e 100%."
+    ],
+    "expected_value": null
+  },
+  {
+    "name": "conversion string",
+    "input": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "Mentoria",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": "0.04"
+        }
+      ]
+    },
+    "expected_errors": [
+      "A conversão de cada faixa precisa estar entre 0% e 100%."
+    ],
+    "expected_value": null
+  },
+  {
+    "name": "conversion null",
+    "input": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "Mentoria",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": null
+        }
+      ]
+    },
+    "expected_errors": [
+      "A conversão de cada faixa precisa estar entre 0% e 100%."
+    ],
+    "expected_value": null
+  },
+  {
+    "name": "conversion true",
+    "input": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "Mentoria",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": true
+        }
+      ]
+    },
+    "expected_errors": [
+      "A conversão de cada faixa precisa estar entre 0% e 100%."
+    ],
+    "expected_value": null
+  },
+  {
+    "name": "conversion false",
+    "input": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "Mentoria",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": false
+        }
+      ]
+    },
+    "expected_errors": [
+      "A conversão de cada faixa precisa estar entre 0% e 100%."
+    ],
+    "expected_value": null
+  },
+  {
+    "name": "varios erros ao mesmo tempo (ordem importa)",
+    "input": {
+      "products": [
+        {
+          "id": "",
+          "name": "",
+          "ticket": 0,
+          "contribution_margin": 0,
+          "target_margin": 1
+        }
+      ],
+      "bands": [
+        {
+          "min": 5,
+          "product": "x",
+          "conversion": 2
+        },
+        {
+          "product": "x",
+          "conversion": -1
+        }
+      ]
+    },
+    "expected_errors": [
+      "O cadastro da economia do lead está em um formato inválido.",
+      "Dê um nome a cada produto.",
+      "O ticket de \"produto 1\" precisa ser maior que zero.",
+      "Quanto sobra de cada venda de \"produto 1\" precisa ser maior que 0% e no máximo 100%.",
+      "A margem desejada de \"produto 1\" precisa ser de 0% a menos de 100%.",
+      "A primeira faixa não tem nota mínima.",
+      "Toda faixa precisa apontar para um produto cadastrado.",
+      "A conversão de cada faixa precisa estar entre 0% e 100%.",
+      "Toda faixa depois da primeira precisa de uma nota de corte."
+    ],
+    "expected_value": null
+  },
+  {
+    "name": "varios erros: produto e faixas misturados, ordem por item",
+    "input": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "Mentoria",
+          "ticket": -1,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        },
+        {
+          "id": "p2",
+          "name": "Ebook",
+          "ticket": 3000,
+          "contribution_margin": 0.9,
+          "target_margin": 0.95
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 1.5
+        },
+        {
+          "min": 60,
+          "product": "p3",
+          "conversion": 0.04
+        },
+        {
+          "min": 40,
+          "product": "p2",
+          "conversion": 0.04
+        }
+      ]
+    },
+    "expected_errors": [
+      "O ticket de \"Mentoria\" precisa ser maior que zero.",
+      "Nenhum lead de \"Ebook\" se paga: a margem desejada precisa ser menor do que o que sobra de cada venda.",
+      "A conversão de cada faixa precisa estar entre 0% e 100%.",
+      "Toda faixa precisa apontar para um produto cadastrado.",
+      "As notas de corte precisam ser crescentes, sem repetir."
+    ],
+    "expected_value": null
+  },
+  {
+    "name": "dedupe: dois produtos com o mesmo nome e ticket invalido",
+    "input": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "Ebook",
+          "ticket": 0,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        },
+        {
+          "id": "p2",
+          "name": "Ebook",
+          "ticket": 0,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ]
+    },
+    "expected_errors": [
+      "O ticket de \"Ebook\" precisa ser maior que zero.",
+      "Dois produtos com o nome \"Ebook\"."
+    ],
+    "expected_value": null
+  },
+  {
+    "name": "dedupe: dois produtos sem nome geram 'produto 1' e 'produto 2' distintos",
+    "input": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "",
+          "ticket": 0,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        },
+        {
+          "id": "p2",
+          "name": "",
+          "ticket": 0,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ]
+    },
+    "expected_errors": [
+      "Dê um nome a cada produto.",
+      "O ticket de \"produto 1\" precisa ser maior que zero.",
+      "O ticket de \"produto 2\" precisa ser maior que zero."
+    ],
+    "expected_value": null
+  },
+  {
+    "name": "dedupe: tres nomes identicos geram uma mensagem so",
+    "input": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "Ebook",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        },
+        {
+          "id": "p2",
+          "name": "Ebook",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        },
+        {
+          "id": "p3",
+          "name": "Ebook",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ]
+    },
+    "expected_errors": [
+      "Dois produtos com o nome \"Ebook\"."
+    ],
+    "expected_value": null
+  },
+  {
+    "name": "dedupe e por texto exato: tres grafias do mesmo nome geram uma mensagem por grafia repetida",
+    "input": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "Ebook",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        },
+        {
+          "id": "p2",
+          "name": "ebook",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        },
+        {
+          "id": "p3",
+          "name": "EBOOK",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ]
+    },
+    "expected_errors": [
+      "Dois produtos com o nome \"ebook\".",
+      "Dois produtos com o nome \"EBOOK\"."
+    ],
+    "expected_value": null
+  },
+  {
+    "name": "dedupe: duas faixas com conversao invalida",
+    "input": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "Mentoria",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 2
+        },
+        {
+          "min": 60,
+          "product": "p1",
+          "conversion": -1
+        }
+      ]
+    },
+    "expected_errors": [
+      "A conversão de cada faixa precisa estar entre 0% e 100%."
+    ],
+    "expected_value": null
+  },
+  {
+    "name": "valido: espaco do JS U+0009 no meio do nome e em volta do id e da faixa (controle C0: a limpeza ja o troca por espaco)",
+    "input": {
+      "products": [
+        {
+          "id": "\tp1\t",
+          "name": "A\tB",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "\tp1\t",
+          "conversion": 0.04
+        }
+      ]
+    },
+    "expected_errors": [],
+    "expected_value": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "A B",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ]
+    }
+  },
+  {
+    "name": "valido: espaco do JS U+000A no meio do nome e em volta do id e da faixa (controle C0: a limpeza ja o troca por espaco)",
+    "input": {
+      "products": [
+        {
+          "id": "\np1\n",
+          "name": "A\nB",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "\np1\n",
+          "conversion": 0.04
+        }
+      ]
+    },
+    "expected_errors": [],
+    "expected_value": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "A B",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ]
+    }
+  },
+  {
+    "name": "valido: espaco do JS U+000B no meio do nome e em volta do id e da faixa (controle C0: a limpeza ja o troca por espaco)",
+    "input": {
+      "products": [
+        {
+          "id": "\u000bp1\u000b",
+          "name": "A\u000bB",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "\u000bp1\u000b",
+          "conversion": 0.04
+        }
+      ]
+    },
+    "expected_errors": [],
+    "expected_value": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "A B",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ]
+    }
+  },
+  {
+    "name": "valido: espaco do JS U+000C no meio do nome e em volta do id e da faixa (controle C0: a limpeza ja o troca por espaco)",
+    "input": {
+      "products": [
+        {
+          "id": "\fp1\f",
+          "name": "A\fB",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "\fp1\f",
+          "conversion": 0.04
+        }
+      ]
+    },
+    "expected_errors": [],
+    "expected_value": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "A B",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ]
+    }
+  },
+  {
+    "name": "valido: espaco do JS U+000D no meio do nome e em volta do id e da faixa (controle C0: a limpeza ja o troca por espaco)",
+    "input": {
+      "products": [
+        {
+          "id": "\rp1\r",
+          "name": "A\rB",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "\rp1\r",
+          "conversion": 0.04
+        }
+      ]
+    },
+    "expected_errors": [],
+    "expected_value": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "A B",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ]
+    }
+  },
+  {
+    "name": "valido: espaco do JS U+0020 no meio do nome e em volta do id e da faixa",
+    "input": {
+      "products": [
+        {
+          "id": " p1 ",
+          "name": "A B",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": " p1 ",
+          "conversion": 0.04
+        }
+      ]
+    },
+    "expected_errors": [],
+    "expected_value": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "A B",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ]
+    }
+  },
+  {
+    "name": "valido: espaco do JS U+00A0 no meio do nome e em volta do id e da faixa",
+    "input": {
+      "products": [
+        {
+          "id": "\u00a0p1\u00a0",
+          "name": "A\u00a0B",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "\u00a0p1\u00a0",
+          "conversion": 0.04
+        }
+      ]
+    },
+    "expected_errors": [],
+    "expected_value": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "A B",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ]
+    }
+  },
+  {
+    "name": "valido: espaco do JS U+1680 no meio do nome e em volta do id e da faixa",
+    "input": {
+      "products": [
+        {
+          "id": "\u1680p1\u1680",
+          "name": "A\u1680B",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "\u1680p1\u1680",
+          "conversion": 0.04
+        }
+      ]
+    },
+    "expected_errors": [],
+    "expected_value": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "A B",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ]
+    }
+  },
+  {
+    "name": "valido: espaco do JS U+2000 no meio do nome e em volta do id e da faixa",
+    "input": {
+      "products": [
+        {
+          "id": "\u2000p1\u2000",
+          "name": "A\u2000B",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "\u2000p1\u2000",
+          "conversion": 0.04
+        }
+      ]
+    },
+    "expected_errors": [],
+    "expected_value": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "A B",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ]
+    }
+  },
+  {
+    "name": "valido: espaco do JS U+2001 no meio do nome e em volta do id e da faixa",
+    "input": {
+      "products": [
+        {
+          "id": "\u2001p1\u2001",
+          "name": "A\u2001B",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "\u2001p1\u2001",
+          "conversion": 0.04
+        }
+      ]
+    },
+    "expected_errors": [],
+    "expected_value": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "A B",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ]
+    }
+  },
+  {
+    "name": "valido: espaco do JS U+2002 no meio do nome e em volta do id e da faixa",
+    "input": {
+      "products": [
+        {
+          "id": "\u2002p1\u2002",
+          "name": "A\u2002B",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "\u2002p1\u2002",
+          "conversion": 0.04
+        }
+      ]
+    },
+    "expected_errors": [],
+    "expected_value": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "A B",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ]
+    }
+  },
+  {
+    "name": "valido: espaco do JS U+2003 no meio do nome e em volta do id e da faixa",
+    "input": {
+      "products": [
+        {
+          "id": "\u2003p1\u2003",
+          "name": "A\u2003B",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "\u2003p1\u2003",
+          "conversion": 0.04
+        }
+      ]
+    },
+    "expected_errors": [],
+    "expected_value": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "A B",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ]
+    }
+  },
+  {
+    "name": "valido: espaco do JS U+2004 no meio do nome e em volta do id e da faixa",
+    "input": {
+      "products": [
+        {
+          "id": "\u2004p1\u2004",
+          "name": "A\u2004B",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "\u2004p1\u2004",
+          "conversion": 0.04
+        }
+      ]
+    },
+    "expected_errors": [],
+    "expected_value": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "A B",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ]
+    }
+  },
+  {
+    "name": "valido: espaco do JS U+2005 no meio do nome e em volta do id e da faixa",
+    "input": {
+      "products": [
+        {
+          "id": "\u2005p1\u2005",
+          "name": "A\u2005B",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "\u2005p1\u2005",
+          "conversion": 0.04
+        }
+      ]
+    },
+    "expected_errors": [],
+    "expected_value": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "A B",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ]
+    }
+  },
+  {
+    "name": "valido: espaco do JS U+2006 no meio do nome e em volta do id e da faixa",
+    "input": {
+      "products": [
+        {
+          "id": "\u2006p1\u2006",
+          "name": "A\u2006B",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "\u2006p1\u2006",
+          "conversion": 0.04
+        }
+      ]
+    },
+    "expected_errors": [],
+    "expected_value": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "A B",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ]
+    }
+  },
+  {
+    "name": "valido: espaco do JS U+2007 no meio do nome e em volta do id e da faixa",
+    "input": {
+      "products": [
+        {
+          "id": "\u2007p1\u2007",
+          "name": "A\u2007B",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "\u2007p1\u2007",
+          "conversion": 0.04
+        }
+      ]
+    },
+    "expected_errors": [],
+    "expected_value": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "A B",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ]
+    }
+  },
+  {
+    "name": "valido: espaco do JS U+2008 no meio do nome e em volta do id e da faixa",
+    "input": {
+      "products": [
+        {
+          "id": "\u2008p1\u2008",
+          "name": "A\u2008B",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "\u2008p1\u2008",
+          "conversion": 0.04
+        }
+      ]
+    },
+    "expected_errors": [],
+    "expected_value": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "A B",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ]
+    }
+  },
+  {
+    "name": "valido: espaco do JS U+2009 no meio do nome e em volta do id e da faixa",
+    "input": {
+      "products": [
+        {
+          "id": "\u2009p1\u2009",
+          "name": "A\u2009B",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "\u2009p1\u2009",
+          "conversion": 0.04
+        }
+      ]
+    },
+    "expected_errors": [],
+    "expected_value": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "A B",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ]
+    }
+  },
+  {
+    "name": "valido: espaco do JS U+200A no meio do nome e em volta do id e da faixa",
+    "input": {
+      "products": [
+        {
+          "id": "\u200ap1\u200a",
+          "name": "A\u200aB",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "\u200ap1\u200a",
+          "conversion": 0.04
+        }
+      ]
+    },
+    "expected_errors": [],
+    "expected_value": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "A B",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ]
+    }
+  },
+  {
+    "name": "valido: espaco do JS U+2028 no meio do nome e em volta do id e da faixa",
+    "input": {
+      "products": [
+        {
+          "id": "\u2028p1\u2028",
+          "name": "A\u2028B",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "\u2028p1\u2028",
+          "conversion": 0.04
+        }
+      ]
+    },
+    "expected_errors": [],
+    "expected_value": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "A B",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ]
+    }
+  },
+  {
+    "name": "valido: espaco do JS U+2029 no meio do nome e em volta do id e da faixa",
+    "input": {
+      "products": [
+        {
+          "id": "\u2029p1\u2029",
+          "name": "A\u2029B",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "\u2029p1\u2029",
+          "conversion": 0.04
+        }
+      ]
+    },
+    "expected_errors": [],
+    "expected_value": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "A B",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ]
+    }
+  },
+  {
+    "name": "valido: espaco do JS U+202F no meio do nome e em volta do id e da faixa",
+    "input": {
+      "products": [
+        {
+          "id": "\u202fp1\u202f",
+          "name": "A\u202fB",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "\u202fp1\u202f",
+          "conversion": 0.04
+        }
+      ]
+    },
+    "expected_errors": [],
+    "expected_value": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "A B",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ]
+    }
+  },
+  {
+    "name": "valido: espaco do JS U+205F no meio do nome e em volta do id e da faixa",
+    "input": {
+      "products": [
+        {
+          "id": "\u205fp1\u205f",
+          "name": "A\u205fB",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "\u205fp1\u205f",
+          "conversion": 0.04
+        }
+      ]
+    },
+    "expected_errors": [],
+    "expected_value": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "A B",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ]
+    }
+  },
+  {
+    "name": "valido: espaco do JS U+3000 no meio do nome e em volta do id e da faixa",
+    "input": {
+      "products": [
+        {
+          "id": "\u3000p1\u3000",
+          "name": "A\u3000B",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "\u3000p1\u3000",
+          "conversion": 0.04
+        }
+      ]
+    },
+    "expected_errors": [],
+    "expected_value": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "A B",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ]
+    }
+  },
+  {
+    "name": "valido: espaco do JS U+FEFF no meio do nome e em volta do id e da faixa",
+    "input": {
+      "products": [
+        {
+          "id": "\ufeffp1\ufeff",
+          "name": "A\ufeffB",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "\ufeffp1\ufeff",
+          "conversion": 0.04
+        }
+      ]
+    },
+    "expected_errors": [],
+    "expected_value": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "A B",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ]
+    }
+  },
+  {
+    "name": "valido: U+180E nao e espaco no JS e fica no nome e no id",
+    "input": {
+      "products": [
+        {
+          "id": "\u180ep1\u180e",
+          "name": "\u180eA\u180eB\u180e",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "\u180ep1\u180e",
+          "conversion": 0.04
+        }
+      ]
+    },
+    "expected_errors": [],
+    "expected_value": {
+      "products": [
+        {
+          "id": "\u180ep1\u180e",
+          "name": "\u180eA\u180eB\u180e",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "\u180ep1\u180e",
+          "conversion": 0.04
+        }
+      ]
+    }
+  },
+  {
+    "name": "valido: U+200B nao e espaco no JS e fica no nome e no id",
+    "input": {
+      "products": [
+        {
+          "id": "\u200bp1\u200b",
+          "name": "\u200bA\u200bB\u200b",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "\u200bp1\u200b",
+          "conversion": 0.04
+        }
+      ]
+    },
+    "expected_errors": [],
+    "expected_value": {
+      "products": [
+        {
+          "id": "\u200bp1\u200b",
+          "name": "\u200bA\u200bB\u200b",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "\u200bp1\u200b",
+          "conversion": 0.04
+        }
+      ]
+    }
+  },
+  {
+    "name": "valido: U+2060 nao e espaco no JS e fica no nome e no id",
+    "input": {
+      "products": [
+        {
+          "id": "\u2060p1\u2060",
+          "name": "\u2060A\u2060B\u2060",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "\u2060p1\u2060",
+          "conversion": 0.04
+        }
+      ]
+    },
+    "expected_errors": [],
+    "expected_value": {
+      "products": [
+        {
+          "id": "\u2060p1\u2060",
+          "name": "\u2060A\u2060B\u2060",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "\u2060p1\u2060",
+          "conversion": 0.04
+        }
+      ]
+    }
+  },
+  {
+    "name": "forma: bands objeto vazio ({}) nao vira 0 faixas",
+    "input": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "Mentoria",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": {}
+    },
+    "expected_errors": [
+      "O cadastro da economia do lead está em um formato inválido."
+    ],
+    "expected_value": null
+  },
+  {
+    "name": "forma: products objeto vazio ({}) nao vira 0 produtos",
+    "input": {
+      "products": {},
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ]
+    },
+    "expected_errors": [
+      "O cadastro da economia do lead está em um formato inválido."
+    ],
+    "expected_value": null
+  },
+  {
+    "name": "min inteira abaixo de -2^53 que o JS le igual a seguinte",
+    "input": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "Mentoria",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        },
+        {
+          "min": -9007199254740993,
+          "product": "p1",
+          "conversion": 0.04
+        },
+        {
+          "min": -9007199254740992,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ]
+    },
+    "expected_errors": [
+      "As notas de corte precisam ser crescentes, sem repetir."
+    ],
+    "expected_value": null
+  },
+  {
+    "name": "valido: 'STRASSE' e 'straße' sao nomes distintos (lower, nao casefold)",
+    "input": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "STRASSE",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        },
+        {
+          "id": "p2",
+          "name": "straße",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ]
+    },
+    "expected_errors": [],
+    "expected_value": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "STRASSE",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        },
+        {
+          "id": "p2",
+          "name": "straße",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ]
+    }
+  },
+  {
+    "name": "valido: 'ΟΔΟΣ' e 'οδοσ' sao nomes distintos (sigma final: lower da 'οδος')",
+    "input": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "ΟΔΟΣ",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        },
+        {
+          "id": "p2",
+          "name": "οδοσ",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ]
+    },
+    "expected_errors": [],
+    "expected_value": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "ΟΔΟΣ",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        },
+        {
+          "id": "p2",
+          "name": "οδοσ",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ]
+    }
+  },
+  {
+    "name": "nome duplicado com sigma final: 'ΟΔΟΣ' e 'οδος' viram 'οδος' nos dois lados",
+    "input": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "ΟΔΟΣ",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        },
+        {
+          "id": "p2",
+          "name": "οδος",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ]
+    },
+    "expected_errors": [
+      "Dois produtos com o nome \"οδος\"."
+    ],
+    "expected_value": null
+  },
+  {
+    "name": "valido: ticket e conversion com 15+ digitos significativos saem sem arredondar",
+    "input": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "Mentoria",
+          "ticket": 1234.5678901234567,
+          "contribution_margin": 0.987654321098765,
+          "target_margin": 0.123456789012345
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.123456789012345
+        }
+      ]
+    },
+    "expected_errors": [],
+    "expected_value": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "Mentoria",
+          "ticket": 1234.5678901234567,
+          "contribution_margin": 0.987654321098765,
+          "target_margin": 0.123456789012345
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.123456789012345
+        }
+      ]
+    }
+  }
+]

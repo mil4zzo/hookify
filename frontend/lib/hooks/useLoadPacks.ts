@@ -5,6 +5,7 @@ import { useClientAuth, useClientPacks } from '@/lib/hooks/useClientSession'
 import { api } from '@/lib/api/endpoints'
 import { getAdStatistics } from '@/lib/utils/adCounting'
 import { logger } from '@/lib/utils/logger'
+import { buildJudgmentSyncPatch } from '@/lib/utils/packJudgmentSync'
 
 /**
  * Carrega packs do Supabase na inicialização da sessão
@@ -128,6 +129,10 @@ export function useLoadPacks() {
                 // null = NÃO DEFINIDO (MQL/CPMQL indisponíveis), nunca zero.
                 mql_leadscore_min: pack.mql_leadscore_min ?? null,
                 target_cpr: pack.target_cpr ?? null,
+                // Economia do lead (migration 179) — mesma postura: null = não
+                // configurado (Teto de CPL e Margem indisponíveis), nunca zero.
+                // Antes da migration o backend nem manda a chave: undefined → null.
+                lead_economics: pack.lead_economics ?? null,
                 // Compartilhamento (P3.7): ausente = pack próprio
                 shared_role: pack.shared_role ?? null,
                 shared_owner_name: pack.shared_owner_name ?? null,
@@ -177,18 +182,15 @@ export function useLoadPacks() {
               if ((pack.attribution_setting ?? null) !== ((existing as any).attribution_setting ?? null)) {
                 patch.attribution_setting = pack.attribution_setting ?? null
               }
-              // Overrides de julgamento: campos mutáveis — sem isto, o store persistido
-              // reidrata o valor antigo e a tela julga por um critério já alterado.
-              if (pack.mql_leadscore_min !== ((existing as any).mql_leadscore_min ?? null)) {
-                patch.mql_leadscore_min = pack.mql_leadscore_min
-              }
+              // Critérios de julgamento (corte de MQL, CPR alvo, economia do lead):
+              // campos mutáveis — sem isto, o store persistido reidrata o valor
+              // antigo e a tela julga por um critério já alterado. A lista mora numa
+              // função pura com teste (packJudgmentSync.ts).
+              Object.assign(patch, buildJudgmentSyncPatch(existing, pack))
               // Papel pode mudar (dono promove/demove) — o store persistido não
               // pode reidratar um papel antigo e liberar/esconder ação errada.
               if ((pack.shared_role ?? null) !== ((existing as any).shared_role ?? null)) {
                 patch.shared_role = pack.shared_role ?? null
-              }
-              if (JSON.stringify(pack.target_cpr ?? null) !== JSON.stringify((existing as any).target_cpr ?? null)) {
-                patch.target_cpr = pack.target_cpr
               }
               if (Object.keys(patch).length > 0) {
                 updatePack(pack.id, patch as any)

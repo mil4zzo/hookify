@@ -1,4 +1,5 @@
 import { FacebookUser, FacebookAdAccount, FormattedAd, FilterRule, SheetIntegration } from '../api/schemas'
+import type { LeadEconomics } from '../utils/leadEconomics'
 
 // Pack de Ads (equivalente ao sistema atual do Streamlit)
 export interface AdsPack {
@@ -53,6 +54,11 @@ export interface AdsPack {
   // Sem corte de leadscore, MQL e CPMQL ficam indisponíveis — nunca zero.
   mql_leadscore_min?: number | null
   target_cpr?: Record<string, number> | null
+  // Economia do lead (migration 179): produtos e faixas de nota que dão o teto de
+  // CPL e a margem por anúncio. null/undefined = não configurado (colunas
+  // indisponíveis, nunca zero). Cru do banco: só vale depois de
+  // `normalizeLeadEconomics`, que `resolveJudgment` já aplica.
+  lead_economics?: LeadEconomics | null
   // ── Compartilhamento (P3.7) ────────────────────────────────────────────────
   // Presente APENAS em packs recebidos de outra conta. Ausente = pack próprio.
   // O papel gateia a UI; a autorização real é do backend (assert_pack_role).

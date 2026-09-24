@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict IYEnJW1GkcuvWIPZCds190I9iL4Du0IVqzO0HceQGf1Uwm76hyxdGJpJ4GiL1aL
+\restrict zJw9hshd92dUvemAc4HpBTsNSqoTOpnqB1vG3DoLzyhX9EgOn2XX7fU3Zh4ErRB
 
 -- Dumped from database version 17.6
 -- Dumped by pg_dump version 17.6
@@ -12253,7 +12253,9 @@ CREATE TABLE public.packs (
     refresh_actor_id uuid,
     attribution_window_days integer,
     attribution_setting text,
+    lead_economics jsonb,
     CONSTRAINT packs_diagnostic_cost_metric_check CHECK (((diagnostic_cost_metric IS NULL) OR (diagnostic_cost_metric = ANY (ARRAY['cpr'::text, 'cpmql'::text])))),
+    CONSTRAINT packs_lead_economics_check CHECK (((lead_economics IS NULL) OR (jsonb_typeof(lead_economics) = 'object'::text))),
     CONSTRAINT packs_level_check CHECK ((level = ANY (ARRAY['campaign'::text, 'adset'::text, 'ad'::text]))),
     CONSTRAINT packs_mql_leadscore_min_check CHECK (((mql_leadscore_min IS NULL) OR (mql_leadscore_min >= (0)::numeric))),
     CONSTRAINT packs_refresh_status_check CHECK ((refresh_status = ANY (ARRAY['idle'::text, 'queued'::text, 'running'::text, 'cancel_requested'::text, 'canceled'::text, 'success'::text, 'failed'::text])))
@@ -12326,6 +12328,13 @@ COMMENT ON COLUMN public.packs.attribution_setting IS 'Valor cru do attribution_
 
 
 --
+-- Name: COLUMN packs.lead_economics; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON COLUMN public.packs.lead_economics IS 'Economia do lead do pack: {"products": [{"id", "name", "ticket", "contribution_margin", "target_margin"}], "bands": [{"min", "product", "conversion"}]}. ticket = faturamento bruto por venda; contribution_margin = fracao que sobra da venda antes do anuncio, em (0,1]; target_margin = margem de lucro desejada sobre o faturamento, em [0,1) e menor que contribution_margin; bands = cortes contiguos (min da primeira null, demais estritamente crescentes; nota >= min), product aponta para products[].id, conversion em [0,1]. NULL = nao configurado (Teto de CPL e Margem indisponiveis, nunca zero). A validacao do conteudo vive na aplicacao (decisao D8, backend/app/services/lead_economics.py); o banco so garante null ou objeto (migration 179).';
+
+
+--
 -- Name: conversion_keys; Type: TABLE; Schema: public; Owner: postgres
 --
 
@@ -12344,50 +12353,6 @@ ALTER TABLE public.conversion_keys OWNER TO postgres;
 
 COMMENT ON TABLE public.conversion_keys IS 'Dicionário append-only das chaves de evento ("conversion:<action_type>" / "action:<action_type>", o MESMO formato de p_action_type e de packs.conversion_types). Referenciado por id em ad_performance_daily.conv_key_ids (migration 128). Nunca apagar linhas: ids são referenciados sem FK (custo de escrita).';
 
-
---
--- Name: ad_transcriptions; Type: TABLE; Schema: public; Owner: postgres
---
-
-CREATE TABLE public.ad_transcriptions (
-    id uuid DEFAULT gen_random_uuid() NOT NULL,
-    user_id uuid NOT NULL,
-    ad_name text NOT NULL,
-    status text DEFAULT 'pending'::text NOT NULL,
-    full_text text,
-    timestamped_text jsonb,
-    metadata jsonb,
-    created_at timestamp with time zone DEFAULT now(),
-    updated_at timestamp with time zone DEFAULT now(),
-    ad_ids text[] DEFAULT '{}'::text[],
-    CONSTRAINT ad_transcriptions_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'processing'::text, 'completed'::text, 'failed'::text])))
-);
-
-
-ALTER TABLE public.ad_transcriptions OWNER TO postgres;
-
---
--- Name: COLUMN ad_transcriptions.ad_ids; Type: COMMENT; Schema: public; Owner: postgres
---
-
-COMMENT ON COLUMN public.ad_transcriptions.ad_ids IS 'Array de ad_id dos anúncios que compartilham esta transcrição (mesmo ad_name).';
-
-
---
--- Name: ad_metric_pack_map; Type: TABLE; Schema: public; Owner: postgres
---
-
-CREATE TABLE public.ad_metric_pack_map (
-    user_id uuid NOT NULL,
-    pack_id uuid NOT NULL,
-    ad_id text NOT NULL,
-    metric_date date NOT NULL,
-    created_at timestamp with time zone DEFAULT now() NOT NULL
-)
-WITH (autovacuum_vacuum_scale_factor='0.02', autovacuum_vacuum_insert_scale_factor='0.02', autovacuum_analyze_scale_factor='0.05');
-
-
-ALTER TABLE public.ad_metric_pack_map OWNER TO postgres;
 
 --
 -- Name: ad_pack_inventory; Type: TABLE; Schema: public; Owner: postgres
@@ -12419,6 +12384,113 @@ ALTER TABLE public.ad_pack_inventory OWNER TO postgres;
 
 COMMENT ON TABLE public.ad_pack_inventory IS 'Inventário do pack (F5): uma linha por (pack, anúncio) visto entregável por algum refresh, com o intervalo [first_active_date, last_active_date]. Substitui as linhas-zero diárias de ad_metrics como fonte de presença do anúncio ativo sem entrega.';
 
+
+--
+-- Name: ad_transcriptions; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.ad_transcriptions (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    user_id uuid NOT NULL,
+    ad_name text NOT NULL,
+    status text DEFAULT 'pending'::text NOT NULL,
+    full_text text,
+    timestamped_text jsonb,
+    metadata jsonb,
+    created_at timestamp with time zone DEFAULT now(),
+    updated_at timestamp with time zone DEFAULT now(),
+    ad_ids text[] DEFAULT '{}'::text[],
+    CONSTRAINT ad_transcriptions_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'processing'::text, 'completed'::text, 'failed'::text])))
+);
+
+
+ALTER TABLE public.ad_transcriptions OWNER TO postgres;
+
+--
+-- Name: COLUMN ad_transcriptions.ad_ids; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON COLUMN public.ad_transcriptions.ad_ids IS 'Array de ad_id dos anúncios que compartilham esta transcrição (mesmo ad_name).';
+
+
+--
+-- Name: ad_tags; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.ad_tags (
+    user_id uuid NOT NULL,
+    tag_id uuid NOT NULL,
+    ad_name text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    created_by uuid,
+    CONSTRAINT ad_tags_ad_name_not_blank CHECK ((btrim(ad_name) <> ''::text))
+);
+
+
+ALTER TABLE public.ad_tags OWNER TO postgres;
+
+--
+-- Name: TABLE ad_tags; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON TABLE public.ad_tags IS 'Marcacao tag <-> criativo. Chaveada por ad_name (criativo), nao ad_id, e sem FK para ads: a tag sobrevive ao anuncio sumir da Meta.';
+
+
+--
+-- Name: COLUMN ad_tags.created_by; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON COLUMN public.ad_tags.created_by IS 'Quem aplicou a marcacao. user_id e o SILO (dono do pack); created_by e o ATOR. Num pack compartilhado sao pessoas diferentes, e este e o unico registro dessa autoria.';
+
+
+--
+-- Name: tags; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.tags (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    user_id uuid NOT NULL,
+    name text NOT NULL,
+    slug text GENERATED ALWAYS AS (translate(lower(btrim(regexp_replace(name, '\s+'::text, ' '::text, 'g'::text))), 'áàâãäéèêëíìîïóòôõöúùûüçñ'::text, 'aaaaaeeeeiiiiooooouuuucn'::text)) STORED,
+    color text DEFAULT 'chart1'::text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT tags_name_max_len CHECK ((char_length(name) <= 40)),
+    CONSTRAINT tags_name_not_blank CHECK ((btrim(name) <> ''::text))
+);
+
+
+ALTER TABLE public.tags OWNER TO postgres;
+
+--
+-- Name: TABLE tags; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON TABLE public.tags IS 'Vocabulario de tags do usuario (plano, sem namespace). slug e gerado e unico por usuario.';
+
+
+--
+-- Name: COLUMN tags.color; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON COLUMN public.tags.color IS 'Token da paleta de tags (chart1..chart5). Validado no backend (TAG_COLORS) e mapeado em frontend/lib/tags/colors.ts.';
+
+
+--
+-- Name: ad_metric_pack_map; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.ad_metric_pack_map (
+    user_id uuid NOT NULL,
+    pack_id uuid NOT NULL,
+    ad_id text NOT NULL,
+    metric_date date NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL
+)
+WITH (autovacuum_vacuum_scale_factor='0.02', autovacuum_vacuum_insert_scale_factor='0.02', autovacuum_analyze_scale_factor='0.05');
+
+
+ALTER TABLE public.ad_metric_pack_map OWNER TO postgres;
 
 --
 -- Name: ad_shares; Type: TABLE; Schema: public; Owner: postgres
@@ -12573,36 +12645,6 @@ COMMENT ON COLUMN public.ad_sheet_integrations.spreadsheet_renamed_from IS 'Nome
 
 
 --
--- Name: ad_tags; Type: TABLE; Schema: public; Owner: postgres
---
-
-CREATE TABLE public.ad_tags (
-    user_id uuid NOT NULL,
-    tag_id uuid NOT NULL,
-    ad_name text NOT NULL,
-    created_at timestamp with time zone DEFAULT now() NOT NULL,
-    created_by uuid,
-    CONSTRAINT ad_tags_ad_name_not_blank CHECK ((btrim(ad_name) <> ''::text))
-);
-
-
-ALTER TABLE public.ad_tags OWNER TO postgres;
-
---
--- Name: TABLE ad_tags; Type: COMMENT; Schema: public; Owner: postgres
---
-
-COMMENT ON TABLE public.ad_tags IS 'Marcacao tag <-> criativo. Chaveada por ad_name (criativo), nao ad_id, e sem FK para ads: a tag sobrevive ao anuncio sumir da Meta.';
-
-
---
--- Name: COLUMN ad_tags.created_by; Type: COMMENT; Schema: public; Owner: postgres
---
-
-COMMENT ON COLUMN public.ad_tags.created_by IS 'Quem aplicou a marcacao. user_id e o SILO (dono do pack); created_by e o ATOR. Num pack compartilhado sao pessoas diferentes, e este e o unico registro dessa autoria.';
-
-
---
 -- Name: board_groups; Type: TABLE; Schema: public; Owner: postgres
 --
 
@@ -12740,6 +12782,11 @@ CREATE TABLE public.chat_messages (
     action_type text,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     completed_at timestamp with time zone,
+    feedback_rating smallint,
+    feedback_text text,
+    feedback_at timestamp with time zone,
+    CONSTRAINT chat_messages_feedback_rating_check CHECK ((feedback_rating = ANY (ARRAY['-1'::integer, 1]))),
+    CONSTRAINT chat_messages_feedback_text_check CHECK ((char_length(feedback_text) <= 2000)),
     CONSTRAINT chat_messages_role_check CHECK ((role = ANY (ARRAY['user'::text, 'assistant'::text, 'system'::text]))),
     CONSTRAINT chat_messages_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'complete'::text, 'partial'::text, 'failed'::text, 'cancelled'::text])))
 );
@@ -13191,39 +13238,6 @@ CREATE TABLE public.subscriptions (
 
 
 ALTER TABLE public.subscriptions OWNER TO postgres;
-
---
--- Name: tags; Type: TABLE; Schema: public; Owner: postgres
---
-
-CREATE TABLE public.tags (
-    id uuid DEFAULT gen_random_uuid() NOT NULL,
-    user_id uuid NOT NULL,
-    name text NOT NULL,
-    slug text GENERATED ALWAYS AS (translate(lower(btrim(regexp_replace(name, '\s+'::text, ' '::text, 'g'::text))), 'áàâãäéèêëíìîïóòôõöúùûüçñ'::text, 'aaaaaeeeeiiiiooooouuuucn'::text)) STORED,
-    color text DEFAULT 'chart1'::text NOT NULL,
-    created_at timestamp with time zone DEFAULT now() NOT NULL,
-    updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    CONSTRAINT tags_name_max_len CHECK ((char_length(name) <= 40)),
-    CONSTRAINT tags_name_not_blank CHECK ((btrim(name) <> ''::text))
-);
-
-
-ALTER TABLE public.tags OWNER TO postgres;
-
---
--- Name: TABLE tags; Type: COMMENT; Schema: public; Owner: postgres
---
-
-COMMENT ON TABLE public.tags IS 'Vocabulario de tags do usuario (plano, sem namespace). slug e gerado e unico por usuario.';
-
-
---
--- Name: COLUMN tags.color; Type: COMMENT; Schema: public; Owner: postgres
---
-
-COMMENT ON COLUMN public.tags.color IS 'Token da paleta de tags (chart1..chart5). Validado no backend (TAG_COLORS) e mapeado em frontend/lib/tags/colors.ts.';
-
 
 --
 -- Name: user_preferences; Type: TABLE; Schema: public; Owner: postgres
@@ -13890,6 +13904,13 @@ CREATE INDEX chat_conversations_user_updated_idx ON public.chat_conversations US
 --
 
 CREATE INDEX chat_messages_conversation_idx ON public.chat_messages USING btree (conversation_id, created_at);
+
+
+--
+-- Name: chat_messages_feedback_idx; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX chat_messages_feedback_idx ON public.chat_messages USING btree (feedback_at DESC) WHERE (feedback_at IS NOT NULL);
 
 
 --
@@ -15488,6 +15509,14 @@ GRANT ALL ON TABLE public.conversion_keys TO service_role;
 
 
 --
+-- Name: TABLE ad_pack_inventory; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.ad_pack_inventory TO authenticated;
+GRANT ALL ON TABLE public.ad_pack_inventory TO service_role;
+
+
+--
 -- Name: TABLE ad_transcriptions; Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -15497,20 +15526,30 @@ GRANT ALL ON TABLE public.ad_transcriptions TO service_role;
 
 
 --
+-- Name: TABLE ad_tags; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.ad_tags TO anon;
+GRANT ALL ON TABLE public.ad_tags TO authenticated;
+GRANT ALL ON TABLE public.ad_tags TO service_role;
+
+
+--
+-- Name: TABLE tags; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.tags TO anon;
+GRANT ALL ON TABLE public.tags TO authenticated;
+GRANT ALL ON TABLE public.tags TO service_role;
+
+
+--
 -- Name: TABLE ad_metric_pack_map; Type: ACL; Schema: public; Owner: postgres
 --
 
 GRANT ALL ON TABLE public.ad_metric_pack_map TO anon;
 GRANT ALL ON TABLE public.ad_metric_pack_map TO authenticated;
 GRANT ALL ON TABLE public.ad_metric_pack_map TO service_role;
-
-
---
--- Name: TABLE ad_pack_inventory; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.ad_pack_inventory TO authenticated;
-GRANT ALL ON TABLE public.ad_pack_inventory TO service_role;
 
 
 --
@@ -15529,15 +15568,6 @@ GRANT ALL ON TABLE public.ad_shares TO service_role;
 GRANT ALL ON TABLE public.ad_sheet_integrations TO anon;
 GRANT ALL ON TABLE public.ad_sheet_integrations TO authenticated;
 GRANT ALL ON TABLE public.ad_sheet_integrations TO service_role;
-
-
---
--- Name: TABLE ad_tags; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.ad_tags TO anon;
-GRANT ALL ON TABLE public.ad_tags TO authenticated;
-GRANT ALL ON TABLE public.ad_tags TO service_role;
 
 
 --
@@ -15707,15 +15737,6 @@ GRANT ALL ON TABLE public.subscriptions TO service_role;
 
 
 --
--- Name: TABLE tags; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.tags TO anon;
-GRANT ALL ON TABLE public.tags TO authenticated;
-GRANT ALL ON TABLE public.tags TO service_role;
-
-
---
 -- Name: TABLE user_preferences; Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -15788,5 +15809,5 @@ ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA public GRANT ALL ON T
 -- PostgreSQL database dump complete
 --
 
-\unrestrict IYEnJW1GkcuvWIPZCds190I9iL4Du0IVqzO0HceQGf1Uwm76hyxdGJpJ4GiL1aL
+\unrestrict zJw9hshd92dUvemAc4HpBTsNSqoTOpnqB1vG3DoLzyhX9EgOn2XX7fU3Zh4ErRB
 

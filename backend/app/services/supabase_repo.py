@@ -3739,7 +3739,9 @@ def update_pack_judgment(
         return {}
 
     # diagnostic_cost_metric saiu: e controle de visualizacao, vive so no usuario.
-    allowed = {"mql_leadscore_min", "target_cpr"}
+    # lead_economics (179) chega aqui ja CANONICO: a rota valida e troca o JSON
+    # do cliente pelo documento de services/lead_economics.py antes de chamar.
+    allowed = {"mql_leadscore_min", "target_cpr", "lead_economics"}
     update_data = {k: v for k, v in (fields or {}).items() if k in allowed}
     if not update_data:
         return {}

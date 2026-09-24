@@ -19,21 +19,37 @@
  *   0 packs                      -> null
  *   todos concordam              -> esse valor
  *   discordam entre si           -> null, com `divergent` marcado
+ *
+ * Campos resolvidos aqui:
+ *   - `mqlLeadscoreMin`       — a regra acima, valor inteiro.
+ *   - `targetCprByActionType` — a regra acima, POR action_type (ver resolveTargetCpr).
+ *   - `leadEconomics`         — a regra acima, documento inteiro (D16 do
+ *     plano-economia-do-lead.md). Sem espelho no backend/SQL: teto e margem são
+ *     calculados só no cliente, então este é o único lugar da regra.
  */
+
+import { leadEconomicsSemanticKey, normalizeLeadEconomics, type LeadEconomics } from "@/lib/utils/leadEconomics";
 
 /** Configuração gravada no pack. null/ausente = não definido. */
 export interface PackJudgmentConfig {
   mql_leadscore_min?: number | string | null;
   target_cpr?: Record<string, number> | null;
+  /** Documento cru do banco; só vale depois de `normalizeLeadEconomics`. */
+  lead_economics?: unknown;
 }
 
-export type JudgmentField = "mqlLeadscoreMin" | "targetCprByActionType";
+export type JudgmentField = "mqlLeadscoreMin" | "targetCprByActionType" | "leadEconomics";
 
 export interface ResolvedJudgment {
   /** Corte de leadscore para MQL. null = não definido ou packs discordam. */
   mqlLeadscoreMin: number | null;
   /** Meta de CPR por action_type. Chave ausente = sem meta acordada para o tipo. */
   targetCprByActionType: Record<string, number>;
+  /**
+   * Economia do lead (produtos e faixas), já normalizada. null = nenhum pack com
+   * cadastro válido, ou packs discordam — teto e margem ficam indisponíveis.
+   */
+  leadEconomics: LeadEconomics | null;
   /** Por campo: os packs selecionados discordam entre si? */
   divergent: Record<JudgmentField, boolean>;
   /** Algum campo divergente. */
@@ -45,6 +61,7 @@ export interface ResolvedJudgment {
 export const JUDGMENT_FIELD_LABELS: Record<JudgmentField, string> = {
   mqlLeadscoreMin: "Leadscore mínimo para MQL",
   targetCprByActionType: "CPR alvo",
+  leadEconomics: "Economia do lead",
 };
 
 // ── Normalizadores ────────────────────────────────────────────────────────────
@@ -119,20 +136,60 @@ function resolveTargetCpr(packs: PackJudgmentConfig[]): {
   return { value, divergent: divergentKeys.length > 0, divergentKeys };
 }
 
+/**
+ * Economia do lead resolvida como o corte de MQL (D16): o documento inteiro vale
+ * ou não vale. Resolver por produto ou por faixa montaria um cadastro que nenhum
+ * pack tem.
+ *
+ * Documento inválido conta como "sem cadastro" (`normalizeLeadEconomics` → null),
+ * e "sem cadastro" contra "com cadastro" é divergência, como "sem corte" contra
+ * "corte 70" no MQL.
+ *
+ * A igualdade é pelo que a CONTA enxerga (`leadEconomicsSemanticKey`, D20): cortes,
+ * conversões e os números do produto de cada faixa. Id e nome de produto, ordem
+ * dos produtos e produto que nenhuma faixa usa ficam de fora — o id é aleatório,
+ * e dois packs cadastrados à mão com os mesmos números não podem divergir por ele.
+ */
+function resolveLeadEconomics(packs: PackJudgmentConfig[]): {
+  value: LeadEconomics | null;
+  divergent: boolean;
+} {
+  if (packs.length === 0) return { value: null, divergent: false };
+
+  // Igualdade pelo que a conta enxerga, não pelo documento: id e nome de produto
+  // não mudam número nenhum (ver `leadEconomicsSemanticKey`). Com packs iguais,
+  // o valor devolvido é o do primeiro — os nomes que o modal mostra vêm dele.
+  const distinct = new Map<string, LeadEconomics | null>();
+  for (const pack of packs) {
+    const normalized = normalizeLeadEconomics(pack.lead_economics);
+    const key = normalized ? leadEconomicsSemanticKey(normalized) : "null";
+    if (!distinct.has(key)) distinct.set(key, normalized);
+  }
+
+  if (distinct.size === 1) {
+    // Pode ser null: nenhum pack com cadastro. Não é divergência — é ausência.
+    return { value: Array.from(distinct.values())[0], divergent: false };
+  }
+  return { value: null, divergent: true };
+}
+
 export function resolveJudgment(packs: PackJudgmentConfig[]): ResolvedJudgment {
   const safePacks = Array.isArray(packs) ? packs.filter(Boolean) : [];
 
   const mql = resolveMql(safePacks);
   const target = resolveTargetCpr(safePacks);
+  const economics = resolveLeadEconomics(safePacks);
 
   const divergent: Record<JudgmentField, boolean> = {
     mqlLeadscoreMin: mql.divergent,
     targetCprByActionType: target.divergent,
+    leadEconomics: economics.divergent,
   };
 
   return {
     mqlLeadscoreMin: mql.value,
     targetCprByActionType: target.value,
+    leadEconomics: economics.value,
     divergent,
     hasDivergence: Object.values(divergent).some(Boolean),
     divergentTargetCprKeys: target.divergentKeys,

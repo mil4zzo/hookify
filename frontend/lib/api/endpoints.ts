@@ -61,6 +61,7 @@ import {
 import type { RevalidatedSheetName } from './schemas'
 import { env } from '@/lib/config/env'
 import type { CreateSharePayload, CreateShareResponse, ShareSummary } from '@/lib/share/types'
+import type { LeadEconomics } from '@/lib/utils/leadEconomics'
 
 // Tipos simples para o fluxo de onboarding inicial
 export interface OnboardingStatusResponse {
@@ -488,6 +489,9 @@ export const api = {
       judgment: {
         mql_leadscore_min?: number | null
         target_cpr?: Record<string, number> | null
+        // Documento inteiro (produtos + faixas); o backend valida com as mesmas
+        // regras de `validateLeadEconomics`. `null` limpa o cadastro.
+        lead_economics?: LeadEconomics | null
       }
     ): Promise<{ success: boolean; pack_id: string; judgment: Record<string, unknown> }> =>
       apiClient.patch(`/analytics/packs/${packId}/judgment`, judgment),

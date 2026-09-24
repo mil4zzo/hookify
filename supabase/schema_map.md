@@ -227,6 +227,9 @@ Itens individuais de um job de criação em lote de anúncios no Meta.
 | action_type | text |  |
 | created_at | timestamp | NOT NULL, DEFAULT |
 | completed_at | timestamp |  |
+| feedback_rating | smallint |  |
+| feedback_text | text |  |
+| feedback_at | timestamp |  |
 
 ---
 
@@ -433,6 +436,7 @@ Agrupamentos de anúncios definidos pelo usuário para análise comparativa.
 | refresh_actor_id | uuid |  |
 | attribution_window_days | integer |  |
 | attribution_setting | text |  |
+| lead_economics | jsonb |  |
 
 ---
 
@@ -541,4 +545,4 @@ Preferências e configurações personalizadas por usuário.
 
 ---
 
-*Gerado em: 2026-09-21 — via `supabase/generate_schema_map.py`*
+*Gerado em: 2026-09-24 — via `supabase/generate_schema_map.py`*

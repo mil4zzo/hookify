@@ -22,6 +22,12 @@ from app.services import supabase_repo
 from app.services import entity_performance as EP
 from app.services.pack_access import assert_pack_role, resolve_entity_pack_scope
 from app.services import pack_action_log
+from app.services.lead_economics import (
+    LEAD_ECONOMICS_MAX_BANDS,
+    LEAD_ECONOMICS_MAX_PRODUCTS,
+    LEAD_ECONOMICS_MESSAGES,
+    validate_lead_economics,
+)
 from app.services.ad_media import resolve_media_type
 from app.services.manager_columns import as_row_payload
 from app.services.thumbnail_cache import build_public_storage_url, public_storage_prefix, DEFAULT_BUCKET
@@ -263,6 +269,17 @@ class UpdatePackJudgmentRequest(BaseModel):
     )
     target_cpr: Optional[Dict[str, float]] = Field(
         default=None, description="CPR alvo por action_type neste pack. null = sem meta definida."
+    )
+    # Any de proposito: a forma e validada por services/lead_economics.py, espelho
+    # do contrato do frontend com as MESMAS mensagens. Um modelo Pydantic aqui
+    # responderia 422 com mensagens proprias e a tela nao teria o que mostrar.
+    lead_economics: Optional[Any] = Field(
+        default=None,
+        description=(
+            "Economia do lead do pack (migration 179): {products: [...], bands: [...]}. "
+            "null = nao configurado (Teto de CPL e Margem indisponiveis). "
+            "Validado em services/lead_economics.py; grava-se o documento canonico."
+        ),
     )
 
     model_config = {"extra": "forbid"}
@@ -2116,6 +2133,44 @@ def update_pack_judgment(
                         status_code=400,
                         detail=f"target_cpr['{action_type}'] deve ser > 0 (remova a chave para limpar)",
                     )
+
+        # Economia do lead: o banco so garante "null ou objeto" (D8), entao nunca
+        # se grava o JSON cru do cliente — so o documento canonico do validador
+        # (chaves conhecidas, nomes aparados). null segue limpando.
+        if "lead_economics" in fields and fields["lead_economics"] is not None:
+            raw_economics = fields["lead_economics"]
+            # Teto de custo ANTES de validar: o validador percorre todos os itens
+            # (a tela precisa de todas as mensagens), e o corpo nao tem teto — um
+            # cliente com 200 mil produtos ocuparia o worker. Aqui so a PRIMEIRA
+            # mensagem sai, e nos dois cortes abaixo ela e provadamente a mesma que
+            # o documento inteiro daria (os testes comparam com o validador cheio).
+            if (
+                isinstance(raw_economics, dict)
+                and isinstance(raw_economics.get("products"), list)
+                and isinstance(raw_economics.get("bands"), list)
+            ):
+                # Produtos demais: passada a checagem de forma (products E bands
+                # listas — sem bands lista a primeira seria invalidShape), a ordem
+                # do validador e noProducts (impossivel: len > 0) e logo tooManyProducts,
+                # antes de qualquer item. Ela e o errors[0].
+                if len(raw_economics["products"]) > LEAD_ECONOMICS_MAX_PRODUCTS:
+                    raise HTTPException(status_code=400, detail=LEAD_ECONOMICS_MESSAGES["tooManyProducts"])
+                # Faixas demais: valida com MAX + 1. Os produtos seguem inteiros e
+                # vem antes, entao um erro de produto continua sendo o errors[0]; sem
+                # erro de produto, o primeiro das faixas e tooManyBands (noBands e
+                # impossivel), emitido antes de qualquer faixa e ainda emitido com
+                # MAX + 1. Com tooManyBands nao ha documento valido nos dois casos.
+                if len(raw_economics["bands"]) > LEAD_ECONOMICS_MAX_BANDS:
+                    raw_economics = {
+                        **raw_economics,
+                        "bands": raw_economics["bands"][: LEAD_ECONOMICS_MAX_BANDS + 1],
+                    }
+            economics, economics_errors = validate_lead_economics(raw_economics)
+            if economics_errors:
+                # A primeira: a tela ja validou com as mesmas regras e mostra todas;
+                # chegar aqui e cliente velho ou chamada direta.
+                raise HTTPException(status_code=400, detail=economics_errors[0])
+            fields["lead_economics"] = economics
 
         if not fields:
             raise HTTPException(status_code=400, detail="Nenhum campo de julgamento enviado")
