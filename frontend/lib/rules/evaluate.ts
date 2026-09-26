@@ -37,6 +37,7 @@
 import { getMetricNumericValueOrNull } from "@/lib/metrics";
 import { getCustomTopValue, isCustomColumnKey, parseCustomColumnKey } from "@/lib/metrics/customColumns";
 import { rowMatchesTagFilter, type TagFilterOperator } from "@/lib/tags/filter";
+import type { LeadEconomicsByPack } from "@/lib/utils/leadEconomics";
 import { getRuleField, NAME_LOOKUP_FIELDS } from "./fields";
 import { isEmptyRuleTree, type RuleConditionLeaf, type RuleConditionValue, type RuleNode, type RuleTree } from "./types";
 
@@ -49,6 +50,8 @@ export interface RuleNameDictionary {
 export interface RuleEvaluationContext {
   actionType?: string;
   mqlLeadscoreMin?: number | null;
+  /** Economia do lead por pack (D27) — só o Manager passa; ver `buildMetricField`. */
+  leadEconomicsByPack?: LeadEconomicsByPack | null;
   /**
    * Nomes de campanha/conjunto. Sem ele, uma regra sobre `campaign_name` não tem
    * como saber os nomes das campanhas do criativo — e é IGNORADA (condição sem
@@ -362,6 +365,7 @@ function evaluateLeaf(condition: RuleConditionLeaf, row: RuleRow, context: RuleE
   const rowValue = getMetricNumericValueOrNull(row, field.id, {
     actionType: context.actionType,
     mqlLeadscoreMin: context.mqlLeadscoreMin ?? null,
+    leadEconomicsByPack: context.leadEconomicsByPack ?? null,
   });
   const hasValue = rowValue != null && Number.isFinite(rowValue);
 

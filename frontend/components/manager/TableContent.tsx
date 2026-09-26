@@ -97,11 +97,11 @@ function areTableContentPropsEqual(prev: TableContentProps, next: TableContentPr
     return false;
   }
 
-  // 2.1 Comparação de activeColumns, columnOrder, hasSheetIntegration e mqlLeadscoreMin
+  // 2.1 Comparação de activeColumns, columnOrder, hasSheetIntegration, mqlLeadscoreMin e a economia do lead
   const activeColumnsEqual = prev.activeColumns.size === next.activeColumns.size && Array.from(prev.activeColumns).every((col) => next.activeColumns.has(col));
   const columnOrderEqual = prev.columnOrder.length === next.columnOrder.length && prev.columnOrder.every((col, i) => next.columnOrder[i] === col);
 
-  if (!activeColumnsEqual || !columnOrderEqual || prev.hasSheetIntegration !== next.hasSheetIntegration || prev.mqlLeadscoreMin !== next.mqlLeadscoreMin) {
+  if (!activeColumnsEqual || !columnOrderEqual || prev.hasSheetIntegration !== next.hasSheetIntegration || prev.mqlLeadscoreMin !== next.mqlLeadscoreMin || prev.leadEconomicsByPack !== next.leadEconomicsByPack) {
     return false;
   }
 

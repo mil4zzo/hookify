@@ -60,6 +60,8 @@ export interface RuleField {
   isRatioPercent?: boolean;
   /** Só aparece quando algum pack selecionado tem integração de planilha. */
   requiresSheetIntegration?: boolean;
+  /** Só aparece quando algum pack selecionado tem a economia do lead cadastrada. */
+  requiresLeadEconomics?: boolean;
   /** Depende do tipo de conversão escolhido no filtro global. */
   requiresActionType?: boolean;
   /** Telas que oferecem o campo. Ausente = todas. */
@@ -342,6 +344,12 @@ function buildMetricField(key: ManagerMetricKey): RuleField {
     isRatioPercent: definition?.formatKind === "ratioPercent",
     requiresSheetIntegration: definition?.requiresSheetIntegration,
     requiresActionType: definition?.requiresActionType,
+    // Teto de CPL e Margem: a conta precisa da economia de cada pack da linha, que só o
+    // Manager passa ao avaliador. Oferecidas no Boards, no Critério ou no /insights,
+    // seriam campo que não responde — toda condição sobre elas zeraria a tela sem erro.
+    ...(definition?.requiresLeadEconomics
+      ? { requiresLeadEconomics: true, availableIn: ["manager", "manager-children"] as RuleContext[] }
+      : {}),
   };
 }
 
@@ -363,6 +371,8 @@ export const NAME_LOOKUP_FIELDS: Record<string, { idsField: string; dictionary: 
 
 export interface RuleFieldAvailability {
   hasSheetIntegration?: boolean;
+  /** Algum pack selecionado tem a economia do lead cadastrada. */
+  hasLeadEconomics?: boolean;
   /** Tela que está pedindo. Ausente = não filtra por contexto. */
   context?: RuleContext;
   /** Aba do Manager. Ausente = não filtra por aba. */
@@ -378,6 +388,7 @@ export interface RuleFieldAvailability {
  */
 export function getAvailableRuleFields({
   hasSheetIntegration = false,
+  hasLeadEconomics = false,
   context,
   tab,
 }: RuleFieldAvailability = {}): RuleField[] {
@@ -386,6 +397,7 @@ export function getAvailableRuleFields({
   // oferecido que não responde".
   return [...RULE_FIELDS, ...getActiveCustomRuleFields()].filter((field) => {
     if (field.requiresSheetIntegration && !hasSheetIntegration) return false;
+    if (field.requiresLeadEconomics && !hasLeadEconomics) return false;
     if (context && field.availableIn && !field.availableIn.includes(context)) return false;
     if (tab && field.availableTabs && !field.availableTabs.includes(tab)) return false;
     return true;
@@ -411,7 +423,10 @@ export function getDefaultRuleValue(fieldId: string): import("./types").RuleCond
 
 /** Métricas oferecidas para ordenar dentro do grupo. */
 export function getRuleSortMetrics({ hasSheetIntegration = false }: RuleFieldAvailability = {}): { value: string; label: string }[] {
-  const base = MANAGER_METRIC_KEYS.filter((key) => !METRIC_DEFINITIONS[key]?.requiresSheetIntegration || hasSheetIntegration).map((key) => ({
+  // Só o Boards ordena por aqui, e o Boards não tem a economia do lead por linha.
+  const base = MANAGER_METRIC_KEYS.filter((key) => !METRIC_DEFINITIONS[key]?.requiresLeadEconomics)
+    .filter((key) => !METRIC_DEFINITIONS[key]?.requiresSheetIntegration || hasSheetIntegration)
+    .map((key) => ({
     value: key,
     label: getManagerMetricLabel(key),
   }));

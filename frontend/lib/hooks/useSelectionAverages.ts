@@ -5,6 +5,7 @@ import type { RowSelectionState, Table } from "@tanstack/react-table";
 import { RankingsItem } from "@/lib/api/schemas";
 import { computeManagerAverages, type ManagerAverages } from "@/lib/metrics";
 import type { CustomColumnDef } from "@/lib/metrics/customColumns";
+import type { LeadEconomicsByPack } from "@/lib/utils/leadEconomics";
 
 interface UseSelectionAveragesOptions {
   table: Table<RankingsItem>;
@@ -14,6 +15,8 @@ interface UseSelectionAveragesOptions {
   actionType?: string;
   hasSheetIntegration?: boolean;
   mqlLeadscoreMin: number | null;
+  /** Economia do lead de cada pack selecionado (D27): média de Teto de CPL e Margem. */
+  leadEconomicsByPack?: LeadEconomicsByPack | null;
   /** 140: colunas vinculadas da planilha (médias em `custom`). */
   customColumns?: ReadonlyArray<CustomColumnDef>;
 }
@@ -29,15 +32,15 @@ interface UseSelectionAveragesOptions {
  *
  * Retorna `null` com seleção vazia (nada a exibir).
  */
-export function useSelectionAverages({ table, rowSelection, actionType, hasSheetIntegration = false, mqlLeadscoreMin, customColumns }: UseSelectionAveragesOptions): ManagerAverages | null {
+export function useSelectionAverages({ table, rowSelection, actionType, hasSheetIntegration = false, mqlLeadscoreMin, leadEconomicsByPack = null, customColumns }: UseSelectionAveragesOptions): ManagerAverages | null {
   return useMemo(() => {
     const selectedRows = table.getSelectedRowModel().rows;
     if (selectedRows.length === 0) return null;
 
     return computeManagerAverages(
       selectedRows.map((row) => row.original as RankingsItem),
-      { actionType, hasSheetIntegration, includeScrollStop: false, mqlLeadscoreMin, customColumns },
+      { actionType, hasSheetIntegration, includeScrollStop: false, mqlLeadscoreMin, leadEconomicsByPack, customColumns },
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps -- rowSelection é o gatilho; table é ref estável
-  }, [table, rowSelection, actionType, hasSheetIntegration, mqlLeadscoreMin, customColumns]);
+  }, [table, rowSelection, actionType, hasSheetIntegration, mqlLeadscoreMin, leadEconomicsByPack, customColumns]);
 }

@@ -298,6 +298,10 @@ test("derives manager presentation metadata from metric semantics", () => {
     sumThruplays: 40,
     sumResults: 5,
     sumMqls: 2,
+    cpl_ceiling: null,
+    lead_margin: null,
+    lead_margin_target: null,
+    lead_economics_rows: null,
   };
 
   assert.deepEqual(getManagerMetricTrendPresentation("spend", averages), {

@@ -7,6 +7,7 @@ import { FilterListPopover } from "@/components/common/FilterListPopover";
 import { MANAGER_COLUMN_OPTIONS } from "@/components/manager/managerColumns";
 import type { CustomColumnKey } from "@/lib/metrics/customColumns";
 import { getActiveCustomColumn } from "@/lib/metrics/customColumnsRegistry";
+import { METRIC_DEFINITIONS, type MetricKey } from "@/lib/metrics/definitions";
 
 export type ManagerColumnType =
   // 140: colunas vinculadas da planilha — `custom:<mappingId>:<faceta>`. Tipo à parte
@@ -43,7 +44,10 @@ export type ManagerColumnType =
   | "video_watched_p50"
   | "video_watched_p75"
   | "leadscore_avg"
-  | "mql_rate";
+  | "mql_rate"
+  // Economia do lead (plano-economia-do-lead.md): só com planilha E cadastro.
+  | "cpl_ceiling"
+  | "lead_margin";
 
 interface ManagerColumnFilterProps {
   activeColumns: Set<ManagerColumnType>;
@@ -80,7 +84,9 @@ export function ManagerColumnFilter({ activeColumns, columnOrder, onToggleColumn
         id: columnId,
         label: columnLabel(columnId),
         disabled: isColumnDisabled?.(columnId) ?? false,
-        disabledHint: " (requer planilha)",
+        // Teto de CPL e Margem: o que falta costuma ser o cadastro (a economia só se
+        // configura em pack com planilha, então "economia" já implica planilha).
+        disabledHint: METRIC_DEFINITIONS[columnId as MetricKey]?.requiresLeadEconomics ? " (requer economia do lead no pack)" : " (requer planilha)",
       })),
     [columnOrder, isColumnDisabled],
   );

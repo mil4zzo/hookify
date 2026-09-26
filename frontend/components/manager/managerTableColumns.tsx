@@ -7,6 +7,7 @@ import type { ManagerColumnType } from "@/components/common/ManagerColumnFilter"
 import type { ManagerCellMode } from "@/components/manager/managerCellMode";
 import type { GroupedMetricSeriesByKey, ManagerAverages } from "@/lib/metrics";
 import type { CustomColumnDef } from "@/lib/metrics/customColumns";
+import type { LeadEconomicsByPack } from "@/lib/utils/leadEconomics";
 import type { SettingsTab } from "@/lib/store/settingsModal";
 import { IconFilter } from "@tabler/icons-react";
 import { buildMetricColumns, SortIcon } from "@/components/manager/managerTableMetricColumns";
@@ -90,6 +91,10 @@ export type CreateManagerTableColumnsParams = {
   provenanceIndex: ProvenanceIndex;
   hasSheetIntegration: boolean;
   mqlLeadscoreMin: number | null;
+  /** Economia do lead de cada pack selecionado (D27): Teto de CPL e Margem se resolvem por linha. */
+  leadEconomicsByPack: LeadEconomicsByPack;
+  /** Algum pack selecionado tem cadastro — as duas colunas existem. */
+  hasLeadEconomics: boolean;
   actionTypeRef: React.MutableRefObject<string>;
   /** Âncora do último checkbox clicado sem shift — habilita seleção em intervalo (shift+click). */
   selectionAnchorRef: React.MutableRefObject<string | null>;

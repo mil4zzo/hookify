@@ -201,6 +201,12 @@ export function formatManagerChildMetricValue(
       return Number(source.mqls || 0) > 0 ? formatManagerMetricValueLocal(metric, value, formatOptions) : "—";
     case "page_conv":
       return Number(source.lpv || 0) > 0 ? formatManagerMetricValueLocal(metric, value, formatOptions) : "—";
+    // Economia do lead: sem valor é "—", nunca 0 (o `?? 0` acima fabricaria "teto R$ 0,00").
+    case "cpl_ceiling":
+    case "lead_margin": {
+      const raw = getMetricNumericValueOrNull(source, metric, options);
+      return raw == null ? "—" : formatManagerMetricValueLocal(metric, raw, formatOptions);
+    }
     default:
       return formatManagerMetricValueLocal(metric, value, formatOptions);
   }

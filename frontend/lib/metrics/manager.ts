@@ -5,6 +5,7 @@ import { computeMqlMetricsFromLeadscore, getLeadscoreRaw } from "@/lib/utils/mql
 import { isCustomColumnKey, parseCustomColumnKey, type CustomColumnDef } from "./customColumns";
 import { getActiveCustomColumn } from "./customColumnsRegistry";
 import { computeLeadscoreFacets, histogramStats } from "@/lib/utils/customHistogram";
+import { aggregateRowsLeadEconomics } from "@/lib/utils/leadEconomics";
 
 export type ManagerMetricKey = Extract<
   MetricKey,
@@ -34,6 +35,8 @@ export type ManagerMetricKey = Extract<
   | "page_conv"
   | "leadscore_avg"
   | "mql_rate"
+  | "cpl_ceiling"
+  | "lead_margin"
 >;
 
 export interface ManagerAverages {
@@ -74,6 +77,24 @@ export interface ManagerAverages {
   sumThruplays: number;
   sumResults: number;
   sumMqls: number;
+  /**
+   * Economia do lead (D27): média do conjunto com a economia de CADA linha, ponderada
+   * pelos leads com nota — ver `aggregateRowsLeadEconomics`. null = sem planilha, sem
+   * cadastro nos packs selecionados, ou nenhuma linha com lead com nota.
+   */
+  cpl_ceiling: number | null;
+  lead_margin: number | null;
+  /** Meta do conjunto (margem desejada ponderada pelo faturamento) — o tooltip da Margem. */
+  lead_margin_target: number | null;
+  /** Quem ficou de fora da média e quantos estão abaixo da meta. null = sem economia no contexto. */
+  lead_economics_rows: {
+    excludedMixed: number;
+    excludedNoEconomics: number;
+    rowsWithMargin: number;
+    rowsBelowTarget: number;
+    leadsScored: number;
+    lowSample: boolean;
+  } | null;
   /**
    * 140: médias das colunas vinculadas, por chave `custom:<id>:<faceta>`. Mesma
    * ponderação do leadscore V1 (por contagem de leads); `mqls` é SOMA (como mqls);
@@ -121,6 +142,10 @@ const EMPTY_MANAGER_AVERAGES: ManagerAverages = {
   sumThruplays: 0,
   sumResults: 0,
   sumMqls: 0,
+  cpl_ceiling: null,
+  lead_margin: null,
+  lead_margin_target: null,
+  lead_economics_rows: null,
 };
 
 export const MANAGER_METRIC_KEYS: readonly ManagerMetricKey[] = [
@@ -150,6 +175,8 @@ export const MANAGER_METRIC_KEYS: readonly ManagerMetricKey[] = [
   "page_conv",
   "leadscore_avg",
   "mql_rate",
+  "cpl_ceiling",
+  "lead_margin",
 ] as const;
 
 // Métricas cujo header mostra a SOMA do pack (contagens), não a média por linha
@@ -349,13 +376,18 @@ export interface ComputeManagerAveragesOptions extends MetricValueContext {
 }
 
 export function computeManagerAverages(rows: MetricValueSource[], options: ComputeManagerAveragesOptions = {}): ManagerAverages {
-  const { actionType, hasSheetIntegration = false, includeScrollStop = true, mqlLeadscoreMin = null, customColumns = [] } = options;
+  const { actionType, hasSheetIntegration = false, includeScrollStop = true, mqlLeadscoreMin = null, customColumns = [], leadEconomicsByPack = null } = options;
 
   if (!Array.isArray(rows) || rows.length === 0) {
     return EMPTY_MANAGER_AVERAGES;
   }
 
   const custom = computeCustomColumnAverages(rows, customColumns);
+  // Sem planilha não há nota; sem o mapa, o chamador não tem a economia; e se nenhum pack
+  // selecionado tem cadastro, as colunas nem existem — não vale percorrer as linhas
+  // (três vezes por render: pack, filtro e seleção) só para concluir isso.
+  const hasAnyEconomics = !!leadEconomicsByPack && Object.values(leadEconomicsByPack).some((config) => config !== null);
+  const leadEconomics = hasSheetIntegration && hasAnyEconomics ? aggregateRowsLeadEconomics(rows, leadEconomicsByPack!) : null;
 
   let sumSpend = 0;
   let sumImpressions = 0;
@@ -494,6 +526,19 @@ export function computeManagerAverages(rows: MetricValueSource[], options: Compu
     sumThruplays,
     sumResults,
     sumMqls,
+    cpl_ceiling: leadEconomics?.aggregate?.cplCeiling ?? null,
+    lead_margin: leadEconomics?.aggregate?.margin ?? null,
+    lead_margin_target: leadEconomics?.aggregate?.targetMargin ?? null,
+    lead_economics_rows: leadEconomics
+      ? {
+          excludedMixed: leadEconomics.excludedMixed,
+          excludedNoEconomics: leadEconomics.excludedNoEconomics,
+          rowsWithMargin: leadEconomics.rowsWithMargin,
+          rowsBelowTarget: leadEconomics.rowsBelowTarget,
+          leadsScored: leadEconomics.aggregate?.leadsScored ?? 0,
+          lowSample: leadEconomics.aggregate?.lowSample ?? false,
+        }
+      : null,
     ...(custom ? { custom } : {}),
   };
 }

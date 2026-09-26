@@ -6,6 +6,7 @@ import type { ColumnFiltersState } from "@tanstack/react-table";
 import { RankingsItem } from "@/lib/api/schemas";
 import { computeManagerAverages, type ManagerAverages } from "@/lib/metrics";
 import type { CustomColumnDef } from "@/lib/metrics/customColumns";
+import type { LeadEconomicsByPack } from "@/lib/utils/leadEconomics";
 
 interface UseFilteredAveragesOptions {
   table: Table<RankingsItem>;
@@ -15,6 +16,8 @@ interface UseFilteredAveragesOptions {
   actionType?: string;
   hasSheetIntegration?: boolean;
   mqlLeadscoreMin: number | null;
+  /** Economia do lead de cada pack selecionado (D27): média de Teto de CPL e Margem. */
+  leadEconomicsByPack?: LeadEconomicsByPack | null;
   /** 140: colunas vinculadas da planilha (médias em `custom`). */
   customColumns?: ReadonlyArray<CustomColumnDef>;
 }
@@ -31,6 +34,7 @@ export function useFilteredAverages({
   actionType,
   hasSheetIntegration = false,
   mqlLeadscoreMin,
+  leadEconomicsByPack = null,
   customColumns,
 }: UseFilteredAveragesOptions): ManagerAverages | null {
   return useMemo(() => {
@@ -45,7 +49,8 @@ export function useFilteredAverages({
       hasSheetIntegration,
       includeScrollStop: false,
       mqlLeadscoreMin,
+      leadEconomicsByPack,
       customColumns,
     });
-  }, [table, dataLength, columnFilters, globalFilter, actionType, hasSheetIntegration, mqlLeadscoreMin, customColumns]);
+  }, [table, dataLength, columnFilters, globalFilter, actionType, hasSheetIntegration, mqlLeadscoreMin, leadEconomicsByPack, customColumns]);
 }

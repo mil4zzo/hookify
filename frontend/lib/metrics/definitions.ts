@@ -29,7 +29,9 @@ export type MetricKey =
   | "thruplays"
   | "reach"
   | "leadscore_avg"
-  | "mql_rate";
+  | "mql_rate"
+  | "cpl_ceiling"
+  | "lead_margin";
 
 export interface MetricDefinition {
   key: MetricKey;
@@ -42,6 +44,12 @@ export interface MetricDefinition {
   formatKind: MetricFormatKind;
   requiresActionType?: boolean;
   requiresSheetIntegration?: boolean;
+  /**
+   * Só existe com a economia do lead cadastrada em algum pack selecionado
+   * (Teto de CPL e Margem). Vale junto com `requiresSheetIntegration`: sem
+   * planilha não há nota, e sem nota não há conta.
+   */
+  requiresLeadEconomics?: boolean;
   /**
    * Métrica que só existe em VÍDEO: numerador e denominador vêm de `plays`.
    * Num anúncio de imagem ela não é zero — ela NÃO SE APLICA, e a tela diz isso
@@ -288,6 +296,30 @@ export const METRIC_DEFINITIONS: Record<MetricKey, MetricDefinition> = {
     polarity: "higher",
     formatKind: "ratioPercent",
     requiresSheetIntegration: true,
+  },
+  // Economia do lead (documentation/plano-economia-do-lead.md). As chaves são
+  // imutáveis depois de publicadas: regras salvas e preferências de coluna as citam.
+  cpl_ceiling: {
+    key: "cpl_ceiling",
+    label: "Teto de CPL",
+    didacticDescription: "Quanto você pode pagar por um lead deste anúncio sem descer abaixo da margem desejada, dado quem ele traz.",
+    technicalDescription:
+      "Σ fatia de leads na faixa × conversão × ticket × (sobra − margem desejada), com a economia do pack. Conta só os leads com nota.",
+    polarity: "higher",
+    formatKind: "currency",
+    requiresSheetIntegration: true,
+    requiresLeadEconomics: true,
+  },
+  lead_margin: {
+    key: "lead_margin",
+    label: "Margem",
+    didacticDescription: "Quanto sobra do faturamento esperado depois de produto, custos e do que o lead custou. Compare com a margem desejada.",
+    technicalDescription:
+      "(contribuição esperada por lead − gasto ÷ leads com nota) ÷ faturamento esperado por lead. Sobre o faturamento (D15). Escala 0-1.",
+    polarity: "higher",
+    formatKind: "ratioPercent",
+    requiresSheetIntegration: true,
+    requiresLeadEconomics: true,
   },
 };
 

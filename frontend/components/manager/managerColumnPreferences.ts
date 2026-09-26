@@ -8,6 +8,7 @@ import {
   type ManagerColumnOption,
 } from "@/components/manager/managerColumns";
 import { isManagerRatioPercentMetric } from "@/lib/metrics";
+import { METRIC_DEFINITIONS, type MetricKey } from "@/lib/metrics/definitions";
 import { isCustomColumnKey, type CustomColumnDef } from "@/lib/metrics/customColumns";
 
 /** Formato antigo (só visibilidade, em sessionStorage): string[] de colunas ativas. Migrado na leitura. */
@@ -138,12 +139,15 @@ export const getVisibleManagerColumns = ({
   activeColumns,
   columnOrder,
   hasSheetIntegration = false,
+  hasLeadEconomics = false,
   customColumns = [],
 }: {
   activeColumns: Set<ManagerColumnType>;
   /** Ordem escolhida pelo usuário. Ausente = ordem padrão de MANAGER_COLUMNS. */
   columnOrder?: readonly ManagerColumnType[];
   hasSheetIntegration?: boolean;
+  /** Algum pack selecionado tem a economia do lead cadastrada. */
+  hasLeadEconomics?: boolean;
   /** Colunas vinculadas da planilha nos packs selecionados (140). */
   customColumns?: ReadonlyArray<CustomColumnDef>;
 }): ManagerColumnOption[] => {
@@ -151,7 +155,7 @@ export const getVisibleManagerColumns = ({
   const order = columnOrder && columnOrder.length > 0 ? columnOrder : options.map((c) => c.id);
   const customIds = customIdSet(customColumns);
   return order
-    .filter((columnId) => isManagerMetricColumnVisible(columnId, { activeColumns, hasSheetIntegration, customColumnIds: customIds }))
+    .filter((columnId) => isManagerMetricColumnVisible(columnId, { activeColumns, hasSheetIntegration, hasLeadEconomics, customColumnIds: customIds }))
     .map((columnId) => options.find((column) => column.id === columnId))
     .filter((column): column is ManagerColumnOption => !!column);
 };
@@ -168,16 +172,39 @@ export interface FilterableManagerColumn {
   options?: { value: string; label: string }[];
 }
 
-export interface ManagerColumnVisibilityOptions {
-  activeColumns: Set<ManagerColumnType>;
+export interface ManagerColumnAvailabilityOptions {
   hasSheetIntegration?: boolean;
+  /** Algum pack selecionado tem a economia do lead cadastrada. */
+  hasLeadEconomics?: boolean;
+}
+
+/**
+ * A coluna EXISTE nesta seleção de packs, ligada ou não pelo usuário? Regra única,
+ * lida das definições das métricas — antes a lista das métricas de planilha estava
+ * copiada à mão em três lugares (esta função, `ManagerTable.isColumnEnabled` e o
+ * `ManagerExportDialog`), e toda métrica nova precisava lembrar dos três.
+ *
+ * Coluna vinculada (140) e dimensão não passam por aqui: a vinculada tem gate
+ * próprio (o vínculo existir) e a dimensão não depende de planilha.
+ */
+export function isManagerColumnAvailable(columnId: ManagerColumnType, { hasSheetIntegration = false, hasLeadEconomics = false }: ManagerColumnAvailabilityOptions): boolean {
+  if (isCustomColumnKey(columnId)) return true;
+  const definition = METRIC_DEFINITIONS[columnId as MetricKey];
+  if (!definition) return true;
+  if (definition.requiresSheetIntegration && !hasSheetIntegration) return false;
+  if (definition.requiresLeadEconomics && !hasLeadEconomics) return false;
+  return true;
+}
+
+export interface ManagerColumnVisibilityOptions extends ManagerColumnAvailabilityOptions {
+  activeColumns: Set<ManagerColumnType>;
   /** Chaves das colunas vinculadas conhecidas nesta seleção (140). Ausente = nenhuma. */
   customColumnIds?: ReadonlySet<string>;
 }
 
 export function isManagerMetricColumnVisible(
   columnId: ManagerColumnType,
-  { activeColumns, hasSheetIntegration = false, customColumnIds }: ManagerColumnVisibilityOptions,
+  { activeColumns, hasSheetIntegration = false, hasLeadEconomics = false, customColumnIds }: ManagerColumnVisibilityOptions,
 ): boolean {
   if (!activeColumns.has(columnId)) {
     return false;
@@ -188,11 +215,7 @@ export function isManagerMetricColumnVisible(
     return !!customColumnIds && customColumnIds.has(columnId);
   }
 
-  if ((columnId === "cpmql" || columnId === "mqls" || columnId === "leadscore_avg" || columnId === "mql_rate") && !hasSheetIntegration) {
-    return false;
-  }
-
-  return true;
+  return isManagerColumnAvailable(columnId, { hasSheetIntegration, hasLeadEconomics });
 }
 
 export function getManagerFilterableColumns({

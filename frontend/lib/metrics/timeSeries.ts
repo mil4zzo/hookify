@@ -68,6 +68,8 @@ export type MetricSparklineKey = Extract<
   | "video_watched_p75"
   | "leadscore_avg"
   | "mql_rate"
+  | "cpl_ceiling"
+  | "lead_margin"
 >;
 
 export interface BuildGroupedMetricBaseSeriesOptions extends MetricValueContext {
@@ -433,6 +435,10 @@ export function getMetricSeriesAvailability(
         zeroValueLabel: "Sem plays",
       };
     }
+    // Economia do lead: sem série diária no v0 (plano, seção 10) — nenhum dia "tem dado".
+    case "cpl_ceiling":
+    case "lead_margin":
+      return { dataAvailability: [] };
     default: {
       const spend = seriesData.spend || [];
       return {

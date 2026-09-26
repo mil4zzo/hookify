@@ -13,6 +13,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { InlineNotice } from "@/components/common/States";
 import { useTags } from "@/lib/api/hooks";
 import { useTagScope } from "@/components/manager/TagScopeProvider";
+import { useLeadEconomicsByPack } from "@/lib/hooks/useLeadEconomics";
 import { tagChipClasses, tagDotClasses } from "@/lib/tags/colors";
 import {
   PRESENCE_UI_OPERATOR,
@@ -616,9 +617,12 @@ export function RuleBuilder({
   highlightFieldId,
   disabled = false,
 }: RuleBuilderProps) {
+  // Direto do store, e não por prop: a seleção de packs é global, e fora do Manager
+  // os campos da economia já saem pela restrição de tela (`buildMetricField`).
+  const { hasLeadEconomics } = useLeadEconomicsByPack();
   const fields = useMemo(
-    () => getAvailableRuleFields({ hasSheetIntegration, context, tab }),
-    [hasSheetIntegration, context, tab],
+    () => getAvailableRuleFields({ hasSheetIntegration, hasLeadEconomics, context, tab }),
+    [hasSheetIntegration, hasLeadEconomics, context, tab],
   );
   const defaultField = useMemo(() => pickDefaultField(fields, context), [fields, context]);
 

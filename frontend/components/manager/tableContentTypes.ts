@@ -3,6 +3,7 @@ import React from "react";
 import type { Table, RowSelectionState } from "@tanstack/react-table";
 import type { RankingsItem } from "@/lib/api/schemas";
 import type { ManagerColumnType } from "@/components/common/ManagerColumnFilter";
+import type { LeadEconomicsByPack } from "@/lib/utils/leadEconomics";
 import type { ManagerCellMode } from "@/components/manager/managerCellMode";
 
 export type ManagerTab = "individual" | "por-anuncio" | "por-conjunto" | "por-campanha";
@@ -49,6 +50,9 @@ export interface SharedTableContentProps {
   columnOrder: readonly ManagerColumnType[];
   hasSheetIntegration?: boolean;
   mqlLeadscoreMin?: number | null;
+  /** Economia do lead por pack (D27). Não é lida aqui — é o sinal para o React.memo: `table` é
+   *  instância estável, e sem a prop mudar o cadastro não redesenharia Teto de CPL e Margem. */
+  leadEconomicsByPack?: LeadEconomicsByPack;
   // Adicionado para comparação confiável no React.memo
   sorting: { id: string; desc: boolean }[];
   /** Seleção de linhas (aba individual). Precisa ser prop explícita: table.getState() não detecta mudança

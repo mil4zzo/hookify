@@ -2,7 +2,7 @@
 
 import { useMemo } from "react";
 import { usePackJudgment } from "./usePackJudgment";
-import type { LeadEconomics } from "@/lib/utils/leadEconomics";
+import { normalizeLeadEconomics, type LeadEconomics, type LeadEconomicsByPack } from "@/lib/utils/leadEconomics";
 
 interface UseLeadEconomicsReturn {
   /**
@@ -39,4 +39,37 @@ export function useLeadEconomics(): UseLeadEconomicsReturn {
     divergent: judgment.divergent.leadEconomics,
     isLoading: judgment.isLoading,
   };
+}
+
+interface UseLeadEconomicsByPackReturn {
+  /**
+   * Cadastro de cada pack SELECIONADO (`null` = pack sem cadastro). É o que o
+   * Manager usa desde a D27: cada linha se resolve pelos `pack_ids` dela
+   * (`resolveRowLeadEconomics`), e só a linha que mistura cadastros diferentes
+   * fica sem teto — não a tela inteira, como no `useLeadEconomics` acima.
+   */
+  byPack: LeadEconomicsByPack;
+  /** Algum pack selecionado tem cadastro: as colunas Teto de CPL e Margem existem. */
+  hasLeadEconomics: boolean;
+}
+
+export function useLeadEconomicsByPack(): UseLeadEconomicsByPackReturn {
+  const { selectedPacks } = usePackJudgment();
+
+  // Mesma razão do memo acima, e aqui ela pesa mais: a conta por linha guarda cache
+  // pela REFERÊNCIA do cadastro (computeLeadEconomics) e da resolução
+  // (resolveRowLeadEconomics). Um mapa novo a cada mudança do store de packs
+  // jogaria fora os dois caches e redesenharia todas as células.
+  // Normaliza só quando a seleção (ou um pack dela) muda — a tabela re-renderiza a cada
+  // tecla na busca, e `selectedPacks` já vem memoizado por `usePackJudgment`.
+  const entries = useMemo(
+    () => selectedPacks.map((pack) => [pack.id, normalizeLeadEconomics(pack.lead_economics)] as const),
+    [selectedPacks],
+  );
+  const contentKey = useMemo(() => JSON.stringify(entries), [entries]);
+  return useMemo(() => {
+    const byPack: Record<string, LeadEconomics | null> = {};
+    for (const [packId, config] of entries) byPack[packId] = config;
+    return { byPack, hasLeadEconomics: entries.some(([, config]) => config !== null) };
+  }, [contentKey]); // eslint-disable-line react-hooks/exhaustive-deps
 }

@@ -42,6 +42,8 @@ interface FilterBarProps {
   filteredCount?: number;
   totalCount?: number;
   itemLabel?: string;
+  /** Resumo extra ao lado da contagem (ex.: anúncios abaixo da meta de margem). Memoize: entra no comparador. */
+  summarySlot?: React.ReactNode;
   /** Renderizado no início da linha de controles (ex.: input de busca). */
   leadingSlot?: React.ReactNode;
   /** Renderizado no fim da linha de controles (ex.: menu de compartilhar). */
@@ -72,6 +74,7 @@ function arePropsEqual(prev: FilterBarProps, next: FilterBarProps): boolean {
     prev.filteredCount === next.filteredCount &&
     prev.totalCount === next.totalCount &&
     prev.itemLabel === next.itemLabel &&
+    prev.summarySlot === next.summarySlot &&
     prev.serverTotal === next.serverTotal &&
     prev.leadingSlot === next.leadingSlot &&
     prev.trailingSlot === next.trailingSlot
@@ -92,6 +95,7 @@ export const FilterBar = React.memo(function FilterBar({
   filteredCount,
   totalCount,
   itemLabel,
+  summarySlot,
   leadingSlot,
   trailingSlot,
   serverTotal,
@@ -121,6 +125,7 @@ export const FilterBar = React.memo(function FilterBar({
             Exibindo {filteredCount} de {totalCount} {itemLabel}
           </span>
         )}
+        {summarySlot}
         {isTruncated && (
           <span
             className={truncatedChipClass}

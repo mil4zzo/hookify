@@ -273,6 +273,18 @@ export function normalizeLeadEconomics(raw: unknown): LeadEconomics | null {
  * null. (`-0 === 0`, e `JSON.stringify(-0)` é "0": corte ou conversão -0 é 0.)
  */
 export function leadEconomicsSemanticKey(config: LeadEconomics): string {
+  // A resolução por linha (D27) pergunta isto para cada pack de cada linha, várias
+  // vezes por render; o cadastro normalizado é imutável e estável por referência.
+  const cached = _semanticKeyCache.get(config);
+  if (cached !== undefined) return cached;
+  const key = buildSemanticKey(config);
+  _semanticKeyCache.set(config, key);
+  return key;
+}
+
+const _semanticKeyCache = new WeakMap<LeadEconomics, string>();
+
+function buildSemanticKey(config: LeadEconomics): string {
   return JSON.stringify(
     config.bands.map((band) => {
       const product = band.conversion === 0 ? null : findLeadEconomicsProduct(config, band.product);
@@ -575,4 +587,267 @@ export function computeLeadEconomicsForRows(
     }
   }
   return computeFromScoreCounts(counts, hasSpend ? spendTotal : null, config);
+}
+
+// ── Resolução por linha (D27) ─────────────────────────────────────────────────
+//
+// Com vários packs selecionados, cada linha usa o cadastro dos packs de onde vêm
+// os anúncios dela (`pack_ids`). Só a linha que junta packs com cadastros
+// DIFERENTES (pela chave D20) fica indisponível — a tela inteira não some por
+// causa dela, como sumia com a regra da tela (D16).
+
+/**
+ * Cadastro de cada pack SELECIONADO; `null` = pack selecionado sem cadastro. As
+ * chaves são os packs da tela: uma linha sem `pack_ids` (payload antigo) se
+ * resolve contra todos eles.
+ */
+export type LeadEconomicsByPack = Readonly<Record<string, LeadEconomics | null>>;
+
+/** Por que uma linha não tem teto nem margem — a célula diz qual. */
+export type LeadEconomicsUnavailableReason =
+  /** Algum pack da linha não tem economia cadastrada. */
+  | "no-economics"
+  /** Os packs da linha têm cadastros com números diferentes. */
+  | "mixed-economics"
+  /** Cadastro existe, mas a linha não tem nenhum lead com nota. */
+  | "no-scored-leads";
+
+export type RowLeadEconomicsResolution =
+  | { config: LeadEconomics; unavailable?: undefined }
+  | { config?: undefined; unavailable: "no-economics" | "mixed-economics" };
+
+const NO_ECONOMICS = Object.freeze({ unavailable: "no-economics" as const });
+const MIXED_ECONOMICS = Object.freeze({ unavailable: "mixed-economics" as const });
+const NO_SCORED_LEADS = Object.freeze({ unavailable: "no-scored-leads" as const });
+
+// A resolução é por (mapa, lista de packs da linha): as duas referências são
+// estáveis entre renders (o mapa vem memoizado; `pack_ids` é da linha da query).
+const _resolutionCache = new WeakMap<LeadEconomicsByPack, WeakMap<readonly string[], RowLeadEconomicsResolution>>();
+const _resolutionAllPacksCache = new WeakMap<LeadEconomicsByPack, RowLeadEconomicsResolution>();
+
+function resolveFromPackIds(packIds: readonly string[], byPack: LeadEconomicsByPack): RowLeadEconomicsResolution {
+  if (packIds.length === 0) return NO_ECONOMICS;
+  let first: LeadEconomics | null = null;
+  let firstKey = "";
+  for (const packId of packIds) {
+    const config = Object.prototype.hasOwnProperty.call(byPack, packId) ? byPack[packId] : null;
+    // Pack sem cadastro (ou fora da seleção): parte dos leads da linha não tem
+    // economia — calcular com o cadastro dos outros daria número de outro negócio.
+    if (!config) return NO_ECONOMICS;
+    const key = leadEconomicsSemanticKey(config);
+    if (first === null) {
+      first = config;
+      firstKey = key;
+    } else if (key !== firstKey) {
+      return MIXED_ECONOMICS;
+    }
+  }
+  return { config: first as LeadEconomics };
+}
+
+/** Cadastro que vale para uma linha, ou o motivo de não haver um. */
+export function resolveRowLeadEconomics(
+  packIds: readonly string[] | null | undefined,
+  byPack: LeadEconomicsByPack,
+): RowLeadEconomicsResolution {
+  if (!Array.isArray(packIds) || packIds.length === 0) {
+    const cached = _resolutionAllPacksCache.get(byPack);
+    if (cached) return cached;
+    const resolution = resolveFromPackIds(Object.keys(byPack), byPack);
+    _resolutionAllPacksCache.set(byPack, resolution);
+    return resolution;
+  }
+  let perRow = _resolutionCache.get(byPack);
+  if (!perRow) {
+    perRow = new WeakMap();
+    _resolutionCache.set(byPack, perRow);
+  }
+  const cached = perRow.get(packIds);
+  if (cached) return cached;
+  const resolution = resolveFromPackIds(packIds, byPack);
+  perRow.set(packIds, resolution);
+  return resolution;
+}
+
+/** O que uma linha do Manager precisa carregar para a conta. */
+export interface LeadEconomicsRowSource {
+  pack_ids?: readonly string[] | null;
+  spend?: unknown;
+  leadscore_histogram?: unknown;
+  leadscore_values?: unknown;
+}
+
+export type RowLeadEconomicsOutcome =
+  | { result: LeadEconomicsResult; config: LeadEconomics; unavailable?: undefined }
+  | { result?: undefined; config?: undefined; unavailable: LeadEconomicsUnavailableReason };
+
+/**
+ * Gasto da linha como número. As linhas da RPC já trazem número; texto numérico
+ * (payload antigo) é aceito aqui, na borda, porque `computeLeadEconomics` só aceita
+ * `number` e trataria "12.5" como gasto ausente.
+ */
+function rowSpend(spend: unknown): number | null {
+  if (typeof spend === "number") return Number.isFinite(spend) ? spend : null;
+  if (typeof spend === "string" && spend.trim() !== "") {
+    const n = Number(spend);
+    return Number.isFinite(n) ? n : null;
+  }
+  return null;
+}
+
+function rowLeadscoreRaw(row: LeadEconomicsRowSource): unknown {
+  // Mesma precedência de `getLeadscoreRaw` (mqlMetrics): histograma da RPC, senão o array cru.
+  return row.leadscore_histogram ?? row.leadscore_values;
+}
+
+/** Teto e margem de UMA linha, com o cadastro dos packs dela (D27). */
+export function getRowLeadEconomics(row: LeadEconomicsRowSource, byPack: LeadEconomicsByPack): RowLeadEconomicsOutcome {
+  const resolution = resolveRowLeadEconomics(row.pack_ids, byPack);
+  if (resolution.unavailable) return resolution;
+  const result = computeLeadEconomics({ spend: rowSpend(row.spend), leadscoreRaw: rowLeadscoreRaw(row), config: resolution.config });
+  if (!result) return NO_SCORED_LEADS;
+  return { result, config: resolution.config };
+}
+
+/**
+ * Folga do ponto flutuante na igualdade margem = meta. Matematicamente
+ * `margem ≥ meta ⇔ CPL ≤ teto`; no ponto exato o arredondamento pode separar as
+ * duas colunas (teto 8.399999999999999 × CPL 8.4 com margem = meta). Sem folga, a
+ * Margem pintaria "abaixo da meta" um anúncio exatamente no teto.
+ */
+export const LEAD_ECONOMICS_TOLERANCE = 1e-9;
+
+export type LeadMarginTone = "success" | "warning" | "destructive";
+
+/**
+ * Os três estados da Margem (D14): na meta ou acima (sucesso), lucrando mas abaixo
+ * da meta (alerta), prejuízo (erro). Margem zero é empate — não é prejuízo.
+ */
+export function leadMarginTone(margin: number | null | undefined, targetMargin: number | null | undefined): LeadMarginTone | null {
+  if (margin == null || !Number.isFinite(margin)) return null;
+  if (margin < -LEAD_ECONOMICS_TOLERANCE) return "destructive";
+  if (targetMargin != null && Number.isFinite(targetMargin) && margin >= targetMargin - LEAD_ECONOMICS_TOLERANCE) return "success";
+  return "warning";
+}
+
+export interface LeadEconomicsAggregate {
+  leadsScored: number;
+  revenuePerLead: number;
+  contributionPerLead: number;
+  cplCeiling: number;
+  cplActual: number | null;
+  margin: number | null;
+  targetMargin: number | null;
+  lowSample: boolean;
+}
+
+export interface LeadEconomicsRowsSummary {
+  /** Média do conjunto; null quando nenhuma linha com cadastro tem lead com nota. */
+  aggregate: LeadEconomicsAggregate | null;
+  /** Linhas com lead ou gasto deixadas de fora da média, por motivo. */
+  excludedMixed: number;
+  excludedNoEconomics: number;
+  /** Linhas com margem calculável, e quantas delas abaixo da própria meta. */
+  rowsWithMargin: number;
+  rowsBelowTarget: number;
+}
+
+function hasAnyScoredLead(raw: unknown): boolean {
+  if (Array.isArray(raw)) return raw.length > 0;
+  if (raw && typeof raw === "object") {
+    for (const qty of Object.values(raw as Record<string, unknown>)) {
+      if (Math.trunc(Number(qty)) > 0) return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Linha de média do Manager com a economia de cada linha (D27): cada linha entra
+ * com o PRÓPRIO cadastro, e o resultado é ponderado pelos leads com nota dela.
+ *
+ * Com um cadastro só, dá exatamente o número de `computeLeadEconomicsForRows`
+ * (contagens somadas): R, K e teto do conjunto são a média dos R, K e tetos das
+ * linhas pesada pelos leads; a meta pesa também pelo faturamento; o CPL é o gasto
+ * das linhas que entraram (inclusive as sem lead, que também custaram) ÷ os leads.
+ * Nunca a média simples dos tetos (D17) — um anúncio com 3 leads pesaria igual a
+ * um com 300.
+ *
+ * Linha indisponível (packs sem cadastro ou com cadastros diferentes) fica de fora,
+ * com gasto e tudo, e é contada — o cabeçalho avisa que a média não cobre tudo.
+ */
+export function aggregateRowsLeadEconomics(
+  rows: ReadonlyArray<LeadEconomicsRowSource>,
+  byPack: LeadEconomicsByPack,
+): LeadEconomicsRowsSummary {
+  let leads = 0;
+  let sumRevenue = 0;
+  let sumContribution = 0;
+  let sumCeiling = 0;
+  let sumTargetRevenue = 0;
+  let spendTotal = 0;
+  let hasSpend = false;
+  let excludedMixed = 0;
+  let excludedNoEconomics = 0;
+  let rowsWithMargin = 0;
+  let rowsBelowTarget = 0;
+
+  for (const row of rows) {
+    const resolution = resolveRowLeadEconomics(row.pack_ids, byPack);
+    const spend = rowSpend(row.spend);
+    const raw = rowLeadscoreRaw(row);
+
+    if (resolution.unavailable) {
+      // Linha sem lead e sem gasto não muda a média: não há o que avisar.
+      if (hasAnyScoredLead(raw) || (spend !== null && spend !== 0)) {
+        if (resolution.unavailable === "mixed-economics") excludedMixed += 1;
+        else excludedNoEconomics += 1;
+      }
+      continue;
+    }
+
+    if (spend !== null) {
+      spendTotal += spend;
+      hasSpend = true;
+    }
+
+    const result = computeLeadEconomics({ spend, leadscoreRaw: raw, config: resolution.config });
+    if (!result) continue;
+
+    const weight = result.leadsScored;
+    leads += weight;
+    sumRevenue += result.revenuePerLead * weight;
+    sumContribution += result.contributionPerLead * weight;
+    sumCeiling += result.cplCeiling * weight;
+    sumTargetRevenue += (result.targetMargin ?? 0) * result.revenuePerLead * weight;
+
+    if (result.margin !== null) {
+      rowsWithMargin += 1;
+      if (leadMarginTone(result.margin, result.targetMargin) !== "success") rowsBelowTarget += 1;
+    }
+  }
+
+  if (leads === 0) {
+    return { aggregate: null, excludedMixed, excludedNoEconomics, rowsWithMargin, rowsBelowTarget };
+  }
+
+  const revenuePerLead = sumRevenue / leads;
+  const contributionPerLead = sumContribution / leads;
+  const cplActual = hasSpend ? spendTotal / leads : null;
+  return {
+    aggregate: {
+      leadsScored: leads,
+      revenuePerLead,
+      contributionPerLead,
+      cplCeiling: sumCeiling / leads,
+      cplActual,
+      margin: revenuePerLead > 0 && cplActual !== null ? (contributionPerLead - cplActual) / revenuePerLead : null,
+      targetMargin: sumRevenue > 0 ? sumTargetRevenue / sumRevenue : null,
+      lowSample: leads < LEAD_ECONOMICS_MIN_SAMPLE,
+    },
+    excludedMixed,
+    excludedNoEconomics,
+    rowsWithMargin,
+    rowsBelowTarget,
+  };
 }

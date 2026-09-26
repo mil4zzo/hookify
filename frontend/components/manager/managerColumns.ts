@@ -46,6 +46,11 @@ export const MANAGER_COLUMNS: readonly ManagerColumnOption[] = [
   // 2) Custos — a eficiência desse resultado.
   { id: "cpr", name: getManagerMetricLabel("cpr"), defaultVisible: true },
   { id: "cpmql", name: getManagerMetricLabel("cpmql"), defaultVisible: true },
+  // Economia do lead: o custo contra o que o lead VALE. Logo depois do CPMQL, porque
+  // respondem a mesma pergunta em dois níveis (quanto custou o qualificado × quanto
+  // este lead aguenta custar). Desligadas por padrão: só existem com cadastro.
+  { id: "cpl_ceiling", name: getManagerMetricLabel("cpl_ceiling") },
+  { id: "lead_margin", name: getManagerMetricLabel("lead_margin") },
   { id: "cpc", name: getManagerMetricLabel("cpc"), defaultVisible: true },
   { id: "cplc", name: getManagerMetricLabel("cplc"), defaultVisible: true },
   { id: "cpm", name: getManagerMetricLabel("cpm"), defaultVisible: true },

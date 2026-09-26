@@ -19,6 +19,7 @@ import { ShareCreateDialog } from "@/components/manager/ShareCreateDialog";
 import { toast } from "sonner";
 import { RankingsItem, type RankingsRowTag } from "@/lib/api/schemas";
 import { useMqlLeadscore } from "@/lib/hooks/useMqlLeadscore";
+import { useLeadEconomicsByPack } from "@/lib/hooks/useLeadEconomics";
 import { useSettingsModalStore } from "@/lib/store/settingsModal";
 import { useManagerAverages } from "@/lib/hooks/useManagerAverages";
 import { useFilteredAverages } from "@/lib/hooks/useFilteredAverages";
@@ -54,7 +55,7 @@ import {
 import { isEmptyRuleTree, type RuleConditionLeaf, type RuleTree } from "@/lib/rules/types";
 import type { RuleNameDictionary } from "@/lib/rules/evaluate";
 import { buildGroupedMetricBaseSeries, formatManagerAverageValue, type ManagerAverages } from "@/lib/metrics";
-import { loadManagerColumnPreferences, normalizeManagerColumnOrder, saveManagerColumnPreferences, type ManagerColumnPreferences } from "@/components/manager/managerColumnPreferences";
+import { isManagerColumnAvailable, loadManagerColumnPreferences, normalizeManagerColumnOrder, saveManagerColumnPreferences, type ManagerColumnPreferences } from "@/components/manager/managerColumnPreferences";
 
 /** Referência estável para "nenhuma coluna vinculada" — evita re-normalizar as preferências a cada render. */
 const EMPTY_CUSTOM_COLUMNS: ReadonlyArray<CustomColumnDef> = [];
@@ -267,6 +268,12 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
     }
   }, []);
 
+  // Economia do lead de cada pack selecionado (D27): Teto de CPL e Margem se resolvem
+  // por linha. Direto do store, como o corte de MQL mais abaixo. As duas colunas NÃO
+  // entram nem saem de `activeColumns` sozinhas (ao contrário de cpmql/mqls logo abaixo):
+  // a escolha do usuário fica guardada, e `isManagerColumnAvailable` decide se existem.
+  const { byPack: leadEconomicsByPack, hasLeadEconomics } = useLeadEconomicsByPack();
+
   // Remover automaticamente cpmql e mqls quando hasSheetIntegration for false
   useEffect(() => {
     if (!hasSheetIntegration) {
@@ -304,10 +311,9 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
     (columnId: ManagerColumnType) => {
       // 140: coluna vinculada só existe enquanto algum pack selecionado tem o vínculo.
       if (isCustomColumnKey(columnId)) return customColumnIds.has(columnId);
-      if (columnId === "cpmql" || columnId === "mqls" || columnId === "leadscore_avg" || columnId === "mql_rate") return hasSheetIntegration;
-      return true;
+      return isManagerColumnAvailable(columnId, { hasSheetIntegration, hasLeadEconomics });
     },
-    [hasSheetIntegration, customColumnIds],
+    [hasSheetIntegration, hasLeadEconomics, customColumnIds],
   );
 
   const handleToggleColumn = useCallback(
@@ -678,6 +684,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
     actionType,
     hasSheetIntegration,
     mqlLeadscoreMin,
+    leadEconomicsByPack,
     customColumns,
   });
 
@@ -738,6 +745,12 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
         sumThruplays: computedAverages.sumThruplays,
         sumResults: computedAverages.sumResults,
         sumMqls: computedAverages.sumMqls,
+        // Economia do lead: só o cliente tem a economia de cada pack (D27) — o override
+        // do backend não a conhece. Sem estas linhas, o cabeçalho ficava sem média.
+        cpl_ceiling: computedAverages.cpl_ceiling,
+        lead_margin: computedAverages.lead_margin,
+        lead_margin_target: computedAverages.lead_margin_target,
+        lead_economics_rows: computedAverages.lead_economics_rows,
       } as ManagerAverages;
     }
     return computedAverages;
@@ -869,6 +882,8 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
       provenanceIndex,
       hasSheetIntegration,
       mqlLeadscoreMin,
+      leadEconomicsByPack,
+      hasLeadEconomics,
       customColumns,
       actionTypeRef,
       selectionAnchorRef,
@@ -876,9 +891,9 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
       filteredFieldIdsRef,
       onRevealField: handleRevealField,
       globalFilterRef,
-      ruleContext: { actionType, mqlLeadscoreMin, names },
+      ruleContext: { actionType, mqlLeadscoreMin, leadEconomicsByPack, names },
     });
-  }, [activeColumns, groupByAdNameEffective, byKey, endDate, cellMode, formatPct, viewMode, colorMetricValue, provenanceIndex, hasSheetIntegration, mqlLeadscoreMin, customColumns, getRowKey, handleRevealField, currentTab, openSettings, actionType, handleOpenDrill, packCtxIds, names]);
+  }, [activeColumns, groupByAdNameEffective, byKey, endDate, cellMode, formatPct, viewMode, colorMetricValue, provenanceIndex, hasSheetIntegration, mqlLeadscoreMin, leadEconomicsByPack, hasLeadEconomics, customColumns, getRowKey, handleRevealField, currentTab, openSettings, actionType, handleOpenDrill, packCtxIds, names]);
 
   // Handler que garante que sempre haja pelo menos uma ordenação
   const handleSortingChange = useCallback((updater: SortingState | ((old: SortingState) => SortingState)) => {
@@ -991,6 +1006,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
     actionType,
     hasSheetIntegration,
     mqlLeadscoreMin,
+    leadEconomicsByPack,
     customColumns,
   });
 
@@ -1011,6 +1027,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
     actionType,
     hasSheetIntegration,
     mqlLeadscoreMin,
+    leadEconomicsByPack,
     customColumns,
   });
 
@@ -1104,6 +1121,27 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
 
   const filterBarItemLabel = currentTab === "por-conjunto" ? "conjuntos" : currentTab === "por-campanha" ? "campanhas" : "anúncios";
   const filterBarFilteredCount = table.getFilteredRowModel().rows.length;
+
+  // "7 de 23 abaixo da meta de margem", ao lado da contagem — só com uma das colunas da
+  // economia ligada: sem elas, a frase apontaria para um número que não está na tela.
+  // Sobre o que está na tela (a média filtrada, quando há filtro).
+  const leadEconomicsRowsSummary = (filteredAverages ?? computedAverages).lead_economics_rows;
+  const showsLeadEconomicsColumn =
+    hasSheetIntegration && hasLeadEconomics && (activeColumns.has("lead_margin") || activeColumns.has("cpl_ceiling"));
+  const belowTargetCount = leadEconomicsRowsSummary?.rowsBelowTarget ?? 0;
+  const withMarginCount = leadEconomicsRowsSummary?.rowsWithMargin ?? 0;
+  const leadEconomicsSummarySlot = useMemo(
+    () =>
+      showsLeadEconomicsColumn && withMarginCount > 0 ? (
+        <span
+          className="whitespace-nowrap text-xs text-muted-foreground"
+          title="Anúncios com margem calculável cuja margem está abaixo da margem desejada do próprio produto."
+        >
+          {belowTargetCount} de {withMarginCount} abaixo da meta de margem
+        </span>
+      ) : null,
+    [showsLeadEconomicsColumn, belowTargetCount, withMarginCount],
+  );
 
   const controls = useMemo(
     () => (
@@ -1263,6 +1301,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
       columnOrder,
       hasSheetIntegration,
       mqlLeadscoreMin,
+      leadEconomicsByPack,
       sorting,
       rowSelection,
       pinSelectionToTop,
@@ -1274,7 +1313,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
       isError: isError && currentTab === "por-anuncio",
       onOpenDrill: handleOpenDrill,
     }),
-    [table, isLoadingEffective, isError, getRowKey, groupByAdNameEffective, currentTab, handleSelectAd, handleSelectAdset, dateStart, dateStop, selectedPackIds, actionType, formatCurrency, formatPct, rules, setRules, deferredGlobalFilter, activeColumns, columnOrder, hasSheetIntegration, mqlLeadscoreMin, sorting, rowSelection, pinSelectionToTop, data, adsEffectiveRaw, cellMode, colorMetricValue, handleVisibleRowKeysChange, handleOpenDrill],
+    [table, isLoadingEffective, isError, getRowKey, groupByAdNameEffective, currentTab, handleSelectAd, handleSelectAdset, dateStart, dateStop, selectedPackIds, actionType, formatCurrency, formatPct, rules, setRules, deferredGlobalFilter, activeColumns, columnOrder, hasSheetIntegration, mqlLeadscoreMin, leadEconomicsByPack, sorting, rowSelection, pinSelectionToTop, data, adsEffectiveRaw, cellMode, colorMetricValue, handleVisibleRowKeysChange, handleOpenDrill],
   );
 
   // Na aba Criativos a seleção existe para compartilhar, não para mexer em status — daí o
@@ -1333,6 +1372,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
       filteredCount={filterBarFilteredCount}
       totalCount={adsEffectiveRaw.length}
       itemLabel={filterBarItemLabel}
+      summarySlot={leadEconomicsSummarySlot}
       leadingSlot={searchBar}
       trailingSlot={shareMenu}
     />
@@ -1456,7 +1496,8 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
         currentTab={currentTab}
         dateStart={dateStart}
         dateStop={dateStop}
-        metricContext={{ actionType, mqlLeadscoreMin }}
+        metricContext={{ actionType, mqlLeadscoreMin, leadEconomicsByPack }}
+        hasLeadEconomics={hasLeadEconomics}
         packIds={packCtxIds}
         customColumns={customColumns}
       />

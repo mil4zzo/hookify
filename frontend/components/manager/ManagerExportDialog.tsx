@@ -5,6 +5,7 @@ import type { Row, Table } from "@tanstack/react-table";
 import type { RankingsItem } from "@/lib/api/schemas";
 import type { ManagerColumnType } from "@/components/common/ManagerColumnFilter";
 import { getManagerColumnOptions, type ManagerColumnOption } from "@/components/manager/managerColumns";
+import { isManagerColumnAvailable } from "@/components/manager/managerColumnPreferences";
 import type { CustomColumnDef } from "@/lib/metrics/customColumns";
 import { AppDialog } from "@/components/common/AppDialog";
 import { Button } from "@/components/ui/button";
@@ -41,14 +42,17 @@ interface ManagerExportDialogProps {
   packIds?: string[];
   /** 140: colunas vinculadas da planilha nos packs selecionados (exportáveis). */
   customColumns?: ReadonlyArray<CustomColumnDef>;
+  /** Algum pack selecionado tem a economia do lead (Teto de CPL e Margem). */
+  hasLeadEconomics?: boolean;
 }
 
-export function ManagerExportDialog({ isOpen, onClose, table, activeColumns, columnOrder, hasSheetIntegration, currentTab, dateStart, dateStop, metricContext, packIds, customColumns = [] }: ManagerExportDialogProps) {
+export function ManagerExportDialog({ isOpen, onClose, table, activeColumns, columnOrder, hasSheetIntegration, currentTab, dateStart, dateStop, metricContext, packIds, customColumns = [], hasLeadEconomics = false }: ManagerExportDialogProps) {
   const provenanceIndex = useProvenanceIndex();
   const packs = useSessionStore((state) => state.packs);
   const { startTranscriptionOnly } = usePackRefresh();
 
-  // Colunas exportáveis, na ordem da tabela (exclui as métricas de planilha — cpmql/mqls/leadscore_avg/mql_rate — quando não há integração; o export as descarta de qualquer forma)
+  // Colunas exportáveis, na ordem da tabela — a mesma regra de disponibilidade da tabela
+  // (métricas de planilha sem integração, economia do lead sem cadastro ficam de fora)
   const availableColumns = useMemo(() => {
     const options = getManagerColumnOptions(customColumns);
     const byId = new Map(options.map((c) => [c.id, c]));
@@ -56,8 +60,8 @@ export function ManagerExportDialog({ isOpen, onClose, table, activeColumns, col
     return order
       .map((id) => byId.get(id))
       .filter((c): c is ManagerColumnOption => !!c)
-      .filter((c) => !((c.id === "cpmql" || c.id === "mqls" || c.id === "leadscore_avg" || c.id === "mql_rate") && !hasSheetIntegration));
-  }, [columnOrder, hasSheetIntegration, customColumns]);
+      .filter((c) => isManagerColumnAvailable(c.id, { hasSheetIntegration, hasLeadEconomics }));
+  }, [columnOrder, hasSheetIntegration, hasLeadEconomics, customColumns]);
 
   const [selected, setSelected] = useState<Set<ManagerColumnType>>(new Set());
   const [withTranscriptions, setWithTranscriptions] = useState(false);
@@ -211,6 +215,7 @@ export function ManagerExportDialog({ isOpen, onClose, table, activeColumns, col
       metricContext,
       packIds,
       customColumns,
+      hasLeadEconomics,
     });
     onClose();
   };

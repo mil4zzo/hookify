@@ -2,12 +2,20 @@ import { computeMqlMetricsFromLeadscore, getLeadscoreRaw } from "@/lib/utils/mql
 import { getCustomMetricValue, isCustomColumnKey } from "./customColumns";
 import { getActiveCustomColumn } from "./customColumnsRegistry";
 import { type MetricKey, METRIC_DEFINITIONS } from "./definitions";
+import { getRowLeadEconomics, type LeadEconomicsByPack } from "@/lib/utils/leadEconomics";
 
 type MetricKeyLike = MetricKey | string;
 
 export interface MetricValueContext {
   actionType?: string;
   mqlLeadscoreMin?: number | null;
+  /**
+   * Economia do lead de cada pack selecionado (D27). Teto de CPL e Margem se
+   * resolvem POR LINHA, pelos `pack_ids` dela — por isso o mapa, e não um cadastro
+   * só. Ausente = o chamador não tem a economia; a métrica lê o valor pré-calculado
+   * da linha, se houver (as filhas do Manager pré-calculam), senão fica sem dado.
+   */
+  leadEconomicsByPack?: LeadEconomicsByPack | null;
 }
 
 export type MetricValueSource = {
@@ -280,6 +288,16 @@ export function getMetricNumericValueOrNull(source: MetricValueSource, metricKey
       // Corte indefinido -> nao ha taxa de qualificacao para afirmar.
       if (mqlCount === null || leadscoreValues.length === 0) return null;
       return mqlCount / leadscoreValues.length;
+    }
+    case "cpl_ceiling":
+    case "lead_margin": {
+      // Nunca um campo com o mesmo nome vindo da RPC: ela não conhece a economia. Com o
+      // mapa, a conta é da linha; sem ele, só o valor que o próprio app pré-calculou.
+      // (`toFiniteNumber(null)` daria 0: um "teto R$ 0" fabricado para quem não tem teto.)
+      if (!context.leadEconomicsByPack) return source[canonicalKey] == null ? null : toFiniteNumber(source[canonicalKey]);
+      const outcome = getRowLeadEconomics(source, context.leadEconomicsByPack);
+      if (!outcome.result) return null;
+      return canonicalKey === "cpl_ceiling" ? outcome.result.cplCeiling : outcome.result.margin;
     }
     default:
       return null;

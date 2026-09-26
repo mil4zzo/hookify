@@ -11,7 +11,7 @@ import type { MediaSourceUrlsBatchResponse } from "@/lib/api/schemas"
 
 type ManagerTab = "individual" | "por-anuncio" | "por-conjunto" | "por-campanha"
 
-const RATIO_COLUMNS = new Set<ManagerColumnType>(["hook", "scroll_stop", "hold_rate", "ctr", "website_ctr", "connect_rate", "page_conv", "mql_rate"])
+const RATIO_COLUMNS = new Set<ManagerColumnType>(["hook", "scroll_stop", "hold_rate", "ctr", "website_ctr", "connect_rate", "page_conv", "mql_rate", "lead_margin"])
 const INTEGER_COLUMNS = new Set<ManagerColumnType>(["impressions", "clicks", "reach", "lpv", "plays", "thruplays", "results", "mqls", "video_watched_p50", "video_watched_p75"])
 
 function formatValue(colId: ManagerColumnType, value: unknown): string {
@@ -172,6 +172,7 @@ export async function exportManagerToCsv({
   provenanceIndex,
   packIds,
   customColumns = [],
+  hasLeadEconomics = false,
 }: {
   table: Table<RankingsItem>
   activeColumns: Set<ManagerColumnType>
@@ -198,6 +199,8 @@ export async function exportManagerToCsv({
   metricContext?: MetricValueContext
   /** 140: colunas vinculadas da planilha nos packs selecionados. */
   customColumns?: ReadonlyArray<CustomColumnDef>
+  /** Algum pack selecionado tem a economia do lead (Teto de CPL e Margem exportáveis). */
+  hasLeadEconomics?: boolean
 }): Promise<void> {
   const rows = rowsSnapshot ?? table.getSortedRowModel().rows
   // Colunas realmente construídas na tabela: só nessas row.getValue() é válido —
@@ -208,7 +211,7 @@ export async function exportManagerToCsv({
   const showMediaType = TABS_WITH_MEDIA_TYPE.has(currentTab)
   const showMediaUrls = withMediaUrls && TABS_WITH_MEDIA_URLS.has(currentTab)
 
-  const visibleMetricColumns = getVisibleManagerColumns({ activeColumns, columnOrder, hasSheetIntegration, customColumns })
+  const visibleMetricColumns = getVisibleManagerColumns({ activeColumns, columnOrder, hasSheetIntegration, hasLeadEconomics, customColumns })
 
   // Buscar transcrições em batch se necessário
   let transcriptionMap: Record<string, string> = {}

@@ -26,6 +26,7 @@ import { buildManagerComputedRow, compareManagerChildRows, formatManagerChildMet
 import { getCustomTopValue, isCustomColumnKey } from "@/lib/metrics/customColumns";
 import { getActiveCustomColumn, getActiveCustomColumns, getActiveCustomColumnsVersion } from "@/lib/metrics/customColumnsRegistry";
 import { isManagerMetricColumn } from "@/components/manager/managerColumns";
+import { useLeadEconomicsByPack } from "@/lib/hooks/useLeadEconomics";
 
 /** Tipo de filho renderizado: anúncios de um adset, variações de um ad name, ou adsets de uma campanha. */
 export type ChildrenEntity = "ads" | "variations" | "adsets";
@@ -192,17 +193,21 @@ export function ManagerChildrenTable({
   // traz `custom_histograms` desde a v135. A lista vem do registro ativo, publicado pela
   // página; ligar/desligar a coluna muda `activeColumns`, que já re-renderiza.
   const customColumnsVersion = getActiveCustomColumnsVersion();
+  // Economia do lead (D27): cada variação se resolve pelos próprios `pack_ids` (a filha
+  // os traz desde a migration 134). Direto do store, como na tabela principal — passar
+  // por prop atravessaria três componentes com comparador de memo próprio.
+  const { byPack: leadEconomicsByPack, hasLeadEconomics } = useLeadEconomicsByPack();
   const visibleColumns = useMemo(
     () =>
-      getVisibleManagerColumns({ activeColumns, columnOrder, hasSheetIntegration, customColumns: getActiveCustomColumns() }).filter(
+      getVisibleManagerColumns({ activeColumns, columnOrder, hasSheetIntegration, hasLeadEconomics, customColumns: getActiveCustomColumns() }).filter(
         (column) => isManagerMetricColumn(column) || !!column.custom,
       ),
     // eslint-disable-next-line react-hooks/exhaustive-deps -- customColumnsVersion é o gatilho do registro
-    [activeColumns, columnOrder, hasSheetIntegration, customColumnsVersion],
+    [activeColumns, columnOrder, hasSheetIntegration, hasLeadEconomics, customColumnsVersion],
   );
   const childrenLabel = config.plural;
 
-  const ruleContext = useMemo(() => ({ actionType, mqlLeadscoreMin }), [actionType, mqlLeadscoreMin]);
+  const ruleContext = useMemo(() => ({ actionType, mqlLeadscoreMin, leadEconomicsByPack }), [actionType, mqlLeadscoreMin, leadEconomicsByPack]);
 
   // Sem isto os campos Pack e Conta apareciam no seletor e abriam VAZIOS: o dado
   // chega na filha desde a migration 134, o campo estava no vocabulário, e faltava
@@ -244,6 +249,10 @@ export function ManagerChildrenTable({
           },
         ),
         conversions,
+        // Pré-calculados com a economia de cada pack: a ordenação e a célula das filhas
+        // leem o campo da linha (sem contexto). null atravessa — "—", nunca teto zero.
+        cpl_ceiling: getMetricNumericValueOrNull(child, "cpl_ceiling", { leadEconomicsByPack }),
+        lead_margin: getMetricNumericValueOrNull(child, "lead_margin", { leadEconomicsByPack }),
         // adsets têm ad_count real vindo do backend — não sobrescrever
         ad_count: config.addAdCount ? 1 : Number((child as any).ad_count ?? 0),
       };
@@ -270,7 +279,7 @@ export function ManagerChildrenTable({
     return [...filteredData].sort((a, b) => {
       return compareManagerChildRows(a, b, sortConfig.column as ManagerChildSortColumn, sortConfig.direction);
     });
-  }, [actionType, childrenData, rules, ruleContext, hasSheetIntegration, mqlLeadscoreMin, searchTerm, sortConfig]);
+  }, [actionType, childrenData, rules, ruleContext, hasSheetIntegration, mqlLeadscoreMin, leadEconomicsByPack, searchTerm, sortConfig]);
 
   // Chaves selecionáveis na ordem visível atual (pós-filtro/sort) — base do select-all e do shift.
   // Entidades arquivadas/deletadas na Meta ficam fora da seleção: gasto histórico, sem ação.

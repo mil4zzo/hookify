@@ -6,6 +6,7 @@ import { IconAlertTriangle, IconArrowNarrowDown, IconArrowNarrowUp, IconSquareCh
 import { IconFilter } from "@tabler/icons-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { MetricCell } from "@/components/manager/MetricCell";
+import { LeadEconomicsCell, type LeadEconomicsMetric } from "@/components/manager/LeadEconomicsCell";
 import type { RankingsItem } from "@/lib/api/schemas";
 import type { CreateManagerTableColumnsParams } from "@/components/manager/managerTableColumns";
 import type { ManagerColumnType } from "@/components/common/ManagerColumnFilter";
@@ -47,10 +48,10 @@ const ActiveFilterIcon = ({ onReveal, field }: { onReveal: (fieldId: string) => 
 );
 
 export function buildMetricColumns(params: CreateManagerTableColumnsParams): ColumnDef<RankingsItem, unknown>[] {
-  const { columnHelper, activeColumns, byKey, endDate, cellMode, averagesRef, formatAverageRef, filteredAveragesRef, formatFilteredAverageRef, selectionAveragesRef, formatSelectionAverageRef, formatCurrencyRef, formatPct, globalFilterRef, filteredFieldIdsRef, onRevealField, viewMode, colorMetricValue, hasSheetIntegration, mqlLeadscoreMin, actionTypeRef, getRowKey, openSettings, customColumns } = params;
+  const { columnHelper, activeColumns, byKey, endDate, cellMode, averagesRef, formatAverageRef, filteredAveragesRef, formatFilteredAverageRef, selectionAveragesRef, formatSelectionAverageRef, formatCurrencyRef, formatPct, globalFilterRef, filteredFieldIdsRef, onRevealField, viewMode, colorMetricValue, hasSheetIntegration, mqlLeadscoreMin, leadEconomicsByPack, hasLeadEconomics, actionTypeRef, getRowKey, openSettings, customColumns } = params;
 
   const customColumnIds = new Set<string>((customColumns ?? []).map((def) => def.key));
-  const shouldShow = (id: ManagerColumnType) => isManagerMetricColumnVisible(id, { activeColumns, hasSheetIntegration, customColumnIds });
+  const shouldShow = (id: ManagerColumnType) => isManagerMetricColumnVisible(id, { activeColumns, hasSheetIntegration, hasLeadEconomics, customColumnIds });
 
   const isMinimal = viewMode === "minimal";
 
@@ -138,6 +139,7 @@ export function buildMetricColumns(params: CreateManagerTableColumnsParams): Col
   const getMetricContext = () => ({
     actionType: actionTypeRef.current,
     mqlLeadscoreMin,
+    leadEconomicsByPack,
   });
 
   const getMetricValueOrNull = (row: RankingsItem, metricId: string) => getMetricNumericValueOrNull(row, metricId, getMetricContext());
@@ -397,6 +399,109 @@ export function buildMetricColumns(params: CreateManagerTableColumnsParams): Col
       ) as any,
     );
   }
+
+  // ── Economia do lead: Teto de CPL e Margem (plano-economia-do-lead.md) ─────
+  // Cada linha usa o cadastro dos packs dela (D27). A média do cabeçalho pondera pelos
+  // leads com nota de cada anúncio e avisa quando deixou anúncios de fora — os que
+  // juntam packs com cadastros diferentes ou de packs sem cadastro.
+  const describeExcludedRows = (excludedMixed: number, excludedNoEconomics: number): string => {
+    const total = excludedMixed + excludedNoEconomics;
+    const parts: string[] = [];
+    if (excludedMixed > 0) parts.push(`${excludedMixed} ${excludedMixed === 1 ? "junta" : "juntam"} packs com economias do lead diferentes`);
+    if (excludedNoEconomics > 0) parts.push(`${excludedNoEconomics} ${excludedNoEconomics === 1 ? "é de pack" : "são de packs"} sem economia cadastrada`);
+    return `A média não inclui ${total} ${total === 1 ? "anúncio" : "anúncios"}: ${parts.join("; ")}.`;
+  };
+
+  const renderLeadEconomicsHeader = (metricId: LeadEconomicsMetric, column: Column<RankingsItem, unknown>) => {
+    const textSize = isMinimal ? "text-2xs" : "text-xs";
+    const avgLeading = isMinimal ? "leading-none" : "";
+    const averages = averagesRef.current;
+    const rowsSummary = averages?.lead_economics_rows ?? null;
+    const excludedText =
+      rowsSummary && rowsSummary.excludedMixed + rowsSummary.excludedNoEconomics > 0
+        ? describeExcludedRows(rowsSummary.excludedMixed, rowsSummary.excludedNoEconomics)
+        : null;
+    const average = formatAverageRef.current(metricId);
+    const averageTooltip = [
+      "Média ponderada pelos leads com nota de cada anúncio",
+      metricId === "lead_margin" && averages?.lead_margin_target != null ? `meta ${formatMetricValue("lead_margin", averages.lead_margin_target)}` : null,
+      rowsSummary?.lowSample ? `número instável: só ${rowsSummary.leadsScored} leads com nota` : null,
+    ]
+      .filter(Boolean)
+      .join(" · ");
+
+    return (
+      <div className={`flex flex-col items-center ${isMinimal ? "gap-1" : "gap-0.5"}`}>
+        <div className={`flex items-center ${isMinimal ? "gap-0.5" : "gap-1"}`}>
+          {excludedText && (
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    className="shrink-0 rounded-sm text-warning focus-inset focus-visible:outline-none"
+                    aria-label={excludedText}
+                    // O header ordena no clique: o aviso só explica, não reordena.
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <IconAlertTriangle className={isMinimal ? "h-3 w-3" : "h-4 w-4"} />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">
+                  <p className="text-xs">{excludedText}</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          )}
+          <SortIcon column={column} />
+          <span className={isMinimal ? "text-xs" : ""}>{getManagerMetricLabel(metricId)}</span>
+          {filteredFieldIdsRef.current.has(metricId) && <ActiveFilterIcon onReveal={onRevealField} field={metricId} />}
+        </div>
+        {average && (
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className={`${textSize} text-muted-foreground font-normal cursor-help ${avgLeading} ${rowsSummary?.lowSample ? "opacity-50" : ""}`}>{average}</span>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">
+                <p className="text-xs">{averageTooltip}</p>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        )}
+        {renderSubsetAverage(metricId)}
+      </div>
+    );
+  };
+
+  const pushLeadEconomicsColumn = (metricId: LeadEconomicsMetric) => {
+    if (!shouldShow(metricId)) return;
+    cols.push(
+      columnHelper.accessor(
+        // null atravessa: sem cadastro, packs misturados ou sem lead com nota não é teto zero.
+        (row) => getMetricValueOrNull(row as RankingsItem, metricId),
+        {
+          id: metricId,
+          header: ({ column }) => renderLeadEconomicsHeader(metricId, column),
+          sortingFn: "auto",
+          cell: (info) => (
+            <LeadEconomicsCell
+              row={info.row.original as RankingsItem}
+              metric={metricId}
+              byPack={leadEconomicsByPack}
+              formatCurrency={formatCurrencyRef.current}
+              minimal={isMinimal}
+              colorMetricValue={colorMetricValue}
+              average={averagesRef.current?.cpl_ceiling ?? null}
+            />
+          ),
+        },
+      ) as any,
+    );
+  };
+
+  pushLeadEconomicsColumn("cpl_ceiling");
+  pushLeadEconomicsColumn("lead_margin");
 
   // CPM
   if (shouldShow("cpm")) {
