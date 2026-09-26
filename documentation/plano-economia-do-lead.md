@@ -2,8 +2,8 @@
 
 Data: 2026-09-21. Estado (2026-09-24): **F0 E F1 IMPLEMENTADAS, REVISADAS E COMMITADAS ·
 MIGRATION 179 APLICADA EM PRODUÇÃO · AGUARDANDO A PARADA P1** (o idealizador revisa a tela
-com o pack real). F2–F4 não iniciadas; a F2 já incorpora a D27 (resolução por linha, não
-pela tela).
+com o pack real). **F2 implementada, revisada e commitada (2026-09-26) — aguardando a
+P2**, feita em paralelo à P1 a pedido do idealizador. F3–F4 não iniciadas.
 Seções 1–10: o design. Seções 11 em diante: o plano de execução, com status por tarefa.
 
 > **Documento vivo.** Saiu de uma sessão de brainstorming com o idealizador. As decisões
@@ -389,19 +389,99 @@ A fase pesada. O checklist da memória `manager_metric_column_pipeline` é a esp
 segue já está adaptado a uma métrica **derivada no cliente** (sem RPC, sem zod novo, sem
 série).
 
-**A D27 muda o que as tarefas abaixo chamam de `leadEconomics`.** Não é mais UM cadastro
-para a tela (o `useLeadEconomics()` da F0, que segue a regra da tela): é um **mapa pack →
-cadastro** dos packs selecionados, e cada linha resolve o seu pelos `pack_ids` dela. Onde
-2.2, 2.3, 2.8, 2.11, 2.12, 2.13, 2.16 e 3.2 dizem "`leadEconomics`", leia "o mapa + a
-resolução por linha". `hasLeadEconomics` = algum pack selecionado tem cadastro.
+### 14.0 Plano detalhado (2026-09-24, antes de codar)
 
-| # | Tarefa | Arquivo | Status |
-|---|---|---|---|
-| 2.0a | Hook `useLeadEconomicsByPack()`: mapa `packId → LeadEconomics` (normalizado) dos packs selecionados, com referência estável (memo por JSON, como o `useLeadEconomics`) | `frontend/lib/hooks/useLeadEconomics.ts` | `[ ]` |
-| 2.0b | Função pura `resolveRowLeadEconomics(packIds, byPack)` → `{ config }` ou `{ unavailable: "no-economics" \| "mixed-economics" }`: todos os packs da linha com o mesmo cadastro pela chave D20 → esse cadastro; algum sem cadastro ou cadastros diferentes → indisponível com o motivo. Linha sem `pack_ids` (payload antigo) → regra da tela como reserva | `frontend/lib/utils/leadEconomics.ts` (ou arquivo novo) + teste | `[ ]` |
-| 2.0c | Linha de média ponderada por leads (seção 5, D27): função pura que agrega os resultados por linha — cada linha com o próprio cadastro — e conta as linhas deixadas de fora; teste de que, com cadastro único, bate com `computeLeadEconomicsForRows` (diferencial) e sabotagem trocando a ponderação por média simples | `leadEconomics.ts` + teste | `[ ]` |
-| 2.0d | Aviso no cabeçalho das duas colunas quando a média deixou linhas de fora: "média sem N anúncios que misturam economias diferentes" | `managerTableMetricColumns.tsx` | `[ ]` |
-| 2.0e | Filhos (variações de uma linha agrupada) não trazem `pack_ids`: herdam os da linha-mãe quando ela é de um pack só; se a mãe é mista, decidir na hora (investigar se dá para trazer o pack por filho sem mexer na RPC) | `ManagerChildrenTable.tsx` e chamadores | `[ ]` |
+Três achados da leitura do código mudam o texto original:
+
+1. **Filhas já trazem `pack_ids`** (migration 134, `RankingsChildrenItem`). A 2.0e cai:
+   cada variação se resolve pelos próprios packs, como qualquer linha.
+2. **Os campos do motor de regras nascem de `MANAGER_METRIC_KEYS`** (`lib/rules/fields.ts`),
+   e o Boards, o Critério e o /insights usam o mesmo motor sem o contexto do Manager. Se as
+   métricas novas entrassem ali sem restrição, seriam campo oferecido que não responde
+   (memória `rule_engine_offered_field_must_be_answerable`). Decisão: `availableIn`
+   `["manager", "manager-children"]`, oferecidas só quando algum pack selecionado tem
+   cadastro, e fora da ordenação dos Boards.
+3. **O gate "só com planilha" está copiado à mão em três lugares** (`isManagerMetricColumnVisible`,
+   `ManagerTable.isColumnEnabled`, `ManagerExportDialog`) com a mesma lista de quatro métricas —
+   a armadilha "5 lugares" da memória. Vira uma regra só, `isManagerColumnAvailable`, lida das
+   definições (`requiresSheetIntegration` / `requiresLeadEconomics`).
+
+**Como a D27 entra no cálculo:** o contexto das métricas (`MetricValueContext`, o mesmo que já
+leva `actionType` e `mqlLeadscoreMin`) ganha `leadEconomicsByPack` — o mapa `packId → cadastro`
+dos packs SELECIONADOS (`null` = pack sem cadastro). `getMetricNumericValueOrNull` resolve a
+linha pelos `pack_ids` dela. Assim célula, ordenação, filtro, regra, média e export ficam
+certos pelo mesmo caminho, sem cada um reimplementar a resolução. Linha sem `pack_ids`
+(payload antigo) = todos os packs selecionados. Sem o mapa no contexto, a métrica lê o campo
+pré-calculado da linha (as filhas pré-calculam; ninguém mais tem esse campo).
+
+**Célula própria (`LeadEconomicsCell`), não `MetricCell`:** o `MetricCell` é construído em volta
+do sparkline, que estas métricas não têm (v0). A célula nova mostra o valor, a cor da Margem em
+três estados (com tolerância 1e-9 no ponto de igualdade), o esmaecido de amostra pequena e o
+motivo do vazio no `title` (sem pack com cadastro / packs com cadastros diferentes / sem lead
+com nota) — `title` nativo, como o modo `lightweight` das outras células, para não montar um
+Radix por célula.
+
+**Fio:** `ManagerTable` e `ManagerChildrenTable` leem o mapa por hook
+(`useLeadEconomicsByPack`), como a tabela já lê o corte de MQL — sem atravessar os três
+componentes intermediários (e seus comparadores de memo) das variações. O mapa entra nos
+parâmetros das colunas, no contexto das regras, nas três médias (pack, filtro, seleção), no
+comparador do `TableContent` e no contexto do export.
+
+| # | Tarefa | Status |
+|---|---|---|
+| 2.0a | `useLeadEconomicsByPack()`: `{ byPack, hasLeadEconomics }` com referência estável | `[x]` |
+| 2.0b | `resolveRowLeadEconomics(packIds, byPack)` e `getRowLeadEconomics(row, byPack)` (resultado ou motivo), com cache; testes: pack único, mesmos números com ids diferentes (D20), cadastros diferentes, pack sem cadastro, linha sem `pack_ids`, pack fora do mapa | `[x]` |
+| 2.0c | `aggregateRowsLeadEconomics(rows, byPack)`: média ponderada por leads, cada linha com o próprio cadastro; conta as linhas deixadas de fora e as abaixo da meta. Diferencial: com cadastro único bate com `computeLeadEconomicsForRows`. Sabotagem: média simples no lugar da ponderada | `[x]` |
+| 2.0d | Aviso no cabeçalho quando a média deixou linhas de fora | `[x]` |
+| 2.0e | ~~Filhas herdam `pack_ids`~~ — desnecessária (achado 1) | `[-]` |
+| 2.0f | `isManagerColumnAvailable` substituindo as três listas copiadas; sabotagem: tirar a economia da regra e ver a coluna vazar | `[x]` |
+| 2.0g | Motor de regras: `requiresLeadEconomics`, `availableIn` do Manager, fora da ordenação dos Boards; `RuleEvaluationContext.leadEconomicsByPack` | `[x]` |
+
+### 14.0b Estado depois da implementação (2026-09-24)
+
+As tarefas 2.1–2.17 abaixo estão feitas; as linhas da tabela original ficam como estavam
+(o texto delas é anterior à D27). O que saiu diferente, e por quê:
+
+- **2.3** — a média não usa `computeLeadEconomicsForRows` (um cadastro só): usa
+  `aggregateRowsLeadEconomics`, com o cadastro de cada linha (D27). Com um cadastro só as
+  duas dão o mesmo número — há teste diferencial de 300 casos provando.
+- **2.5 / 2.17** — os testes ficaram em `lib/metrics/__tests__/leadEconomicsMetrics.test.ts`
+  (leitura por linha, médias, colunas e regras juntos), `lib/utils/__tests__/leadEconomicsRows.test.ts`
+  (a conta por linha) e `components/manager/__tests__/LeadEconomicsCell.test.ts`.
+- **2.7** — virou `isManagerColumnAvailable` (regra única lida das definições); as três
+  listas copiadas foram apagadas.
+- **2.8 / 2.12 / 2.13** — o mapa vem por hook (`useLeadEconomicsByPack`) na `ManagerTable` e na
+  `ManagerChildrenTable`, não por prop desde a página.
+- **2.9–2.11** — célula própria (`LeadEconomicsCell`), motivo do vazio no `title`.
+- **2.13** — nas variações o valor aparece em texto simples, **sem as cores da Margem** (as
+  células das variações não têm cor em nenhuma métrica). Ordenação trata "sem valor" como 0.
+- **2.14** — o filtro do Manager é o motor de regras (`getManagerFilterableColumns` não é
+  mais chamado por ninguém); `Margem < 0` funciona por lá, só no Manager (D27, achado 2).
+- **2.16** — a `TableSummaryBar` não é usada por ninguém: o resumo foi para a barra de
+  filtros, ao lado do "Exibindo N de M" (`FilterBar.summarySlot`): *"7 de 23 abaixo da meta de
+  margem"*. Aparece só com uma das duas colunas ligada. O "teto do pack" não foi repetido
+  ali: é a média do cabeçalho da coluna.
+- **Média sem cadastro nenhum** — com planilha mas nenhum pack da tela com economia, as três
+  médias (pack, filtro, seleção) nem percorrem as linhas (revisão de 2026-09-26).
+- **Seletor de colunas** — a dica de coluna indisponível passou a depender da métrica:
+  "(requer economia do lead no pack)" em vez de "(requer planilha)".
+
+Sabotagens provadas (cada uma quebrou o teste indicado e foi desfeita): média simples no
+lugar da ponderada; ignorar a mistura de cadastros; tirar a folga do ponto flutuante; contar
+o gasto das linhas excluídas; cache que devolve cadastro velho; `null` pré-calculado virando
+0; campo oferecido sem cadastro; campo oferecido no Boards; métrica na ordenação dos Boards;
+coluna sem o gate da economia; avaliador sem o mapa; filha formatando "R$ 0,00"; margem sem
+a meta; sem esmaecido; motivo do vazio genérico; cor do Teto sem o toggle.
+
+**Para olhar na P2 (decisões de tela):**
+1. Cores da Margem (verde/amarelo/vermelho) — o sinal é lido certo? E as variações sem cor?
+2. O aviso ⚠ no cabeçalho quando a média deixou anúncios de fora — claro?
+3. "7 de 23 abaixo da meta de margem" na barra de filtros — ajuda ou polui?
+4. Esmaecido de amostra pequena (< 20 leads com nota) — perceptível?
+5. Motivos do vazio no `title` (passar o mouse) — suficiente, ou precisa de algo visível?
+6. Regra salva sobre Margem com packs sem cadastro selecionados: não casa ninguém (mesmo
+   comportamento das métricas de planilha sem planilha) — a condição continua visível na
+   barra de filtros.
 
 ### 14.1 Registro da métrica
 

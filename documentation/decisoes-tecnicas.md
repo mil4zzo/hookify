@@ -5294,3 +5294,19 @@ troca mexe nos três lugares que precisam concordar (`resolveJudgment.ts`,
 `_resolve_mql_leadscore_min`, `resolve_pack_mql_leadscore_min`). Memória:
 `lead_economics_row_resolution_and_mql_followup.md`.
 
+---
+
+## Métrica que depende de contexto de uma tela só não pode ser oferecida nas outras (2026-09-24)
+
+**Contexto:** os campos do motor de regras (filtros do Manager, grupos do Boards, Critério,
+/insights) nascem da lista de métricas do Manager (`MANAGER_METRIC_KEYS` → `buildMetricField`).
+Teto de CPL e Margem precisam do cadastro de cada pack da linha (`leadEconomicsByPack`), que
+só o Manager passa ao avaliador — em qualquer outra tela responderiam "sem dado" em todas as
+linhas, e um filtro sobre elas zeraria a tela sem erro (a falha registrada em "campo oferecido
+responde?").
+
+**Decisão:** a definição da métrica ganha `requiresLeadEconomics`; o campo nasce com
+`availableIn: ["manager", "manager-children"]`, só é oferecido quando algum pack selecionado
+tem cadastro, e fica fora da ordenação dos Boards. Métrica nova que dependa de contexto
+próprio de uma tela segue o mesmo caminho. Memória: `rule_engine_offered_field_must_be_answerable.md`.
+
