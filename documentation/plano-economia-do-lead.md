@@ -249,6 +249,10 @@ simplesmente não entram, com comentário e teste guardando isso.
 | D26 | A moeda do cadastro é a da CONTA do pack (via `adaccount_id` na lista de contas da página de packs); sem a conta (pack compartilhado de outra pessoa), cai na preferência e a tela avisa. Dinheiro sempre no padrão brasileiro com o código da moeda ("US$ 1.500,00") | `settings.currency`; `formatCurrency` do app (en-US para USD) | O ticket é comparado com o gasto da Meta, na moeda da conta; e os campos leem vírgula decimal — mostrar "$1,500.00" ao lado ensinava a digitar 1,5 |
 | D27 | A economia é resolvida **por linha**, não pela tela: cada linha do Manager usa o cadastro dos packs de onde vêm os anúncios dela (`pack_ids` da linha). Só a linha que junta packs com cadastros **diferentes** (pela D20) fica indisponível. A linha de média pondera o resultado de cada linha pelos leads com nota; se alguma linha ficou de fora, o cabeçalho avisa ("média sem N anúncios que misturam economias diferentes") | Tela inteira indisponível quando os packs selecionados discordam (D16) | Proposta do idealizador (2026-09-23). O teto de uma linha só depende do cadastro do pack dos leads dela; um anúncio individual pertence a um pack só (medido). A regra da tela apagava tudo por causa de uma diferença que só afeta as linhas mistas — que só existem na visão agrupada por nome, quando o mesmo criativo roda em dois packs |
 
+| D28 | Nome do produto obrigatório e sempre visível, também com um produto só; a coluna "Produto" das faixas também fica sempre | Modo simples (D11): com um produto, sem nome e sem coluna, gravando "Produto" | Revisão P1 (2026-09-29): o nome é simples de dar e personaliza; sem ele, as mensagens de erro citavam um "Produto" que ninguém digitou, e a passagem de um para dois produtos mudava a tela. Cadastros gravados com "Produto" continuam válidos (é só um nome) |
+| D29 | X e Cancelar, com alteração a perder, perguntam "Descartar alterações?" (confirmação por cima do diálogo, com o véu acima dele — `ConfirmDialog nested`) | Fechar descartando calado | Revisão P1. Remover a economia continua sem confirmação (D25): lá nada se perde, há Desfazer |
+| D30 | "Abaixo da meta" vira o campo de regra "Margem vs meta" (na meta / abaixo, com lucro / prejuízo), comparando cada linha com a meta DELA pela régua da cor da célula; o "N de M abaixo da meta de margem" liga e desliga essa condição | Filtro "Margem < X%" | A meta muda de pack para pack: nenhum X responde "abaixo da meta" numa tela com dois cadastros. Com a mesma régua (`leadMarginStatus`), o link filtra exatamente as N linhas que o resumo conta. É condição comum da regra (aparece no "Filtros (N)"); só no Manager, só com cadastro, e sobrevive à poda de colunas enquanto Margem ou Teto está na tela |
+
 ## 10. Fora do v0
 
 - Cartão do pack (D6).
@@ -483,6 +487,36 @@ a meta; sem esmaecido; motivo do vazio genérico; cor do Teto sem o toggle.
    comportamento das métricas de planilha sem planilha) — a condição continua visível na
    barra de filtros.
 
+### 14.0c Revisão P1 + P2 do idealizador (2026-09-29) e o que mudou
+
+**P1 (cadastro):** rótulos "depois refino"; teto ao vivo por faixa aprovado; Desfazer
+aprovado; diálogo 2xl fica. Mudou:
+- **Nome do produto sempre na tela e obrigatório, também com um produto só** (D28). A coluna
+  "Produto" das faixas também fica sempre. Some o "Produto" inventado que aparecia nas
+  mensagens de erro.
+- **X e Cancelar com alteração a perder perguntam "Descartar alterações?"** (D29). Esc e
+  clique fora continuam sem fechar.
+
+**P2 (Manager):** cores da Margem, variações sem cor e o aviso do cabeçalho aprovados. Mudou:
+- **"N de M abaixo da meta de margem" virou link** que liga/desliga o filtro "Margem vs
+  meta" (D30).
+- **Amostra pequena:** esmaecido + triângulo de alerta cinza, na célula e na média do cabeçalho.
+- **Tooltip do app** (Radix) no lugar do `title` nativo, em todas as células das duas colunas.
+- **Vazio estrutural com ícone**, como o hook em anúncio de imagem: pack sem cadastro
+  (calculadora riscada) e packs com cadastros diferentes (setas que se separam). Vazio do
+  período (sem lead com nota, sem gasto, sem faixa que compre) segue no travessão, com o
+  motivo no tooltip — a mesma divisão de `MetricNotApplicable`.
+- **Regra salva sobre Margem com packs sem cadastro:** fica como está (não casa ninguém, a
+  condição continua visível). Resetar sozinho apagaria uma escolha do usuário que volta a
+  valer quando ele reselecionar os packs.
+
+Sabotagens provadas desta rodada: nome opcional com um produto; "Produto" inventado; campo
+de nome escondido com um produto; coluna "Produto" das faixas escondida; seletor mostrando
+id velho; linha sem margem casando com "não é"; resumo contando só prejuízo; ligar o filtro
+dentro de um "OU"; "ligado" reconhecido dentro de um "OU"; poda apagando o filtro; campo
+oferecido no Boards; amostra pequena sem o triângulo; vazio estrutural como travessão;
+`title` nativo de volta. O "Descartar alterações?" não tem teste (sem DOM de teste).
+
 ### 14.1 Registro da métrica
 
 | # | Tarefa | Arquivo | Status |
@@ -627,3 +661,13 @@ independente. 34 achados confirmados e corrigidos; verificação final por achad
   faixas, que rola na horizontal.
 - O diálogo não tem teste de componente (o repositório não tem DOM de teste); toda regra
   dele foi extraída para funções puras testadas, mas a ligação em si é conferida lendo.
+
+**Corrigido na revisão P2 (2026-09-29), anterior à feature:**
+- **A poda de regra do Manager apagava filtros de Pack, Conta, Campanha, Conjunto, Criado
+  em, ID e Tags.** O efeito de colunas de `ManagerTable` (roda ao abrir a página e a cada
+  troca de colunas ou de packs) só mantinha condições cujo campo era id de coluna ativa, e
+  esses campos de regra não são id de coluna (`pack_ids` × `pack`). Nasceu com o motor
+  único (0a158f7, 30/08), quando todo campo era coluna; os campos de procedência vieram
+  depois. Confirmado por teste contra o código antigo (falhava) — não visto na tela. Agora
+  `isManagerRuleFieldVisible` só poda condição sobre métrica-coluna e coluna vinculada
+  (`custom:`); o resto fica, e o "Margem vs meta" vale enquanto Margem ou Teto está na tela.

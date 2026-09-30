@@ -37,8 +37,8 @@
 import { getMetricNumericValueOrNull } from "@/lib/metrics";
 import { getCustomTopValue, isCustomColumnKey, parseCustomColumnKey } from "@/lib/metrics/customColumns";
 import { rowMatchesTagFilter, type TagFilterOperator } from "@/lib/tags/filter";
-import type { LeadEconomicsByPack } from "@/lib/utils/leadEconomics";
-import { getRuleField, NAME_LOOKUP_FIELDS } from "./fields";
+import { getRowLeadMarginStatus, type LeadEconomicsByPack } from "@/lib/utils/leadEconomics";
+import { getRuleField, LEAD_MARGIN_STATUS_FIELD_ID, NAME_LOOKUP_FIELDS } from "./fields";
 import { isEmptyRuleTree, type RuleConditionLeaf, type RuleConditionValue, type RuleNode, type RuleTree } from "./types";
 
 /** Dicionário `id → nome` que vem na raiz da resposta da RPC (fase 5 do plano). */
@@ -309,6 +309,15 @@ function evaluateLeaf(condition: RuleConditionLeaf, row: RuleRow, context: RuleE
     const rowValue = Number(raw);
     if (!Number.isFinite(rowValue)) return false;
     return compareNumeric(rowValue, target, operator);
+  }
+
+  if (field.id === LEAD_MARGIN_STATUS_FIELD_ID) {
+    if (toStringList(value).length === 0) return true;
+    // Linha sem margem (sem cadastro, packs misturados, sem lead com nota, sem gasto)
+    // não casa nem com "é" nem com "não é": TRÊS ESTADOS, como as métricas.
+    const status = context.leadEconomicsByPack ? getRowLeadMarginStatus(row, context.leadEconomicsByPack) : null;
+    if (status === null) return false;
+    return matchesMultiSelect(status, value, operator);
   }
 
   if (field.kind === "multiselect") {

@@ -49,9 +49,12 @@ import {
   countRestrictiveConditions,
   getFilteredFieldIds,
   getManagerRulesStorageKey,
+  isManagerRuleFieldVisible,
   loadManagerRules,
   pruneRulesForVisibleFields,
+  toggleManagerBelowTargetFilter,
 } from "@/lib/manager/managerRules";
+import { hasBelowTargetFilter } from "@/lib/rules/leadMarginFilter";
 import { isEmptyRuleTree, type RuleConditionLeaf, type RuleTree } from "@/lib/rules/types";
 import type { RuleNameDictionary } from "@/lib/rules/evaluate";
 import { buildGroupedMetricBaseSeries, formatManagerAverageValue, type ManagerAverages } from "@/lib/metrics";
@@ -575,11 +578,8 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
     }
 
     // Regra: soltar condições de colunas que saíram de vista, para não deixar
-    // filtro invisível encolhendo a tabela sem explicação. `ad_name` e `status`
-    // existem independentemente da escolha de colunas.
-    setRules((prev) =>
-      pruneRulesForVisibleFields(prev, (fieldId) => fieldId === "ad_name" || fieldId === "status" || enabledColumns.has(fieldId as ManagerColumnType)),
-    );
+    // filtro invisível encolhendo a tabela sem explicação (`isManagerRuleFieldVisible`).
+    setRules((prev) => pruneRulesForVisibleFields(prev, (fieldId) => isManagerRuleFieldVisible(fieldId, enabledColumns)));
 
     // Sorting: manter apenas sorting de colunas visíveis; se ficar vazio, escolher fallback visível
     // status é coluna fixa (não está em activeColumns) nas abas individual / por-conjunto / por-campanha
@@ -1130,17 +1130,41 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
     hasSheetIntegration && hasLeadEconomics && (activeColumns.has("lead_margin") || activeColumns.has("cpl_ceiling"));
   const belowTargetCount = leadEconomicsRowsSummary?.rowsBelowTarget ?? 0;
   const withMarginCount = leadEconomicsRowsSummary?.rowsWithMargin ?? 0;
+  // O texto é um link: o clique liga (ou desliga) o filtro "Margem vs meta" com
+  // essas linhas — uma condição comum, que aparece no "Filtros (N)".
+  const belowTargetFilterOn = hasBelowTargetFilter(rules);
+  const toggleBelowTargetFilter = useCallback(() => setRules(toggleManagerBelowTargetFilter), [setRules]);
   const leadEconomicsSummarySlot = useMemo(
     () =>
-      showsLeadEconomicsColumn && withMarginCount > 0 ? (
-        <span
-          className="whitespace-nowrap text-xs text-muted-foreground"
-          title="Anúncios com margem calculável cuja margem está abaixo da margem desejada do próprio produto."
-        >
-          {belowTargetCount} de {withMarginCount} abaixo da meta de margem
-        </span>
+      showsLeadEconomicsColumn && (withMarginCount > 0 || belowTargetFilterOn) ? (
+        // Link de texto na linha da contagem, como o "Limpar todos" dos filtros: um
+        // botão de 40px quebraria a linha. Ligado, fica na cor de ação e sublinhado.
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                className={cn(
+                  "whitespace-nowrap rounded-sm text-xs underline-offset-4 focus-inset focus-visible:outline-none",
+                  belowTargetFilterOn ? "text-primary underline" : "text-muted-foreground underline decoration-dotted hover:text-foreground",
+                )}
+                aria-pressed={belowTargetFilterOn}
+                onClick={toggleBelowTargetFilter}
+              >
+                {belowTargetCount} de {withMarginCount} abaixo da meta de margem
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">
+              <p className="text-xs">
+                {belowTargetFilterOn
+                  ? "Mostrando só os anúncios abaixo da meta de margem. Clique para mostrar todos."
+                  : "Anúncios com margem abaixo da margem desejada do próprio produto. Clique para ver só eles."}
+              </p>
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
       ) : null,
-    [showsLeadEconomicsColumn, belowTargetCount, withMarginCount],
+    [showsLeadEconomicsColumn, belowTargetCount, withMarginCount, belowTargetFilterOn, toggleBelowTargetFilter],
   );
 
   const controls = useMemo(

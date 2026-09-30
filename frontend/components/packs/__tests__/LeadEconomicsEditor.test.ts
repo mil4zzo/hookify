@@ -250,7 +250,7 @@ test("teto por lead: <output> com nome da faixa, anunciado ao mudar, na moeda da
   assert.ok(html.includes('<span aria-hidden="true">—</span><span class="sr-only">incompleto</span></output>'));
   // Prefixo do ticket na moeda da conta, com respiro para 3 caracteres.
   assert.ok(html.includes(">US$</span>"));
-  assert.match(attr(tagWith(html, 'aria-label="Ticket"'), "class")!, /\bpl-12\b/);
+  assert.match(attr(tagWith(html, 'aria-label="Ticket de produto 1 (sem nome)"'), "class")!, /\bpl-12\b/);
 });
 
 test("nome em branco não parece preenchido: placeholder genérico, substituto apagado no seletor", () => {
@@ -264,6 +264,29 @@ test("nome em branco não parece preenchido: placeholder genérico, substituto a
   assert.ok(html.includes('<span class="text-muted-foreground">Sem nome (produto 2)</span>'));
   // Nas frases do leitor de tela, o substituto é dito como tal.
   tagWith(html, 'aria-label="Ticket de produto 2 (sem nome)"');
+});
+
+test("um produto só: campo de nome e coluna \"Produto\" continuam na tela (revisão P1)", () => {
+  const single: LeadEconomicsDraft = {
+    products: [{ id: "p1", name: "Mentoria", ticket: "3.000", contribution: "55", target: "40" }],
+    // Id velho na segunda faixa: o seletor mostra o produto que vai ser gravado.
+    bands: [
+      { key: "b1", min: "", product: "p1", conversion: "0,5" },
+      { key: "b2", min: "70", product: "id-velho", conversion: "4" },
+    ],
+  };
+  const html = render({ value: single });
+  assert.equal(attr(tagWith(html, 'aria-label="Nome do produto 1"'), "value"), "Mentoria");
+  assert.equal(html.match(/<span>Produto<\/span>/g)?.length, 2, "cabeçalho \"Produto\" nas duas tabelas");
+  for (const label of ["abaixo de 70", "70 ou mais"]) {
+    const start = html.indexOf(`aria-label="Produto da faixa ${label}"`);
+    assert.ok(start >= 0, `seletor da faixa ${label}`);
+    assert.ok(html.slice(start, html.indexOf("</button>", start)).includes("Mentoria"), `faixa ${label} mostra o produto`);
+  }
+  // Cadastro sem produto não existe: o único produto não tem lixeira.
+  assert.ok(!html.includes('aria-label="Remover Mentoria"'));
+  // As frases do leitor de tela dizem de quem é o campo também com um produto só.
+  tagWith(html, 'aria-label="Ticket de Mentoria"');
 });
 
 test("rótulos truncáveis têm title: o limite de cima da faixa não some em tela estreita", () => {
@@ -293,7 +316,7 @@ test("tabelas cabem no diálogo 2xl com barra de rolagem: min-w = soma das colun
   const available = 42 * 16 - 2 - 2 * 24 - 17 - 2;
   const cases: Array<[LeadEconomicsDraft, number]> = [
     [draftWithMistakes(), 2], // produtos e faixas com vários produtos
-    [{ ...draftWithMistakes(), products: [draftWithMistakes().products[0]] }, 1], // faixas com um produto (produtos = grid-cols-3)
+    [{ ...draftWithMistakes(), products: [draftWithMistakes().products[0]] }, 2], // um produto só: as mesmas colunas (nome e "Produto" sempre)
   ];
   for (const [value, tables] of cases) {
     const html = render({ value });

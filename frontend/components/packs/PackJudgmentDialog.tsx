@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { IconLoader2, IconInfoCircle, IconAlertTriangle, IconCalculator, IconTrash } from "@tabler/icons-react";
 
 import { AppDialog } from "@/components/common/AppDialog";
+import { ConfirmDialog } from "@/components/common/ConfirmDialog";
 import { StatePanel } from "@/components/common/States";
 import { LeadEconomicsEditor } from "@/components/packs/LeadEconomicsEditor";
 import { Button } from "@/components/ui/button";
@@ -81,6 +82,8 @@ export function PackJudgmentDialog({ pack, open, onOpenChange, accountCurrency }
   const [economicsRawExists, setEconomicsRawExists] = useState(false);
   const [economics, setEconomics] = useState<LeadEconomicsEditState>(() => openLeadEconomicsEdit(null));
   const [showEconomicsErrors, setShowEconomicsErrors] = useState(false);
+  // "Descartar alterações?" aberto por cima (X ou Cancelar com algo a perder).
+  const [confirmingDiscard, setConfirmingDiscard] = useState(false);
 
   const conversionTypes = useMemo(
     () => (Array.isArray(pack?.conversion_types) ? pack!.conversion_types : []),
@@ -120,6 +123,7 @@ export function PackJudgmentDialog({ pack, open, onOpenChange, accountCurrency }
     // também ao FECHAR: na reabertura, as refs do primeiro render (ainda com o estado
     // da abertura anterior) se ligam antes deste efeito rodar.
     focusPendingRef.current = null;
+    setConfirmingDiscard(false);
     if (!open || !pack) return;
 
     const initial = packJudgmentFormValues(pack, conversionTypes);
@@ -188,8 +192,13 @@ export function PackJudgmentDialog({ pack, open, onOpenChange, accountCurrency }
   );
 
   // Com alteração a perder, Esc e clique fora não fecham: o cadastro inteiro sumiria
-  // sem pergunta. Fechar fica com Cancelar, o X e Salvar — gestos deliberados.
+  // sem pergunta. Cancelar e o X perguntam antes de descartar (revisão P1).
   const hasUnsavedChanges = isLeadEconomicsEditDirty(economics) || isPackJudgmentFormDirty(initialForm, { mql: mqlValue, targets });
+
+  const requestClose = useCallback(() => {
+    if (hasUnsavedChanges) setConfirmingDiscard(true);
+    else onOpenChange(false);
+  }, [hasUnsavedChanges, onOpenChange]);
 
   const handleSave = useCallback(async () => {
     if (!pack) return;
@@ -232,7 +241,7 @@ export function PackJudgmentDialog({ pack, open, onOpenChange, accountCurrency }
     // em 512px. O AppDialog já rola o corpo acima de 90vh.
     <AppDialog
       isOpen={open}
-      onClose={() => onOpenChange(false)}
+      onClose={requestClose}
       size="2xl"
       title="Configuração do pack"
       closeOnEscape={!hasUnsavedChanges}
@@ -423,7 +432,7 @@ export function PackJudgmentDialog({ pack, open, onOpenChange, accountCurrency }
         </div>
 
         <footer className="flex justify-end gap-3 border-t border-border pt-4">
-          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isSaving}>
+          <Button variant="outline" onClick={requestClose} disabled={isSaving}>
             Cancelar
           </Button>
           <Button onClick={handleSave} disabled={isSaving}>
@@ -438,6 +447,22 @@ export function PackJudgmentDialog({ pack, open, onOpenChange, accountCurrency }
           </Button>
         </footer>
       </div>
+
+      <ConfirmDialog
+        isOpen={confirmingDiscard}
+        onClose={() => setConfirmingDiscard(false)}
+        title="Descartar alterações?"
+        message="O que você mudou na configuração deste pack ainda não foi salvo e vai se perder."
+        cancelText="Continuar editando"
+        confirmText="Descartar"
+        variant="destructive"
+        size="sm"
+        nested
+        onConfirm={() => {
+          setConfirmingDiscard(false);
+          onOpenChange(false);
+        }}
+      />
     </AppDialog>
   );
 }

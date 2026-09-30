@@ -3,7 +3,6 @@ import assert from "node:assert/strict";
 import { LEAD_ECONOMICS_MESSAGES as M, normalizeLeadEconomics, validateLeadEconomics, type LeadEconomics } from "../leadEconomics";
 import {
   LEAD_ECONOMICS_FIELD_MESSAGES as F,
-  LEAD_ECONOMICS_SINGLE_PRODUCT_NAME,
   LEAD_ECONOMICS_UNREADABLE_CUT_MESSAGE as UNREADABLE_CUT,
   addDraftBand,
   addDraftProduct,
@@ -193,9 +192,9 @@ test("documento → rascunho → documento é ponto fixo, ids preservados", () =
   assert.deepEqual(validateLeadEconomicsDraft(leadEconomicsToDraft(again.value!)).value, EXAMPLE);
 });
 
-test("um produto só: nome vazio vira \"Produto\" e toda faixa aponta para ele", () => {
+test("um produto só: toda faixa aponta para ele, qualquer que seja o id guardado", () => {
   const single = draft(
-    [{ id: "only", name: "  ", ticket: "997", contribution: "70", target: "30" }],
+    [{ id: "only", name: "Mentoria", ticket: "997", contribution: "70", target: "30" }],
     [
       { min: "", product: "id-velho", conversion: "1" },
       { min: "70", product: "", conversion: "8" },
@@ -203,7 +202,7 @@ test("um produto só: nome vazio vira \"Produto\" e toda faixa aponta para ele",
   );
   const { value, errors } = validateLeadEconomicsDraft(single);
   assert.deepEqual(errors, []);
-  assert.equal(value?.products[0].name, LEAD_ECONOMICS_SINGLE_PRODUCT_NAME);
+  assert.equal(value?.products[0].name, "Mentoria");
   assert.equal(value?.products[0].id, "only");
   assert.deepEqual(
     value?.bands.map((b) => b.product),
@@ -215,11 +214,18 @@ test("um produto só: nome vazio vira \"Produto\" e toda faixa aponta para ele",
   );
 });
 
-test("um produto só: nome que o contrato lê como vazio também vira \"Produto\"", () => {
-  // Só caractere de controle (colado quando havia dois produtos; o campo sumiu com um).
-  const single = draft([{ ...MENTORIA, name: "\u0001" }], [{ min: "", product: "p1", conversion: "4" }]);
-  assert.deepEqual(validateLeadEconomicsDraft(single).errors, []);
-  assert.deepEqual(leadEconomicsDraftFieldIssues(single, { showAll: true }).products, [{}]);
+test("um produto só: nome obrigatório como com vários — nada de \"Produto\" inventado (revisão P1)", () => {
+  // Em branco, só espaço, só caractere de controle: tudo o que o contrato lê como vazio.
+  for (const name of ["", "  ", "\u0001"]) {
+    const single = draft([{ ...MENTORIA, name }], [{ min: "", product: "p1", conversion: "4" }]);
+    const { value, errors } = validateLeadEconomicsDraft(single);
+    assert.equal(value, null, JSON.stringify(name));
+    assert.deepEqual(errors, [M.productNameMissing], JSON.stringify(name));
+    // O campo diz o mesmo depois de tentar salvar; enquanto digita, não acusa.
+    assert.deepEqual(leadEconomicsDraftFieldIssues(single, { showAll: true }).products, [{ name: F.required }]);
+    assert.deepEqual(leadEconomicsDraftFieldIssues(single).products, [{}]);
+    assert.deepEqual(leadEconomicsDraftLiveErrors(single), []);
+  }
 });
 
 test("dois produtos: nome vazio é o erro do contrato, sem nome inventado", () => {
@@ -239,8 +245,9 @@ test("campo vazio nunca vira zero: salvar cobra cada um com a mensagem do contra
   const blank = createLeadEconomicsDraft(70);
   const { value, errors } = validateLeadEconomicsDraft(blank);
   assert.equal(value, null);
-  const name = LEAD_ECONOMICS_SINGLE_PRODUCT_NAME;
-  assert.deepEqual(errors, [M.ticket(name), M.contributionMargin(name), M.targetMargin(name), M.bandConversion]);
+  // Sem nome, as frases dizem "produto 1" (o contrato) — nunca um nome que ninguém digitou.
+  const name = "produto 1";
+  assert.deepEqual(errors, [M.productNameMissing, M.ticket(name), M.contributionMargin(name), M.targetMargin(name), M.bandConversion]);
   // Corte apagado na segunda faixa.
   const noCut = { ...blank, bands: blank.bands.map((b, i) => (i === 1 ? { ...b, min: "" } : b)) };
   assert.ok(validateLeadEconomicsDraft(noCut).errors.includes(M.bandMinMissing));
@@ -262,7 +269,7 @@ test("erros ao vivo: formulário em branco não acusa nada; engano de verdade ac
 
   // Margem desejada acima da sobra, com o ticket ainda vazio.
   const partial = draft([{ id: "p1", name: "", ticket: "", contribution: "30", target: "40" }], [{ min: "", product: "p1", conversion: "" }]);
-  assert.deepEqual(leadEconomicsDraftLiveErrors(partial), [M.targetNotBelowContribution(LEAD_ECONOMICS_SINGLE_PRODUCT_NAME)]);
+  assert.deepEqual(leadEconomicsDraftLiveErrors(partial), [M.targetNotBelowContribution("produto 1")]);
 
   // Conversão de 150% e cortes fora de ordem.
   const wrong = draft(
@@ -433,7 +440,7 @@ test("remover produto em uso: só com destino; as faixas mudam de produto; nunca
   assert.equal(removeDraftProduct(extra, extraId, null).products.length, 2);
 });
 
-test("adicionar produto ao modo simples liga as faixas ao produto que já existia", () => {
+test("adicionar o segundo produto liga as faixas ao produto que já existia", () => {
   const single = draft([{ ...MENTORIA }], [
     { min: "", product: "id-velho", conversion: "1" },
     { min: "70", product: "p1", conversion: "8" },
@@ -666,7 +673,7 @@ test("payload regra 4: \"Configurar\" sem mexer → a chave não vai; mexeu, mes
 test("payload: com cadastro gravado, esvaziar os campos à mão é erro de validação, não remoção", () => {
   const decision = decideLeadEconomicsPayload({ draft: createLeadEconomicsDraft(60), saved: EXAMPLE, rawSavedExists: true, touched: true, removed: false });
   assert.equal(decision.kind, "invalid");
-  assert.ok(decision.kind === "invalid" && decision.errors.includes(M.ticket(LEAD_ECONOMICS_SINGLE_PRODUCT_NAME)));
+  assert.ok(decision.kind === "invalid" && decision.errors.includes(M.ticket("produto 1")));
 });
 
 test("payload: inválido não salva; válido igual ao gravado não vai; diferente vai", () => {
@@ -830,11 +837,11 @@ test("erro por campo: \"7O\" no corte é \"não é um número\", nunca \"falta n
   assert.deepEqual(leadEconomicsDraftFieldIssues(typo, { showAll: true }).bands[1], { min: F.notANumber });
 });
 
-test("erro por campo: em branco só acusa com showAll; com um produto, nome em branco nunca", () => {
+test("erro por campo: em branco só acusa com showAll — o nome também, mesmo com um produto só", () => {
   const blank = createLeadEconomicsDraft(null);
   assert.equal(hasLeadEconomicsFieldIssues(leadEconomicsDraftFieldIssues(blank)), false);
   const all = leadEconomicsDraftFieldIssues(blank, { showAll: true });
-  assert.deepEqual(all.products, [{ ticket: F.required, contribution: F.required, target: F.required }], "sem nome no modo simples");
+  assert.deepEqual(all.products, [{ name: F.required, ticket: F.required, contribution: F.required, target: F.required }], "nome cobrado também com um produto");
   assert.deepEqual(all.bands, [{ conversion: F.required }], "a primeira faixa não tem corte");
 
   const blankCut = addDraftBand(blank, null);

@@ -730,6 +730,31 @@ export function leadMarginTone(margin: number | null | undefined, targetMargin: 
   return "warning";
 }
 
+/**
+ * A Margem da linha diante da meta, como VALOR — o que o filtro "Margem vs meta"
+ * compara e o que o "N de M abaixo da meta de margem" conta. A meta muda de pack
+ * para pack (é a margem desejada do produto de cada faixa), então nenhuma condição
+ * "Margem < X%" responde "abaixo da meta" numa tela com dois cadastros.
+ */
+export type LeadMarginStatus = "on_target" | "below_target" | "loss";
+
+const TONE_TO_STATUS: Record<LeadMarginTone, LeadMarginStatus> = {
+  success: "on_target",
+  warning: "below_target",
+  destructive: "loss",
+};
+
+/** Mesma régua da cor da célula (`leadMarginTone`, com a folga). `null` = linha sem margem. */
+export function leadMarginStatus(margin: number | null | undefined, targetMargin: number | null | undefined): LeadMarginStatus | null {
+  const tone = leadMarginTone(margin, targetMargin);
+  return tone ? TONE_TO_STATUS[tone] : null;
+}
+
+export function getRowLeadMarginStatus(row: LeadEconomicsRowSource, byPack: LeadEconomicsByPack): LeadMarginStatus | null {
+  const outcome = getRowLeadEconomics(row, byPack);
+  return outcome.result ? leadMarginStatus(outcome.result.margin, outcome.result.targetMargin) : null;
+}
+
 export interface LeadEconomicsAggregate {
   leadsScored: number;
   revenuePerLead: number;
@@ -823,7 +848,8 @@ export function aggregateRowsLeadEconomics(
 
     if (result.margin !== null) {
       rowsWithMargin += 1;
-      if (leadMarginTone(result.margin, result.targetMargin) !== "success") rowsBelowTarget += 1;
+      // A mesma régua do filtro "Margem vs meta": o link do resumo filtra exatamente estas.
+      if (leadMarginStatus(result.margin, result.targetMargin) !== "on_target") rowsBelowTarget += 1;
     }
   }
 

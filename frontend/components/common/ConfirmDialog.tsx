@@ -44,9 +44,15 @@ export interface ConfirmDialogProps {
   layout?: "centered" | "left-aligned";
   /** Texto customizado para o botão quando está em loading (padrão: "Processando...") */
   loadingText?: string;
+  /**
+   * Aberto POR CIMA de outro diálogo. Sem isto o véu deste fica abaixo do conteúdo
+   * do diálogo de baixo (z-overlay < z-modal) e os dois aparecem acesos, um sobre o
+   * outro. Mesma solução do seletor de período (date-range-picker).
+   */
+  nested?: boolean;
 }
 
-export function ConfirmDialog({ isOpen, onClose, title, message, children, confirmText = "Confirmar", cancelText = "Cancelar", variant = "default", onConfirm, onCancel, isLoading = false, size = "md", closeOnOverlayClick, closeOnEscape, showCloseButton = false, confirmIcon, cancelIcon, layout = "centered", loadingText = "Processando..." }: ConfirmDialogProps) {
+export function ConfirmDialog({ isOpen, onClose, title, message, children, confirmText = "Confirmar", cancelText = "Cancelar", variant = "default", onConfirm, onCancel, isLoading = false, size = "md", closeOnOverlayClick, closeOnEscape, showCloseButton = false, confirmIcon, cancelIcon, layout = "centered", loadingText = "Processando...", nested = false }: ConfirmDialogProps) {
   // Se não especificado, não permite fechar durante loading
   const canClose = !isLoading;
   const effectiveCloseOnOverlayClick = closeOnOverlayClick ?? canClose;
@@ -70,7 +76,20 @@ export function ConfirmDialog({ isOpen, onClose, title, message, children, confi
   const confirmButtonVariant = variant === "default" ? "success" : variant;
 
   return (
-    <AppDialog isOpen={isOpen} onClose={handleCancel} title={title} size={size} padding="md" closeOnOverlayClick={effectiveCloseOnOverlayClick} closeOnEscape={effectiveCloseOnEscape} showCloseButton={showCloseButton && canClose}>
+    <AppDialog
+      isOpen={isOpen}
+      onClose={handleCancel}
+      title={title}
+      size={size}
+      padding="md"
+      closeOnOverlayClick={effectiveCloseOnOverlayClick}
+      closeOnEscape={effectiveCloseOnEscape}
+      showCloseButton={showCloseButton && canClose}
+      // design-system-exception: arbitrary-z-index - modal sobre modal: precisa vencer z-modal (60) do diálogo que o abriu; não há token de segundo nível
+      className={nested ? "z-[80]" : undefined}
+      // design-system-exception: arbitrary-z-index - overlay do modal aninhado, acima do conteúdo do modal pai (60)
+      overlayClassName={nested ? "z-[70]" : undefined}
+    >
       <div className={`flex flex-col gap-6 py-4 ${isCentered ? "items-center" : "items-start"}`}>
         <h2 className={`text-xl font-semibold text-foreground ${isCentered ? "text-center" : ""}`}>{title}</h2>
 

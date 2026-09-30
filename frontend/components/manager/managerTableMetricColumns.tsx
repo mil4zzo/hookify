@@ -461,7 +461,11 @@ export function buildMetricColumns(params: CreateManagerTableColumnsParams): Col
           <TooltipProvider>
             <Tooltip>
               <TooltipTrigger asChild>
-                <span className={`${textSize} text-muted-foreground font-normal cursor-help ${avgLeading} ${rowsSummary?.lowSample ? "opacity-50" : ""}`}>{average}</span>
+                <span className={`${textSize} text-muted-foreground font-normal cursor-help inline-flex items-center gap-0.5 ${avgLeading}`}>
+                  <span className={rowsSummary?.lowSample ? "opacity-50" : ""}>{average}</span>
+                  {/* Mesmo sinal da célula: esmaecido + triângulo de alerta = número instável (poucos leads com nota). */}
+                  {rowsSummary?.lowSample && <IconAlertTriangle className="h-3 w-3 shrink-0" aria-label="Número instável" role="img" />}
+                </span>
               </TooltipTrigger>
               <TooltipContent side="bottom">
                 <p className="text-xs">{averageTooltip}</p>

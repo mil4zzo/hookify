@@ -27,6 +27,7 @@ import { MANAGER_METRIC_KEYS, getManagerMetricLabel, type ManagerMetricKey } fro
 import { METRIC_DEFINITIONS } from "@/lib/metrics/definitions";
 import { getActiveCustomRuleFields, resolveCustomRuleField } from "./customFields";
 import { TAG_FILTER_OPERATORS } from "@/lib/tags/filter";
+import type { LeadMarginStatus } from "@/lib/utils/leadEconomics";
 
 /**
  * `count` é uma contagem que a LINHA carrega (quantos anúncios ativos o grupo tem),
@@ -353,7 +354,33 @@ function buildMetricField(key: ManagerMetricKey): RuleField {
   };
 }
 
-export const RULE_FIELDS: RuleField[] = [...DIMENSION_FIELDS, ...MANAGER_METRIC_KEYS.map(buildMetricField)];
+/**
+ * "Margem vs meta": a situação da Margem de cada linha diante da meta DELA
+ * (`getRowLeadMarginStatus`). Não é "Margem < X%": a meta é a margem desejada do
+ * produto de cada faixa, e muda de pack para pack. É o filtro que o "N de M abaixo
+ * da meta de margem" liga no clique. O id é imutável: regras salvas o citam.
+ *
+ * Mesmas restrições do Teto e da Margem (`buildMetricField`): só o Manager passa a
+ * economia de cada pack ao avaliador.
+ */
+export const LEAD_MARGIN_STATUS_FIELD_ID = "lead_margin_status";
+
+const LEAD_MARGIN_STATUS_FIELD: RuleField = {
+  id: LEAD_MARGIN_STATUS_FIELD_ID,
+  label: "Margem vs meta",
+  kind: "multiselect",
+  group: "Métricas",
+  requiresSheetIntegration: true,
+  requiresLeadEconomics: true,
+  availableIn: ["manager", "manager-children"],
+  options: [
+    { value: "on_target", label: "Na meta ou acima" },
+    { value: "below_target", label: "Abaixo da meta, com lucro" },
+    { value: "loss", label: "Prejuízo" },
+  ] satisfies { value: LeadMarginStatus; label: string }[],
+};
+
+export const RULE_FIELDS: RuleField[] = [...DIMENSION_FIELDS, ...MANAGER_METRIC_KEYS.map(buildMetricField), LEAD_MARGIN_STATUS_FIELD];
 
 const RULE_FIELDS_BY_ID = new Map(RULE_FIELDS.map((field) => [field.id, field]));
 

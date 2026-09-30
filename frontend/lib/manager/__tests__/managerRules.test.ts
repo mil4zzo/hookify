@@ -12,6 +12,7 @@ import {
   ensureLeafForField,
   getFilteredFieldIds,
   getManagerRulesStorageKey,
+  isManagerRuleFieldVisible,
   isRestrictiveLeaf,
   pruneRulesForVisibleFields,
 } from "@/lib/manager/managerRules";
@@ -116,4 +117,43 @@ test("poda sem nada a remover devolve a MESMA referência", () => {
   // Sem isto, o efeito de colunas dispararia re-render a cada render.
   const rules: RuleTree = { logic: "AND", conditions: [leaf("ad_name", "contains", "BF")] };
   assert.equal(pruneRulesForVisibleFields(rules, () => true), rules);
+});
+
+test("poda: filtro de Pack, Conta, Campanha, Conjunto, Criado em, ID e Tags sobrevive a qualquer escolha de colunas", () => {
+  // Achado da revisão P2 (2026-09-29): a poda só mantinha campo com o MESMO id de uma
+  // coluna ativa, e estes campos de regra não são id de coluna (`pack_ids` × `pack`).
+  // O efeito roda ao abrir a página e a cada troca de colunas: "Pack é X" sumia calado.
+  const rules: RuleTree = {
+    logic: "AND",
+    conditions: [
+      leaf("pack_ids", "has_any", ["p1"]),
+      leaf("account_ids", "has_any", ["a1"]),
+      leaf("campaign_ids", "has_any", ["c1"]),
+      leaf("adset_ids", "has_any", ["s1"]),
+      leaf("campaign_name", "contains", "BF"),
+      leaf("adset_name", "contains", "LAL"),
+      leaf("meta_created_time", ">=", "2026-09-01"),
+      leaf("ad_id", "equals", "123"),
+      leaf("tags", "has_any", ["t1"]),
+      leaf("active_count", ">", 0),
+      leaf("ad_name", "contains", "X"),
+      leaf("status", "has_any", ["ACTIVE"]),
+    ],
+  };
+  // Só "spend" na tela: nem a coluna Pack, nem Conta, nem Tags.
+  const onlySpend = new Set(["spend"]);
+  assert.equal(pruneRulesForVisibleFields(rules, (id) => isManagerRuleFieldVisible(id, onlySpend)), rules);
+});
+
+test("poda: condição sobre MÉTRICA sai com a coluna dela (e coluna vinculada da planilha também)", () => {
+  const rules: RuleTree = {
+    logic: "AND",
+    conditions: [leaf("cpmql", ">", 5), leaf("hook", "<", 20), leaf("custom:m1:avg", ">", 3), leaf("pack_ids", "has_any", ["p1"])],
+  };
+  const pruned = pruneRulesForVisibleFields(rules, (id) => isManagerRuleFieldVisible(id, new Set(["hook"])));
+  assert.deepEqual(
+    pruned.conditions.map((node) => (node as RuleConditionLeaf).field),
+    ["hook", "pack_ids"],
+  );
+  assert.ok(isManagerRuleFieldVisible("custom:m1:avg", new Set(["custom:m1:avg"])));
 });

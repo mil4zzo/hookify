@@ -49,7 +49,7 @@ export interface LeadEconomicsEditorProps {
    */
   showAllErrors?: boolean;
   /**
-   * Primeiro campo editável (nome do 1º produto; com um produto só, o ticket). Para
+   * Primeiro campo editável (nome do 1º produto). Para
    * o diálogo levar o foco ao formulário quando ele aparece ("Configurar",
    * "Desfazer") — o botão que o abriu some, e o foco cairia no topo do diálogo.
    */
@@ -250,8 +250,10 @@ const listFormatter = new Intl.ListFormat("pt-BR", { type: "conjunction" });
  * de nota). Componente CONTROLADO — recebe o rascunho e devolve o próximo; toda a
  * edição passa pelas funções puras de `leadEconomicsDraft.ts`, testadas lá.
  *
- * Com um produto só (modo simples, D11) o nome e a coluna "Produto" das faixas
- * somem: o modo é deduzido do número de produtos, nunca gravado.
+ * O nome do produto e a coluna "Produto" das faixas aparecem SEMPRE, também com um
+ * produto só (revisão P1, 2026-09-29): nome é obrigatório, e esconder o campo com um
+ * produto fazia a passagem para dois parecer outra tela. Com um produto só, a
+ * lixeira dele não aparece (cadastro sem produto não existe).
  *
  * Erros em dois lugares: no CAMPO (borda, `aria-invalid` e a mensagem curta de
  * `leadEconomicsDraftFieldIssues`, que diz qual produto ou faixa) e, embaixo de cada
@@ -410,10 +412,8 @@ export function LeadEconomicsEditor({
   // 2px da borda da tabela = 603px). Por isso o `min-w` de cada tabela é a soma
   // exata das colunas + vãos + respiro: as faixas com vários produtos somam 37,5rem
   // (600px); com 38rem (608px) a tabela rolava 5px na horizontal.
-  const productGrid = single ? "grid-cols-3" : "grid-cols-[minmax(7.5rem,1fr)_7.5rem_6.5rem_6.5rem_2.5rem]";
-  const bandGrid = single
-    ? "grid-cols-[minmax(11rem,1fr)_6.5rem_6.5rem_2.5rem]"
-    : "grid-cols-[minmax(11rem,1.5fr)_minmax(7.5rem,1fr)_6.5rem_6.5rem_2.5rem]";
+  const productGrid = "grid-cols-[minmax(7.5rem,1fr)_7.5rem_6.5rem_6.5rem_2.5rem]";
+  const bandGrid = "grid-cols-[minmax(11rem,1.5fr)_minmax(7.5rem,1fr)_6.5rem_6.5rem_2.5rem]";
 
   return (
     <div className="space-y-6">
@@ -425,16 +425,16 @@ export function LeadEconomicsEditor({
         <div className="overflow-x-auto rounded-md border border-border bg-surface-2">
           <div className="min-w-[34rem] divide-y divide-border">
             <div className={cn("grid items-end gap-2 px-3 pb-2 pt-3 text-xs text-muted-foreground", productGrid)}>
-              {!single && <span>Produto</span>}
+              <span>Produto</span>
               <span className="text-right">Ticket</span>
               <span className="text-right">De cada venda, quanto sobra?</span>
               <span className="text-right">Margem de lucro desejada</span>
-              {!single && <span aria-hidden />}
+              <span aria-hidden />
             </div>
 
             {value.products.map((product, index) => {
               const spoken = productSpokenName(product, index);
-              const of = single ? "" : ` de ${spoken}`;
+              const of = ` de ${spoken}`;
               const productIssues = issues.products[index] ?? {};
               const ids = {
                 name: messageId("produto", index, "nome"),
@@ -452,30 +452,25 @@ export function LeadEconomicsEditor({
                 <div key={product.id}>
                   {/* items-start: a mensagem embaixo de um campo não desalinha os outros. */}
                   <div className={cn("grid items-start gap-2 px-3 py-2", productGrid)}>
-                    {!single && (
-                      <FieldCell issue={productIssues.name} messageId={ids.name}>
-                        <Input
-                          ref={(element) => {
-                            refInto(fieldRefs.current, `nome:${product.id}`)(element);
-                            if (index === 0) assignRef(firstFieldRef, element);
-                          }}
-                          size="sm"
-                          className={INVALID_INPUT}
-                          value={product.name}
-                          maxLength={LEAD_ECONOMICS_PRODUCT_NAME_MAX}
-                          placeholder="Nome do produto"
-                          aria-label={`Nome do produto ${index + 1}`}
-                          {...fieldErrorProps(productIssues.name, ids.name)}
-                          onChange={(e) => onChange(updateDraftProduct(value, product.id, { name: e.target.value }))}
-                          disabled={disabled}
-                        />
-                      </FieldCell>
-                    )}
+                    <FieldCell issue={productIssues.name} messageId={ids.name}>
+                      <Input
+                        ref={(element) => {
+                          refInto(fieldRefs.current, `nome:${product.id}`)(element);
+                          if (index === 0) assignRef(firstFieldRef, element);
+                        }}
+                        size="sm"
+                        className={INVALID_INPUT}
+                        value={product.name}
+                        maxLength={LEAD_ECONOMICS_PRODUCT_NAME_MAX}
+                        placeholder="Nome do produto"
+                        aria-label={`Nome do produto ${index + 1}`}
+                        {...fieldErrorProps(productIssues.name, ids.name)}
+                        onChange={(e) => onChange(updateDraftProduct(value, product.id, { name: e.target.value }))}
+                        disabled={disabled}
+                      />
+                    </FieldCell>
                     <FieldCell issue={productIssues.ticket} messageId={ids.ticket} alignEnd>
                       <UnitInput
-                        ref={(element) => {
-                          if (index === 0 && single) assignRef(firstFieldRef, element);
-                        }}
                         prefix={currencySymbol}
                         value={product.ticket}
                         aria-label={`Ticket${of}`}
@@ -488,7 +483,7 @@ export function LeadEconomicsEditor({
                       <UnitInput
                         suffix="%"
                         value={product.contribution}
-                        aria-label={single ? "De cada venda, quanto sobra" : `De cada venda de ${spoken}, quanto sobra`}
+                        aria-label={`De cada venda de ${spoken}, quanto sobra`}
                         {...fieldErrorProps(productIssues.contribution, ids.contribution)}
                         onChange={(e) => onChange(updateDraftProduct(value, product.id, { contribution: e.target.value }))}
                         disabled={disabled}
@@ -504,7 +499,9 @@ export function LeadEconomicsEditor({
                         disabled={disabled}
                       />
                     </FieldCell>
-                    {!single && (
+                    {single ? (
+                      <span aria-hidden />
+                    ) : (
                       // Nunca desabilitada pela pergunta aberta: desabilitar o botão
                       // focado jogava o foco para fora. Outra lixeira troca a pergunta.
                       <Button
@@ -592,10 +589,10 @@ export function LeadEconomicsEditor({
         <p className="text-xs font-medium text-foreground">Quem compra</p>
 
         <div className="overflow-x-auto rounded-md border border-border bg-surface-2">
-          <div className={cn(single ? "min-w-[30rem]" : "min-w-[37.5rem]", "divide-y divide-border")}>
+          <div className="min-w-[37.5rem] divide-y divide-border">
             <div className={cn("grid items-end gap-2 px-3 pb-2 pt-3 text-xs text-muted-foreground", bandGrid)}>
               <span>Nota do lead</span>
-              {!single && <span>Produto</span>}
+              <span>Produto</span>
               <span className="text-right">Conversão</span>
               <span className="text-right">Teto por lead</span>
               <span aria-hidden />
@@ -606,6 +603,9 @@ export function LeadEconomicsEditor({
               const ceiling = draftBandCeiling(value, index);
               const suffix = cutSuffix(index);
               const bandIssues = issues.bands[index] ?? {};
+              // Com um produto só, a faixa é dele qualquer que seja o id guardado (o
+              // documento faz o mesmo): o seletor mostra o que vai ser gravado.
+              const bandProduct = single ? value.products[0].id : band.product;
               const ids = {
                 min: messageId("faixa", index, "corte"),
                 product: messageId("faixa", index, "produto"),
@@ -644,24 +644,22 @@ export function LeadEconomicsEditor({
                       </div>
                     </FieldCell>
                   )}
-                  {!single && (
-                    <FieldCell issue={bandIssues.product} messageId={ids.product}>
-                      {/* text-left: o gatilho é um <button>, que centraliza; nome longo
-                          cortado com reticências ficava no meio, longe dos vizinhos. */}
-                      <Select value={band.product} onValueChange={(product) => onChange(updateDraftBand(value, index, { product }))} disabled={disabled}>
-                        <SelectTrigger size="sm" className={cn("text-left", INVALID_TRIGGER)} aria-label={`Produto da faixa ${label}`} {...fieldErrorProps(bandIssues.product, ids.product)}>
-                          <SelectValue placeholder="Escolha">{labelOfProduct(band.product)}</SelectValue>
-                        </SelectTrigger>
-                        <SelectContent>
-                          {value.products.map((product, i) => (
-                            <SelectItem key={product.id} value={product.id}>
-                              <ProductName product={product} index={i} />
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </FieldCell>
-                  )}
+                  <FieldCell issue={bandIssues.product} messageId={ids.product}>
+                    {/* text-left: o gatilho é um <button>, que centraliza; nome longo
+                        cortado com reticências ficava no meio, longe dos vizinhos. */}
+                    <Select value={bandProduct} onValueChange={(product) => onChange(updateDraftBand(value, index, { product }))} disabled={disabled}>
+                      <SelectTrigger size="sm" className={cn("text-left", INVALID_TRIGGER)} aria-label={`Produto da faixa ${label}`} {...fieldErrorProps(bandIssues.product, ids.product)}>
+                        <SelectValue placeholder="Escolha">{labelOfProduct(bandProduct)}</SelectValue>
+                      </SelectTrigger>
+                      <SelectContent>
+                        {value.products.map((product, i) => (
+                          <SelectItem key={product.id} value={product.id}>
+                            <ProductName product={product} index={i} />
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </FieldCell>
                   <FieldCell issue={bandIssues.conversion} messageId={ids.conversion} alignEnd>
                     <UnitInput
                       suffix="%"

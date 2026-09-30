@@ -65,9 +65,6 @@ export interface LeadEconomicsDraft {
   bands: LeadEconomicsBandDraft[];
 }
 
-/** Nome gravado quando há um produto só e a pessoa não deu nome (o campo nem aparece). */
-export const LEAD_ECONOMICS_SINGLE_PRODUCT_NAME = "Produto";
-
 // ── Ids ──────────────────────────────────────────────────────────────────────
 
 /**
@@ -237,17 +234,17 @@ function readProductName(raw: string): { kind: "blank" } | { kind: "tooLong" } |
  * Rascunho → documento com números, ANTES da validação (pode ter NaN: é o
  * validador do contrato que diz o que está errado).
  *
- * Com UM produto (modo simples, D11): o nome é opcional — vazio vira
- * "Produto" — e toda faixa aponta para ele, qualquer que seja o id guardado na faixa.
- * "Vazio" é o que o contrato acha vazio: um nome só de caractere de controle,
- * herdado de quando havia dois produtos, também vira "Produto" (o campo nem aparece).
+ * O nome é obrigatório mesmo com UM produto (revisão P1, 2026-09-29): antes, nesse
+ * caso, o campo sumia e o nome gravado era "Produto" — que depois aparecia nas
+ * mensagens de erro ("Nenhum lead de "Produto" se paga") sem a pessoa ter escrito.
+ * Com um produto, toda faixa aponta para ele, qualquer que seja o id guardado nela.
  */
 export function draftToLeadEconomicsDocument(draft: LeadEconomicsDraft) {
   const single = draft.products.length === 1;
   return {
     products: draft.products.map((product) => ({
       id: product.id,
-      name: single && readProductName(product.name).kind === "blank" ? LEAD_ECONOMICS_SINGLE_PRODUCT_NAME : product.name,
+      name: product.name,
       ticket: numberOrNaN(parseMoneyInput(product.ticket)),
       contribution_margin: numberOrNaN(parsePercentInput(product.contribution)),
       target_margin: numberOrNaN(parsePercentInput(product.target)),
@@ -411,7 +408,7 @@ function readNumberField(
  * `showAll: false` segue `leadEconomicsDraftLiveErrors`: só engano de verdade
  * (texto que não é número, número fora da regra, contradição entre campos); campo em
  * branco não acusa. `showAll: true` (depois de tentar salvar) acusa também o que
- * falta. Com um produto só, nome em branco nunca é erro: vira "Produto".
+ * falta — o nome inclusive, com um produto ou com vários.
  *
  * As duas funções não podem divergir: o teste de propriedade prende "há erro de
  * campo" = "o contrato recusa" (e = "há erro ao vivo", no modo sem `showAll`).
@@ -428,7 +425,7 @@ export function leadEconomicsDraftFieldIssues(
     let name: string | undefined;
     const read = readProductName(product.name);
     if (read.kind === "blank") {
-      if (!single && showAll) name = F.required;
+      if (showAll) name = F.required;
     } else if (read.kind === "tooLong") {
       name = F.nameTooLong;
     } else {
@@ -467,7 +464,7 @@ export function leadEconomicsDraftFieldIssues(
       }
     }
 
-    // Com um produto só, a faixa aponta para ele de qualquer jeito (seletor nem aparece).
+    // Com um produto só, a faixa aponta para ele de qualquer jeito (o seletor só mostra ele).
     const productId = band.product.trim();
     const product = !single && (!productId || !productIds.has(productId)) ? F.productMissing : undefined;
 
@@ -603,8 +600,9 @@ export function canAddDraftBand(draft: LeadEconomicsDraft): boolean {
 export function addDraftProduct(draft: LeadEconomicsDraft): LeadEconomicsDraft {
   if (!canAddDraftProduct(draft)) return draft;
   const product: LeadEconomicsProductDraft = { id: newLeadEconomicsId(), name: "", ticket: "", contribution: "", target: "" };
-  // Ao sair do modo simples, as faixas passam a mostrar o produto: garante que
-  // todas apontam para o produto que já existia (e não para um id velho).
+  // Com um produto só, a faixa aponta para ele qualquer que seja o id guardado; com
+  // o segundo, o id passa a valer: garante que todas apontam para o produto que já
+  // existia (e não para um id velho).
   const bands =
     draft.products.length === 1 ? draft.bands.map((band) => ({ ...band, product: draft.products[0].id })) : draft.bands;
   return { products: [...draft.products, product], bands };
