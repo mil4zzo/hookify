@@ -1,6 +1,7 @@
 import { getMetricNumericValueOrNull, type ManagerAverages } from "@/lib/metrics";
 import type { RankingsItem } from "@/lib/api/schemas";
-import type { ShareItemMetrics } from "./types";
+import type { LeadEconomicsByPack } from "@/lib/utils/leadEconomics";
+import { SHARE_HIGHLIGHT_OPTIONS, type ShareItemMetrics, type ShareMetricKey } from "./types";
 
 /**
  * Snapshot de métricas de uma linha da aba Criativos, com os MESMOS valores que
@@ -11,12 +12,14 @@ import type { ShareItemMetrics } from "./types";
  */
 export function buildShareMetricsFromRow(
   row: RankingsItem,
-  context: { actionType: string; mqlLeadscoreMin: number | null },
+  context: { actionType: string; mqlLeadscoreMin: number | null; leadEconomicsByPack?: LeadEconomicsByPack | null },
 ): ShareItemMetrics {
   const value = (key: string): number | null =>
     getMetricNumericValueOrNull(row as any, key, {
       actionType: context.actionType,
       mqlLeadscoreMin: context.mqlLeadscoreMin,
+      // Teto e margem com o cadastro dos packs da linha (D27), como na célula do Manager.
+      leadEconomicsByPack: context.leadEconomicsByPack ?? null,
     });
 
   return {
@@ -40,7 +43,23 @@ export function buildShareMetricsFromRow(
     clicks: value("clicks"),
     // Backend/viewer usam "mql_count"; no registry a chave canônica é "mqls".
     mql_count: value("mqls"),
+    cpl_ceiling: value("cpl_ceiling"),
+    lead_margin: value("lead_margin"),
   };
+}
+
+/** Métricas que só existem com a economia do lead cadastrada no pack. */
+const LEAD_ECONOMICS_SHARE_KEYS = new Set<ShareMetricKey>(["cpl_ceiling", "lead_margin"]);
+
+/**
+ * Destaques que o diálogo oferece. Teto e Margem só quando algum criativo do link tem
+ * o valor: sem economia cadastrada, o botão escolheria um destaque que o link nunca
+ * mostra. As outras seguem oferecidas sempre, como antes.
+ */
+export function availableShareHighlightOptions(itemsMetrics: ReadonlyArray<ShareItemMetrics>): typeof SHARE_HIGHLIGHT_OPTIONS {
+  return SHARE_HIGHLIGHT_OPTIONS.filter(
+    (option) => !LEAD_ECONOMICS_SHARE_KEYS.has(option.key) || itemsMetrics.some((metrics) => typeof metrics[option.key] === "number"),
+  );
 }
 
 /**
@@ -67,5 +86,8 @@ export function buildShareAverages(averages: ManagerAverages | null | undefined)
     hook: averages.hook,
     hold_rate: averages.hold_rate,
     video_watched_p50: averages.video_watched_p50,
+    // Ponderadas pelos leads com nota (`aggregateRowsLeadEconomics`), as do cabeçalho.
+    cpl_ceiling: averages.cpl_ceiling,
+    lead_margin: averages.lead_margin,
   };
 }

@@ -24,12 +24,14 @@ export const METRIC_LABELS: Record<ShareMetricKey, string> = {
   results: "Resultados",
   clicks: "Cliques",
   mql_count: "MQLs",
+  cpl_ceiling: "Teto de CPL",
+  lead_margin: "Margem",
 };
 
-const CURRENCY_KEYS = new Set<ShareMetricKey>(["cpmql", "cpr", "cpc", "cpm", "spend"]);
+const CURRENCY_KEYS = new Set<ShareMetricKey>(["cpmql", "cpr", "cpc", "cpm", "spend", "cpl_ceiling"]);
 // Frações 0–1 no snapshot (mesma escala da linha do Manager) — exibir ×100.
 const FRACTION_PCT_KEYS = new Set<ShareMetricKey>([
-  "ctr", "website_ctr", "connect_rate", "page_conv", "scroll_stop", "hook", "hold_rate",
+  "ctr", "website_ctr", "connect_rate", "page_conv", "scroll_stop", "hook", "hold_rate", "lead_margin",
 ]);
 
 /** Métricas cujo valor MENOR é melhor — inverte a escala de cor. */
@@ -66,7 +68,7 @@ export interface ShareMetricSection {
   cards: Array<{ key: ShareMetricKey; subtitleOf?: ShareMetricKey; subtitleLabel?: string }>;
 }
 
-/** As 4 seções do modal, na mesma ordem. */
+/** As 4 seções do modal, na mesma ordem, e a da economia do lead. */
 export const SHARE_METRIC_SECTIONS: ShareMetricSection[] = [
   {
     title: "Resultados",
@@ -80,6 +82,10 @@ export const SHARE_METRIC_SECTIONS: ShareMetricSection[] = [
   { title: "Funil", cards: [{ key: "ctr" }, { key: "website_ctr" }, { key: "connect_rate" }, { key: "page_conv" }] },
   { title: "Retenção", cards: [{ key: "scroll_stop" }, { key: "hook" }, { key: "hold_rate" }, { key: "video_watched_p50" }] },
   { title: "Visibilidade", cards: [{ key: "spend" }, { key: "frequency" }, { key: "impressions" }, { key: "reach" }] },
+  // Só aparece com a economia do lead cadastrada (sem ela, as duas vêm null e somem).
+  // A cor segue a média do conjunto, como as outras — não a meta de margem do Manager,
+  // que o link não carrega.
+  { title: "Economia do lead", cards: [{ key: "cpl_ceiling" }, { key: "lead_margin" }] },
 ];
 
 /** Métricas presentes no snapshot deste criativo (esconde as indisponíveis). */

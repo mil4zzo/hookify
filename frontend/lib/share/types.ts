@@ -31,6 +31,9 @@ export const SHARE_METRIC_KEYS = [
   "spend", "frequency", "impressions", "reach",
   // Contagens de contexto (subtítulos)
   "results", "clicks", "mql_count",
+  // Economia do lead (plano-economia-do-lead.md, D18 revista em 2026-09-30): vão no
+  // link como qualquer outra métrica. Chaves imutáveis — links já criados as citam.
+  "cpl_ceiling", "lead_margin",
 ] as const;
 
 export type ShareMetricKey = (typeof SHARE_METRIC_KEYS)[number];
@@ -62,6 +65,8 @@ export const SHARE_HIGHLIGHT_OPTIONS: Array<{ key: ShareMetricKey; label: string
   { key: "frequency", label: "Frequency" },
   { key: "impressions", label: "Impressions" },
   { key: "reach", label: "Reach" },
+  { key: "cpl_ceiling", label: "Teto de CPL" },
+  { key: "lead_margin", label: "Margem" },
 ];
 
 export interface ShareItem {

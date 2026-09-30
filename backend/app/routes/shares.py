@@ -65,6 +65,8 @@ ALLOWED_METRIC_KEYS = frozenset({
     "spend", "frequency", "impressions", "reach",
     # Contagens de contexto (subtítulos)
     "results", "clicks", "mql_count",
+    # Economia do lead (D18 revista em 2026-09-30): como qualquer outra métrica.
+    "cpl_ceiling", "lead_margin",
 })
 
 # Máximo de métricas exibidas no painel "espiado" do viewer (sem expandir).

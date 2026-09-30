@@ -1,7 +1,7 @@
 "use client";
 
 import { StatePanel } from "@/components/common/States";
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { IconCopy, IconLink, IconLoader2, IconShare2, IconX } from "@tabler/icons-react";
 import { AppDialog } from "@/components/common/AppDialog";
@@ -11,14 +11,15 @@ import { ThumbnailImage } from "@/components/common/ThumbnailImage";
 import { getAdThumbnail } from "@/lib/utils/thumbnailFallback";
 import { cn } from "@/lib/utils/cn";
 import { api } from "@/lib/api/endpoints";
-import { buildShareAverages, buildShareMetricsFromRow } from "@/lib/share/buildShareItem";
-import { MAX_HIGHLIGHT_METRICS, MAX_SHARE_ITEMS, SHARE_HIGHLIGHT_OPTIONS, buildShareUrl } from "@/lib/share/types";
+import { availableShareHighlightOptions, buildShareAverages, buildShareMetricsFromRow } from "@/lib/share/buildShareItem";
+import { MAX_HIGHLIGHT_METRICS, MAX_SHARE_ITEMS, buildShareUrl } from "@/lib/share/types";
 import { extractErrorDetail } from "@/lib/share/errorMessage";
 import type { ShareMetricKey } from "@/lib/share/types";
 import { useFormatCurrency } from "@/lib/utils/currency";
 import { useSettings } from "@/lib/store/settings";
 import type { RankingsItem } from "@/lib/api/schemas";
 import type { ManagerAverages } from "@/lib/metrics";
+import type { LeadEconomicsByPack } from "@/lib/utils/leadEconomics";
 
 /** Sempre disponíveis, e o par que o gestor mais compartilha. */
 const DEFAULT_HIGHLIGHTS: ShareMetricKey[] = ["spend", "ctr"];
@@ -32,6 +33,8 @@ export interface ShareCreateDialogProps {
   dateStop: string;
   actionType: string;
   mqlLeadscoreMin: number | null;
+  /** Economia do lead por pack (D27): teto e margem de cada criativo entram no snapshot. */
+  leadEconomicsByPack?: LeadEconomicsByPack | null;
   /** Médias do conjunto — congeladas no snapshot para colorir o viewer público. */
   averages?: ManagerAverages | null;
   /**
@@ -54,7 +57,7 @@ function formatDatePt(iso: string): string {
  * snapshot da própria linha do Manager (mesmos valores do modal de detalhamento);
  * a mídia é resolvida no backend na criação.
  */
-export function ShareCreateDialog({ isOpen, onClose, rows, dateStart, dateStop, actionType, mqlLeadscoreMin, averages, packIds }: ShareCreateDialogProps) {
+export function ShareCreateDialog({ isOpen, onClose, rows, dateStart, dateStop, actionType, mqlLeadscoreMin, leadEconomicsByPack, averages, packIds }: ShareCreateDialogProps) {
   const formatCurrency = useFormatCurrency();
   const { settings } = useSettings();
 
@@ -83,6 +86,13 @@ export function ShareCreateDialog({ isOpen, onClose, rows, dateStart, dateStop, 
     });
   }, []);
 
+  // O snapshot de cada criativo, uma vez: vai no payload e decide os destaques oferecidos.
+  const itemsMetrics = useMemo(
+    () => items.map((row) => buildShareMetricsFromRow(row, { actionType, mqlLeadscoreMin, leadEconomicsByPack })),
+    [items, actionType, mqlLeadscoreMin, leadEconomicsByPack],
+  );
+  const highlightOptions = useMemo(() => availableShareHighlightOptions(itemsMetrics), [itemsMetrics]);
+
   const shareUrl = result ? buildShareUrl(result.token) : null;
 
   const handleRemove = useCallback((adName: string) => {
@@ -107,12 +117,13 @@ export function ShareCreateDialog({ isOpen, onClose, rows, dateStart, dateStop, 
         date_start: dateStart,
         date_stop: dateStop,
         currency: settings.currency ?? null,
-        items: items.map((row) => ({
+        items: items.map((row, index) => ({
           ad_name: String(row.ad_name),
-          metrics: buildShareMetricsFromRow(row, { actionType, mqlLeadscoreMin }),
+          metrics: itemsMetrics[index],
         })),
         averages: buildShareAverages(averages),
-        highlight_metrics: highlights,
+        // Destaque que deixou de ser oferecido (o criativo com teto saiu da lista) não vai.
+        highlight_metrics: highlights.filter((key) => highlightOptions.some((option) => option.key === key)),
         pack_ids: packIds ?? [],
       };
       const res = await api.shares.create(payload);
@@ -122,7 +133,7 @@ export function ShareCreateDialog({ isOpen, onClose, rows, dateStart, dateStop, 
     } finally {
       setIsCreating(false);
     }
-  }, [items, isCreating, dateStart, dateStop, settings.currency, actionType, mqlLeadscoreMin, averages, highlights, packIds]);
+  }, [items, itemsMetrics, highlightOptions, isCreating, dateStart, dateStop, settings.currency, averages, highlights, packIds]);
 
   return (
     <AppDialog isOpen={isOpen} onClose={onClose} title="Compartilhar criativos" size="lg" padding="md">
@@ -171,7 +182,7 @@ export function ShareCreateDialog({ isOpen, onClose, rows, dateStart, dateStop, 
               </p>
             </div>
             <div className="flex flex-wrap gap-1.5">
-              {SHARE_HIGHLIGHT_OPTIONS.map((option) => {
+              {highlightOptions.map((option) => {
                 const isSelected = highlights.includes(option.key);
                 return (
                   <button

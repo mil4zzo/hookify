@@ -1535,6 +1535,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
         dateStop={dateStop ?? ""}
         actionType={actionType}
         mqlLeadscoreMin={mqlLeadscoreMin}
+        leadEconomicsByPack={leadEconomicsByPack}
         averages={averages}
         packIds={packCtxIds}
       />

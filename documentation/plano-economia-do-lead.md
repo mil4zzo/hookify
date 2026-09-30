@@ -38,7 +38,7 @@ não existe) e conhece os números do próprio negócio.
 | Topo do Manager | — | Resumo: "Teto do pack R$ X · N de M anúncios abaixo da meta" |
 | Modal do anúncio | Histograma de leadscore | + **conta aberta**: leads por faixa, valor de cada faixa, teto, CPL, margem |
 | Export CSV | — | As duas colunas novas |
-| Link público de anúncios | — | **Nada.** Teto e margem revelam ticket e margem do negócio |
+| Link público de anúncios | — | Teto e Margem como qualquer outra métrica: sempre no snapshot, em destaque só se marcadas (D18 revista) |
 | G.O.L.D., /plano, cores de julgamento | CPR alvo | **Nada muda** no v0 |
 | Quem não configura | — | Nada muda; colunas ficam indisponíveis |
 
@@ -201,8 +201,10 @@ partir dos dados já carregados.
 
 **Export CSV:** as duas colunas; margem entra no conjunto de razões (`RATIO_COLUMNS`).
 
-**Link público:** `buildShareMetricsFromRow` usa lista fechada — as métricas novas
-simplesmente não entram, com comentário e teste guardando isso.
+**Link público (D18 revista em 2026-09-30):** Teto e Margem vão no snapshot como qualquer
+outra métrica, numa seção "Economia do lead" da página pública, com cor pela média do
+conjunto (o link não carrega a meta). Os botões de destaque só aparecem quando algum
+criativo do link tem o valor. O documento do cadastro (ticket, margens) nunca vai.
 
 ## 8. Testes
 
@@ -215,7 +217,7 @@ simplesmente não entram, com comentário e teste guardando isso.
   (o teste da média precisa quebrar).
 - Validações do endpoint: ordem dos cortes, limites de cada campo, referência a produto,
   `target_margin < contribution_margin`, `null` limpa.
-- Link público não carrega `lead_economics`, teto nem margem.
+- Link público: snapshot, allowlist do backend e página pública com a mesma lista de chaves (teste lê o `shares.py`); `lead_economics` nunca vai.
 
 ## 9. Log de decisões
 
@@ -238,7 +240,7 @@ simplesmente não entram, com comentário e teste guardando isso.
 | D15 | Margem **sobre o faturamento** | Sobre o que sobra da venda | É o que "margem de lucro" significa numa DRE. Sobre a sobra, "40%" eram 24–28% do faturamento e o teto saía quase o dobro. Achado ao tornar a margem visível: a primeira versão da conta usava a base errada |
 | D16 | ~~Packs com economias diferentes na tela → indisponível~~ **Substituída pela D27 para a economia do lead** (o corte de MQL continua com esta regra) | Resolver por linha; escolher um | Mesma regra do corte de MQL, que o usuário já conhece |
 | D17 | Linha de média = conta sobre o histograma somado | Média dos tetos | Média de tetos dá peso igual a 3 e a 300 leads |
-| D18 | Link público **nunca** carrega teto nem margem | Incluir | Revelam ticket e margem do negócio a quem recebe o link |
+| D18 | ~~Link público nunca carrega teto nem margem~~ **Revista pelo idealizador em 2026-09-30:** vão como qualquer outra métrica (sempre no snapshot; destaque só se marcadas). Liga/desliga por métrica no compartilhar fica para uma melhoria do compartilhamento (vale para todas as métricas) | Nunca (proposta original); opt-in por link | O link já leva investimento, CPR e CPMQL; tratar igual é o mais simples. Consequência aceita: quem tem o link vê teto e margem |
 | D19 | Corte de MQL continua independente, exibido no cadastro | Forçar o corte a coincidir com uma faixa; derivar | Respondem perguntas diferentes ("vale ligar?" × "quanto vale?"); mostrar lado a lado torna a diferença escolha, não acidente |
 | D20 | Dois packs têm "a mesma economia" quando a CONTA dá o mesmo resultado: igualdade por `leadEconomicsSemanticKey` (cortes, conversões e os números do produto de cada faixa; produto de faixa com conversão 0 fica de fora) | JSON do documento inteiro | O id do produto é aleatório: dois packs cadastrados à mão com os mesmos números divergiriam por ele e teto/margem sumiriam ao selecionar os dois. Com packs iguais vale o documento do primeiro (é dele que saem os nomes) |
 | D21 | O diálogo só envia `lead_economics` quando o cadastro MUDOU (chave ausente = não mexer) | Sempre no payload, como corte e CPR alvo | Salvar o corte de MQL não pode depender da coluna existir no banco (código publicado antes da migration derrubaria o save inteiro com 500 — incidente de 20/09), e o histórico do pack não pode ganhar "economia removida" a cada save de quem nunca configurou. Decidida por `decideLeadEconomicsPayload` (função pura, testada) |
@@ -562,8 +564,8 @@ esmaecido de amostra pequena é perceptível sem ser feio?
 |---|---|---|---|
 | 3.1 | `LeadEconomicsBreakdown` — a tabela da seção 5 (Nota · Leads (fatia) · Produto · Conversão · Vale por lead), mais teto, CPL real, margem com a cor dos três estados e a meta, e a frase *"Conta feita com os {n} leads que casaram com a planilha."* Recebe o resultado de `computeLeadEconomics`, não recalcula | `frontend/components/ads/LeadEconomicsBreakdown.tsx` | `[ ]` |
 | 3.2 | No `AdDetailsDialog`, junto do bloco MQL/CPMQL (linha ~557): `useLeadEconomics()` + `computeLeadEconomics` sobre `getLeadscoreRaw(effectiveAd) ?? getLeadscoreRaw(ad)`, respeitando o período sobrescrito como o MQL já faz; para linha agrupada, o histograma do detalhe (`resolvedDetailModel`). Sem cadastro: o bloco não aparece | `frontend/components/ads/AdDetailsDialog.tsx` | `[ ]` |
-| 3.3 | Link público: comentário em `buildShareMetricsFromRow` dizendo por que `cpl_ceiling`/`lead_margin` **não** entram (D18) e teste que fixa o conjunto de chaves do snapshot — acrescentar qualquer uma das duas faz o teste falhar | `frontend/lib/share/buildShareItem.ts`, `frontend/lib/share/__tests__/buildShareItem.test.ts` (criar) | `[ ]` |
-| 3.4 | Conferir que `ShareItemMetrics` (tipo) e o viewer público não ganharam os campos por engano; `grep` nos dois | `frontend/lib/share/types.ts`, página pública | `[ ]` |
+| 3.3 | Link público com teto e margem (D18 revista): snapshot com o mapa por pack, médias do cabeçalho, allowlist do backend, seção na página pública, destaques só quando há valor; teste prende as três listas iguais | `buildShareItem.ts`, `types.ts`, `metricsDisplay.ts`, `ShareCreateDialog.tsx`, `backend/app/routes/shares.py` + testes | `[x]` 2026-09-30, 8 sabotagens provadas |
+| 3.4 | ~~Conferir que o viewer não ganhou os campos~~ — superada pela D18 revista | — | `[-]` |
 
 **Ponto de parada P3 — modal.** A conta aberta explica o número da coluna? Se a resposta
 for "não entendi de onde saiu", a tabela está errada, não o usuário.
