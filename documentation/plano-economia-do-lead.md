@@ -562,13 +562,26 @@ esmaecido de amostra pequena é perceptível sem ser feio?
 
 | # | Tarefa | Arquivo | Status |
 |---|---|---|---|
-| 3.1 | `LeadEconomicsBreakdown` — a tabela da seção 5 (Nota · Leads (fatia) · Produto · Conversão · Vale por lead), mais teto, CPL real, margem com a cor dos três estados e a meta, e a frase *"Conta feita com os {n} leads que casaram com a planilha."* Recebe o resultado de `computeLeadEconomics`, não recalcula | `frontend/components/ads/LeadEconomicsBreakdown.tsx` | `[ ]` |
-| 3.2 | No `AdDetailsDialog`, junto do bloco MQL/CPMQL (linha ~557): `useLeadEconomics()` + `computeLeadEconomics` sobre `getLeadscoreRaw(effectiveAd) ?? getLeadscoreRaw(ad)`, respeitando o período sobrescrito como o MQL já faz; para linha agrupada, o histograma do detalhe (`resolvedDetailModel`). Sem cadastro: o bloco não aparece | `frontend/components/ads/AdDetailsDialog.tsx` | `[ ]` |
+| 3.1 | `LeadEconomicsBreakdown` — a tabela da seção 5 (Nota · Leads (fatia) · Produto · Conversão · Vale por lead), mais teto, CPL real, margem com a cor dos três estados e a meta, e a frase *"Conta feita com os {n} leads que casaram com a planilha."* Recebe o resultado de `computeLeadEconomics`, não recalcula | `frontend/components/ads/LeadEconomicsBreakdown.tsx` | `[x]` 2026-09-30: 4 cartões (Teto, CPL real, Margem com a cor da meta, leads com nota) + tabela por faixa atrás de "Ver a conta por faixa"; a coluna "Entra no teto" (fatia × teto da faixa) soma o Teto de CPL; ordem das faixas = a do cadastro |
+| 3.2 | No `AdDetailsDialog`, junto do bloco MQL/CPMQL (linha ~557): `useLeadEconomics()` + `computeLeadEconomics` sobre `getLeadscoreRaw(effectiveAd) ?? getLeadscoreRaw(ad)`, respeitando o período sobrescrito como o MQL já faz; para linha agrupada, o histograma do detalhe (`resolvedDetailModel`). Sem cadastro: o bloco não aparece | `frontend/components/ads/AdDetailsDialog.tsx` | `[x]` feito diferente: `useLeadEconomicsByPack` + `getRowLeadEconomics` (a MESMA conta da coluna, cadastro dos packs da linha — D27), na aba Geral logo depois de Resultados; sem cadastro em nenhum pack selecionado, o bloco não aparece; com cadastro em outro pack, o bloco diz o motivo |
 | 3.3 | Link público com teto e margem (D18 revista): snapshot com o mapa por pack, médias do cabeçalho, allowlist do backend, seção na página pública, destaques só quando há valor; teste prende as três listas iguais | `buildShareItem.ts`, `types.ts`, `metricsDisplay.ts`, `ShareCreateDialog.tsx`, `backend/app/routes/shares.py` + testes | `[x]` 2026-09-30, 8 sabotagens provadas |
 | 3.4 | ~~Conferir que o viewer não ganhou os campos~~ — superada pela D18 revista | — | `[-]` |
 
 **Ponto de parada P3 — modal.** A conta aberta explica o número da coluna? Se a resposta
 for "não entendi de onde saiu", a tabela está errada, não o usuário.
+
+**Para olhar na P3** (anúncio com planilha e economia; abrir pelo Manager):
+1. O bloco "Economia do lead" logo depois de Resultados, na aba Geral — lugar certo, ou
+   devia ser uma aba própria?
+2. "Ver a conta por faixa": a coluna "Entra no teto" somando o Teto de CPL explica o número?
+3. Os nomes "Teto na faixa" e "Entra no teto" — claros?
+4. Trocar o período dentro do modal (visão agrupada): teto, margem e CPMQL mudam junto.
+
+**Achado e corrigido na F3 (anterior à feature):** no modal do criativo AGRUPADO com o
+período trocado lá dentro, o CPMQL dividia o gasto do período novo pelos MQLs do período
+do Manager — a linha do Manager traz `leadscore_histogram` (lido primeiro por
+`getLeadscoreRaw`) e o detalhe traz `leadscore_values`. `buildSharedAdDetailModel` agora
+descarta o histograma da linha quando o detalhe traz leadscore (teste falhava antes).
 
 ## 16. F4 — Fechamento
 

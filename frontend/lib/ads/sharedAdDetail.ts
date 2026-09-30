@@ -81,6 +81,13 @@ export function buildSharedAdDetailModel({
     ...baseAd,
     ...(detailAd || {}),
   } as SharedMetricSource;
+  // O detalhe traz o leadscore do PERÍODO DELE em `leadscore_values`; a linha do Manager
+  // traz o do período do Manager em `leadscore_histogram`, que `getLeadscoreRaw` lê
+  // primeiro. Com o período trocado no modal, o gasto novo dividia os MQLs do período
+  // antigo (CPMQL, e teto/margem da economia do lead). Com leadscore no detalhe, só ele vale.
+  if (detailAd && detailAd.leadscore_values !== undefined && detailAd.leadscore_histogram === undefined) {
+    delete source.leadscore_histogram;
+  }
 
   const retentionSeries =
     normalizeCurve(source.video_play_curve_actions) ||

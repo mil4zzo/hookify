@@ -36,6 +36,9 @@ import { ProvenanceBadge } from "@/components/common/ProvenanceBadge";
 import { extractActorIdFromCreative, extractInstagramMediaId, normalizeMediaType, resolvePrimaryVideoId } from "@/lib/ads/mediaDetection";
 import { RetentionVideoPlayer, RetentionVideoPlayerSkeleton } from "@/components/common/RetentionVideoPlayer";
 import { ThumbnailImage } from "@/components/common/ThumbnailImage";
+import { LeadEconomicsBreakdown } from "@/components/ads/LeadEconomicsBreakdown";
+import { useLeadEconomicsByPack } from "@/lib/hooks/useLeadEconomics";
+import { getRowLeadEconomics } from "@/lib/utils/leadEconomics";
 import { showProgressToast, finishProgressToast, buildTranscriptionToastContent } from "@/lib/utils/toast";
 
 interface AdDetailsDialogProps {
@@ -585,6 +588,23 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
         return value != null ? Number(value) : null;
       })();
   const resolvedHasSheetIntegration = groupByAdName ? (resolvedDetailModel?.hasSheetIntegration ?? false) : hasSheetIntegration;
+
+  // Economia do lead (F3): a MESMA conta da coluna do Manager (`getRowLeadEconomics`,
+  // cadastro dos packs da linha — D27), com os números do período do modal: o período
+  // trocado aqui dentro vale, como para o MQL. Agrupado: o detalhe do criativo.
+  const { byPack: leadEconomicsByPack, hasLeadEconomics } = useLeadEconomicsByPack();
+  const leadEconomicsSource = groupByAdName ? resolvedDetailModel?.source : effectiveAd;
+  const leadEconomicsOutcome = useMemo(() => {
+    if (!hasLeadEconomics) return null;
+    return getRowLeadEconomics(
+      {
+        pack_ids: (ad as any)?.pack_ids ?? null,
+        spend: resolvedSpend,
+        leadscore_histogram: getLeadscoreRaw(leadEconomicsSource) ?? getLeadscoreRaw(ad),
+      },
+      leadEconomicsByPack,
+    );
+  }, [hasLeadEconomics, ad, resolvedSpend, leadEconomicsSource, leadEconomicsByPack]);
   const isRetentionLoadingForResolvedVideo = activeTab === "video" && (groupByAdName ? groupedSharedDetail.isLoadingDetail && resolvedRetentionSeries.length === 0 : loadingAdDetails && resolvedRetentionSeries.length === 0);
 
   const isCreativeLoading = (!groupByAdName && loadingCreative) || (groupByAdName && groupedSharedDetail.isLoadingMedia);
@@ -788,6 +808,11 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
                     <VideoMetricCell label={getMetricLabel("cpc")} value={resolvedHasCpc ? formatCurrency(resolvedCpc) : "—"} deltaDisplay={getDeltaDisplay({ valueRaw: resolvedHasCpc ? resolvedCpc : null, avgRaw: averages?.cpc ?? null })} subtitle={`${resolvedClicks.toLocaleString("pt-BR")} clicks`} subtitleInLabelRow averageDisplay={averages?.cpc != null ? formatCurrency(averages.cpc) : undefined} averageTooltip={getMetricAverageTooltip("cpc")} series={resolvedSeries?.cpc} inverse formatFn={(n: number) => formatCurrency(n)} valueRaw={resolvedHasCpc ? resolvedCpc : null} avgRaw={averages?.cpc ?? null} better={getMetricBetterDirection("cpc")} packAverage={averages?.cpc ?? null} />
                     <VideoMetricCell label={getMetricLabel("cpm")} value={formatCurrency(resolvedCpm)} deltaDisplay={getDeltaDisplay({ valueRaw: resolvedCpm, avgRaw: averages?.cpm ?? null })} averageDisplay={averages?.cpm != null ? formatCurrency(averages.cpm) : undefined} averageTooltip={getMetricAverageTooltip("cpm")} series={resolvedSeries?.cpm} inverse formatFn={(n: number) => formatCurrency(n)} valueRaw={resolvedCpm} avgRaw={averages?.cpm ?? null} better={getMetricBetterDirection("cpm")} packAverage={averages?.cpm ?? null} />
                   </MetricSection>
+
+                  {/* Economia do lead: só com cadastro em algum pack selecionado e planilha */}
+                  {leadEconomicsOutcome && resolvedHasSheetIntegration && (
+                    <LeadEconomicsBreakdown outcome={leadEconomicsOutcome} formatCurrency={formatCurrency} />
+                  )}
 
                   {/* Funil */}
                   <MetricSection title="Funil">
