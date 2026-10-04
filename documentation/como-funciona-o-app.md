@@ -164,6 +164,8 @@ Enriquecer os dados dos anúncios com informações de **leadscore** e **CPR má
 
 - Armazena metadados dos packs (nome, período, filtros, stats agregadas)
 - Vinculado a `ad_sheet_integrations` via `sheet_integration_id`
+- Critérios de julgamento do pack: `mql_leadscore_min`, `target_cpr` e `lead_economics`
+  (economia do lead — produtos e faixas de nota; ver "Teto de CPL e Margem")
 
 ### Tabela `ads`
 
@@ -390,6 +392,51 @@ participam da decisão.
 - **CPR Max**: Valor máximo de CPR aceitável
 - **MQL Count**: Contagem de Marketing Qualified Leads
 - **CPMQL**: Custo por MQL
+
+### Teto de CPL e Margem (economia do lead)
+
+Respondem "quanto eu posso pagar por um lead deste anúncio?" a partir de **quem** o
+anúncio traz: um anúncio que traz leads de nota alta pode pagar mais caro por lead que
+um que traz leads frios. Exigem planilha integrada (é dela que vem a nota de cada lead).
+
+**Onde se cadastra:** na configuração do pack (Packs → menu do pack → Critérios de
+julgamento → "Configurar economia do lead"). O cadastro é do pack e vale para todos que
+têm acesso a ele; dono e editor configuram, leitor só vê o resultado.
+
+- **O que você vende** — um ou mais produtos, cada um com nome, **ticket**, **"de cada
+  venda, quanto sobra?"** (preço menos produto, imposto, comissão e taxas — tudo, menos o
+  anúncio) e **margem de lucro desejada** (sobre o preço de venda).
+- **Quem compra** — faixas de nota do lead ("abaixo de 60", "60 a menos de 80", "80 ou
+  mais"), cada uma com o produto que essa faixa compra e a **conversão** (de cada 100
+  leads da faixa, quantos viram venda). A nota exata do corte entra na faixa de cima.
+  Ao lado de cada faixa, o **teto por lead** daquela faixa aparece enquanto se digita.
+
+**A conta, por anúncio** (com a fatia de leads com nota em cada faixa):
+
+- **Teto de CPL** = soma, faixa a faixa, de fatia × conversão × ticket × (quanto sobra −
+  margem desejada). É o CPL que deixa o anúncio exatamente na margem desejada.
+- **Margem** = (contribuição esperada por lead − CPL real) ÷ faturamento esperado por
+  lead, com CPL real = gasto ÷ leads com nota. Sempre vale: **margem na meta ⇔ CPL no
+  teto ou abaixo**.
+
+**Onde aparece:**
+
+- **Manager** — colunas opcionais "Teto de CPL" e "Margem" (desligadas por padrão; só
+  existem com planilha e cadastro). A Margem tem três cores: verde (na meta ou acima),
+  amarelo (lucrando, abaixo da meta), vermelho (prejuízo). Menos de 20 leads com nota:
+  número esmaecido com um triângulo de alerta. Célula sem número mostra o motivo: ícone
+  quando falta cadastro no pack ou os packs do anúncio têm cadastros diferentes; "—"
+  quando o período não tem lead com nota ou gasto. A média do cabeçalho é ponderada pelos
+  leads com nota e avisa quando deixou anúncios de fora.
+- **"N de M abaixo da meta de margem"** na barra de filtros — clicar filtra só esses
+  (condição "Margem vs meta" nos Filtros, que também dá para montar à mão).
+- **Modal do anúncio** — bloco "Economia do lead" na aba Geral, com "Ver a conta por
+  faixa": a tabela mostra quanto cada faixa entra no teto, e a soma é o número da coluna.
+- **Link público de compartilhamento** — teto e margem vão como qualquer outra métrica;
+  em destaque só se marcadas. O cadastro em si (ticket, margens) nunca vai.
+
+**Vários packs na tela:** cada anúncio usa o cadastro dos packs de onde vêm os leads
+dele. Só o anúncio que junta packs com cadastros **diferentes** fica sem número.
 
 ---
 

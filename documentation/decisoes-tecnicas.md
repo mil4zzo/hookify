@@ -5269,7 +5269,7 @@ caminho intuitivo — produz uma caixa, não uma pasta.
 
 ## Critério de vários packs na mesma tela: resolver por linha, não pela tela (2026-09-23)
 
-**Data:** 2026-09-23 · status: **decidido; implementação na F2 da economia do lead** (plano: `documentation/plano-economia-do-lead.md`, decisão D27)
+**Data:** 2026-09-23 · status: **implementado na F2 da economia do lead (74fe85f, 2026-09-24)**; o corte de MQL segue pendente (plano: `documentation/plano-economia-do-lead.md`, decisão D27)
 
 **Contexto:** quando vários packs estão selecionados e cada um tem o seu critério, o app
 resolvia o critério para a tela inteira: se os packs discordam, o número some de todas as

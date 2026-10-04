@@ -120,6 +120,7 @@ const SUPABASE_TABLES: TableDoc[] = [
       { name: "conversion_types", type: "TEXT[]", description: "Eventos de conversão materializados no refresh" },
       { name: "mql_leadscore_min", type: "NUMERIC", description: "Leadscore mínimo para MQL. NULL = não definido (MQL/CPMQL indisponíveis)" },
       { name: "target_cpr", type: "JSONB", description: "CPR alvo por action_type. NULL = sem meta" },
+      { name: "lead_economics", type: "JSONB", description: "Economia do lead (produtos + faixas de nota) para Teto de CPL e Margem. NULL = não configurada (colunas indisponíveis)" },
       { name: "created_at", type: "TIMESTAMPTZ", description: "Data de criação" },
       { name: "updated_at", type: "TIMESTAMPTZ", description: "Data de atualização" },
     ],
