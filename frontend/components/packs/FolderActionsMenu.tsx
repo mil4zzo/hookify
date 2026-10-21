@@ -53,36 +53,33 @@ export function FolderActionsMenu({
     <DropdownMenu onOpenChange={onOpenChange}>
       <DropdownMenuTrigger asChild>{children}</DropdownMenuTrigger>
       <DropdownMenuContent align={align} side={side} className="w-60">
-        <DropdownMenuItem onClick={() => onOpen(folder.id)}>
-          <IconFolderOpen className="h-4 w-4" />
+        <DropdownMenuItem icon={<IconFolderOpen />} onClick={() => onOpen(folder.id)}>
           Abrir
         </DropdownMenuItem>
         <DropdownMenuSeparator />
-        <DropdownMenuItem onClick={() => onRefreshAll(folder)} disabled={packCount === 0}>
-          <IconRefresh className="h-4 w-4" />
-          <div className="flex flex-col items-start">
-            <span>Atualizar todos</span>
-            <span className="text-2xs text-muted-foreground">
-              {packCount} {noun} {hasSubfolders ? "com as subpastas" : "desta pasta"}
-            </span>
-          </div>
+        <DropdownMenuItem
+          icon={<IconRefresh />}
+          description={`${packCount} ${noun} ${hasSubfolders ? "com as subpastas" : "desta pasta"}`}
+          onClick={() => onRefreshAll(folder)}
+          disabled={packCount === 0}
+        >
+          Atualizar todos
         </DropdownMenuItem>
         <DropdownMenuSeparator />
-        <DropdownMenuItem onClick={() => onCreateSubfolder(folder)}>
-          <IconFolderPlus className="h-4 w-4" />
+        <DropdownMenuItem icon={<IconFolderPlus />} onClick={() => onCreateSubfolder(folder)}>
           Nova subpasta
         </DropdownMenuItem>
-        <DropdownMenuItem onClick={() => onRename(folder)}>
-          <IconPencil className="h-4 w-4" />
+        <DropdownMenuItem icon={<IconPencil />} onClick={() => onRename(folder)}>
           Renomear
         </DropdownMenuItem>
-        <DropdownMenuItem onClick={() => onDelete(folder)} className="text-destructive focus:bg-destructive-10 focus:text-destructive">
-          <IconTrash className="h-4 w-4" />
-          <div className="flex flex-col items-start">
-            <span>Desfazer pasta</span>
-            {/* Nada é apagado: o conteúdo sobe um nível (migration 174). */}
-            <span className="text-2xs text-muted-foreground">O conteúdo sobe um nível</span>
-          </div>
+        {/* Nada é apagado: o conteúdo sobe um nível (migration 174). */}
+        <DropdownMenuItem
+          icon={<IconTrash />}
+          description="O conteúdo sobe um nível"
+          onClick={() => onDelete(folder)}
+          className="text-destructive focus:bg-destructive-10 focus:text-destructive"
+        >
+          Desfazer pasta
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>

@@ -23,7 +23,7 @@ const DropdownMenuSubTrigger = React.forwardRef<
     inset?: boolean;
   }
 >(({ className, inset, children, ...props }, ref) => (
-  <DropdownMenuPrimitive.SubTrigger ref={ref} className={cn("flex cursor-default select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none focus:bg-accent data-[state=open]:bg-accent", inset && "pl-8", className)} {...props}>
+  <DropdownMenuPrimitive.SubTrigger ref={ref} className={cn("flex cursor-default select-none items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none focus:bg-accent data-[state=open]:bg-accent [&>svg]:shrink-0", inset && "pl-8", className)} {...props}>
     {children}
     <svg className="ml-auto h-4 w-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <path d="m9 18 6-6-6-6" />
@@ -42,16 +42,62 @@ const DropdownMenuContent = React.forwardRef<React.ElementRef<typeof DropdownMen
 ));
 DropdownMenuContent.displayName = DropdownMenuPrimitive.Content.displayName;
 
+/**
+ * Item de menu. Quem decide o espaço entre ícone e texto é ESTE componente
+ * (`gap-2`, a mesma regra do botão) — o consumidor nunca põe `mr-2` no ícone.
+ *
+ * - `icon`: ícone de 16px, preso à altura da primeira linha (20px). Item de uma
+ *   linha fica centrado como sempre; item de duas linhas mantém o ícone alinhado
+ *   ao título, não ao meio do bloco.
+ * - `description`: segunda linha em `text-xs text-muted-foreground`. Frase é
+ *   `text-xs`; `text-2xs` é só para rótulo em maiúsculas.
+ *
+ * Conteúdo próprio (3 linhas, aviso, etc.) vai em `children` e continua valendo.
+ */
 const DropdownMenuItem = React.forwardRef<
   React.ElementRef<typeof DropdownMenuPrimitive.Item>,
   React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.Item> & {
     inset?: boolean;
+    icon?: React.ReactNode;
+    description?: React.ReactNode;
   }
->(({ className, inset, ...props }, ref) => <DropdownMenuPrimitive.Item ref={ref} className={cn("relative flex cursor-pointer select-none items-center rounded-sm px-4 py-2 text-sm outline-none transition-colors focus:bg-accent focus:text-accent-foreground focus:outline-none focus-inset focus-visible:outline-none hover:bg-accent hover:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50 [&:focus]:border-0 [&:focus]:ring-0 [&:focus-visible]:border-0 [&:focus-visible]:ring-0", inset && "pl-8", className)} {...props} />);
+>(({ className, inset, icon, description, children, asChild, ...props }, ref) => {
+  // `asChild` entrega o filho ao Radix como o próprio item: não dá para embrulhar.
+  const decorated = !asChild && (icon || description);
+
+  return (
+    <DropdownMenuPrimitive.Item
+      ref={ref}
+      asChild={asChild}
+      className={cn("relative flex cursor-pointer select-none items-center gap-2 rounded-sm px-4 py-2 text-sm outline-none transition-colors focus:bg-accent focus:text-accent-foreground focus:outline-none focus-inset focus-visible:outline-none hover:bg-accent hover:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50 [&:focus]:border-0 [&:focus]:ring-0 [&:focus-visible]:border-0 [&:focus-visible]:ring-0 [&>svg]:shrink-0", inset && "pl-8", decorated && "items-start", className)}
+      {...props}
+    >
+      {decorated ? (
+        <>
+          {icon && (
+            <span aria-hidden className="flex h-5 shrink-0 items-center [&>svg]:size-4">
+              {icon}
+            </span>
+          )}
+          {description ? (
+            <span className="flex min-w-0 flex-col items-start">
+              <span>{children}</span>
+              <span className="text-xs text-muted-foreground">{description}</span>
+            </span>
+          ) : (
+            children
+          )}
+        </>
+      ) : (
+        children
+      )}
+    </DropdownMenuPrimitive.Item>
+  );
+});
 DropdownMenuItem.displayName = DropdownMenuPrimitive.Item.displayName;
 
 const DropdownMenuCheckboxItem = React.forwardRef<React.ElementRef<typeof DropdownMenuPrimitive.CheckboxItem>, React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.CheckboxItem>>(({ className, children, checked, ...props }, ref) => (
-  <DropdownMenuPrimitive.CheckboxItem ref={ref} className={cn("relative flex cursor-default select-none items-center rounded-sm py-1.5 pl-8 pr-2 text-sm outline-none transition-colors focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50", className)} checked={checked} {...props}>
+  <DropdownMenuPrimitive.CheckboxItem ref={ref} className={cn("relative flex cursor-default select-none items-center gap-2 rounded-sm py-1.5 pl-8 pr-2 text-sm outline-none transition-colors focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50 [&>svg]:shrink-0", className)} checked={checked} {...props}>
     <span className="absolute left-2 flex h-3.5 w-3.5 items-center justify-center">
       <DropdownMenuPrimitive.ItemIndicator>
         <svg width="10" height="10" viewBox="0 0 10 10" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -65,7 +111,7 @@ const DropdownMenuCheckboxItem = React.forwardRef<React.ElementRef<typeof Dropdo
 DropdownMenuCheckboxItem.displayName = DropdownMenuPrimitive.CheckboxItem.displayName;
 
 const DropdownMenuRadioItem = React.forwardRef<React.ElementRef<typeof DropdownMenuPrimitive.RadioItem>, React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.RadioItem>>(({ className, children, ...props }, ref) => (
-  <DropdownMenuPrimitive.RadioItem ref={ref} className={cn("relative flex cursor-default select-none items-center rounded-sm py-1.5 pl-8 pr-2 text-sm outline-none transition-colors focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50", className)} {...props}>
+  <DropdownMenuPrimitive.RadioItem ref={ref} className={cn("relative flex cursor-default select-none items-center gap-2 rounded-sm py-1.5 pl-8 pr-2 text-sm outline-none transition-colors focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50 [&>svg]:shrink-0", className)} {...props}>
     <span className="absolute left-2 flex h-3.5 w-3.5 items-center justify-center">
       <DropdownMenuPrimitive.ItemIndicator>
         <svg width="10" height="10" viewBox="0 0 10 10" fill="none" xmlns="http://www.w3.org/2000/svg">
