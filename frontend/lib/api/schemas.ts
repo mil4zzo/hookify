@@ -551,6 +551,47 @@ export type SheetColumnsResponse = z.infer<typeof SheetColumnsResponseSchema>
 export type SheetIntegrationRequest = z.infer<typeof SheetIntegrationRequestSchema>
 export type SheetIntegration = z.infer<typeof SheetIntegrationSchema>
 export type SaveSheetIntegrationResponse = z.infer<typeof SaveSheetIntegrationResponseSchema>
+
+// ── Configuração e sync em massa ────────────────────────────────────────────────
+export interface BulkSheetIntegrationResult {
+  pack_id: string
+  status: 'created' | 'updated' | 'skipped' | 'failed'
+  integration_id?: string
+  /** `not_owner`: pack compartilhado com você (o vínculo vive no silo do dono) */
+  reason?: 'not_owner'
+  error?: string
+}
+
+export interface BulkSheetIntegrationResponse {
+  results: BulkSheetIntegrationResult[]
+  /** pack_id → integração salva (com `column_mappings`) */
+  integrations: Record<string, any>
+}
+
+export interface BulkSheetSyncResult {
+  integration_id: string
+  pack_id?: string | null
+  status: 'completed' | 'failed'
+  rows_updated?: number
+  /** "success" | "no_match" | "empty": rodou e não aplicou nada é o caso do pack antigo */
+  sync_outcome?: string | null
+  outcome_message?: string | null
+  spreadsheet_renamed_from?: string | null
+  error?: string
+  error_code?: string | null
+}
+
+export interface BulkSheetSyncProgress {
+  status: string
+  progress?: number
+  message?: string
+  details?: {
+    bulk_total?: number
+    bulk_done?: number
+    bulk_results?: BulkSheetSyncResult[]
+    error?: string
+  }
+}
 export type SheetSyncStats = z.infer<typeof SheetSyncStatsSchema>
 export type SheetSyncResponse = z.infer<typeof SheetSyncResponseSchema>
 

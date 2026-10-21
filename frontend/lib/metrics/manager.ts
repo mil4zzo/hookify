@@ -2,9 +2,9 @@ import { METRIC_DEFINITIONS, type MetricKey } from "./definitions";
 import { formatMetricValueByKind } from "./formatMetricValueCore";
 import { getMetricNumericValueOrNull, getResultsForActionType, type MetricValueContext, type MetricValueSource } from "./calculations";
 import { computeMqlMetricsFromLeadscore, getLeadscoreRaw } from "@/lib/utils/mqlMetrics";
-import { isCustomColumnKey, parseCustomColumnKey, type CustomColumnDef } from "./customColumns";
+import { computeColumnLeadscoreFacets, isCustomColumnKey, mergeColumnHistograms, parseCustomColumnKey, type CustomColumnDef } from "./customColumns";
 import { getActiveCustomColumn } from "./customColumnsRegistry";
-import { computeLeadscoreFacets, histogramStats } from "@/lib/utils/customHistogram";
+import { histogramStats } from "@/lib/utils/customHistogram";
 import { aggregateRowsLeadEconomics } from "@/lib/utils/leadEconomics";
 
 export type ManagerMetricKey = Extract<
@@ -288,42 +288,40 @@ export function computeCustomColumnAverages(
 ): Record<string, number | null> | undefined {
   if (!customColumns.length) return undefined;
   const out: Record<string, number | null> = {};
-  // Por vínculo: somas de gasto, leads, MQLs e (para número) soma ponderada.
-  const byMapping = new Map<string, { spend: number; n: number; mqls: number; weighted: number; hasCut: boolean }>();
-  const defsByMapping = new Map<string, CustomColumnDef[]>();
+  // Por coluna (grupo arquivo + cabeçalho): somas de gasto, leads, MQLs e (para
+  // número) soma ponderada. Os MQLs de cada vínculo usam o corte do próprio pack.
+  const defsByColumn = new Map<string, CustomColumnDef[]>();
   for (const def of customColumns) {
-    const list = defsByMapping.get(def.mappingId) ?? [];
+    const list = defsByColumn.get(def.columnId) ?? [];
     list.push(def);
-    defsByMapping.set(def.mappingId, list);
+    defsByColumn.set(def.columnId, list);
   }
-  for (const [mappingId, defs] of defsByMapping) {
-    const kind = defs[0].kind;
+  for (const defs of defsByColumn.values()) {
+    const { kind, mappings } = defs[0];
     if (kind === "category") {
       for (const def of defs) out[def.key] = null;
       continue;
     }
     const acc = { spend: 0, n: 0, mqls: 0, weighted: 0, hasCut: true };
-    const cut = defs[0].mapping.config?.mql_min ?? null;
-    if (kind === "leadscore" && cut == null) acc.hasCut = false;
+    // Um vínculo sem corte basta para não haver MQL honesto na coluna: corte nulo nunca vira 0.
+    if (kind === "leadscore" && mappings.some((m) => m.config?.mql_min == null)) acc.hasCut = false;
     for (const row of rows) {
-      const hist = (row as { custom_histograms?: Record<string, Record<string, number>> }).custom_histograms?.[mappingId];
-      if (!hist) continue;
+      const all = (row as { custom_histograms?: Record<string, Record<string, number>> }).custom_histograms;
       const spend = Number(row.spend ?? 0);
       if (kind === "leadscore") {
-        const facets = computeLeadscoreFacets(hist, Number.isFinite(spend) ? spend : 0, cut);
-        if (facets.n === 0) continue;
+        const facets = computeColumnLeadscoreFacets(all, mappings, Number.isFinite(spend) ? spend : 0);
+        if (!facets || facets.n === 0) continue;
         acc.n += facets.n;
         acc.weighted += (facets.avg ?? 0) * facets.n;
         acc.spend += Number.isFinite(spend) ? spend : 0;
         acc.mqls += facets.mqls ?? 0;
       } else {
-        const stats = histogramStats(hist);
+        const stats = histogramStats(mergeColumnHistograms(all, mappings));
         if (!stats) continue;
         acc.n += stats.n;
         acc.weighted += stats.avg * stats.n;
       }
     }
-    byMapping.set(mappingId, acc);
     for (const def of defs) {
       switch (def.facet) {
         case "avg":

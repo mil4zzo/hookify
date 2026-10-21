@@ -144,3 +144,17 @@ test("140: coluna vinculada ativa só é visível com o vínculo na seleção", 
   const filterable = getManagerFilterableColumns({ visibleColumns: visible });
   assert.deepEqual(filterable.find((c) => c.id === "custom:m-idade:avg"), { id: "custom:m-idade:avg", label: "Média de Idade", isPercentage: false });
 });
+
+test("chave salva com o vínculo de um pack vira a coluna do grupo (arquivo + cabeçalho), sem duplicar", async () => {
+  const { collectPackMappings } = await import("@/lib/metrics/customColumns");
+  const mapping = (id: string) => ({ id, integration_id: `i-${id}`, column_index: 3, column_name: "IDADE", label: "Idade", kind: "number" as const, config: {}, position: 0 });
+  const packs = [
+    { id: "p1", sheet_integration: { spreadsheet_id: "arquivo", column_mappings: [mapping("a1")] } },
+    { id: "p2", sheet_integration: { spreadsheet_id: "arquivo", column_mappings: [mapping("a2")] } },
+  ];
+  const defs = buildCustomColumnDefs(collectPackMappings(packs, ["p1", "p2"]));
+  assert.equal(defs.length, 1);
+  const order = normalizeManagerColumnOrder(["custom:a2:avg", "spend", "custom:a1:avg"], defs);
+  assert.equal(order[0], defs[0].key, "apelido antigo assume o lugar salvo");
+  assert.equal(order.filter((id) => String(id).startsWith("custom:")).length, 1, "dois apelidos da mesma coluna não duplicam");
+});

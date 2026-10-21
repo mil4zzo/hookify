@@ -337,7 +337,7 @@ export function ManagerChildrenTable({
     if (isCustomColumnKey(columnId)) {
       const def = getActiveCustomColumn(columnId);
       if (def?.facet === "top") {
-        const top = getCustomTopValue(child, def.mappingId);
+        const top = getCustomTopValue(child, def);
         return top ? `${top.value} · ${Math.round(top.share * 100)}%` : "—";
       }
       const value = getMetricNumericValueOrNull(child, columnId, { actionType, mqlLeadscoreMin });

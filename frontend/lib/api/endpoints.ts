@@ -58,7 +58,7 @@ import {
   BoardItem,
   BoardGroupItem,
 } from './schemas'
-import type { RevalidatedSheetName } from './schemas'
+import type { BulkSheetIntegrationResponse, BulkSheetSyncProgress, RevalidatedSheetName } from './schemas'
 import { env } from '@/lib/config/env'
 import type { CreateSharePayload, CreateShareResponse, ShareSummary } from '@/lib/share/types'
 import type { LeadEconomics } from '@/lib/utils/leadEconomics'
@@ -752,6 +752,24 @@ export const api = {
 
       startSyncJob: (integrationId: string): Promise<{ job_id: string }> =>
         apiClient.post(`/integrations/google/ad-sheet-integrations/${integrationId}/sync-job`),
+
+      // Mesma configuração aplicada a N packs (cria onde não há, substitui onde há).
+      // Só packs do próprio usuário; os demais voltam `skipped` / `not_owner`.
+      saveSheetIntegrationsBulk: (payload: {
+        pack_ids: string[]
+        config: Omit<SheetIntegrationRequest, 'pack_id'>
+        // ausente = não mexe no corte; null = limpa (mesma semântica do julgamento)
+        mql_leadscore_min?: number | null
+      }): Promise<BulkSheetIntegrationResponse> =>
+        apiClient.post('/integrations/google/ad-sheet-integrations/bulk', payload),
+
+      // Um job que sincroniza N integrações em série, lendo cada arquivo uma vez.
+      // Acompanhamento pelo mesmo GET /sync-jobs/{id} (`getBulkSyncJobProgress`).
+      startBulkSyncJob: (integrationIds: string[]): Promise<{ job_id: string; integration_ids: string[] }> =>
+        apiClient.post('/integrations/google/ad-sheet-integrations/bulk-sync-job', { integration_ids: integrationIds }),
+
+      getBulkSyncJobProgress: (jobId: string): Promise<BulkSheetSyncProgress> =>
+        apiClient.get(`/integrations/google/sync-jobs/${encodeURIComponent(jobId)}`),
 
       getSyncJobProgress: (jobId: string): Promise<SheetSyncJobProgress> =>
         apiClient.get(`/integrations/google/sync-jobs/${encodeURIComponent(jobId)}`),

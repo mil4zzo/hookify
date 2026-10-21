@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import logging
 import re
+import unicodedata
 from collections import Counter
 from typing import Any, Dict, Iterable, List, Optional, Sequence
 
@@ -252,6 +253,43 @@ def attach_to_integrations(sb: Any, integrations: Iterable[Dict[str, Any]]) -> N
 # Histogramas por anúncio-dia (usado pelo importer)
 # ---------------------------------------------------------------------------
 
+def normalize_header(name: Any) -> str:
+    """Cabeçalho comparável: sem diferença de caixa, acento e espaço.
+
+    "  Patrimônio  Líquido " e "PATRIMONIO LIQUIDO" são a mesma coluna. É a mesma
+    regra do frontend (`normalizeSheetColumnName`), que junta numa coluna só os
+    vínculos de packs diferentes com o mesmo arquivo e o mesmo cabeçalho.
+    """
+    text = unicodedata.normalize("NFD", str(name or ""))
+    text = "".join(ch for ch in text if not unicodedata.combining(ch))
+    return re.sub(r"\s+", " ", text).strip().lower()
+
+
+def resolve_column_index(
+    mapping: Dict[str, Any], headers: Optional[Sequence[Any]]
+) -> tuple[Optional[int], Optional[str]]:
+    """Onde está a coluna do vínculo NESTA leitura: ``(índice, motivo_se_não_achou)``.
+
+    Pelo NOME do cabeçalho, não pela posição gravada: reordenar a planilha fazia a
+    "IDADE" passar a ler a coluna vizinha em silêncio. A posição gravada só desempata
+    cabeçalhos repetidos. Vínculo sem nome gravado (ou leitura sem cabeçalho) cai na
+    posição, como antes. Cabeçalho que sumiu NÃO cai na posição — ler outra coluna
+    calado é exatamente o defeito; a coluna fica fora deste sync e o relatório diz.
+    """
+    stored = mapping.get("column_index")
+    stored_idx = stored if isinstance(stored, int) and stored >= 0 else None
+    name = str(mapping.get("column_name") or "").strip()
+    if headers is None or not name:
+        return stored_idx, None
+    target = normalize_header(name)
+    hits = [i for i, h in enumerate(headers) if normalize_header(h) == target]
+    if not hits:
+        return None, f"o cabeçalho '{name}' não está mais na planilha; coluna ignorada neste sync"
+    if stored_idx is not None and stored_idx in hits:
+        return stored_idx, None
+    return hits[0], None
+
+
 class HistogramCollector:
     """Acumula, por (anúncio, dia), o histograma de cada vínculo.
 
@@ -260,8 +298,16 @@ class HistogramCollector:
     (o histograma dela sai de todas as linhas) e reportada — nunca aborta o sync.
     """
 
-    def __init__(self, mappings: Sequence[Dict[str, Any]]):
+    def __init__(self, mappings: Sequence[Dict[str, Any]], headers: Optional[Sequence[Any]] = None):
         self.mappings = [m for m in mappings if isinstance(m, dict) and m.get("kind") in KINDS]
+        # Índice de cada vínculo NESTA leitura (pelo nome do cabeçalho; ver resolve_column_index).
+        self._index: Dict[str, Optional[int]] = {}
+        self._missing: Dict[str, str] = {}
+        for m in self.mappings:
+            idx, reason = resolve_column_index(m, headers)
+            self._index[str(m["id"])] = idx
+            if reason:
+                self._missing[str(m["id"])] = reason
         self._hist: Dict[tuple, Dict[str, Counter]] = {}
         self.values_count: Dict[str, int] = {str(m["id"]): 0 for m in self.mappings}
         self.skipped_count: Dict[str, int] = {str(m["id"]): 0 for m in self.mappings}
@@ -279,7 +325,7 @@ class HistogramCollector:
         per_key = self._hist.setdefault(key, {})
         for m in self.mappings:
             mid = str(m["id"])
-            idx = m.get("column_index")
+            idx = self._index.get(mid)
             raw = row[idx] if isinstance(idx, int) and 0 <= idx < len(row) else None
             if _is_blank(raw):
                 continue
@@ -294,7 +340,7 @@ class HistogramCollector:
 
     def invalid_mappings(self) -> Dict[str, str]:
         """``{mapping_id: motivo}`` das colunas que não podem entrar."""
-        out: Dict[str, str] = {}
+        out: Dict[str, str] = dict(self._missing)
         for mid, distinct in self._distinct.items():
             if len(distinct) > CATEGORY_MAX_DISTINCT:
                 out[mid] = (

@@ -25,6 +25,7 @@ import { loadManagerColumnPreferences } from "@/components/manager/managerColumn
 import { SurveyPanel } from "@/components/ads/SurveyPanel";
 import { getActiveCustomColumns, getActiveCustomColumnsVersion } from "@/lib/metrics/customColumnsRegistry";
 import type { SheetColumnMapping } from "@/lib/api/schemas";
+import { mergeColumnHistograms, type CustomColumnDef } from "@/lib/metrics/customColumns";
 import { IconAlignLeft, IconBrandParsinta, IconChartAreaLine, IconChartFunnel, IconCheck, IconCopy, IconCurrencyDollar, IconLayoutGrid, IconMicrophone, IconWorld } from "@tabler/icons-react";
 import { retentionToColor, findHookBoundary, secondToRetentionIndex } from "@/lib/utils/retentionColor";
 import type { TimestampedWord } from "@/lib/api/schemas";
@@ -78,12 +79,25 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
   // 140: colunas vinculadas da planilha dos packs selecionados (registro publicado pela
   // página). Com alguma, a aba "Pesquisa" existe.
   const customColumnsVersion = getActiveCustomColumnsVersion();
-  const surveyMappings = useMemo(() => {
-    const seen = new Map<string, SheetColumnMapping>();
-    for (const def of getActiveCustomColumns()) if (!seen.has(def.mappingId)) seen.set(def.mappingId, def.mapping);
+  // Uma entrada por COLUNA (grupo arquivo + cabeçalho), não por vínculo: sete packs com
+  // a mesma "IDADE" são um cartão só, com o histograma somado (`surveyHistograms`).
+  const surveyColumns = useMemo(() => {
+    const seen = new Map<string, CustomColumnDef>();
+    for (const def of getActiveCustomColumns()) if (!seen.has(def.columnId)) seen.set(def.columnId, def);
     return Array.from(seen.values());
     // eslint-disable-next-line react-hooks/exhaustive-deps -- customColumnsVersion é o gatilho do registro
   }, [customColumnsVersion]);
+  const surveyMappings = useMemo<SheetColumnMapping[]>(
+    () =>
+      surveyColumns.map((def) => {
+        // Corte que o cartão mostra: o do grupo quando todos os packs concordam; senão
+        // nenhum (o painel calcula MQL sobre o histograma somado, com UM corte).
+        const cut = def.mapping.config?.mql_min ?? null;
+        const sameCut = def.mappings.every((m) => (m.config?.mql_min ?? null) === cut);
+        return { ...def.mapping, id: def.columnId, config: { ...def.mapping.config, mql_min: sameCut ? cut : null } };
+      }),
+    [surveyColumns],
+  );
   const [shouldAutoplay, setShouldAutoplay] = useState(false);
   const [initialVideoTime, setInitialVideoTime] = useState<number | null>(null);
   const [retentionViewMode, setRetentionViewMode] = useState<"chart" | "metrics">("metrics");
@@ -214,8 +228,16 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
   // senão do detalhe por anúncio.
   const surveyHistograms = useMemo(() => {
     const fromOverride = isDateRangeOverridden ? (overriddenDetails as any)?.custom_histograms : undefined;
-    return (fromOverride ?? (ad as any)?.custom_histograms ?? (adDetails as any)?.custom_histograms ?? null) as Record<string, Record<string, number>> | null;
-  }, [isDateRangeOverridden, overriddenDetails, ad, adDetails]);
+    const raw = (fromOverride ?? (ad as any)?.custom_histograms ?? (adDetails as any)?.custom_histograms ?? null) as Record<string, Record<string, number>> | null;
+    if (!raw) return null;
+    // Por coluna (id do grupo), somando os vínculos — é a chave que `surveyMappings` usa.
+    const byColumn: Record<string, Record<string, number>> = {};
+    for (const def of surveyColumns) {
+      const hist = mergeColumnHistograms(raw, def.mappings);
+      if (hist) byColumn[def.columnId] = hist;
+    }
+    return byColumn;
+  }, [isDateRangeOverridden, overriddenDetails, ad, adDetails, surveyColumns]);
   const surveySpend = Number((isDateRangeOverridden ? (overriddenDetails as any)?.spend : undefined) ?? (ad as any)?.spend ?? 0);
 
   // Buscar creative e video_ids quando a tab de vídeo estiver ativa

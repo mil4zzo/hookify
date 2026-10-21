@@ -16,6 +16,7 @@ import { logger } from "@/lib/utils/logger";
 import { useClientPacks } from "@/lib/hooks/useClientSession";
 import { useGoogleConnections } from "./googleSheetsDialog/hooks/useGoogleConnections";
 import { useGoogleSyncJob } from "./googleSheetsDialog/hooks/useGoogleSyncJob";
+import { useBulkSheetSync } from "./googleSheetsDialog/hooks/useBulkSheetSync";
 import { ConnectStep } from "./googleSheetsDialog/steps/ConnectStep";
 import { SelectSheetStep } from "./googleSheetsDialog/steps/SelectSheetStep";
 import { SelectColumnsStep, ColumnWithIndex, extraColumnProblem, resolveColumnIndex, type ExtraColumnDraft } from "./googleSheetsDialog/steps/SelectColumnsStep";
@@ -27,11 +28,21 @@ export interface GoogleSheetIntegrationDialogProps {
   isOpen: boolean;
   onClose: () => void;
   packId?: string | null;
+  /**
+   * Configuração em MASSA: a mesma planilha, aba, colunas e corte de MQL aplicados a
+   * todos estes packs (só os do próprio usuário — quem abre já filtrou). Cria o vínculo
+   * onde o pack não tem e substitui onde tem. Ignora `packId`.
+   */
+  bulkPackIds?: string[] | null;
 }
 
 type DialogStep = "connect" | "select-sheet" | "select-columns" | "summary";
 
-export function GoogleSheetIntegrationDialog({ isOpen, onClose, packId }: GoogleSheetIntegrationDialogProps) {
+export function GoogleSheetIntegrationDialog({ isOpen, onClose, packId: singlePackId, bulkPackIds }: GoogleSheetIntegrationDialogProps) {
+  const isBulk = !!bulkPackIds && bulkPackIds.length > 0;
+  // No modo em massa não há "o" pack: `packId` vira null e a semente da configuração sai
+  // do primeiro pack selecionado que já tem planilha (`seedPackId`).
+  const packId = isBulk ? null : singlePackId;
   const queryClient = useQueryClient();
   const [step, setStep] = useState<DialogStep>("connect");
   const [isGoogleConnected, setIsGoogleConnected] = useState(false);
@@ -74,30 +85,47 @@ export function GoogleSheetIntegrationDialog({ isOpen, onClose, packId }: Google
   const packsRef = useRef(packs);
   packsRef.current = packs;
 
+  // Pack de onde a configuração inicial é lida: o próprio, ou (em massa) o primeiro
+  // selecionado que já tem planilha — o caso comum é todos no mesmo arquivo.
+  const seedPackId = useMemo(() => {
+    if (!isBulk) return packId ?? null;
+    return bulkPackIds!.find((id) => packsRef.current.find((pk) => pk.id === id)?.sheet_integration) ?? null;
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- semear só na abertura (packsRef)
+  }, [isBulk, packId, bulkPackIds, isOpen]);
+
   useEffect(() => {
-    if (!isOpen || !packId) return;
+    if (!isOpen) return;
+    if (isBulk) {
+      // Corte em massa: pré-preenche só quando todos os packs concordam; senão começa vazio.
+      const cuts = new Set(bulkPackIds!.map((id) => packsRef.current.find((pk) => pk.id === id)?.mql_leadscore_min ?? null));
+      const only = cuts.size === 1 ? Array.from(cuts)[0] : null;
+      setMqlLeadscoreMin(only !== null && only !== undefined ? String(only) : "");
+      return;
+    }
+    if (!packId) return;
     const current = packsRef.current.find((pk) => pk.id === packId)?.mql_leadscore_min;
     setMqlLeadscoreMin(current !== null && current !== undefined ? String(current) : "");
-  }, [isOpen, packId]);
+  }, [isOpen, packId, isBulk, bulkPackIds]);
 
   // Hooks
   const { connections, selectedConnectionId, setSelectedConnectionId, isLoadingConnections, isDeletingConnection, expiredConnections, testingConnections, loadConnections, handleRetestConnection, handleDeleteConnection, clearVerificationCache } = useGoogleConnections(isOpen);
 
   const { isImporting, importStep, importProgress, lastSyncStats, startSync, startSyncWithToast, reset: resetSync } = useGoogleSyncJob();
+  const startBulkSync = useBulkSheetSync();
 
   // Atualizar isGoogleConnected quando selectedConnectionId mudar
   useEffect(() => {
     setIsGoogleConnected(!!selectedConnectionId && !expiredConnections.has(selectedConnectionId));
   }, [selectedConnectionId, expiredConnections]);
 
-  // Carregar integração existente quando packId for fornecido
+  // Carregar integração existente quando packId for fornecido (em massa: a do seedPackId)
   useEffect(() => {
-    if (isOpen && packId) {
+    if (isOpen && seedPackId) {
       const loadExistingIntegration = async () => {
         skipClearCountRef.current = 2;
         setExtraColumnsReady(false);
         try {
-          const res = await api.integrations.google.listSheetIntegrations(packId);
+          const res = await api.integrations.google.listSheetIntegrations(seedPackId);
           if (res.integrations && res.integrations.length > 0) {
             const integration = res.integrations[0];
             // 140: vínculos existentes entram travados (tipo e coluna de mão única)
@@ -105,7 +133,9 @@ export function GoogleSheetIntegrationDialog({ isOpen, onClose, packId }: Google
             setExtraColumns(
               mappings.map((m) => ({
                 key: `server_${m.id}`,
-                serverId: m.id,
+                // Em massa o vínculo é por pack: o servidor reaproveita o id de cada pack
+                // pela mesma coluna (arquivo + cabeçalho). Aqui a coluna fica editável.
+                serverId: isBulk ? undefined : m.id,
                 columnValue: m.column_name || "",
                 columnIndex: m.column_index,
                 label: m.label,
@@ -135,7 +165,7 @@ export function GoogleSheetIntegrationDialog({ isOpen, onClose, packId }: Google
             setDateColumn(fmt(integration.date_column, integrationWithConnection.date_column_index) || integration.date_column || "");
             setDateFormat((integration.date_format as "DD/MM/YYYY" | "MM/DD/YYYY") || "");
             setLeadscoreColumn(fmt(integration.leadscore_column, integrationWithConnection.leadscore_column_index) || integration.leadscore_column || "");
-            setIntegrationId(integration.id);
+            if (!isBulk) setIntegrationId(integration.id);
 
             if (integrationWithConnection.connection_id) {
               setSelectedConnectionId(integrationWithConnection.connection_id);
@@ -146,7 +176,7 @@ export function GoogleSheetIntegrationDialog({ isOpen, onClose, packId }: Google
         }
       };
       loadExistingIntegration();
-    } else if (isOpen && !packId) {
+    } else if (isOpen) {
       setStep("connect");
       setSelectedSpreadsheetId("");
       setSelectedSpreadsheetName("");
@@ -161,7 +191,8 @@ export function GoogleSheetIntegrationDialog({ isOpen, onClose, packId }: Google
       setIntegrationId("");
       setLoadedIntegrationData(null);
     }
-  }, [isOpen, packId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- isBulk acompanha seedPackId
+  }, [isOpen, seedPackId]);
 
   // Listener para detectar quando token expira
   useEffect(() => {
@@ -315,9 +346,31 @@ export function GoogleSheetIntegrationDialog({ isOpen, onClose, packId }: Google
   // Janela do pack: a comparação com o período da planilha é feita aqui, no
   // cliente, que já tem esse dado — o endpoint de sondagem fala só da planilha.
   const packWindow = useMemo(() => {
+    if (isBulk) {
+      // Em massa: a união dos períodos (do início mais cedo ao fim mais tarde).
+      let start: string | null = null;
+      let stop: string | null = null;
+      for (const id of bulkPackIds!) {
+        const pk = packs.find((p) => p.id === id);
+        if (pk?.date_start && (!start || pk.date_start < start)) start = pk.date_start;
+        if (pk?.date_stop && (!stop || pk.date_stop > stop)) stop = pk.date_stop;
+      }
+      return { start, stop };
+    }
     const pk = packId ? packs.find((p) => p.id === packId) : undefined;
     return { start: pk?.date_start ?? null, stop: pk?.date_stop ?? null };
-  }, [packId, packs]);
+  }, [isBulk, bulkPackIds, packId, packs]);
+
+  // Prévia do que a configuração em massa faz em cada pack.
+  const bulkPreview = useMemo(() => {
+    if (!isBulk) return null;
+    const selected = bulkPackIds!.map((id) => packs.find((p) => p.id === id)).filter((p): p is NonNullable<typeof p> => !!p);
+    const withSheet = selected.filter((p) => !!p.sheet_integration);
+    const otherFile = selectedSpreadsheetId
+      ? withSheet.filter((p) => p.sheet_integration?.spreadsheet_id && p.sheet_integration.spreadsheet_id !== selectedSpreadsheetId)
+      : [];
+    return { total: selected.length, toConnect: selected.length - withSheet.length, toReplace: withSheet.length, otherFile: otherFile.length };
+  }, [isBulk, bulkPackIds, packs, selectedSpreadsheetId]);
 
   const dateColumnIndex = useMemo(
     () => (dateColumn ? resolveColumnIndex(dateColumn, columnsWithIndices) : null),
@@ -535,6 +588,11 @@ export function GoogleSheetIntegrationDialog({ isOpen, onClose, packId }: Google
           : null,
       };
 
+      if (isBulk) {
+        await handleBulkSave(payload);
+        return;
+      }
+
       const saveRes = await api.integrations.google.saveSheetIntegration(payload);
       const id = saveRes.integration.id;
       setIntegrationId(id);
@@ -562,6 +620,41 @@ export function GoogleSheetIntegrationDialog({ isOpen, onClose, packId }: Google
     } finally {
       setIsSaving(false);
     }
+  };
+
+  const handleBulkSave = async (payload: SheetIntegrationRequest) => {
+    const { pack_id: _ignored, ...config } = payload;
+    const res = await api.integrations.google.saveSheetIntegrationsBulk({
+      pack_ids: bulkPackIds!,
+      config,
+      // O corte é exigido para salvar (canImport): vai para todos os packs.
+      ...(parsedMqlLeadscoreMin !== null ? { mql_leadscore_min: parsedMqlLeadscoreMin } : {}),
+    });
+    const done = res.results.filter((r) => r.status === "created" || r.status === "updated");
+    for (const r of done) {
+      const integration = res.integrations[r.pack_id];
+      updatePack(r.pack_id, {
+        ...(integration ? { sheet_integration: integration } : {}),
+        ...(parsedMqlLeadscoreMin !== null ? { mql_leadscore_min: parsedMqlLeadscoreMin } : {}),
+      });
+    }
+    const failed = res.results.filter((r) => r.status === "failed");
+    const skipped = res.results.filter((r) => r.status === "skipped");
+    const nameOf = (id: string) => packs.find((p) => p.id === id)?.name || "Pack";
+    if (failed.length) {
+      showError(new Error(`Não foi possível configurar: ${failed.map((r) => `${nameOf(r.pack_id)} (${r.error})`).join("; ")}`));
+    }
+    if (skipped.length) {
+      showError(new Error(`Ignorados (compartilhados com você — só o dono configura a planilha): ${skipped.map((r) => nameOf(r.pack_id)).join(", ")}`));
+    }
+    onClose();
+    if (done.length === 0) return;
+    const packNames = Object.fromEntries(done.map((r) => [r.pack_id, nameOf(r.pack_id)]));
+    startBulkSync({
+      integrationIds: done.map((r) => r.integration_id).filter((id): id is string => !!id),
+      packNames,
+      title: `${selectedSpreadsheetName || "Planilha"} · ${done.length} ${done.length === 1 ? "pack" : "packs"}`,
+    }).catch((e) => showError(e));
   };
 
   const handleSyncAgain = async () => {
@@ -593,6 +686,15 @@ export function GoogleSheetIntegrationDialog({ isOpen, onClose, packId }: Google
           <p className="text-sm text-muted-foreground">
             Conecte uma planilha com colunas de <strong>ad_id</strong>, <strong>data</strong> e <strong>leadscore</strong> para habilitar métricas de Marketing Qualified Lead.
           </p>
+          {bulkPreview && (
+            <p className="text-sm text-muted-foreground">
+              Mesma configuração para <strong className="text-foreground">{bulkPreview.total} packs</strong>
+              {bulkPreview.toConnect > 0 && <> · {bulkPreview.toConnect} sem planilha serão conectados</>}
+              {bulkPreview.toReplace > 0 && <> · {bulkPreview.toReplace} já conectados terão a configuração substituída</>}
+              {bulkPreview.otherFile > 0 && <> ({bulkPreview.otherFile} apontam hoje para outro arquivo)</>}
+              . O corte de MQL vale para todos.
+            </p>
+          )}
         </div>
 
         {/* Indicador de Steps */}

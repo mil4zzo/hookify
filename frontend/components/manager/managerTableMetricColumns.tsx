@@ -11,7 +11,7 @@ import type { RankingsItem } from "@/lib/api/schemas";
 import type { CreateManagerTableColumnsParams } from "@/components/manager/managerTableColumns";
 import type { ManagerColumnType } from "@/components/common/ManagerColumnFilter";
 import { formatMetricValue, getManagerMetricLabel, getMetricNumericValue, getMetricNumericValueOrNull, type ManagerMetricKey } from "@/lib/metrics";
-import { getCustomTopValue } from "@/lib/metrics/customColumns";
+import { getCustomHistogram, getCustomTopValue } from "@/lib/metrics/customColumns";
 import { histogramEntries } from "@/lib/utils/customHistogram";
 import { isManagerMetricColumnVisible } from "@/components/manager/managerColumnPreferences";
 
@@ -613,15 +613,15 @@ export function buildMetricColumns(params: CreateManagerTableColumnsParams): Col
     if (def.facet === "top") {
       cols.push(
         columnHelper.accessor(
-          (row) => getCustomTopValue(row as RankingsItem, def.mappingId)?.share ?? null,
+          (row) => getCustomTopValue(row as RankingsItem, def)?.share ?? null,
           {
             id: def.key,
             header: ({ column }) => renderMetricHeader(def.key, def.label, column),
             sortingFn: "auto",
             cell: (info) => {
               const row = info.row.original as RankingsItem;
-              const hist = row.custom_histograms?.[def.mappingId];
-              const top = getCustomTopValue(row, def.mappingId);
+              const hist = getCustomHistogram(row, def);
+              const top = getCustomTopValue(row, def);
               if (!top) return <span className="text-center inline-block w-full text-muted-foreground">—</span>;
               const entries = histogramEntries(hist, false);
               const total = entries.reduce((acc, [, qty]) => acc + qty, 0);

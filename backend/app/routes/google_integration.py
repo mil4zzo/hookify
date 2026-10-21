@@ -14,6 +14,7 @@ from app.services.pack_access import assert_pack_role
 from app.services import pack_action_log
 from app.services import sheet_column_mappings
 from app.services import sheet_name_revalidation
+from app.services import supabase_repo
 from app.core.config import (
     GOOGLE_OAUTH_CLIENT_ID,
     GOOGLE_OAUTH_CLIENT_SECRET,
@@ -31,7 +32,7 @@ from app.services.google_errors import (
     GOOGLE_DRIVE_ERROR,
 )
 from app.core.supabase_client import get_supabase_for_user
-from app.services.google_sheet_sync_job import create_sync_job, process_sync_job
+from app.services.google_sheet_sync_job import create_bulk_sync_job, create_sync_job, process_bulk_sync_job, process_sync_job
 from app.services.job_tracker import get_job_tracker
 
 logger = logging.getLogger(__name__)
@@ -543,8 +544,9 @@ def probe_sheet_date_column(
 class SheetColumnMappingInput(BaseModel):
     """Uma coluna vinculada além do leadscore (migration 140).
 
-    `id` presente = vínculo existente (só rótulo, corte e ordem mudam; `kind` e
-    `column_index` são de mão única). Ausente = vínculo novo.
+    `id` presente = vínculo existente (rótulo, corte e ordem mudam; `kind` é de mão
+    única; `column_index` só muda com o MESMO cabeçalho — planilha reordenada). Ausente
+    = vínculo novo.
     """
     id: Optional[str] = None
     column_index: int
@@ -647,13 +649,20 @@ def _reconcile_column_mappings(
                     status_code=400,
                     detail=f"Coluna '{label}': o tipo não pode mudar depois de criado. Exclua o vínculo e crie outro.",
                 )
+            update_fields: Dict[str, Any] = {"label": label, "config": config, "position": position, "column_name": column_name or cur.get("column_name") or ""}
             if int(cur.get("column_index") or 0) != idx:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Coluna '{label}': a coluna da planilha não pode mudar depois de criada. Exclua o vínculo e crie outro.",
-                )
+                # Mesmo cabeçalho em outra posição é a MESMA coluna (a planilha foi
+                # reordenada; o sync acha a coluna pelo nome). Cabeçalho diferente é
+                # outra coluna: os números gravados sob este vínculo não são dela.
+                same_header = bool(column_name) and sheet_column_mappings.normalize_header(column_name) == sheet_column_mappings.normalize_header(cur.get("column_name"))
+                if not same_header:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Coluna '{label}': a coluna da planilha não pode mudar depois de criada. Exclua o vínculo e crie outro.",
+                    )
+                update_fields["column_index"] = idx
             keep_ids.add(str(item.id))
-            to_update.append((str(item.id), {"label": label, "config": config, "position": position, "column_name": column_name or cur.get("column_name") or ""}))
+            to_update.append((str(item.id), update_fields))
         else:
             to_insert.append({
                 "integration_id": integration_id,
@@ -812,6 +821,234 @@ def save_ad_sheet_integration(
     
     return {"integration": rec}
 
+
+# ── Configuração e sync em massa ─────────────────────────────────────────────────
+
+BULK_MAX_PACKS = 200
+
+
+class BulkSheetIntegrationRequest(BaseModel):
+    """Mesma configuração de planilha aplicada a N packs (o `pack_id` de `config` é ignorado).
+
+    `mql_leadscore_min`: corte de MQL gravado em CADA pack (o corte é do pack, não da
+    integração). Ausente = não mexe; null = limpa — mesma semântica do PATCH de julgamento.
+    """
+    pack_ids: List[str]
+    config: SheetIntegrationRequest
+    mql_leadscore_min: Optional[float] = None
+
+
+class BulkSyncRequest(BaseModel):
+    integration_ids: List[str]
+
+
+def _desired_mappings_for_pack(
+    wanted: List[SheetColumnMappingInput],
+    existing_integration: Optional[Dict[str, Any]],
+    spreadsheet_id: str,
+) -> List[SheetColumnMappingInput]:
+    """Os vínculos desejados, reaproveitando o id do vínculo que o pack já tem para a MESMA coluna.
+
+    Mesma coluna = mesmo arquivo + mesmo tipo + mesmo cabeçalho normalizado (a regra do
+    agrupamento no Manager). Reaproveitar o id preserva o que já foi gravado sob ele
+    (histogramas, regras e preferências salvas com a chave antiga). Arquivo trocado
+    nunca reaproveita: o mesmo nome de cabeçalho em outro arquivo pode ser outra coisa.
+    """
+    reusable: Dict[tuple, str] = {}
+    if existing_integration and str(existing_integration.get("spreadsheet_id") or "") == str(spreadsheet_id or ""):
+        for m in existing_integration.get("column_mappings") or []:
+            key = (str(m.get("kind")), sheet_column_mappings.normalize_header(m.get("column_name")))
+            if key[1] and key not in reusable:
+                reusable[key] = str(m.get("id"))
+    out: List[SheetColumnMappingInput] = []
+    used: set[str] = set()
+    for item in wanted:
+        key = (str(item.kind), sheet_column_mappings.normalize_header(item.column_name))
+        mid = reusable.get(key) if key[1] else None
+        if mid and mid not in used:
+            used.add(mid)
+            out.append(item.model_copy(update={"id": mid}))
+        else:
+            out.append(item.model_copy(update={"id": None}))
+    return out
+
+
+@router.post("/ad-sheet-integrations/bulk")
+def save_ad_sheet_integrations_bulk(
+    payload: BulkSheetIntegrationRequest,
+    user=Depends(get_current_user),
+):
+    """Aplica a MESMA configuração de planilha a vários packs, de uma vez.
+
+    Cria o vínculo onde o pack não tem e substitui onde tem. Cada pack continua dono
+    do próprio vínculo (não há herança: um pack que entra depois não recebe nada).
+
+    Só packs do PRÓPRIO usuário: a credencial Google e o vínculo vivem no silo do dono.
+    Pack compartilhado com o usuário volta como `skipped` — a tela avisa antes.
+
+    Uma chamada ao Drive para o nome do arquivo (não uma por pack). Falha num pack não
+    derruba os outros: cada um tem o seu resultado.
+    """
+    cfg = payload.config
+    pack_ids = list(dict.fromkeys(str(p).strip() for p in payload.pack_ids if str(p or "").strip()))
+    if not pack_ids:
+        raise HTTPException(status_code=400, detail="Selecione ao menos um pack.")
+    if len(pack_ids) > BULK_MAX_PACKS:
+        raise HTTPException(status_code=400, detail=f"No máximo {BULK_MAX_PACKS} packs por vez.")
+    if not cfg.leadscore_column:
+        raise HTTPException(status_code=400, detail="É obrigatório selecionar a coluna de Leadscore.")
+    if cfg.date_format not in ("DD/MM/YYYY", "MM/DD/YYYY"):
+        raise HTTPException(status_code=400, detail="Formato de data inválido. Use 'DD/MM/YYYY' ou 'MM/DD/YYYY'.")
+    fields = payload.model_dump(exclude_unset=True)
+    set_mql = "mql_leadscore_min" in fields
+    if set_mql and payload.mql_leadscore_min is not None and payload.mql_leadscore_min < 0:
+        raise HTTPException(status_code=400, detail="mql_leadscore_min deve ser >= 0")
+
+    owner_id = str(user["user_id"])
+    sb = get_supabase_for_user(user["token"])
+
+    try:
+        owned_rows = (
+            sb.table("packs").select("id").eq("user_id", owner_id).in_("id", pack_ids).execute().data or []
+        )
+        owned = {str(r["id"]) for r in owned_rows if isinstance(r, dict)}
+        existing_rows = (
+            sb.table("ad_sheet_integrations")
+            .select("id, pack_id, spreadsheet_id")
+            .eq("owner_id", owner_id)
+            .in_("pack_id", list(owned) or ["00000000-0000-0000-0000-000000000000"])
+            .execute()
+            .data
+            or []
+        )
+        sheet_column_mappings.attach_to_integrations(sb, existing_rows)
+        existing_by_pack = {str(r["pack_id"]): r for r in existing_rows if isinstance(r, dict) and r.get("pack_id")}
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("[AD_SHEET_INTEGRATION_BULK] Erro ao ler packs/integrações")
+        raise HTTPException(status_code=500, detail="Erro ao ler os packs selecionados.")
+
+    spreadsheet_name: Optional[str] = None
+    try:
+        spreadsheet_name = get_spreadsheet_name(
+            user_jwt=user["token"], user_id=owner_id, spreadsheet_id=cfg.spreadsheet_id, connection_id=cfg.connection_id,
+        )
+    except Exception as e:
+        logger.warning("[AD_SHEET_INTEGRATION_BULK] Não foi possível obter spreadsheet_name para %s: %s", cfg.spreadsheet_id, e)
+
+    now_iso = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    results: List[Dict[str, Any]] = []
+    integrations: Dict[str, Any] = {}
+    for pack_id in pack_ids:
+        if pack_id not in owned:
+            results.append({"pack_id": pack_id, "status": "skipped", "reason": "not_owner"})
+            continue
+        existing = existing_by_pack.get(pack_id)
+        try:
+            pack_payload = cfg.model_copy(update={
+                "pack_id": pack_id,
+                "column_mappings": _desired_mappings_for_pack(list(cfg.column_mappings or []), existing, cfg.spreadsheet_id),
+            })
+            data = {
+                "owner_id": owner_id,
+                "pack_id": pack_id,
+                "spreadsheet_id": cfg.spreadsheet_id,
+                "spreadsheet_name": spreadsheet_name,
+                "worksheet_title": cfg.worksheet_title,
+                "ad_id_column": cfg.ad_id_column,
+                "date_column": cfg.date_column,
+                "date_format": cfg.date_format,
+                "leadscore_column": cfg.leadscore_column,
+                "ad_id_column_index": cfg.ad_id_column_index,
+                "date_column_index": cfg.date_column_index,
+                "leadscore_column_index": cfg.leadscore_column_index,
+                "connection_id": cfg.connection_id,
+            }
+            sb.table("ad_sheet_integrations").upsert(data, on_conflict="owner_id,pack_id").execute()
+            rec = (
+                sb.table("ad_sheet_integrations").select("*")
+                .eq("owner_id", owner_id).eq("pack_id", pack_id).limit(1).execute().data
+                or [{}]
+            )[0]
+            integration_id = rec.get("id") if isinstance(rec, dict) else None
+            if not integration_id:
+                raise RuntimeError("integração não voltou depois do upsert")
+            rec["column_mappings"] = _reconcile_column_mappings(
+                sb, owner_id=owner_id, integration_id=str(integration_id), payload=pack_payload,
+            )
+            sb.table("packs").update({"sheet_integration_id": integration_id, "updated_at": now_iso}).eq(
+                "id", pack_id
+            ).eq("user_id", owner_id).execute()
+            if set_mql:
+                supabase_repo.update_pack_judgment(pack_id, {"mql_leadscore_min": payload.mql_leadscore_min}, owner_id)
+            integrations[pack_id] = rec
+            results.append({
+                "pack_id": pack_id,
+                "status": "updated" if existing else "created",
+                "integration_id": str(integration_id),
+            })
+        except HTTPException as e:
+            results.append({"pack_id": pack_id, "status": "failed", "error": str(e.detail)})
+        except Exception as e:
+            logger.exception("[AD_SHEET_INTEGRATION_BULK] Erro no pack %s", pack_id)
+            results.append({"pack_id": pack_id, "status": "failed", "error": "Erro ao salvar a configuração deste pack."})
+
+    done_packs = [r["pack_id"] for r in results if r["status"] in ("created", "updated")]
+    if set_mql and done_packs:
+        # Autoria do corte (P3.5): muda o veredito de MQL que o time inteiro lê.
+        pack_action_log.log_pack_action(
+            action=pack_action_log.ACTION_PACK_JUDGMENT,
+            actor_id=owner_id, actor_role="dono", owner_id=owner_id,
+            pack_ids=done_packs, target_type="pack", target_ids=done_packs,
+            detail={"mql_leadscore_min": payload.mql_leadscore_min, "bulk": True},
+        )
+    logger.info(
+        "[AD_SHEET_INTEGRATION_BULK] %d packs: %s",
+        len(pack_ids), {s: sum(1 for r in results if r["status"] == s) for s in ("created", "updated", "skipped", "failed")},
+    )
+    return {"results": results, "integrations": integrations}
+
+
+@router.post("/ad-sheet-integrations/bulk-sync-job")
+def start_bulk_sync_job(
+    payload: BulkSyncRequest,
+    background_tasks: BackgroundTasks,
+    user=Depends(get_current_user),
+):
+    """Um job que sincroniza N integrações em série, lendo cada arquivo uma vez.
+
+    Só integrações do próprio usuário (a configuração em massa só cria no silo do dono).
+    Acompanhamento pelo mesmo `GET /sync-jobs/{job_id}`; o resultado por pack vem em
+    `details.bulk_results`.
+    """
+    ids = list(dict.fromkeys(str(i).strip() for i in payload.integration_ids if str(i or "").strip()))
+    if not ids:
+        raise HTTPException(status_code=400, detail="Nenhuma integração informada.")
+    if len(ids) > BULK_MAX_PACKS:
+        raise HTTPException(status_code=400, detail=f"No máximo {BULK_MAX_PACKS} integrações por vez.")
+    owner_id = str(user["user_id"])
+    sb = get_supabase_for_user(user["token"])
+    rows = (
+        sb.table("ad_sheet_integrations").select("id, pack_id").eq("owner_id", owner_id).in_("id", ids).execute().data
+        or []
+    )
+    by_id = {str(r["id"]): r for r in rows if isinstance(r, dict)}
+    items = [{"integration_id": i, "pack_id": str(by_id[i].get("pack_id") or "")} for i in ids if i in by_id]
+    if not items:
+        raise HTTPException(status_code=404, detail="Integrações não encontradas.")
+
+    job_id = create_bulk_sync_job(user_jwt=user["token"], user_id=owner_id, items=items)
+    background_tasks.add_task(process_bulk_sync_job, user_jwt=user["token"], user_id=owner_id, job_id=job_id, items=items)
+
+    pack_ids = [i["pack_id"] for i in items if i["pack_id"]]
+    pack_action_log.log_pack_action(
+        action=pack_action_log.ACTION_PACK_SHEET_SYNC,
+        actor_id=owner_id, actor_role="dono", owner_id=owner_id,
+        pack_ids=pack_ids, target_type="integration", target_ids=[i["integration_id"] for i in items],
+        detail={"job_id": str(job_id), "bulk": True},
+    )
+    return {"job_id": job_id, "integration_ids": [i["integration_id"] for i in items]}
 
 @router.post("/ad-sheet-integrations/{integration_id}/sync-job")
 def start_sync_job(

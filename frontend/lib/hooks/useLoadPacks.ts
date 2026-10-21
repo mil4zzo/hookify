@@ -23,18 +23,23 @@ export function useLoadPacks() {
 
   useEffect(() => {
     // Handler para recarregar packs quando integração for atualizada
+    // `packIds` (lista) existe para o sync em massa: N packs, UMA recarga da lista — um
+    // evento por pack recarregaria a lista inteira N vezes.
     const handleIntegrationUpdate = async (event: CustomEvent) => {
-      const { packId } = event.detail
-      if (packId) {
+      const { packId, packIds } = event.detail ?? {}
+      const ids: string[] = Array.isArray(packIds) ? packIds : packId ? [packId] : []
+      if (ids.length > 0) {
         try {
           const response = await api.analytics.listPacks(false)
           if (response.success && response.packs) {
-            const updatedPack = response.packs.find((p: any) => p.id === packId)
-            if (updatedPack) {
-              updatePack(packId, { sheet_integration: updatedPack.sheet_integration } as any)
+            for (const id of ids) {
+              const updatedPack = response.packs.find((p: any) => p.id === id)
+              if (updatedPack) {
+                updatePack(id, { sheet_integration: updatedPack.sheet_integration } as any)
+              }
             }
           } else if (!response.success) {
-            logger.error('useLoadPacks: listPacks retornou success:false no handler de integração', { packId, response })
+            logger.error('useLoadPacks: listPacks retornou success:false no handler de integração', { packIds: ids, response })
           }
         } catch (error) {
           logger.error('Erro ao atualizar pack após integração:', error)

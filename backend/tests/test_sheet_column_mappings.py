@@ -285,5 +285,99 @@ class TestReconcile(unittest.TestCase):
         self.assertEqual(writes, [])
 
 
+class TestMesmaColunaEmOutraPosicao(unittest.TestCase):
+    """O sync acha a coluna pelo cabeçalho; a reconciliação acompanha: mesmo cabeçalho
+    em outra posição é a mesma coluna (atualiza o índice), cabeçalho diferente não."""
+
+    def _run(self, wanted, existing):
+        return TestReconcile._run(TestReconcile(), wanted, existing)
+
+    def test_mesmo_cabecalho_reordenado_atualiza_o_indice(self):
+        log = self._run([{"id": "map-1", "column_index": 9, "column_name": " idade ", "label": "Idade", "kind": "number"}], [dict(MAPPING)])
+        updates = [e[2][0] for e in log if e[0] == "sheet_column_mappings" and e[1] == "update"]
+        self.assertEqual(updates[0]["column_index"], 9)
+
+    def test_cabecalho_diferente_continua_recusado(self):
+        with self.assertRaises(HTTPException) as ctx:
+            self._run([{"id": "map-1", "column_index": 9, "column_name": "IDADE EXATA", "label": "Idade", "kind": "number"}], [dict(MAPPING)])
+        self.assertEqual(ctx.exception.status_code, 400)
+
+
+class TestReaproveitaVinculoNaConfiguracaoEmMassa(unittest.TestCase):
+    def _desired(self, wanted, existing, spreadsheet_id="arq-1"):
+        from app.routes.google_integration import SheetColumnMappingInput, _desired_mappings_for_pack
+        return _desired_mappings_for_pack([SheetColumnMappingInput(**w) for w in wanted], existing, spreadsheet_id)
+
+    def test_mesmo_arquivo_tipo_e_cabecalho_reaproveita_o_id(self):
+        existing = {"spreadsheet_id": "arq-1", "column_mappings": [dict(MAPPING), dict(LS_MAPPING, column_name="LS2")]}
+        out = self._desired([
+            {"column_index": 3, "column_name": "Idade", "label": "Idade", "kind": "number"},
+            {"column_index": 4, "column_name": "LS2", "label": "LS", "kind": "leadscore", "mql_min": 80},
+            {"column_index": 5, "column_name": "RENDA", "label": "Renda", "kind": "category"},
+        ], existing)
+        self.assertEqual([o.id for o in out], ["map-1", "map-ls", None])
+
+    def test_arquivo_trocado_ou_tipo_diferente_nao_reaproveita(self):
+        existing = {"spreadsheet_id": "arq-1", "column_mappings": [dict(MAPPING)]}
+        self.assertEqual([o.id for o in self._desired([{"column_index": 3, "column_name": "IDADE", "label": "x", "kind": "number"}], existing, "arq-2")], [None])
+        self.assertEqual([o.id for o in self._desired([{"column_index": 3, "column_name": "IDADE", "label": "x", "kind": "category"}], existing)], [None])
+        self.assertEqual([o.id for o in self._desired([{"column_index": 3, "column_name": "IDADE", "label": "x", "kind": "number"}], None)], [None])
+
+
+class TestConfiguracaoEmMassa(unittest.TestCase):
+    """POST /ad-sheet-integrations/bulk: só packs do dono; falha de um não derruba os outros;
+    nome do arquivo buscado UMA vez; corte de MQL gravado em cada pack."""
+
+    def _call(self, *, pack_ids, owned, fail_pack=None, mql=None, send_mql=False):
+        from app.routes import google_integration as gi
+
+        def integ_rows():
+            return _FakeResp([{"id": "integ-x", "pack_id": "p", "spreadsheet_id": "arq-1"}])
+
+        sb = _FakeSb({
+            "packs": lambda: _FakeResp([{"id": p} for p in owned]),
+            "ad_sheet_integrations": integ_rows,
+        })
+
+        def reconcile(_sb, *, owner_id, integration_id, payload):
+            if payload.pack_id == fail_pack:
+                raise HTTPException(status_code=400, detail="coluna ruim")
+            return []
+
+        body = {"pack_ids": pack_ids, "config": {
+            "spreadsheet_id": "arq-1", "worksheet_title": "DADOS", "ad_id_column": "AD", "date_column": "DATA",
+            "date_format": "DD/MM/YYYY", "leadscore_column": "LS", "column_mappings": [],
+        }}
+        if send_mql:
+            body["mql_leadscore_min"] = mql
+        payload = gi.BulkSheetIntegrationRequest(**body)
+        with mock.patch.object(gi, "get_supabase_for_user", return_value=sb),              mock.patch.object(gi, "get_spreadsheet_name", return_value="EI.31") as drive,              mock.patch.object(gi, "_reconcile_column_mappings", side_effect=reconcile),              mock.patch.object(gi.sheet_column_mappings, "attach_to_integrations"),              mock.patch.object(gi.supabase_repo, "update_pack_judgment") as judgment,              mock.patch.object(gi.pack_action_log, "log_pack_action") as log:
+            out = gi.save_ad_sheet_integrations_bulk(payload, user={"user_id": "owner-1", "token": "jwt"})
+        return out, drive, judgment, log
+
+    def test_so_packs_do_dono_e_um_erro_nao_para_os_outros(self):
+        out, drive, judgment, log = self._call(pack_ids=["p1", "p2", "alheio", "p3"], owned=["p1", "p2", "p3"], fail_pack="p2")
+        status = {r["pack_id"]: r["status"] for r in out["results"]}
+        self.assertEqual(status["alheio"], "skipped")
+        self.assertEqual(status["p2"], "failed")
+        self.assertIn(status["p1"], ("created", "updated"))
+        self.assertIn(status["p3"], ("created", "updated"))
+        self.assertEqual(drive.call_count, 1, "nome do arquivo: uma chamada ao Drive, não uma por pack")
+        judgment.assert_not_called()  # corte não enviado = não mexe
+
+    def test_corte_de_mql_vai_para_cada_pack_que_deu_certo(self):
+        out, _, judgment, log = self._call(pack_ids=["p1", "p2"], owned=["p1", "p2"], send_mql=True, mql=80)
+        self.assertEqual(sorted(c.args[0] for c in judgment.call_args_list), ["p1", "p2"])
+        self.assertEqual(judgment.call_args_list[0].args[1], {"mql_leadscore_min": 80})
+        self.assertEqual(log.call_args.kwargs["action"], "pack.judgment")
+        self.assertEqual(sorted(log.call_args.kwargs["pack_ids"]), ["p1", "p2"])
+
+    def test_limites_e_validacao(self):
+        with self.assertRaises(HTTPException):
+            self._call(pack_ids=[], owned=[])
+        with self.assertRaises(HTTPException):
+            self._call(pack_ids=["p1"], owned=["p1"], send_mql=True, mql=-1)
+
+
 if __name__ == "__main__":
     unittest.main()

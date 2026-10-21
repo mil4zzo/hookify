@@ -23,6 +23,7 @@
 
 import type { RuleDimensionOption } from "@/components/rules/RuleBuilder";
 import { getActiveCustomColumns } from "@/lib/metrics/customColumnsRegistry";
+import { buildCustomColumnKey, getCustomHistogram } from "@/lib/metrics/customColumns";
 import type { RuleNameDictionary } from "./evaluate";
 
 /**
@@ -111,13 +112,18 @@ export function buildRuleDimensionOptions(
     if (def.facet !== "top") continue;
     const answers = new Set<string>();
     for (const row of rows) {
-      const hist = row?.custom_histograms?.[def.mappingId];
+      const hist = getCustomHistogram(row, def);
       if (!hist || typeof hist !== "object") continue;
       for (const [value, qty] of Object.entries(hist as Record<string, unknown>)) {
         if (Number(qty) > 0) answers.add(value);
       }
     }
     out[def.key] = ordenar(Array.from(answers, (value) => ({ value, label: value })));
+    // regra salva com a chave antiga (vínculo de um pack) abre com as mesmas opções
+    for (const mappingId of def.mappingIds) {
+      const legacy = buildCustomColumnKey(mappingId, def.facet);
+      if (!(legacy in out)) out[legacy] = out[def.key];
+    }
   }
   return out;
 }

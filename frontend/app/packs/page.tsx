@@ -17,7 +17,7 @@ import { useAdAccountsDb, useInvalidatePackAds } from "@/lib/api/hooks";
 import { GoogleSheetIntegrationDialog } from "@/components/ads/GoogleSheetIntegrationDialog";
 import { useClientAuth, useClientPacks } from "@/lib/hooks/useClientSession";
 import { useOnboardingGate } from "@/lib/hooks/useOnboardingGate";
-import { showSuccess, showError } from "@/lib/utils/toast";
+import { showSuccess, showError, showWarning } from "@/lib/utils/toast";
 import { api } from "@/lib/api/endpoints";
 import { IconFilter, IconPlus, IconTrash, IconChartBar, IconSearch, IconLoader2, IconCircleCheck, IconCircleX, IconCircleDot, IconInfoCircle, IconRefresh, IconChevronLeft, IconChevronRight, IconPencil, IconFolderPlus, IconFolderSymlink, IconSortAscending, IconSortDescending } from "@tabler/icons-react";
 
@@ -390,6 +390,19 @@ export default function PacksPage() {
   const selectedPackIds = useMemo(() => selectedPacksList.map((p) => p.id), [selectedPacksList]);
 
   const selectedPacksWithSheets = useMemo(() => selectedPacksList.filter((p) => !!p.sheet_integration?.id), [selectedPacksList]);
+  // Configurar planilha em massa: só packs do próprio usuário — o vínculo e a credencial
+  // do Google vivem no silo do dono; pack compartilhado com você fica de fora (avisado).
+  const selectedOwnedPacks = useMemo(() => selectedPacksList.filter((p) => !p.shared_role), [selectedPacksList]);
+  const [bulkSheetPackIds, setBulkSheetPackIds] = useState<string[] | null>(null);
+  const handleBulkConfigureSheet = () => {
+    const guests = selectedPacksList.length - selectedOwnedPacks.length;
+    if (guests > 0) {
+      showWarning(
+        `${guests} ${guests === 1 ? "pack compartilhado com você fica" : "packs compartilhados com você ficam"} de fora: só o dono configura a planilha.`,
+      );
+    }
+    if (selectedOwnedPacks.length > 0) setBulkSheetPackIds(selectedOwnedPacks.map((p) => p.id));
+  };
 
   /**
    * Desconecta a planilha de vários packs, um de cada vez. O pack em si fica
@@ -611,6 +624,15 @@ export default function PacksPage() {
       // Gatilho: abre a lista de pastas para escolher, então ganha o chevron.
       opensList: true,
       onSelect: () => setMoveTarget({ ids: selectedPackIds, name: null }),
+    },
+    {
+      id: "configure-sheets",
+      label: "Configurar planilha",
+      icon: <GoogleSheetsIcon className="h-3.5 w-3.5" />,
+      // Ocasional (uma vez por lançamento), como desconectar: menu "Mais", lado a lado.
+      secondary: true,
+      disabled: selectedOwnedPacks.length === 0,
+      onSelect: handleBulkConfigureSheet,
     },
     {
       id: "remove-sheets",
@@ -1923,13 +1945,15 @@ export default function PacksPage() {
 
       {/* Booster de planilha por pack (Google Sheets) */}
       <GoogleSheetIntegrationDialog
-        isOpen={!!sheetIntegrationPack}
+        isOpen={!!sheetIntegrationPack || !!bulkSheetPackIds}
         onClose={() => {
           setSheetIntegrationPack(null);
+          setBulkSheetPackIds(null);
           // Packs serão recarregados automaticamente pelo PacksLoader
           // e já virão com sheet_integration atualizado
         }}
         packId={sheetIntegrationPack?.id ?? null}
+        bulkPackIds={bulkSheetPackIds}
       />
 
       {/* Critérios de julgamento por pack (herança com override) */}

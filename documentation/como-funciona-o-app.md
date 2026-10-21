@@ -115,6 +115,52 @@ Enriquecer os dados dos anúncios com informações de **leadscore** e **CPR má
    - A configuração é salva na tabela `ad_sheet_integrations`
    - O pack é vinculado à integração através do campo `sheet_integration_id`
 
+### Configurar planilha em massa
+
+Na Biblioteca, com vários packs marcados: **Mais → Configurar planilha**. É o mesmo diálogo, que
+grava a mesma planilha, aba, colunas e corte de MQL em todos os packs: cria o vínculo onde o
+pack não tem e substitui onde tem. Cada pack continua dono do próprio vínculo, e pack que
+entra depois não herda nada. Junto com **Desconectar planilha**, completa o trio em massa.
+
+- **Só packs seus.** O vínculo e a conta Google vivem no espaço do dono, então pack
+  compartilhado com você fica de fora, com aviso.
+- **Prévia antes de salvar.** O diálogo diz quantos packs serão conectados, quantos terão a
+  configuração substituída e quantos apontam hoje para outro arquivo. A configuração inicial
+  vem do primeiro pack selecionado que já tem planilha.
+- **Uma chamada para salvar e um job para sincronizar.** O job sincroniza os packs um depois
+  do outro e **lê o arquivo uma vez só**. Antes eram N leituras simultâneas do arquivo inteiro.
+- **Resumo por desfecho:** atualizados, sem linhas correspondentes e falhas. "Sem linhas
+  correspondentes" é o caso típico de pack de lançamento antigo: a planilha é um arquivo
+  único, renomeado a cada lançamento e com o conteúdo trocado.
+- Rotas: `POST /integrations/google/ad-sheet-integrations/bulk` e `.../bulk-sync-job`. O
+  acompanhamento usa o `GET /sync-jobs/{id}` de sempre, com o resultado por pack em
+  `details.bulk_results`.
+
+### Coluna vinculada = arquivo + nome do cabeçalho
+
+Duas regras valem desde 2026-10-14:
+
+- **No Manager, Boards e regras, a coluna é identificada pelo arquivo e pelo cabeçalho,
+  não pelo pack.** Sete packs ligados à mesma "IDADE" do mesmo arquivo são **uma** coluna, com
+  os valores dos sete somados. Antes eram sete colunas, cada uma preenchida só para os
+  anúncios do seu pack.
+  - O cabeçalho é comparado sem diferença de caixa, acento e espaço ("IDADE" = "Idade";
+    "IDADE EXATA" é outra coluna).
+  - Arquivo diferente nunca junta: "IDADE" de outro arquivo pode ser outra coisa.
+  - Tipo diferente nunca junta.
+  - Nenhum dado é reescrito: contagens somam exato. O corte de MQL continua por pack;
+    quando os cortes divergem, cada pack conta os MQLs com o próprio corte.
+  - Regras, preferências e Boards salvos antes, com a chave do vínculo de um pack
+    (`custom:<id>:faceta`), continuam valendo para a coluna do grupo.
+  - Código: `lib/metrics/customColumns.ts` (`sheetColumnGroupId`).
+- **O sync acha a coluna vinculada pelo nome do cabeçalho**, não pela posição gravada.
+  - Antes, reordenar a planilha fazia "IDADE" ler a coluna vizinha sem erro nenhum.
+  - A posição só desempata cabeçalhos repetidos.
+  - Cabeçalho que sumiu deixa a coluna fora daquele sync, com o motivo no relatório. Ela
+    nunca é lida na posição antiga.
+  - Pela mesma razão, a edição aceita a mudança de posição quando o cabeçalho é o mesmo.
+  - Código: `sheet_column_mappings.resolve_column_index`.
+
 ### Processo de Sincronização (Importação)
 
 1. **Leitura da Planilha**

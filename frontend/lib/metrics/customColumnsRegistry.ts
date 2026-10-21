@@ -12,17 +12,33 @@
  *   Componentes React NÃO devem depender só disto para re-renderizar: a lista
  *   também viaja por prop (`customColumns`) onde a reatividade importa.
  */
-import type { CustomColumnDef } from "./customColumns";
+import { buildCustomColumnKey, type CustomColumnDef } from "./customColumns";
 
 let activeDefs: CustomColumnDef[] = [];
 let activeByKey = new Map<string, CustomColumnDef>();
 let activeVersion = 0;
 
-/** Publica a lista ativa (a tela chama num efeito quando os packs selecionados mudam). */
+/**
+ * Publica a lista ativa (a tela chama num efeito quando os packs selecionados mudam).
+ * Além da chave da coluna, cada `custom:<mappingId>:<faceta>` dos vínculos do grupo
+ * entra como APELIDO: regra, preferência e Board salvos antes do agrupamento por
+ * arquivo + cabeçalho continuam achando a coluna (que agora soma todos os packs).
+ */
 export function setActiveCustomColumns(defs: ReadonlyArray<CustomColumnDef>): void {
   activeDefs = [...defs];
   activeByKey = new Map(activeDefs.map((def) => [def.key, def]));
+  for (const def of activeDefs) {
+    for (const mappingId of def.mappingIds) {
+      const legacy = buildCustomColumnKey(mappingId, def.facet);
+      if (!activeByKey.has(legacy)) activeByKey.set(legacy, def);
+    }
+  }
   activeVersion += 1;
+}
+
+/** Chave atual da coluna para uma chave salva (apelido antigo → chave do grupo). */
+export function canonicalCustomColumnKey(key: string): string {
+  return activeByKey.get(key)?.key ?? key;
 }
 
 export function getActiveCustomColumns(): readonly CustomColumnDef[] {

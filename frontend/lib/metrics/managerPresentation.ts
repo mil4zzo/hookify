@@ -246,7 +246,7 @@ export function compareManagerChildRows(
     const def = getActiveCustomColumn(column);
     const valueOf = (row: MetricValueSource): number => {
       if (!def) return 0;
-      if (def.facet === "top") return getCustomTopValue(row as { custom_histograms?: Record<string, Record<string, number>> }, def.mappingId)?.share ?? 0;
+      if (def.facet === "top") return getCustomTopValue(row as { custom_histograms?: Record<string, Record<string, number>> }, def)?.share ?? 0;
       return getMetricNumericValueOrNull(row, column) ?? 0;
     };
     const aValue = valueOf(a);

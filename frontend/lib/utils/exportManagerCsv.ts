@@ -260,7 +260,7 @@ export async function exportManagerToCsv({
       // 140: categoria da planilha é TEXTO vindo da planilha (resposta majoritária +
       // fatia) → anti formula-injection, como nome de pack.
       if (col.custom?.facet === "top") {
-        const top = getCustomTopValue(row.original, col.custom.mappingId)
+        const top = getCustomTopValue(row.original, col.custom)
         cells.push(neutralizeFormula(top ? `${top.value} (${Math.round(top.share * 100)}%)` : ""))
         continue
       }

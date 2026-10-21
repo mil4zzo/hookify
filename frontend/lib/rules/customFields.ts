@@ -54,7 +54,9 @@ export function getActiveCustomRuleFields(): RuleField[] {
 export function resolveCustomRuleField(fieldId: string): RuleField | undefined {
   if (!isCustomColumnKey(fieldId)) return undefined;
   const def = getActiveCustomColumn(fieldId);
-  if (def) return buildCustomRuleField(def);
+  // Chave antiga (vínculo de um pack) resolve para a coluna do grupo, mas o campo mantém
+  // o id que a regra guarda — senão o construtor não casa a condição com o campo.
+  if (def) return { ...buildCustomRuleField(def), id: fieldId };
   const parsed = parseCustomColumnKey(fieldId);
   if (!parsed) return undefined;
   return {

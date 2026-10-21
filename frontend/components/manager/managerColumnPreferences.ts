@@ -9,7 +9,8 @@ import {
 } from "@/components/manager/managerColumns";
 import { isManagerRatioPercentMetric } from "@/lib/metrics";
 import { METRIC_DEFINITIONS, type MetricKey } from "@/lib/metrics/definitions";
-import { isCustomColumnKey, type CustomColumnDef } from "@/lib/metrics/customColumns";
+import { isCustomColumnKey, resolveCustomColumn, type CustomColumnDef } from "@/lib/metrics/customColumns";
+import { canonicalCustomColumnKey } from "@/lib/metrics/customColumnsRegistry";
 
 /** Formato antigo (só visibilidade, em sessionStorage): string[] de colunas ativas. Migrado na leitura. */
 const LEGACY_STORAGE_KEY_MANAGER_COLUMNS = "hookify-manager-columns";
@@ -29,6 +30,16 @@ const isKnownManagerColumn = (value: unknown, customIds: ReadonlySet<string>): v
 const customIdSet = (customColumns: ReadonlyArray<CustomColumnDef>): Set<string> => new Set(customColumns.map((def) => def.key));
 
 /**
+ * Chave salva → chave atual. Preferência gravada antes do agrupamento por arquivo +
+ * cabeçalho guarda `custom:<vínculo>:faceta`; ela continua valendo para a coluna que
+ * contém aquele vínculo (ver `resolveCustomColumn`).
+ */
+const canonicalColumnId = (id: unknown, customIds: ReadonlySet<string>, customColumns: ReadonlyArray<CustomColumnDef>): unknown => {
+  if (typeof id !== "string" || !isCustomColumnKey(id) || customIds.has(id)) return id;
+  return resolveCustomColumn(id, customColumns)?.key ?? id;
+};
+
+/**
  * Sanitiza uma ordem vinda do storage: descarta ids desconhecidos e duplicados, e acrescenta ao
  * final as colunas que ainda não existiam quando a preferência foi salva. Assim uma métrica nova
  * aparece para o usuário sem invalidar a ordem que ele montou.
@@ -43,7 +54,8 @@ export const normalizeManagerColumnOrder = (saved: unknown, customColumns: Reado
   const order: ManagerColumnType[] = [];
 
   if (Array.isArray(saved)) {
-    for (const columnId of saved) {
+    for (const savedId of saved) {
+      const columnId = canonicalColumnId(savedId, customIds, customColumns);
       if (!isKnownManagerColumn(columnId, customIds) || seen.has(columnId)) continue;
       seen.add(columnId);
       order.push(columnId);
@@ -67,7 +79,9 @@ const parseActiveColumns = (saved: unknown, customColumns: ReadonlyArray<CustomC
   const customIds = customIdSet(customColumns);
   // Coluna vinculada ativa na preferência mas fora da seleção atual: fica guardada no
   // storage (não sobrescrevemos) e volta a aparecer quando o pack voltar.
-  const valid = saved.filter((id): id is ManagerColumnType => isKnownManagerColumn(id, customIds));
+  const valid = saved
+    .map((id) => canonicalColumnId(id, customIds, customColumns))
+    .filter((id): id is ManagerColumnType => isKnownManagerColumn(id, customIds));
   return valid.length > 0 ? new Set<ManagerColumnType>(valid) : null;
 };
 
@@ -123,9 +137,12 @@ export const saveManagerColumnPreferences = (preferences: ManagerColumnPreferenc
     const activeNow = new Set<string>(Array.from(preferences.active));
     const orderNow = new Set<string>(preferences.order);
     // Chaves vinculadas de OUTRA seleção sobrevivem; as desta seleção seguem a escolha atual.
+    // Apelido antigo de uma coluna desta seleção também é "desta seleção": carregá-lo
+    // adiante faria a coluna escondida agora voltar pela chave velha no próximo load.
     const knownNow = new Set<string>(preferences.order.filter((id) => isCustomColumnKey(id)));
-    const carriedActive = stored.active.filter((id) => !knownNow.has(id) && !activeNow.has(id));
-    const carriedOrder = stored.order.filter((id) => !knownNow.has(id) && !orderNow.has(id));
+    const isKnownNow = (id: string) => knownNow.has(id) || knownNow.has(canonicalCustomColumnKey(id));
+    const carriedActive = stored.active.filter((id) => !isKnownNow(id) && !activeNow.has(id));
+    const carriedOrder = stored.order.filter((id) => !isKnownNow(id) && !orderNow.has(id));
     localStorage.setItem(
       STORAGE_KEY_MANAGER_COLUMN_PREFS,
       JSON.stringify({ active: [...Array.from(preferences.active), ...carriedActive], order: [...preferences.order, ...carriedOrder] }),

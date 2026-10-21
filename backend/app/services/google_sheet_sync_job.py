@@ -10,7 +10,7 @@ Responsavel por:
 import logging
 import uuid
 from datetime import datetime, timezone
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 from app.services.job_tracker import (
     JobTracker,
     get_job_tracker,
@@ -213,4 +213,119 @@ def create_sync_job(
     )
 
     logger.info(f"[GoogleSheetSyncJob] Job {job_id} criado para integracao {integration_id}")
+    return job_id
+
+
+# ── Sync em massa: um job, N integrações, uma leitura por arquivo ────────────────
+
+def process_bulk_sync_job(
+    user_jwt: Optional[str],
+    user_id: str,
+    job_id: str,
+    items: List[Dict[str, str]],
+) -> Dict[str, Any]:
+    """Sincroniza N integrações (`items`: {integration_id, pack_id}) em SÉRIE, lendo cada arquivo uma vez.
+
+    POR QUE UM JOB SÓ, E EM SÉRIE
+      A configuração em massa liga N packs ao mesmo arquivo. N jobs independentes
+      eram N leituras do arquivo inteiro na API do Google ao mesmo tempo e N
+      gravações em paralelo no banco — o que a fila de refresh existe para evitar.
+      Aqui a leitura sai do `sheet_cache` a partir do segundo pack e as gravações
+      vão uma depois da outra.
+
+    Falha de UM pack não derruba os outros: vira resultado "failed" daquele pack.
+    Só o cancelamento (entre um pack e o próximo) para o job. O resultado de cada
+    pack vai em `details.bulk_results` — a tela mostra quem aplicou, quem não casou
+    nada (pack de lançamento antigo ligado ao arquivo do lançamento atual) e quem falhou.
+    """
+    tracker = get_job_tracker(user_jwt, user_id, use_service_role=user_jwt is None)
+    total = len(items)
+    results: List[Dict[str, Any]] = []
+    sheet_cache: Dict[Any, Any] = {}
+
+    def _heartbeat(done: int, status: str = STATUS_PROCESSING) -> None:
+        tracker.heartbeat(
+            job_id,
+            status=status,
+            progress=int(done * 100 / total) if total else 100,
+            message=f"Sincronizando planilha: pack {min(done + 1, total)} de {total}...",
+            details={"stage": STAGE_PROCESSING, "bulk_total": total, "bulk_done": done, "bulk_results": results},
+        )
+
+    try:
+        for i, item in enumerate(items):
+            integration_id = str(item["integration_id"])
+            if _check_if_cancelled(tracker, job_id):
+                return {"success": False, "error": "Job cancelado pelo usuario", "cancelled": True, "results": results}
+            _heartbeat(i)
+            entry: Dict[str, Any] = {"integration_id": integration_id, "pack_id": item.get("pack_id")}
+            try:
+                stats = run_ad_metrics_sheet_import(
+                    user_jwt=user_jwt,
+                    user_id=user_id,
+                    integration_id=integration_id,
+                    check_cancelled=lambda: _check_if_cancelled(tracker, job_id),
+                    sheet_cache=sheet_cache,
+                )
+                entry.update({
+                    "status": "completed",
+                    "rows_updated": stats.get("updated_rows", 0),
+                    "sync_outcome": stats.get("sync_outcome"),
+                    "outcome_message": stats.get("outcome_message"),
+                    "spreadsheet_renamed_from": stats.get("spreadsheet_renamed_from"),
+                })
+            except AdMetricsImportCancelled:
+                return {"success": False, "error": "Job cancelado pelo usuario", "cancelled": True, "results": results}
+            except AdMetricsImportError as e:
+                message = e.message if hasattr(e, "message") else str(e)
+                entry.update({"status": "failed", "error": message, "error_code": getattr(e, "code", None)})
+                _mark_integration_failed(user_jwt, user_id, integration_id)
+            except Exception as e:
+                logger.exception(f"[GoogleSheetSyncJob] Bulk {job_id}: erro inesperado na integracao {integration_id}")
+                entry.update({
+                    "status": "failed",
+                    "error": "Erro inesperado ao sincronizar a planilha.",
+                    "technical": f"{type(e).__name__}: {e}",
+                })
+                _mark_integration_failed(user_jwt, user_id, integration_id)
+            results.append(entry)
+
+        updated = sum(int(r.get("rows_updated") or 0) for r in results)
+        tracker.mark_completed(job_id, pack_id="", result_count=updated, details={
+            "bulk_total": total,
+            "bulk_done": total,
+            "bulk_results": results,
+            "sheet_reads": sum(1 for k in sheet_cache if isinstance(k, tuple) and k and k[0] == "rows"),
+        })
+        logger.info(
+            "[GoogleSheetSyncJob] Bulk %s concluido: %d integracoes, %d leitura(s) de planilha, %d linhas",
+            job_id, total, sum(1 for k in sheet_cache if isinstance(k, tuple) and k and k[0] == "rows"), updated,
+        )
+        return {"success": True, "results": results}
+    except Exception as e:
+        logger.exception(f"[GoogleSheetSyncJob] Bulk {job_id}: falha fora de um pack")
+        tracker.mark_failed(
+            job_id,
+            "Erro inesperado ao sincronizar as planilhas.",
+            details={"bulk_results": results, "technical": f"{type(e).__name__}: {e}"},
+        )
+        return {"success": False, "error": str(e), "results": results}
+
+
+def create_bulk_sync_job(user_jwt: Optional[str], user_id: str, items: List[Dict[str, str]]) -> str:
+    """Cria o job do sync em massa (sempre no silo do próprio usuário: só o dono dispara)."""
+    job_id = str(uuid.uuid4())
+    tracker = get_job_tracker(user_jwt, user_id, use_service_role=user_jwt is None)
+    tracker.create_job(
+        job_id=job_id,
+        payload={
+            "type": "google_sheet_bulk_sync",
+            "integration_ids": [str(i["integration_id"]) for i in items],
+            "actor_id": str(user_id),
+            "silo_user_id": str(user_id),
+        },
+        status=STATUS_PROCESSING,
+        message="Iniciando sincronizacao das planilhas...",
+    )
+    logger.info(f"[GoogleSheetSyncJob] Bulk {job_id} criado para {len(items)} integracoes")
     return job_id

@@ -452,7 +452,7 @@ def _execute_batch_update(
 
     return aggregated
 
-def _refresh_spreadsheet_name(sb, user_jwt, user_id, integration_id, cfg):
+def _refresh_spreadsheet_name(sb, user_jwt, user_id, integration_id, cfg, sheet_cache=None):
     """Reconfere o nome da planilha na origem. Devolve o nome ANTIGO se mudou.
 
     POR QUE IMPORTA
@@ -476,16 +476,22 @@ def _refresh_spreadsheet_name(sb, user_jwt, user_id, integration_id, cfg):
     spreadsheet_id = cfg.get("spreadsheet_id")
     if not spreadsheet_id:
         return None
-    try:
-        current = get_spreadsheet_name(
-            user_jwt=user_jwt,
-            user_id=user_id,
-            spreadsheet_id=spreadsheet_id,
-            connection_id=cfg.get("connection_id"),
-        )
-    except Exception as e:
-        logger.warning("[AD_METRICS_IMPORT] Nao foi possivel reconferir o nome da planilha: %s", e)
-        return None
+    name_key = ("name", spreadsheet_id, cfg.get("connection_id"))
+    if sheet_cache is not None and name_key in sheet_cache:
+        current = sheet_cache[name_key]
+    else:
+        try:
+            current = get_spreadsheet_name(
+                user_jwt=user_jwt,
+                user_id=user_id,
+                spreadsheet_id=spreadsheet_id,
+                connection_id=cfg.get("connection_id"),
+            )
+        except Exception as e:
+            logger.warning("[AD_METRICS_IMPORT] Nao foi possivel reconferir o nome da planilha: %s", e)
+            return None
+        if sheet_cache is not None:
+            sheet_cache[name_key] = current
 
     # None = 404/sem acesso. Nao sobrescrever com vazio: o nome guardado ainda e
     # a melhor informacao que temos, e a leitura da planilha falharia adiante.
@@ -704,9 +710,15 @@ def run_ad_metrics_sheet_import(
     integration_id: str,
     check_cancelled: Optional[Callable[[], bool]] = None,
     on_stage_change: Optional[Callable[[str], None]] = None,
+    sheet_cache: Optional[Dict[Any, Any]] = None,
 ) -> Dict[str, Any]:
     """
     Lê a planilha configurada em ad_sheet_integrations e aplica enriquecimento em ad_metrics.
+
+    `sheet_cache`: dicionário compartilhado entre importações do MESMO job (sync em
+    massa). N packs ligados ao mesmo arquivo e aba leem a planilha uma vez e conferem
+    o nome no Drive uma vez — antes eram N leituras do arquivo inteiro. A chave da
+    leitura é (arquivo, aba, conexão): conexão diferente pode enxergar outra coisa.
 
     Estratégia:
     1. Ler planilha (cada linha = 1 lead)
@@ -741,14 +753,20 @@ def run_ad_metrics_sheet_import(
         raise AdMetricsImportError("Configuração de planilha inválida.")
 
     # Antes de ler: o arquivo ainda se chama o que a gente acha que ele se chama?
-    renamed_from = _refresh_spreadsheet_name(sb, user_jwt, user_id, integration_id, cfg)
+    renamed_from = _refresh_spreadsheet_name(sb, user_jwt, user_id, integration_id, cfg, sheet_cache)
 
     if on_stage_change:
         on_stage_change("lendo_planilha")
+    read_key = ("rows", spreadsheet_id, worksheet_title, connection_id)
     try:
-        headers, rows, name_to_idx = _fetch_and_parse_sheet(
-            user_jwt, user_id, spreadsheet_id, worksheet_title, connection_id
-        )
+        if sheet_cache is not None and read_key in sheet_cache:
+            headers, rows, name_to_idx = sheet_cache[read_key]
+        else:
+            headers, rows, name_to_idx = _fetch_and_parse_sheet(
+                user_jwt, user_id, spreadsheet_id, worksheet_title, connection_id
+            )
+            if sheet_cache is not None:
+                sheet_cache[read_key] = (headers, rows, name_to_idx)
     except GoogleSheetsError as e:
         error_message = e.message if hasattr(e, 'message') else str(e)
         error_code = getattr(e, 'code', None)
@@ -784,10 +802,10 @@ def run_ad_metrics_sheet_import(
             "Coluna de Leadscore não encontrada no header da planilha."
         )
 
-    # 140: colunas vinculadas. O índice gravado no vínculo é a verdade (como os
-    # *_column_index); se a planilha encolheu e o índice não existe mais, a coluna
-    # simplesmente não rende valor nenhum neste sync (contado no relatório).
-    collector = sheet_column_mappings.HistogramCollector(cfg.get("column_mappings") or [])
+    # 140: colunas vinculadas, achadas pelo NOME do cabeçalho nesta leitura (a posição
+    # gravada só desempata repetidos). Cabeçalho que sumiu deixa a coluna fora deste
+    # sync, com o motivo no relatório — nunca lê a coluna vizinha calado.
+    collector = sheet_column_mappings.HistogramCollector(cfg.get("column_mappings") or [], headers=headers)
     if collector.enabled:
         logger.info(
             "[AD_METRICS_IMPORT] %d coluna(s) vinculada(s): %s",

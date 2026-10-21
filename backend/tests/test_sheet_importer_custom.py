@@ -113,3 +113,62 @@ class TestItensDoRpc(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestColunaPeloNomeDoCabecalho(unittest.TestCase):
+    """A coluna vinculada é achada pelo NOME do cabeçalho em cada leitura.
+
+    Antes, o índice gravado era a verdade: reordenar a planilha fazia a "IDADE" ler a
+    coluna vizinha em silêncio.
+    """
+
+    HEADERS = ["ad_id", "data", "leadscore", "IDADE", "FAIXA", "LS2"]
+
+    def _collector(self, mappings, headers):
+        collector = scm.HistogramCollector(mappings, headers=headers)
+        _parse_and_aggregate_rows(ROWS_REORDENADAS, 0, 1, 2, "DD/MM/YYYY", None, collector)
+        return collector
+
+    def test_planilha_reordenada_segue_o_cabecalho(self):
+        # IDADE e FAIXA trocaram de lugar; o vínculo gravou a posição antiga (3)
+        headers = ["ad_id", "data", "leadscore", "FAIXA", "Idade ", "LS2"]
+        idade = {**IDADE, "column_name": "IDADE"}
+        collector = self._collector([idade], headers)
+        invalid = collector.invalid_mappings()
+        self.assertEqual(invalid, {})
+        self.assertEqual(collector.histogram_for(("ad1", "2026-07-01"), invalid), {"m-idade": {"25": 1}})
+
+    def test_cabecalho_que_sumiu_fica_fora_e_nao_le_a_vizinha(self):
+        headers = ["ad_id", "data", "leadscore", "IDADE EXATA", "FAIXA", "LS2"]
+        idade = {**IDADE, "column_name": "IDADE"}
+        collector = self._collector([idade], headers)
+        invalid = collector.invalid_mappings()
+        self.assertIn("m-idade", invalid)
+        self.assertIn("IDADE", invalid["m-idade"])
+        self.assertEqual(collector.histogram_for(("ad1", "2026-07-01"), invalid), {})
+        self.assertEqual(collector.report()["m-idade"]["values"], 0)
+
+    def test_cabecalho_repetido_desempata_pela_posicao_gravada(self):
+        headers = ["ad_id", "data", "leadscore", "NOTA", "NOTA", "LS2"]
+        nota = {"id": "m-nota", "kind": "category", "column_index": 4, "column_name": "NOTA", "label": "Nota"}
+        collector = self._collector([nota], headers)
+        # a 2ª "NOTA" (posição 4, a gravada), não a primeira
+        self.assertEqual(collector.histogram_for(("ad1", "2026-07-01"), {}), {"m-nota": {"25": 1}})
+
+    def test_vinculo_sem_nome_gravado_usa_a_posicao_como_antes(self):
+        headers = ["ad_id", "data", "leadscore", "FAIXA", "IDADE", "LS2"]
+        # IDADE do topo não tem column_name: lê a posição 3 (que agora é FAIXA), como antes
+        self.assertEqual(scm.resolve_column_index(IDADE, headers), (3, None))
+        collector = self._collector([IDADE], headers)
+        self.assertEqual(collector.report()["m-idade"]["skipped"], 1)  # " Faixa  B " não é número
+
+    def test_normalizacao_do_cabecalho(self):
+        self.assertEqual(scm.normalize_header("  Patrimônio   Líquido "), "patrimonio liquido")
+        self.assertEqual(scm.normalize_header("PATRIMONIO LIQUIDO"), "patrimonio liquido")
+        self.assertNotEqual(scm.normalize_header("IDADE EXATA"), scm.normalize_header("IDADE"))
+
+
+# colunas na ordem NOVA do teste de reordenação: 3 faixa | 4 idade
+ROWS_REORDENADAS = [
+    ["ad1", "01/07/2026", "80", " Faixa  B ", "25", "85"],
+]

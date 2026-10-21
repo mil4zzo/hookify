@@ -35,13 +35,20 @@
  */
 
 import { getMetricNumericValueOrNull } from "@/lib/metrics";
-import { getCustomTopValue, isCustomColumnKey, parseCustomColumnKey } from "@/lib/metrics/customColumns";
+import { getCustomTopValue, isCustomColumnKey } from "@/lib/metrics/customColumns";
+import { getActiveCustomColumn } from "@/lib/metrics/customColumnsRegistry";
 import { rowMatchesTagFilter, type TagFilterOperator } from "@/lib/tags/filter";
 import { getRowLeadMarginStatus, type LeadEconomicsByPack } from "@/lib/utils/leadEconomics";
 import { getRuleField, LEAD_MARGIN_STATUS_FIELD_ID, NAME_LOOKUP_FIELDS } from "./fields";
 import { isEmptyRuleTree, type RuleConditionLeaf, type RuleConditionValue, type RuleNode, type RuleTree } from "./types";
 
 /** Dicionário `id → nome` que vem na raiz da resposta da RPC (fase 5 do plano). */
+/** Resposta majoritária de uma coluna de categoria (chave atual ou apelido antigo). */
+function customTopOf(row: Parameters<typeof getCustomTopValue>[0], key: string) {
+  const def = getActiveCustomColumn(key);
+  return def ? getCustomTopValue(row, def) : null;
+}
+
 export interface RuleNameDictionary {
   campaigns?: Record<string, string>;
   adsets?: Record<string, string>;
@@ -324,7 +331,7 @@ function evaluateLeaf(condition: RuleConditionLeaf, row: RuleRow, context: RuleE
     // 140: coluna de categoria da planilha — o valor da linha é a resposta MAJORITÁRIA
     // (calculada do histograma). Sem histograma na linha, a lista é vazia e não casa.
     const raw = isCustomColumnKey(field.id)
-      ? (getCustomTopValue(row, parseCustomColumnKey(field.id)?.mappingId ?? "")?.value ?? undefined)
+      ? (customTopOf(row, field.id)?.value ?? undefined)
       : row[field.id] ?? (field.rowKeyFallback ? row[field.rowKeyFallback] : undefined);
     return matchesMultiSelect(raw, value, operator);
   }
