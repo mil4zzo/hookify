@@ -4434,6 +4434,28 @@ mantendo os grants explícitos a anon/authenticated/service_role), testada no la
 suíte rodando — e vale por si, antes do chat. Teste de sabotagem roda como o papel novo,
 nunca como superuser (superuser passa por qualquer buraco e não prova nada).
 
+> **Correção (2026-10-14): NÃO era latente.** O Supabase dá EXECUTE **explícito** a `anon`
+> e `authenticated` em toda função nova de `public` (default privileges próprios, à parte do
+> PUBLIC). O inventário positivo em produção (`has_function_privilege('anon', …)`) achou 10
+> SECURITY DEFINER executáveis pela chave publicável, pela porta normal do PostgREST
+> (`/rest/v1/rpc/…`), sem papel novo nenhum. Duas falhas se somam:
+> - **A trava `IF auth.uid() IS NOT NULL AND auth.uid() <> p_user_id` deixa o anônimo
+>   passar** (para ele `auth.uid()` é NULL). Assim estão `clear_ad_metrics_enrichment`, que
+>   apaga o leadscore de um pack, e `ad_performance_rollup_rebuild`. O desenho certo é
+>   `is distinct from`, com exceção explícita para o `service_role` quando ele precisa entrar.
+> - **Auxiliares sem trava nenhuma:** `ad_metrics_enrichment_targets` (lista ids/datas do
+>   pack alheio) e `ad_performance_rollup_apply` (força recálculo). Já
+>   `fetch_manager_rankings_core_v2`, apesar de não ter trava própria, **não vaza**: delega
+>   para `fetch_manager_performance_base_v155`, que trava com `is distinct from`. Ao
+>   inventariar travas, siga a cadeia: a trava pode morar na função chamada.
+>
+> Prova do furo: `POST /rest/v1/rpc/clear_ad_metrics_enrichment` só com a apikey,
+> `p_dry_run=true` e ids inventados → HTTP 200 (depois da 180, aplicada em 2026-10-20: 401 e
+> zero SECURITY DEFINER executáveis por `anon`). Correção: migration 180 (anon fora de toda
+> SECURITY DEFINER de `public`, `authenticated` fora dos auxiliares internos, default por
+> schema revogado). A prova de qualquer função nova é o inventário positivo por papel,
+> nunca "PUBLIC não executa".
+
 **3. Um banco Micro de 60 conexões não comporta "4 conexões por worker".** 4 × 4 workers =
 16 fora do `db_slot`, no mesmo banco que caiu por 53300 em 2026-08-24. Pool de 1 por
 worker, `min_size=0`, `statement_cache_size=0` (Supavisor em transaction mode), e subir
