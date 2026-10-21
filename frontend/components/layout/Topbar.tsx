@@ -392,20 +392,16 @@ export default function Topbar() {
 
           <DropdownMenuSeparator />
 
-          <DropdownMenuItem onSelect={() => {}} className="flex items-center gap-2">
-            <IconBell className="h-4 w-4" />
+          <DropdownMenuItem icon={<IconBell />} onSelect={() => {}}>
             Notificações
           </DropdownMenuItem>
-          <DropdownMenuItem onSelect={() => toggleTheme()} className="flex items-center gap-2">
-            {theme === "dark" ? <IconSun className="h-4 w-4" /> : <IconMoon className="h-4 w-4" />}
+          <DropdownMenuItem icon={theme === "dark" ? <IconSun /> : <IconMoon />} onSelect={() => toggleTheme()}>
             {theme === "dark" ? "Modo Claro" : "Modo Escuro"}
           </DropdownMenuItem>
-          <DropdownMenuItem onSelect={() => openSettings()} className="flex items-center gap-2">
-            <IconSettings className="h-4 w-4" />
+          <DropdownMenuItem icon={<IconSettings />} onSelect={() => openSettings()}>
             Configurações
           </DropdownMenuItem>
-          <DropdownMenuItem onSelect={handleLogoutClick} className="flex items-center gap-2">
-            <IconLogout className="h-4 w-4" />
+          <DropdownMenuItem icon={<IconLogout />} onSelect={handleLogoutClick}>
             Sair
           </DropdownMenuItem>
         </DropdownMenuContent>

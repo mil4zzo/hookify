@@ -18,6 +18,7 @@ import { useInvalidatePackAds } from "@/lib/api/hooks";
 import { useUpdatingPacksStore } from "@/lib/store/updatingPacks";
 import { useRefreshQueueStore } from "@/lib/store/refreshQueue";
 import { useActiveJobsStore } from "@/lib/store/activeJobs";
+import { mergeQueuedTranscription, waitForTranscriptionJobEnd, type QueuedTranscription } from "@/lib/utils/transcriptionQueue";
 import { usePausedSheetJobsStore } from "@/lib/store/pausedSheetJobs";
 import { useGoogleOAuthConnect } from "@/lib/hooks/useGoogleOAuthConnect";
 import { useSessionStore } from "@/lib/store/session";
@@ -139,7 +140,7 @@ export interface UsePackRefreshReturn {
   /** Cancel an in-progress refresh */
   cancelRefresh: (packId: string) => Promise<void>;
   /** Inicia apenas a transcrição dos vídeos do pack (sem refresh). adNames filtra quais ads transcrever. */
-  startTranscriptionOnly: (packId: string, packName: string, adNames?: string[], options?: { forceNoAudio?: boolean }) => Promise<void>;
+  startTranscriptionOnly: (packId: string, packName: string, adNames?: string[], options?: StartTranscriptionOptions) => Promise<void>;
   /** Check if a specific pack is currently refreshing */
   isRefreshing: (packId: string) => boolean;
   /** Get all currently refreshing pack IDs */
@@ -176,6 +177,21 @@ const BACKGROUND_JOB_IS_MOUNTED = () => true;
 // Re-attach de jobs ativos: 1 tentativa por carregamento de página, independente
 // de quantas instâncias do hook montarem (Topbar, /packs, etc.).
 let jobReattachAttempted = false;
+
+// Qual toast acompanha cada job de transcrição. O backend devolve o job vivo quando o pack
+// já está sendo transcrito; sem este mapa não dá para saber se o toast recém-aberto é
+// duplicata de outro (some) ou o próprio dono do job (fica, o polling o atualiza).
+const transcriptionToastByJob = new Map<string, string>();
+
+export interface StartTranscriptionOptions {
+  forceNoAudio?: boolean;
+  /** Uso interno: reexecução da fila depois que o job vivo terminou. */
+  fromQueue?: boolean;
+}
+
+// Pedidos de transcrição que esbarraram num job vivo do mesmo pack e esperam a vez.
+// No máximo UM por pack: pedidos novos se juntam ao que já está na fila.
+const queuedTranscriptions = new Map<string, QueuedTranscription>();
 
 // ============================================================================
 // HELPER FUNCTIONS
@@ -698,8 +714,62 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
   // START TRANSCRIPTION ONLY (manual, standalone)
   // ============================================================================
 
+  // Ref porque a fila reexecuta o próprio startTranscriptionOnly (dependência circular).
+  const startTranscriptionOnlyRef = useRef<
+    ((packId: string, packName: string, adNames?: string[], options?: StartTranscriptionOptions) => Promise<void>) | null
+  >(null);
+
+  const enqueueTranscription = useCallback(
+    (packId: string, packName: string, runningJobId: string, adNames?: string[], options?: StartTranscriptionOptions) => {
+      const queued = queuedTranscriptions.get(packId);
+      if (queued) {
+        queuedTranscriptions.set(packId, mergeQueuedTranscription(queued, { adNames, forceNoAudio: options?.forceNoAudio }));
+        return;
+      }
+      queuedTranscriptions.set(packId, { adNames, forceNoAudio: !!options?.forceNoAudio });
+
+      const queuedToastId = `transcription-queued-${packId}`;
+      let cancelled = false;
+      const handleCancelQueued = () => {
+        cancelled = true;
+        queuedTranscriptions.delete(packId);
+        dismissToast(queuedToastId);
+      };
+
+      showProgressToast(
+        queuedToastId, packName, 1, TRANSCRIPTION_TOAST_TOTAL_STEPS,
+        undefined, handleCancelQueued, metaToastIcon,
+        {
+          stageLabel: "Na fila",
+          stageTitle: "Aguardando transcrição em andamento",
+          dynamicLine: "Começa assim que a atual terminar",
+          stageContext: "Transcrevendo",
+        }, 0
+      );
+
+      // Sem await: quem chamou (ex.: export, que dispara um pack após o outro) não pode
+      // ficar preso esperando o job de outro pack.
+      void (async () => {
+        await waitForTranscriptionJobEnd({
+          fetchStatus: () => api.facebook.getTranscriptionProgress(runningJobId),
+          isCancelled: () => cancelled,
+        });
+        if (cancelled) return;
+        const request = queuedTranscriptions.get(packId);
+        queuedTranscriptions.delete(packId);
+        dismissToast(queuedToastId);
+        if (!request) return;
+        await startTranscriptionOnlyRef.current?.(packId, packName, request.adNames, {
+          forceNoAudio: request.forceNoAudio,
+          fromQueue: true,
+        });
+      })().catch((err) => logger.error("Erro na fila de transcrição:", err));
+    },
+    []
+  );
+
   const startTranscriptionOnly = useCallback(
-    async (packId: string, packName: string, adNames?: string[], options?: { forceNoAudio?: boolean }): Promise<void> => {
+    async (packId: string, packName: string, adNames?: string[], options?: StartTranscriptionOptions): Promise<void> => {
       const toastId = `transcription-only-${packId}`;
       let cancelled = false;
       let cancelWarningShown = false;
@@ -738,7 +808,10 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
       try {
         const res = await api.facebook.startPackTranscription(packId, adNames, options?.forceNoAudio);
         if (cancelled) {
-          if (res.transcription_job_id) {
+          // `already_running`: o id é de um job de OUTRO pedido (outro clique, refresh, um
+          // co-editor do pack compartilhado). Este pedido nunca criou job — não há o que
+          // cancelar, e cancelar o id devolvido derrubaria o trabalho alheio.
+          if (res.transcription_job_id && !res.already_running) {
             try {
               await api.facebook.cancelJobsBatch([res.transcription_job_id], "Transcrição cancelada pelo usuário");
             } catch (err) {
@@ -746,23 +819,45 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
             }
             dismissToast(toastId);
             showCancelledWarningOnce();
+          } else if (res.already_running && res.transcription_job_id) {
+            // Mesma regra do ramo da fila: se este id de toast é o do job vivo, ele fica.
+            if (transcriptionToastByJob.get(res.transcription_job_id) !== toastId) dismissToast(toastId);
+            showCancelledWarningOnce();
           }
           return;
         }
+        if (res.transcription_job_id && res.already_running) {
+          // O pack já tem um job vivo (de outro clique, do refresh ou de um re-attach).
+          // O job vivo transcreve só a lista que calculou na largada, então este pedido
+          // pode cobrir anúncios que ele não alcança: entra numa fila e roda quando o
+          // job vivo terminar. O backend recalcula os pendentes nessa hora — só o que
+          // sobrou vira job, e se não sobrou nada, nada acontece.
+          //
+          // O toast do job vivo já existe. Se for este mesmo id (segundo clique no mesmo
+          // card), ele é do job e fica — o polling o repõe no próximo tick; senão é duplicata.
+          if (transcriptionToastByJob.get(res.transcription_job_id) !== toastId) dismissToast(toastId);
+          enqueueTranscription(packId, packName, res.transcription_job_id, adNames, options);
+          return;
+        }
         if (res.transcription_job_id) {
-          jobIdRef.current = res.transcription_job_id;
+          const jobId = res.transcription_job_id;
+          transcriptionToastByJob.set(jobId, toastId);
+          jobIdRef.current = jobId;
           updateProgressToast(
             toastId, packName, 1, TRANSCRIPTION_TOAST_TOTAL_STEPS,
             undefined, handleCancelTranscriptionOnly, metaToastIcon,
             buildTranscriptionToastContent("processing", {}), 0
           );
-          pollTranscriptionJob(res.transcription_job_id, toastId, packName, () => cancelled, handleCancelTranscriptionOnly).catch((err) => {
-            logger.error("Erro no polling da transcrição:", err);
-          });
+          pollTranscriptionJob(jobId, toastId, packName, () => cancelled, handleCancelTranscriptionOnly)
+            .catch((err) => {
+              logger.error("Erro no polling da transcrição:", err);
+            })
+            .finally(() => transcriptionToastByJob.delete(jobId));
         } else {
-          // Não é sucesso nem falha: nada para transcrever. Toast neutro informativo.
+          // Não é sucesso nem falha: nada para transcrever. Toast neutro informativo
+          // (calado quando é a reexecução da fila: o job anterior já terminou o trabalho).
           dismissToast(toastId);
-          showInfo(res.message || "Todos anúncios já estão transcritos.");
+          if (!options?.fromQueue) showInfo(res.message || "Todos anúncios já estão transcritos.");
         }
       } catch (error) {
         logger.error("Erro ao iniciar transcrição:", error);
@@ -773,8 +868,9 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
         finishProgressToast(toastId, false, message, { context: "transcription", packName, diagnosticLine: diagnostic });
       }
     },
-    [pollTranscriptionJob]
+    [pollTranscriptionJob, enqueueTranscription]
   );
+  startTranscriptionOnlyRef.current = startTranscriptionOnly;
 
   // ============================================================================
   // RE-ATTACH DE JOBS ATIVOS (após reload/login)
@@ -814,9 +910,13 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
         }, initialProgress
       );
 
+      transcriptionToastByJob.set(jobId, toastId);
       pollTranscriptionJob(jobId, toastId, packName, () => cancelled, handleCancel)
         .catch((err) => logger.error("Erro no polling re-anexado da transcrição:", err))
-        .finally(() => removeActiveJob(jobId));
+        .finally(() => {
+          removeActiveJob(jobId);
+          transcriptionToastByJob.delete(jobId);
+        });
     },
     [addActiveJob, removeActiveJob, pollTranscriptionJob]
   );
@@ -1331,16 +1431,48 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
       );
 
       try {
-        const res = await api.facebook.startPackTranscription(packId);
+        let res = await api.facebook.startPackTranscription(packId);
+
+        // Pack com job vivo (tela de packs, re-attach, co-editor): o id devolvido NÃO é deste
+        // refresh — adotá-lo faria o cancelar daqui derrubar o job alheio, e os anúncios novos
+        // que o refresh trouxe (que o job vivo não alcança) ficariam sem transcrição. Espera
+        // o job vivo terminar e refaz o pedido; o backend recalcula os pendentes.
+        for (let attempt = 0; attempt < 3 && res.already_running && res.transcription_job_id && !activeRefresh.transcriptionCancelled; attempt++) {
+          const runningJobId = res.transcription_job_id;
+          updateProgressToast(
+            toastId, packName, 1, TRANSCRIPTION_TOAST_TOTAL_STEPS,
+            undefined, handleCancelTranscription, metaToastIcon,
+            {
+              stageLabel: "Na fila",
+              stageTitle: "Aguardando transcrição em andamento",
+              dynamicLine: "Começa assim que a atual terminar",
+              stageContext: "Transcrevendo",
+            }, 0
+          );
+          await waitForTranscriptionJobEnd({
+            fetchStatus: () => api.facebook.getTranscriptionProgress(runningJobId),
+            isCancelled: () => activeRefresh.transcriptionCancelled === true,
+          });
+          if (activeRefresh.transcriptionCancelled) break;
+          res = await api.facebook.startPackTranscription(packId);
+        }
 
         if (activeRefresh.transcriptionCancelled) {
-          if (res.transcription_job_id) {
+          // Só cancela job CRIADO por este pedido; `already_running` é de outro.
+          if (res.transcription_job_id && !res.already_running) {
             try {
               await api.facebook.cancelJobsBatch([res.transcription_job_id], "Transcrição cancelada pelo usuário");
             } catch {}
           }
           dismissToast(toastId);
           return { success: false };
+        }
+
+        if (res.already_running) {
+          // Job vivo persistente depois das tentativas: segue por conta dele.
+          dismissToast(toastId);
+          showInfo("Este pack já está sendo transcrito.");
+          return { success: true };
         }
 
         if (res.transcription_job_id) {

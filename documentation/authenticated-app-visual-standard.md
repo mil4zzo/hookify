@@ -241,6 +241,15 @@ formulario: o chip seletor de uma palavra (`h-control-chip`, 24px) e a aba
 Barras de ferramentas (busca + filtros + acoes em lote) alinham tudo em
 `h-control-default`; itens internos que devem colapsar usam `h-auto`.
 
+**Item de menu (`DropdownMenuItem`): o espaco icone/texto e do componente.** O item
+ja traz `gap-2`; o call site passa o icone na prop `icon` (sem `className="h-4 w-4"`,
+sem `mr-2`) e a segunda linha na prop `description` (`text-xs text-muted-foreground`).
+O icone fica preso a altura da primeira linha, entao em item de duas linhas ele
+alinha com o titulo, nao com o meio do bloco. Antes disso cada menu improvisava o
+seu (`mr-2`, `gap-2` no className, nada) e o menu de pasta saiu com o icone colado
+no texto. Conteudo proprio (tres linhas, aviso) continua indo em `children`. Radio,
+checkbox e submenu tambem trazem `gap-2`.
+
 ### Por que existe (twMerge)
 
 O `cn()` usa `extendTailwindMerge` com os tokens custom registrados
@@ -583,6 +592,8 @@ e procure o seletor no `out.css`.
       `bg-primary-10` + `border-primary-30`.
 - [ ] `text-2xs` so em rotulo, selo e dado denso — frase e `text-xs`.
 - [ ] Grupo horizontal de botoes com `gap-3`.
+- [ ] Item de menu com icone usa `icon=`/`description=` do `DropdownMenuItem`,
+      nunca `mr-2` no icone nem `div flex-col` montado a mao.
 - [ ] Sombras via `shadow-elevation-*`; camadas de app via `z-<token>`.
 - [ ] Icon-only buttons tem `aria-label` ou `title`.
 - [ ] Roda `npm run check:design-system` antes de fechar.

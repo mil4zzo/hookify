@@ -96,41 +96,32 @@ export function PackActionsMenu({
       <DropdownMenu open={disabled ? false : undefined}>
         <DropdownMenuTrigger asChild>{children}</DropdownMenuTrigger>
         <DropdownMenuContent align={align} side={side}>
-          <DropdownMenuItem onClick={() => onRefresh(pack.id)} disabled={isUpdating}>
-            <IconRotateClockwise className="w-4 h-4 mr-2" />
+          <DropdownMenuItem icon={<IconRotateClockwise />} onClick={() => onRefresh(pack.id)} disabled={isUpdating}>
             Atualizar pack
           </DropdownMenuItem>
           {onMove && (
-            <DropdownMenuItem onClick={() => onMove(pack)}>
-              <IconFolderSymlink className="w-4 h-4 mr-2" />
+            <DropdownMenuItem icon={<IconFolderSymlink />} onClick={() => onMove(pack)}>
               Mover para pasta…
             </DropdownMenuItem>
           )}
           {onEditDateRange && !isSharedGuest && (
-            <DropdownMenuItem onClick={() => onEditDateRange(pack)} disabled={isUpdating}>
-              <IconCalendarEvent className="w-4 h-4 mr-2" />
+            <DropdownMenuItem icon={<IconCalendarEvent />} onClick={() => onEditDateRange(pack)} disabled={isUpdating}>
               Editar período
             </DropdownMenuItem>
           )}
           {onTranscribeAds && !isSharedGuest && (
-            <DropdownMenuItem onClick={() => onTranscribeAds(pack.id, pack.name)} disabled={isUpdating}>
-              <IconMicrophone className="w-4 h-4 mr-2" />
+            <DropdownMenuItem icon={<IconMicrophone />} onClick={() => onTranscribeAds(pack.id, pack.name)} disabled={isUpdating}>
               Transcrever anúncios
             </DropdownMenuItem>
           )}
           {onEditJudgment && !isViewer && (
-            <DropdownMenuItem onClick={() => onEditJudgment(pack)}>
-              <IconTargetArrow className="w-4 h-4 mr-2" />
-              <div className="flex flex-col items-start">
-                <span>Critérios de julgamento</span>
-                {hasJudgmentOverride && <span className="text-2xs text-muted-foreground">Este pack usa critérios próprios</span>}
-              </div>
+            <DropdownMenuItem icon={<IconTargetArrow />} description={hasJudgmentOverride ? "Este pack usa critérios próprios" : undefined} onClick={() => onEditJudgment(pack)}>
+              Critérios de julgamento
             </DropdownMenuItem>
           )}
           {pack.sheet_integration ? (
             <>
-              <DropdownMenuItem disabled className="opacity-100">
-                <IconTableExport className="w-4 h-4 mr-2 text-success" />
+              <DropdownMenuItem icon={<IconTableExport className="text-success" />} disabled className="opacity-100">
                 <div className="flex flex-col items-start">
                   <span className="text-xs font-medium text-success">Planilha conectada</span>
                   <span className="text-xs text-muted-foreground">
@@ -146,41 +137,35 @@ export function PackActionsMenu({
                 </div>
               </DropdownMenuItem>
               {onEditSheetIntegration && !isSharedGuest && (
-                <DropdownMenuItem onClick={() => onEditSheetIntegration(pack)}>
-                  <IconPencil className="w-4 h-4 mr-2" />
+                <DropdownMenuItem icon={<IconPencil />} onClick={() => onEditSheetIntegration(pack)}>
                   Editar integração
                 </DropdownMenuItem>
               )}
               {onDeleteSheetIntegration && !isSharedGuest && (
-                <DropdownMenuItem onClick={() => onDeleteSheetIntegration(pack)} className="text-destructive focus:text-destructive focus:bg-destructive-10">
-                  <IconTrash className="w-4 h-4 mr-2" />
+                <DropdownMenuItem icon={<IconTrash />} onClick={() => onDeleteSheetIntegration(pack)} className="text-destructive focus:text-destructive focus:bg-destructive-10">
                   Desconectar planilha
                 </DropdownMenuItem>
               )}
             </>
           ) : null}
           {!isSharedGuest && (
-            <DropdownMenuItem onClick={() => setIsShareDialogOpen(true)}>
-              <IconUsers className="w-4 h-4 mr-2" />
+            <DropdownMenuItem icon={<IconUsers />} onClick={() => setIsShareDialogOpen(true)}>
               Compartilhar
             </DropdownMenuItem>
           )}
           {/* Qualquer membro lê o histórico, viewer inclusive: todos já veem os
               EFEITOS das ações, esconder o autor não protegeria nada. */}
-          <DropdownMenuItem onClick={() => setIsActivityDialogOpen(true)}>
-            <IconHistory className="w-4 h-4 mr-2" />
+          <DropdownMenuItem icon={<IconHistory />} onClick={() => setIsActivityDialogOpen(true)}>
             Histórico
           </DropdownMenuItem>
           <DropdownMenuSeparator />
           {isSharedGuest ? (
             // Convidado não apaga o pack do dono — ele SAI (remove o próprio grant).
-            <DropdownMenuItem onClick={handleLeavePack} disabled={isLeaving} className="text-destructive focus:text-destructive focus:bg-destructive-10">
-              <IconLogout className="w-4 h-4 mr-2" />
+            <DropdownMenuItem icon={<IconLogout />} onClick={handleLeavePack} disabled={isLeaving} className="text-destructive focus:text-destructive focus:bg-destructive-10">
               Sair do pack
             </DropdownMenuItem>
           ) : (
-            <DropdownMenuItem onClick={() => onRemove(pack.id)} className="text-destructive focus:text-destructive focus:bg-destructive-10">
-              <IconTrash className="w-4 h-4 mr-2" />
+            <DropdownMenuItem icon={<IconTrash />} onClick={() => onRemove(pack.id)} className="text-destructive focus:text-destructive focus:bg-destructive-10">
               Remover pack
             </DropdownMenuItem>
           )}

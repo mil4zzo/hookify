@@ -172,8 +172,9 @@ export const api = {
       apiClient.get(`/facebook/packs/${packId}/transcription-status`),
 
     /** Inicia apenas a transcrição dos vídeos do pack (sem refresh). Retorna transcription_job_id para polling.
-     * forceNoAudio retenta também os failed-sem-áudio (escape para falsos positivos). */
-    startPackTranscription: (packId: string, adNames?: string[], forceNoAudio?: boolean): Promise<{ message: string; pack_id: string; pack_name: string; transcription_job_id: string | null }> =>
+     * forceNoAudio retenta também os failed-sem-áudio (escape para falsos positivos).
+     * already_running: já havia um job vivo deste pack — o id devolvido é o dele, nenhum job novo foi criado. */
+    startPackTranscription: (packId: string, adNames?: string[], forceNoAudio?: boolean): Promise<{ message: string; pack_id: string; pack_name: string; transcription_job_id: string | null; already_running?: boolean }> =>
       apiClient.post(`/facebook/packs/${packId}/transcribe`, {
         ...(adNames ? { ad_names: adNames } : {}),
         ...(forceNoAudio ? { force_no_audio: true } : {}),

@@ -1224,8 +1224,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
               </div>
 
               <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={() => setIsExportOpen(true)}>
-                <IconDownload className="h-4 w-4 mr-2" />
+              <DropdownMenuItem icon={<IconDownload />} onClick={() => setIsExportOpen(true)}>
                 Exportar…
               </DropdownMenuItem>
             </DropdownMenuContent>

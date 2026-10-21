@@ -428,3 +428,8 @@ AUX
 # Fixtures de teste versionados (dados sintéticos ou anonimizados — nunca dado de cliente)
 !**/__tests__/fixtures/*.json
 certificates
+
+# ===========================================
+# CUSTOM (v1000)
+# ===========================================
+.agent/skills
