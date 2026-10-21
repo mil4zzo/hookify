@@ -4795,7 +4795,7 @@ def list_active_jobs(user: Dict[str, Any] = Depends(get_current_user)):
     try:
         sb = get_supabase_for_user(user["token"])
         cutoff = (datetime.now(timezone.utc) - timedelta(minutes=10)).isoformat()
-        _ACTIVE = ["pending", "running", "processing", "persisting", "meta_running", "meta_completed"]
+        _ACTIVE = _ACTIVE_JOB_STATUSES
         rows = (
             sb.table("jobs")
             .select("id,status,progress,message,payload,updated_at")
@@ -5135,6 +5135,39 @@ class TranscribePackRequest(BaseModel):
     force_no_audio: bool = False
 
 
+_ACTIVE_JOB_STATUSES = ["pending", "running", "processing", "persisting", "meta_running", "meta_completed"]
+# Mesma janela do /jobs/active: sem heartbeat há mais que isso o job é dado como morto
+# (o backend reiniciou no meio, por exemplo) e não pode travar uma transcrição nova.
+_ACTIVE_JOB_HEARTBEAT_WINDOW = timedelta(minutes=10)
+
+
+def _find_running_transcription_job(owner_id: str, pack_id: str) -> Optional[str]:
+    """Id de um job de transcrição vivo deste pack (silo do dono), ou None.
+
+    Best-effort e fail-open: se a consulta falhar, segue o fluxo normal e cria o job —
+    pior caso é o desperdício que já existia, não uma transcrição travada.
+    """
+    try:
+        cutoff = (datetime.now(timezone.utc) - _ACTIVE_JOB_HEARTBEAT_WINDOW).isoformat()
+        rows = (
+            get_supabase_service()
+            .table("jobs")
+            .select("id")
+            .eq("user_id", str(owner_id))
+            .eq("payload->>type", "transcription")
+            .eq("payload->>pack_id", str(pack_id))
+            .in_("status", _ACTIVE_JOB_STATUSES)
+            .gte("updated_at", cutoff)
+            .order("updated_at", desc=True)
+            .limit(1)
+            .execute()
+        ).data or []
+        return str(rows[0]["id"]) if rows else None
+    except Exception as e:
+        logger.warning(f"[TRANSCRIBE_PACK] Falha ao checar job em andamento do pack {pack_id} (fail-open): {e}")
+        return None
+
+
 @router.post("/packs/{pack_id}/transcribe", status_code=202)
 def start_pack_transcription(
     pack_id: str,
@@ -5229,6 +5262,27 @@ def start_pack_transcription(
                     "pack_id": pack_id,
                     "pack_name": pack_name,
                     "transcription_job_id": None,
+                },
+            )
+
+        # Um job de transcrição por pack: a lista de pendentes é calculada UMA vez, na
+        # largada de cada job, e o status `processing` só marca o anúncio quando uma
+        # thread chega nele — então dois jobs simultâneos no mesmo pack transcreveriam
+        # (e cobrariam, no AssemblyAI do dono) os mesmos vídeos duas vezes. Quem pede
+        # com um job vivo recebe o id dele e passa a acompanhá-lo.
+        running_job_id = _find_running_transcription_job(owner_id, pack_id)
+        if running_job_id:
+            logger.info(
+                f"[TRANSCRIBE_PACK] Pack {pack_id}: job {running_job_id} já em andamento; não cria outro"
+            )
+            return JSONResponse(
+                status_code=202,
+                content={
+                    "message": "Transcrição já em andamento",
+                    "pack_id": pack_id,
+                    "pack_name": pack_name,
+                    "transcription_job_id": running_job_id,
+                    "already_running": True,
                 },
             )
 

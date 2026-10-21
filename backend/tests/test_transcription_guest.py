@@ -40,17 +40,81 @@ class _FakeSb:
         return _Fluent(self._responses.get(name, lambda: _Resp([])))
 
 
+class _Recorder:
+    """Fake de supabase que GRAVA a cadeia de filtros da consulta em `jobs`."""
+
+    def __init__(self, rows):
+        self.calls = []
+        self._rows = rows
+
+    def table(self, name):
+        self.calls.append(("table", (name,)))
+        return self
+
+    def __getattr__(self, name):
+        def _chain(*a, **k):
+            self.calls.append((name, a))
+            return self
+        return _chain
+
+    def execute(self):
+        return _Resp(self._rows)
+
+
+class TestFindRunningTranscriptionJob(unittest.TestCase):
+    """Os filtros da guarda: o fake do caso de uso aceita qualquer cadeia; aqui ela é conferida."""
+
+    def _find(self, rows, owner="owner-1", pack="pack-1"):
+        from app.routes import facebook as FB
+
+        rec = _Recorder(rows)
+        with mock.patch.object(FB, "get_supabase_service", return_value=rec):
+            found = FB._find_running_transcription_job(owner, pack)
+        return found, rec.calls
+
+    def test_filtra_dono_tipo_pack_status_ativo_e_heartbeat_recente(self):
+        found, calls = self._find([{"id": "job-1"}], owner="owner-1", pack="pack-1")
+        self.assertEqual(found, "job-1")
+        names = [c[0] for c in calls]
+        self.assertIn(("table", ("jobs",)), calls)
+        # silo do DONO (nao o ator), tipo e pack exatos
+        self.assertIn(("eq", ("user_id", "owner-1")), calls)
+        self.assertIn(("eq", ("payload->>type", "transcription")), calls)
+        self.assertIn(("eq", ("payload->>pack_id", "pack-1")), calls)
+        # so status de job vivo — nunca completed/failed/cancelled
+        status_call = next(c for c in calls if c[0] == "in_")
+        self.assertEqual(status_call[1][0], "status")
+        self.assertTrue({"processing", "pending"} <= set(status_call[1][1]))
+        self.assertFalse({"completed", "failed", "cancelled"} & set(status_call[1][1]))
+        # heartbeat recente: job sem sinal ha mais que a janela e dado como morto
+        self.assertIn("gte", names)
+        self.assertEqual(next(c for c in calls if c[0] == "gte")[1][0], "updated_at")
+
+    def test_sem_linhas_devolve_none(self):
+        found, _calls = self._find([])
+        self.assertIsNone(found)
+
+
 class TestPackTranscribeGuest(unittest.TestCase):
-    def _call(self, *, role_access, owner_token="owner-tok", actor="guest-9"):
+    def _call(self, *, role_access, owner_token="owner-tok", actor="guest-9", running_jobs=None):
         from app.routes import facebook as FB
 
         sb = _FakeSb({"packs": lambda: _Resp([{"id": "pack-1", "name": "P"}])})
+        # Consulta "já existe job vivo deste pack?" (service role, tabela jobs)
+        if isinstance(running_jobs, Exception):
+            def _jobs():
+                raise running_jobs
+        else:
+            def _jobs():
+                return _Resp(running_jobs or [])
+        svc = _FakeSb({"jobs": _jobs})
         gate = (mock.Mock(side_effect=role_access) if isinstance(role_access, Exception)
                 else mock.Mock(return_value=role_access))
         tracker = mock.Mock()
 
         with mock.patch.object(FB, "assert_pack_role", gate), \
              mock.patch.object(FB, "_sb_for", return_value=sb), \
+             mock.patch.object(FB, "get_supabase_service", return_value=svc), \
              mock.patch.object(FB, "get_facebook_token_for_silo", return_value=owner_token), \
              mock.patch.object(FB, "get_facebook_token_for_user", return_value="actor-tok"), \
              mock.patch.object(FB, "GraphAPI", lambda tok, user_id=None: mock.Mock(access_token=tok)), \
@@ -62,10 +126,10 @@ class TestPackTranscribeGuest(unittest.TestCase):
             resp = FB.start_pack_transcription(
                 "pack-1", None, user={"token": "jwt", "user_id": actor},
             )
-        return resp, gate, get_tracker, pending
+        return resp, gate, get_tracker, pending, tracker
 
     def test_editor_convidado_dispara_no_silo_do_dono(self):
-        resp, gate, get_tracker, pending = self._call(
+        resp, gate, get_tracker, pending, _tracker = self._call(
             role_access=PackAccess(role="editor", owner_id="owner-1")
         )
         gate.assert_called_once_with("guest-9", "pack-1", roles=("dono", "editor"))
@@ -75,11 +139,36 @@ class TestPackTranscribeGuest(unittest.TestCase):
         self.assertEqual(pending.call_args.kwargs["user_id"], "owner-1")
 
     def test_dono_mantem_caminho_proprio(self):
-        resp, gate, get_tracker, pending = self._call(
+        resp, gate, get_tracker, pending, _tracker = self._call(
             role_access=PackAccess(role="dono", owner_id="guest-9")
         )
         get_tracker.assert_called_once_with("jwt", "guest-9", use_service_role=False)
         self.assertEqual(pending.call_args.kwargs["user_jwt"], "jwt")
+
+    def test_job_vivo_do_pack_e_reaproveitado_sem_criar_outro(self):
+        resp, _gate, _get_tracker, _pending, tracker = self._call(
+            role_access=PackAccess(role="dono", owner_id="guest-9"),
+            running_jobs=[{"id": "job-vivo"}],
+        )
+        body = json.loads(resp.body)
+        self.assertEqual(body["transcription_job_id"], "job-vivo")
+        self.assertTrue(body["already_running"])
+        tracker.create_job.assert_not_called()
+
+    def test_sem_job_vivo_cria_o_job_normalmente(self):
+        resp, _gate, _get_tracker, _pending, tracker = self._call(
+            role_access=PackAccess(role="dono", owner_id="guest-9"),
+        )
+        self.assertNotIn("already_running", json.loads(resp.body))
+        tracker.create_job.assert_called_once()
+
+    def test_falha_na_consulta_de_job_vivo_nao_trava_a_transcricao(self):
+        resp, _gate, _get_tracker, _pending, tracker = self._call(
+            role_access=PackAccess(role="dono", owner_id="guest-9"),
+            running_jobs=RuntimeError("supabase fora"),
+        )
+        self.assertTrue(json.loads(resp.body)["transcription_job_id"])
+        tracker.create_job.assert_called_once()
 
     def test_viewer_bloqueado(self):
         with self.assertRaises(HTTPException) as ctx:
