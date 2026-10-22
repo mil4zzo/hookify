@@ -20,7 +20,7 @@ from app.core import config as _config
 from app.core.config import ANALYTICS_MANAGER_POSTGREST_TIMEOUT_SECONDS
 from app.services import supabase_repo
 from app.services import entity_performance as EP
-from app.services.pack_access import assert_pack_role, resolve_entity_pack_scope
+from app.services.pack_access import assert_pack_role, resolve_entity_pack_scope, resolve_pack_roles
 from app.services import pack_action_log
 from app.services.lead_economics import (
     LEAD_ECONOMICS_MAX_BANDS,
@@ -283,6 +283,111 @@ class UpdatePackJudgmentRequest(BaseModel):
     )
 
     model_config = {"extra": "forbid"}
+
+
+class BulkPackJudgmentRequest(BaseModel):
+    """Os MESMOS criterios aplicados a N packs. Campo ausente = nao mexe em nenhum.
+
+    `target_cpr` aqui e um PATCH por evento, nao o mapa inteiro: `{evento: valor}`
+    define, `{evento: null}` remove, e os eventos nao citados ficam como estao em
+    cada pack. Os packs nao tem os mesmos eventos de conversao — mandar o mapa
+    inteiro apagaria a meta dos eventos que so alguns tem. `target_cpr: null`
+    limpa todas as metas de todos os packs.
+    """
+
+    pack_ids: List[str] = Field(..., description="Packs que recebem os criterios (dono ou editor em cada um).")
+    mql_leadscore_min: Optional[float] = Field(default=None, description="Corte de MQL para todos; null limpa.")
+    target_cpr: Optional[Dict[str, Optional[float]]] = Field(
+        default=None, description="Patch por evento: valor define, null remove; null no topo limpa tudo."
+    )
+    lead_economics: Optional[Any] = Field(default=None, description="Economia do lead para todos; null apaga.")
+
+    model_config = {"extra": "forbid"}
+
+
+BULK_JUDGMENT_MAX_PACKS = 200
+
+
+def _validate_judgment_fields(fields: Dict[str, Any], *, target_removal: bool = False) -> Dict[str, Any]:
+    """Regras do criterio de julgamento, compartilhadas pelo PATCH de um pack e pela acao em massa.
+
+    So as chaves PRESENTES sao validadas (campo ausente = nao mexe). Devolve `fields`
+    com `lead_economics` trocado pelo documento CANONICO do validador — o banco so
+    garante "null ou objeto" (D8), entao o JSON cru do cliente nunca e gravado.
+
+    `target_removal`: na acao em massa `target_cpr` e um patch por evento, e `null`
+    num evento significa "remova a meta". No PATCH de um pack o mapa e inteiro e
+    `null` num evento e erro (remove-se a chave).
+    """
+    mql = fields.get("mql_leadscore_min")
+    if "mql_leadscore_min" in fields and mql is not None and mql < 0:
+        raise HTTPException(status_code=400, detail="mql_leadscore_min deve ser >= 0")
+
+    target = fields.get("target_cpr")
+    if "target_cpr" in fields and target is not None:
+        for action_type, value in target.items():
+            if value is None and target_removal:
+                continue
+            if value is None or value <= 0:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"target_cpr['{action_type}'] deve ser > 0 (remova a chave para limpar)",
+                )
+
+    # Economia do lead: o banco so garante "null ou objeto" (D8), entao nunca
+    # se grava o JSON cru do cliente — so o documento canonico do validador
+    # (chaves conhecidas, nomes aparados). null segue limpando.
+    if "lead_economics" in fields and fields["lead_economics"] is not None:
+        raw_economics = fields["lead_economics"]
+        # Teto de custo ANTES de validar: o validador percorre todos os itens
+        # (a tela precisa de todas as mensagens), e o corpo nao tem teto — um
+        # cliente com 200 mil produtos ocuparia o worker. Aqui so a PRIMEIRA
+        # mensagem sai, e nos dois cortes abaixo ela e provadamente a mesma que
+        # o documento inteiro daria (os testes comparam com o validador cheio).
+        if (
+            isinstance(raw_economics, dict)
+            and isinstance(raw_economics.get("products"), list)
+            and isinstance(raw_economics.get("bands"), list)
+        ):
+            # Produtos demais: passada a checagem de forma (products E bands
+            # listas — sem bands lista a primeira seria invalidShape), a ordem
+            # do validador e noProducts (impossivel: len > 0) e logo tooManyProducts,
+            # antes de qualquer item. Ela e o errors[0].
+            if len(raw_economics["products"]) > LEAD_ECONOMICS_MAX_PRODUCTS:
+                raise HTTPException(status_code=400, detail=LEAD_ECONOMICS_MESSAGES["tooManyProducts"])
+            # Faixas demais: valida com MAX + 1. Os produtos seguem inteiros e
+            # vem antes, entao um erro de produto continua sendo o errors[0]; sem
+            # erro de produto, o primeiro das faixas e tooManyBands (noBands e
+            # impossivel), emitido antes de qualquer faixa e ainda emitido com
+            # MAX + 1. Com tooManyBands nao ha documento valido nos dois casos.
+            if len(raw_economics["bands"]) > LEAD_ECONOMICS_MAX_BANDS:
+                raw_economics = {
+                    **raw_economics,
+                    "bands": raw_economics["bands"][: LEAD_ECONOMICS_MAX_BANDS + 1],
+                }
+        economics, economics_errors = validate_lead_economics(raw_economics)
+        if economics_errors:
+            # A primeira: a tela ja validou com as mesmas regras e mostra todas;
+            # chegar aqui e cliente velho ou chamada direta.
+            raise HTTPException(status_code=400, detail=economics_errors[0])
+        fields["lead_economics"] = economics
+
+    return fields
+
+
+def _merge_target_cpr(current: Any, patch: Dict[str, Optional[float]]) -> Optional[Dict[str, float]]:
+    """Mapa atual do pack + patch por evento (valor define, null remove). Vazio vira None."""
+    merged: Dict[str, float] = {}
+    if isinstance(current, dict):
+        for key, value in current.items():
+            if isinstance(value, (int, float)) and not isinstance(value, bool) and value > 0:
+                merged[str(key)] = value
+    for key, value in patch.items():
+        if value is None:
+            merged.pop(key, None)
+        else:
+            merged[key] = value
+    return merged or None
 
 
 # Datas e divisão segura vivem em entity_performance (migration 133): o agregador
@@ -2120,60 +2225,9 @@ def update_pack_judgment(
 
         # exclude_unset preserva a distincao entre "nao enviado" e "enviado como null".
         fields = request.model_dump(exclude_unset=True)
-
-        mql = fields.get("mql_leadscore_min")
-        if "mql_leadscore_min" in fields and mql is not None and mql < 0:
-            raise HTTPException(status_code=400, detail="mql_leadscore_min deve ser >= 0")
-
-        target = fields.get("target_cpr")
-        if "target_cpr" in fields and target is not None:
-            for action_type, value in target.items():
-                if value is None or value <= 0:
-                    raise HTTPException(
-                        status_code=400,
-                        detail=f"target_cpr['{action_type}'] deve ser > 0 (remova a chave para limpar)",
-                    )
-
-        # Economia do lead: o banco so garante "null ou objeto" (D8), entao nunca
-        # se grava o JSON cru do cliente — so o documento canonico do validador
-        # (chaves conhecidas, nomes aparados). null segue limpando.
-        if "lead_economics" in fields and fields["lead_economics"] is not None:
-            raw_economics = fields["lead_economics"]
-            # Teto de custo ANTES de validar: o validador percorre todos os itens
-            # (a tela precisa de todas as mensagens), e o corpo nao tem teto — um
-            # cliente com 200 mil produtos ocuparia o worker. Aqui so a PRIMEIRA
-            # mensagem sai, e nos dois cortes abaixo ela e provadamente a mesma que
-            # o documento inteiro daria (os testes comparam com o validador cheio).
-            if (
-                isinstance(raw_economics, dict)
-                and isinstance(raw_economics.get("products"), list)
-                and isinstance(raw_economics.get("bands"), list)
-            ):
-                # Produtos demais: passada a checagem de forma (products E bands
-                # listas — sem bands lista a primeira seria invalidShape), a ordem
-                # do validador e noProducts (impossivel: len > 0) e logo tooManyProducts,
-                # antes de qualquer item. Ela e o errors[0].
-                if len(raw_economics["products"]) > LEAD_ECONOMICS_MAX_PRODUCTS:
-                    raise HTTPException(status_code=400, detail=LEAD_ECONOMICS_MESSAGES["tooManyProducts"])
-                # Faixas demais: valida com MAX + 1. Os produtos seguem inteiros e
-                # vem antes, entao um erro de produto continua sendo o errors[0]; sem
-                # erro de produto, o primeiro das faixas e tooManyBands (noBands e
-                # impossivel), emitido antes de qualquer faixa e ainda emitido com
-                # MAX + 1. Com tooManyBands nao ha documento valido nos dois casos.
-                if len(raw_economics["bands"]) > LEAD_ECONOMICS_MAX_BANDS:
-                    raw_economics = {
-                        **raw_economics,
-                        "bands": raw_economics["bands"][: LEAD_ECONOMICS_MAX_BANDS + 1],
-                    }
-            economics, economics_errors = validate_lead_economics(raw_economics)
-            if economics_errors:
-                # A primeira: a tela ja validou com as mesmas regras e mostra todas;
-                # chegar aqui e cliente velho ou chamada direta.
-                raise HTTPException(status_code=400, detail=economics_errors[0])
-            fields["lead_economics"] = economics
-
         if not fields:
             raise HTTPException(status_code=400, detail="Nenhum campo de julgamento enviado")
+        fields = _validate_judgment_fields(fields)
 
         supabase_repo.update_pack_judgment(pack_id, fields, user["user_id"])
 
@@ -2193,6 +2247,101 @@ def update_pack_judgment(
     except Exception as e:
         logger.exception(f"Erro ao atualizar julgamento do pack {pack_id}: {e}")
         raise HTTPException(status_code=500, detail=f"Erro ao atualizar julgamento: {str(e)}")
+
+
+@router.post("/packs/bulk-judgment")
+def update_pack_judgment_bulk(
+    request: BulkPackJudgmentRequest = Body(...),
+    user=Depends(get_current_user),
+):
+    """Aplica os mesmos criterios de julgamento a N packs (acao em massa da Biblioteca).
+
+    Semantica por campo, igual ao PATCH de um pack: ausente -> nao mexe; null ->
+    limpa; valor -> define. `target_cpr` e patch por evento (ver o modelo).
+
+    Papel resolvido por pack numa chamada so: dono e editor recebem; viewer e pack
+    sem acesso voltam como `skipped` (nunca 403 no lote inteiro — o resto segue).
+    Pack que falhar ao gravar volta como `failed` e nao derruba os demais.
+    """
+    pack_ids = list(dict.fromkeys(str(p).strip() for p in (request.pack_ids or []) if str(p or "").strip()))
+    if not pack_ids:
+        raise HTTPException(status_code=400, detail="Nenhum pack informado")
+    if len(pack_ids) > BULK_JUDGMENT_MAX_PACKS:
+        raise HTTPException(status_code=400, detail=f"No máximo {BULK_JUDGMENT_MAX_PACKS} packs por vez.")
+
+    fields = request.model_dump(exclude_unset=True)
+    fields.pop("pack_ids", None)
+    # Patch sem eventos nao e "limpe tudo" (isso e `target_cpr: null`): sem esta
+    # linha, `{}` fundia com nada e gravava null nas metas de todos os packs.
+    if fields.get("target_cpr") == {}:
+        fields.pop("target_cpr")
+    if not fields:
+        raise HTTPException(status_code=400, detail="Nenhum campo de julgamento enviado")
+    # Valida UMA vez: a economia do lead e o mesmo documento para todos.
+    fields = _validate_judgment_fields(fields, target_removal=True)
+
+    actor_id = str(user["user_id"])
+    try:
+        roles = resolve_pack_roles(actor_id, pack_ids)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("[PACK_JUDGMENT_BULK] Falha ao resolver papeis: %s", e)
+        raise HTTPException(status_code=500, detail="Erro ao verificar acesso aos packs")
+
+    writable = [pid for pid in pack_ids if roles.get(pid) and roles[pid].role in ("dono", "editor")]
+
+    # Patch por evento precisa do mapa atual de cada pack. So quando ha patch
+    # (dict nao vazio); `target_cpr: null` limpa sem ler nada.
+    target_patch = fields.get("target_cpr") if isinstance(fields.get("target_cpr"), dict) else None
+    current_targets: Dict[str, Any] = {}
+    if target_patch and writable:
+        try:
+            current_targets = supabase_repo.get_packs_target_cpr(writable)
+        except Exception as e:
+            logger.exception("[PACK_JUDGMENT_BULK] Falha ao ler metas atuais: %s", e)
+            raise HTTPException(status_code=500, detail="Erro ao ler as metas atuais dos packs")
+
+    results: List[Dict[str, Any]] = []
+    done_by_group: Dict[Tuple[str, str], List[str]] = {}
+    for pack_id in pack_ids:
+        access = roles.get(pack_id)
+        if access is None:
+            results.append({"pack_id": pack_id, "status": "skipped", "reason": "no_access"})
+            continue
+        if access.role not in ("dono", "editor"):
+            results.append({"pack_id": pack_id, "status": "skipped", "reason": "viewer"})
+            continue
+
+        pack_fields = dict(fields)
+        if target_patch is not None:
+            pack_fields["target_cpr"] = _merge_target_cpr(current_targets.get(pack_id), target_patch)
+        try:
+            supabase_repo.update_pack_judgment(pack_id, pack_fields, actor_id)
+            done_by_group.setdefault((access.owner_id, access.role), []).append(pack_id)
+            results.append({"pack_id": pack_id, "status": "updated", "judgment": pack_fields})
+        except Exception:
+            logger.exception("[PACK_JUDGMENT_BULK] Erro ao gravar o pack %s", pack_id)
+            results.append({"pack_id": pack_id, "status": "failed", "error": "Erro ao salvar os critérios deste pack."})
+
+    # Autoria (P3.5): uma linha por silo/papel — o historico de cada dono so
+    # recebe os packs dele. O detalhe e o que foi pedido (o patch), nao o mapa
+    # resultante de cada pack.
+    for (owner_id, role), ids in done_by_group.items():
+        pack_action_log.log_pack_action(
+            action=pack_action_log.ACTION_PACK_JUDGMENT,
+            actor_id=actor_id, actor_role=role, owner_id=owner_id,
+            pack_ids=ids, target_type="pack", target_ids=ids,
+            detail={**fields, "bulk": True},
+        )
+
+    logger.info(
+        "[PACK_JUDGMENT_BULK] %d packs por %s: %s — campos=%s",
+        len(pack_ids), actor_id,
+        {s: sum(1 for r in results if r["status"] == s) for s in ("updated", "skipped", "failed")},
+        sorted(fields),
+    )
+    return {"results": results}
 
 
 @router.get("/packs/{pack_id}/activity")

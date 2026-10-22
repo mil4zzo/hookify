@@ -62,6 +62,7 @@ import type { BulkSheetIntegrationResponse, BulkSheetSyncProgress, RevalidatedSh
 import { env } from '@/lib/config/env'
 import type { CreateSharePayload, CreateShareResponse, ShareSummary } from '@/lib/share/types'
 import type { LeadEconomics } from '@/lib/utils/leadEconomics'
+import type { BulkPackJudgmentPayload, BulkPackJudgmentResponse } from '@/lib/utils/packJudgmentBulk'
 
 // Tipos simples para o fluxo de onboarding inicial
 export interface OnboardingStatusResponse {
@@ -496,6 +497,14 @@ export const api = {
       }
     ): Promise<{ success: boolean; pack_id: string; judgment: Record<string, unknown> }> =>
       apiClient.patch(`/analytics/packs/${packId}/judgment`, judgment),
+    /**
+     * Os mesmos critérios para N packs (Biblioteca → Mais → Critérios de julgamento).
+     * Chave ausente = não mexe em nenhum pack. `target_cpr` é PATCH por evento (valor
+     * define, null remove; os outros eventos de cada pack ficam). Dono e editor
+     * recebem; viewer e pack sem acesso voltam como `skipped`.
+     */
+    updatePackJudgmentBulk: (payload: { pack_ids: string[] } & BulkPackJudgmentPayload): Promise<BulkPackJudgmentResponse> =>
+      apiClient.post('/analytics/packs/bulk-judgment', payload),
     /**
      * Histórico de ações do pack (P3.5). Qualquer membro lê — todos já veem os
      * efeitos das ações; esconder o autor não protegeria nada.

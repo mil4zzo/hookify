@@ -63,6 +63,35 @@ def resolve_pack_role(actor_id: str, pack_id: str) -> PackAccess | None:
     return None
 
 
+def resolve_pack_roles(actor_id: str, pack_ids: Sequence[str]) -> Dict[str, PackAccess]:
+    """Papel do ator em CADA pack, numa chamada so (acoes em massa).
+
+    Mesma fonte do singular (`resolve_pack_access`); pack sem acesso algum nao
+    aparece no dicionario — para quem esta fora, inacessivel e inexistente sao a
+    mesma coisa. Quem chama decide o que fazer com cada papel (pular, recusar).
+    """
+    ids = list(dict.fromkeys(str(p).strip() for p in (pack_ids or []) if str(p or "").strip()))
+    if not actor_id or not ids:
+        return {}
+
+    sb = get_supabase_service()
+    res = sb.rpc(
+        "resolve_pack_access",
+        {"p_pack_ids": ids, "p_actor_id": str(actor_id)},
+    ).execute()
+
+    out: Dict[str, PackAccess] = {}
+    for row in (res.data or []):
+        if not isinstance(row, dict):
+            continue
+        pack_id = str(row.get("pack_id") or "")
+        role = str(row.get("role") or "")
+        owner = str(row.get("owner_id") or "")
+        if pack_id and role and owner:
+            out[pack_id] = PackAccess(role=role, owner_id=owner)
+    return out
+
+
 def assert_pack_role(
     actor_id: str,
     pack_id: str,

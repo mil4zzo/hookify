@@ -127,6 +127,11 @@ entra depois não herda nada. Junto com **Desconectar planilha**, completa o tri
 - **Prévia antes de salvar.** O diálogo diz quantos packs serão conectados, quantos terão a
   configuração substituída e quantos apontam hoje para outro arquivo. A configuração inicial
   vem do primeiro pack selecionado que já tem planilha.
+- **Confirmação quando algo é sobrescrito.** Antes de gravar, se algum pack perderia o que
+  tem (troca de arquivo ou de aba, colunas base diferentes, coluna adicional que some, corte
+  de MQL diferente), abre um resumo "Aplicar igual aos N packs?" com cada caso e os packs
+  afetados. Se nada é sobrescrito (packs sem planilha, ou já com esta mesma configuração),
+  grava direto. Ver "Critérios de julgamento em massa" para a regra.
 - **Uma chamada para salvar e um job para sincronizar.** O job sincroniza os packs um depois
   do outro e **lê o arquivo uma vez só**. Antes eram N leituras simultâneas do arquivo inteiro.
 - **Resumo por desfecho:** atualizados, sem linhas correspondentes e falhas. "Sem linhas
@@ -135,6 +140,39 @@ entra depois não herda nada. Junto com **Desconectar planilha**, completa o tri
 - Rotas: `POST /integrations/google/ad-sheet-integrations/bulk` e `.../bulk-sync-job`. O
   acompanhamento usa o `GET /sync-jobs/{id}` de sempre, com o resultado por pack em
   `details.bulk_results`.
+
+### Critérios de julgamento em massa
+
+Na Biblioteca, com vários packs marcados: **Mais → Critérios de julgamento**. É o mesmo
+diálogo da configuração do pack (corte de MQL, CPR alvo por evento e economia do lead), para
+N packs de uma vez — o caso típico é cadastrar a economia do lead uma vez para todos os packs
+do mesmo lançamento, em vez de repetir produtos e faixas pack a pack.
+
+- **Só muda o que você alterar.** O diálogo abre pré-preenchido onde todos os packs concordam
+  e vazio onde discordam (com a frase "os packs discordam" e, no corte, os valores de hoje).
+  Campo igual ao que abriu fica como está em cada pack; alterado e com valor, define em todos;
+  um valor comum apagado **limpa em todos**. Num campo que abriu vazio por divergência,
+  digitar e apagar volta a "não mexe" — limpar um critério que os packs não compartilham se
+  faz pack a pack.
+- **CPR alvo é por evento.** A lista traz a união dos eventos dos packs; só os eventos que você
+  mexer mudam, e os outros ficam como estão em cada pack (os packs não têm os mesmos eventos —
+  mandar o mapa inteiro apagaria a meta dos eventos que só alguns têm).
+- **Economia do lead:** com o mesmo cadastro em todos, abre para editar; com cadastros
+  diferentes (ou só alguns com cadastro), oferece "Configurar para todos" e "Remover de
+  todos". Packs em contas de moedas diferentes recebem um aviso: o ticket é um número só.
+- **Dono e editor.** O critério é do pack, não do espaço do dono — por isso, ao contrário da
+  planilha, pack compartilhado em que você é editor entra. Pack só de leitura fica de fora,
+  com aviso. Packs sem planilha também recebem o critério; ele passa a valer quando a
+  planilha for conectada.
+- **Confirmação quando algo é sobrescrito.** A configuração em massa não adapta nada por
+  pack: o mesmo valor vai para todos. Quando isso substitui ou apaga algo que algum pack tinha
+  (corte diferente, meta diferente, cadastro de economia com outros produtos ou nomes), abre um
+  resumo antes de gravar, com cada mudança e os packs afetados. O que é só informativo (meta
+  de um evento que o pack não tem, critério de leadscore em pack sem planilha) aparece junto,
+  mas sozinho não abre o resumo: pack que não tinha nada não tem o que perder, e um resumo a
+  cada save viraria clique automático. Lógica em `frontend/lib/utils/bulkApplyReview.ts`.
+- Rota: `POST /analytics/packs/bulk-judgment`, uma chamada para todos os packs; resultado por
+  pack (`updated`, `skipped` por papel, `failed`), e uma linha no histórico por dono.
 
 ### Coluna vinculada = arquivo + nome do cabeçalho
 
@@ -446,8 +484,10 @@ anúncio traz: um anúncio que traz leads de nota alta pode pagar mais caro por 
 um que traz leads frios. Exigem planilha integrada (é dela que vem a nota de cada lead).
 
 **Onde se cadastra:** na configuração do pack (Packs → menu do pack → Critérios de
-julgamento → "Configurar economia do lead"). O cadastro é do pack e vale para todos que
-têm acesso a ele; dono e editor configuram, leitor só vê o resultado.
+julgamento → "Configurar economia do lead"), ou para vários packs de uma vez (Biblioteca →
+marcar os packs → Mais → Critérios de julgamento; ver "Critérios de julgamento em massa").
+O cadastro é do pack e vale para todos que têm acesso a ele; dono e editor configuram,
+leitor só vê o resultado.
 
 - **O que você vende** — um ou mais produtos, cada um com nome, **ticket**, **"de cada
   venda, quanto sobra?"** (preço menos produto, imposto, comissão e taxas — tudo, menos o

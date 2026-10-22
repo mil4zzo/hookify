@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useState, useRef } from "react";
 import { AppDialog } from "@/components/common/AppDialog";
+import { BulkApplyReviewDialog } from "@/components/common/BulkApplyReviewDialog";
+import { reviewBulkSheet, type BulkReview } from "@/lib/utils/bulkApplyReview";
 import { api } from "@/lib/api/endpoints";
 import { env } from "@/lib/config/env";
 import { SheetIntegrationRequest, SheetColumnsResponse } from "@/lib/api/schemas";
@@ -74,6 +76,11 @@ export function GoogleSheetIntegrationDialog({ isOpen, onClose, packId: singlePa
   const [extraColumnsReady, setExtraColumnsReady] = useState(true);
 
   const [integrationId, setIntegrationId] = useState<string | null>(null);
+  // Em massa, quando o save sobrescreve algo: o resumo por cima, com o payload pronto.
+  const [pendingBulk, setPendingBulk] = useState<{ payload: SheetIntegrationRequest; review: BulkReview } | null>(null);
+  useEffect(() => {
+    if (!isOpen) setPendingBulk(null);
+  }, [isOpen]);
   const [, setLoadedIntegrationData] = useState<{ spreadsheetId: string; worksheetTitle: string } | null>(null);
 
   /** Número de efeitos que ainda devem ignorar limpeza (selectedSpreadsheetId + worksheetTitle) ao carregar integração existente */
@@ -589,6 +596,13 @@ export function GoogleSheetIntegrationDialog({ isOpen, onClose, packId: singlePa
       };
 
       if (isBulk) {
+        const { pack_id: _ignored, ...config } = payload;
+        const targets = bulkPackIds!.map((id) => packs.find((p) => p.id === id)).filter((p): p is NonNullable<typeof p> => !!p);
+        const review = reviewBulkSheet(targets, config, parsedMqlLeadscoreMin, selectedSpreadsheetName);
+        if (review.needsConfirm) {
+          setPendingBulk({ payload, review });
+          return;
+        }
         await handleBulkSave(payload);
         return;
       }
@@ -655,6 +669,20 @@ export function GoogleSheetIntegrationDialog({ isOpen, onClose, packId: singlePa
       packNames,
       title: `${selectedSpreadsheetName || "Planilha"} · ${done.length} ${done.length === 1 ? "pack" : "packs"}`,
     }).catch((e) => showError(e));
+  };
+
+  const confirmPendingBulk = async () => {
+    const payload = pendingBulk?.payload;
+    setPendingBulk(null);
+    if (!payload) return;
+    setIsSaving(true);
+    try {
+      await handleBulkSave(payload);
+    } catch (e: any) {
+      showError(e);
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const handleSyncAgain = async () => {
@@ -765,6 +793,12 @@ export function GoogleSheetIntegrationDialog({ isOpen, onClose, packId: singlePa
           </section>
         )}
       </div>
+      <BulkApplyReviewDialog
+        review={pendingBulk?.review ?? null}
+        packCount={bulkPackIds?.length ?? 0}
+        onCancel={() => setPendingBulk(null)}
+        onConfirm={() => void confirmPendingBulk()}
+      />
     </AppDialog>
   );
 }

@@ -3770,6 +3770,31 @@ def update_pack_judgment(
         raise
 
 
+def get_packs_target_cpr(pack_ids: List[str]) -> Dict[str, Any]:
+    """CPR alvo atual de cada pack (service role, sem filtro de dono).
+
+    So para a acao em MASSA, que precisa do mapa atual para aplicar um patch por
+    evento; a autorizacao ja foi feita por quem chama (papel por pack). Pack sem
+    linha ou sem meta nao aparece.
+    """
+    ids = [str(p) for p in (pack_ids or []) if p]
+    if not ids:
+        return {}
+    sb = get_supabase_service()
+    out: Dict[str, Any] = {}
+    # Lotes de 200: o `in_` vai na URL (ver supabase_in_clause_url_limit).
+    for start in range(0, len(ids), 200):
+        chunk = ids[start:start + 200]
+        res = with_postgrest_retry(
+            f"get_packs_target_cpr[{len(chunk)}]",
+            lambda chunk=chunk: sb.table("packs").select("id,target_cpr").in_("id", chunk).execute(),
+        )
+        for row in (res.data or []):
+            if isinstance(row, dict) and row.get("id") is not None:
+                out[str(row["id"])] = row.get("target_cpr")
+    return out
+
+
 def check_pack_name_exists(
     user_jwt: str,
     user_id: str,

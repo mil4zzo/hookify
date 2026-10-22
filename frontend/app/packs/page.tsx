@@ -19,7 +19,7 @@ import { useClientAuth, useClientPacks } from "@/lib/hooks/useClientSession";
 import { useOnboardingGate } from "@/lib/hooks/useOnboardingGate";
 import { showSuccess, showError, showWarning } from "@/lib/utils/toast";
 import { api } from "@/lib/api/endpoints";
-import { IconFilter, IconPlus, IconTrash, IconChartBar, IconSearch, IconLoader2, IconCircleCheck, IconCircleX, IconCircleDot, IconInfoCircle, IconRefresh, IconChevronLeft, IconChevronRight, IconPencil, IconFolderPlus, IconFolderSymlink, IconSortAscending, IconSortDescending } from "@tabler/icons-react";
+import { IconFilter, IconPlus, IconTrash, IconChartBar, IconSearch, IconLoader2, IconCircleCheck, IconCircleX, IconCircleDot, IconInfoCircle, IconRefresh, IconChevronLeft, IconChevronRight, IconPencil, IconFolderPlus, IconFolderSymlink, IconSortAscending, IconSortDescending, IconTargetArrow } from "@tabler/icons-react";
 
 import { FilterRule, ClearEnrichmentResult } from "@/lib/api/schemas";
 import { AdsPack } from "@/lib/types";
@@ -404,6 +404,20 @@ export default function PacksPage() {
     if (selectedOwnedPacks.length > 0) setBulkSheetPackIds(selectedOwnedPacks.map((p) => p.id));
   };
 
+  // Critérios de julgamento em massa: dono e editor escrevem (o critério é do pack,
+  // não do silo); pack compartilhado só para leitura fica de fora (avisado).
+  const selectedWritablePacks = useMemo(() => selectedPacksList.filter((p) => p.shared_role !== "viewer"), [selectedPacksList]);
+  const [bulkJudgmentPacks, setBulkJudgmentPacks] = useState<AdsPack[] | null>(null);
+  const handleBulkConfigureJudgment = () => {
+    const viewers = selectedPacksList.length - selectedWritablePacks.length;
+    if (viewers > 0) {
+      showWarning(
+        `${viewers} ${viewers === 1 ? "pack compartilhado só para leitura fica" : "packs compartilhados só para leitura ficam"} de fora: só dono ou editor mudam os critérios.`,
+      );
+    }
+    if (selectedWritablePacks.length > 0) setBulkJudgmentPacks(selectedWritablePacks);
+  };
+
   /**
    * Desconecta a planilha de vários packs, um de cada vez. O pack em si fica
    * intacto — mas o leadscore importado sai junto, como na ação individual.
@@ -624,6 +638,15 @@ export default function PacksPage() {
       // Gatilho: abre a lista de pastas para escolher, então ganha o chevron.
       opensList: true,
       onSelect: () => setMoveTarget({ ids: selectedPackIds, name: null }),
+    },
+    {
+      id: "configure-judgment",
+      label: "Critérios de julgamento",
+      icon: <IconTargetArrow className="h-3.5 w-3.5" />,
+      // Ocasional (uma vez por lançamento): menu "Mais", ao lado da planilha.
+      secondary: true,
+      disabled: selectedWritablePacks.length === 0,
+      onSelect: handleBulkConfigureJudgment,
     },
     {
       id: "configure-sheets",
@@ -1959,13 +1982,18 @@ export default function PacksPage() {
       {/* Critérios de julgamento por pack (herança com override) */}
       <PackJudgmentDialog
         pack={judgmentPack}
-        open={!!judgmentPack}
+        open={!!judgmentPack || !!bulkJudgmentPacks}
         onOpenChange={(open) => {
-          if (!open) setJudgmentPack(null);
+          if (!open) {
+            setJudgmentPack(null);
+            setBulkJudgmentPacks(null);
+          }
         }}
         // Ticket da economia do lead na moeda da CONTA do pack (é com o gasto dela
         // que ele se compara), não na preferência de quem vê.
         accountCurrency={findAdAccountCurrency(adAccountsData, judgmentPack?.adaccount_id)}
+        bulkPacks={bulkJudgmentPacks}
+        accountCurrencies={bulkJudgmentPacks?.map((p) => findAdAccountCurrency(adAccountsData, p.adaccount_id))}
       />
 
       {/* Edição do período do pack (só ampliar nesta etapa) */}
