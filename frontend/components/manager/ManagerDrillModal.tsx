@@ -3,7 +3,10 @@
 import { EMPTY_RULE_TREE, type RuleTree } from "@/lib/rules/types";
 
 import React, { useEffect, useMemo, useState } from "react";
+import { IconArrowsMaximize, IconArrowsMinimize } from "@tabler/icons-react";
 import { AppDialog } from "@/components/common/AppDialog";
+import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils/cn";
 import { ExpandedChildrenRow } from "@/components/manager/ExpandedChildrenRow";
 import { CampaignChildrenRow } from "@/components/manager/CampaignChildrenRow";
 import { ManagerDrillBreadcrumb, KIND_LABEL, type DrillCrumb } from "@/components/manager/ManagerDrillBreadcrumb";
@@ -48,6 +51,8 @@ export function ManagerDrillModal({
   onSelectAd,
 }: ManagerDrillModalProps) {
   const { stack, isOpen, current, push, popTo, close } = useDrillState();
+  // Tela cheia = o modal ocupa a janela inteira menos uma margem de 1rem (nunca encosta nas bordas).
+  const [isFullscreen, setIsFullscreen] = useState(false);
 
   // Filtros locais de coluna por nível atual — resetam ao trocar de step (chave de currentKey).
   const currentKey = current ? `${current.kind}:${current.id}` : null;
@@ -192,13 +197,29 @@ export function ManagerDrillModal({
       size="5xl"
       padding="none"
       mobileVariant="bottom-sheet"
-      className="flex h-[90dvh] min-h-0 flex-col overflow-hidden"
+      className={cn(
+        "flex min-h-0 flex-col overflow-hidden md:mx-0",
+        isFullscreen ? "h-[calc(100dvh-2rem)] md:h-[calc(100dvh-2rem)] md:max-h-none md:w-[calc(100vw-2rem)] md:max-w-none" : "h-[90dvh]",
+      )}
       bodyClassName="flex min-h-0 flex-1 flex-col"
     >
-      <header className="flex items-start border-b border-border px-6 py-4 pr-12">
+      <header className="flex items-start border-b border-border px-6 py-4 pr-28">
         <ManagerDrillBreadcrumb crumbs={crumbs} onNavigate={popTo} />
       </header>
-      <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-card">
+      {/* Alinhado com o X do AppDialog (right-4 top-4, 16px): centro a 24px do topo. */}
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon"
+        className="absolute right-10 top-1 z-10 focus-inset"
+        onClick={() => setIsFullscreen((previous) => !previous)}
+        aria-label={isFullscreen ? "Reduzir janela" : "Expandir janela"}
+        title={isFullscreen ? "Reduzir janela" : "Expandir janela"}
+      >
+        {isFullscreen ? <IconArrowsMinimize className="h-4 w-4" /> : <IconArrowsMaximize className="h-4 w-4" />}
+      </Button>
+      {/* A tabela/filtros sao reusados sem padding (asContent) — o respiro do modal e daqui. */}
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-card px-6 pb-6 pt-4">
         {body}
       </div>
     </AppDialog>

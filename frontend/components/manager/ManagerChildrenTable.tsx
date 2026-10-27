@@ -148,6 +148,9 @@ interface ManagerChildrenTableProps {
 
 /** Identificacao congelada: selecao, status e nome ficam parados enquanto as metricas passam. */
 const PINNED_CELL = "sticky z-10";
+/** Larguras das tres colunas congeladas (checkbox 2.5rem + status 5rem + nome 24rem): os `left-*` e a divisoria derivam delas. */
+const PINNED_NAME_LEFT = "left-[7.5rem]";
+const PINNED_NAME_WIDTH = "w-[24rem] min-w-[24rem] max-w-[24rem]";
 
 
 export function ManagerChildrenTable({
@@ -346,7 +349,7 @@ export function ManagerChildrenTable({
     return formatManagerChildMetricValue(columnId as ManagerMetricKey, child, { currencyFormatter: formatCurrency });
   };
 
-  const metricColumnClass = "cursor-pointer select-none px-4 py-3 text-center hover:text-primary";
+  const metricColumnClass = "min-w-[6rem] cursor-pointer select-none whitespace-nowrap px-4 py-3 text-center hover:text-primary";
 
   const loadingContent = (
     <StatePanel kind="loading" message={`Carregando ${childrenLabel}...`} density="compact" layout="inline" />
@@ -454,9 +457,9 @@ export function ManagerChildrenTable({
           </div>
         </div>
       ) : (
-        <div className="relative min-h-0 flex-1">
+        <div className={cn("relative min-h-0 flex-1", asContent && "overflow-hidden rounded-lg border border-border")}>
         {/* Divisoria da identificacao: um elemento so (ver TableContent para o porque). */}
-        <div aria-hidden className="pointer-events-none absolute inset-y-0 left-[5.5rem] z-sticky flex">
+        <div aria-hidden className="pointer-events-none absolute inset-y-0 left-[31.5rem] z-sticky flex">
           <div className="w-px bg-border" />
           <div className={cn("w-3 bg-gradient-to-r from-black/25 to-transparent transition-opacity duration-150", isScrolledX ? "opacity-100" : "opacity-0")} />
         </div>
@@ -464,7 +467,7 @@ export function ManagerChildrenTable({
           <table className="w-full border-collapse text-xs">
             <thead className={asContent ? "sticky top-0 z-sticky shadow-[0_1px_0_0_var(--border)]" : undefined}>
               <tr className="bg-card">
-                <th className={cn("w-10 px-2 py-3 text-center", PINNED_CELL, "left-0 bg-card")}>
+                <th className={cn("w-10 min-w-[2.5rem] px-2 py-3 text-center", PINNED_CELL, "left-0 bg-card")}>
                   <div className="flex items-center justify-center">
                     <Checkbox
                       checked={allSelected ? true : someSelected ? "indeterminate" : false}
@@ -474,14 +477,14 @@ export function ManagerChildrenTable({
                     />
                   </div>
                 </th>
-                <th className={cn("w-20 cursor-pointer select-none px-3 py-3 text-center text-2xs font-medium uppercase tracking-wide hover:text-primary", PINNED_CELL, "left-10 bg-card", sortConfig.column === "status" && "text-primary")} onClick={() => handleSort("status")}>
+                <th className={cn("w-20 min-w-[5rem] cursor-pointer select-none px-3 py-3 text-center text-2xs font-medium uppercase tracking-wide hover:text-primary", PINNED_CELL, "left-10 bg-card", sortConfig.column === "status" && "text-primary")} onClick={() => handleSort("status")}>
                   <div className="flex items-center justify-center gap-1">
                     Status
                     {filteredColumnIds.has("status") && filterIndicator}
                     <IconArrowsSort className="h-3 w-3" />
                   </div>
                 </th>
-                <th className={cn("min-w-[15rem] cursor-pointer select-none px-3 py-3 text-left text-2xs font-medium uppercase tracking-wide hover:text-primary", PINNED_CELL, "left-[5.5rem] bg-card", sortConfig.column === config.nameSortKey && "text-primary")} onClick={() => handleSort(config.nameSortKey)}>
+                <th className={cn("cursor-pointer select-none px-3 py-3 text-left text-2xs font-medium uppercase tracking-wide hover:text-primary", PINNED_CELL, PINNED_NAME_LEFT, PINNED_NAME_WIDTH, "bg-card", sortConfig.column === config.nameSortKey && "text-primary")} onClick={() => handleSort(config.nameSortKey)}>
                   <div className="flex items-center gap-1">
                     {config.nameHeader}
                     {isNameColumnFiltered && filterIndicator}
@@ -522,7 +525,7 @@ export function ManagerChildrenTable({
                   <td className={cn("px-3 py-3 text-center", PINNED_CELL, "left-10 bg-inherit")} onClick={(e) => e.stopPropagation()}>
                     <StatusCell original={child} currentTab={config.statusTab} packIds={packIds} />
                   </td>
-                  <td className={cn("px-3 py-3 text-left", PINNED_CELL, "left-[5.5rem] bg-inherit")}>
+                  <td className={cn("px-3 py-3 text-left", PINNED_CELL, PINNED_NAME_LEFT, PINNED_NAME_WIDTH, "bg-inherit")}>
                     {config.richNameCell ? (
                       <div className="flex items-center gap-2">
                         <ThumbnailImage src={getAdThumbnail(child)} alt="thumb" size="sm" />
