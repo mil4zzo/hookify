@@ -8,6 +8,8 @@ import { BulkApplyReviewDialog } from "@/components/common/BulkApplyReviewDialog
 import { ConfirmDialog } from "@/components/common/ConfirmDialog";
 import { StatePanel } from "@/components/common/States";
 import { LeadEconomicsEditor } from "@/components/packs/LeadEconomicsEditor";
+import { TargetCprRowsEditor } from "@/components/packs/TargetCprRowsEditor";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { api } from "@/lib/api/endpoints";
@@ -49,6 +51,7 @@ import {
   type BulkPackJudgmentPayload,
 } from "@/lib/utils/packJudgmentBulk";
 import { reviewBulkJudgment, type BulkReview } from "@/lib/utils/bulkApplyReview";
+import { rowsFromTargets, targetsFromRows, type TargetCprRow } from "@/lib/utils/targetCprRows";
 import { listNames } from "@/lib/utils/bulkSheetSync";
 import { showError, showSuccess, showWarning } from "@/lib/utils/toast";
 import type { AdsPack } from "@/lib/types";
@@ -75,6 +78,13 @@ interface PackJudgmentDialogProps {
 }
 
 const EMPTY_FORM: PackJudgmentFormValues = { mql: "", targets: {} };
+
+/**
+ * As três seções em abas: a economia do lead sozinha é mais alta que a tela, e as
+ * outras duas sumiam embaixo dela. Erro de validação no save leva para a aba dele.
+ */
+type JudgmentTab = "mql" | "cpr" | "economics";
+const TAB_OF_FIELD: Record<"mql" | "target" | "economics", JudgmentTab> = { mql: "mql", target: "cpr", economics: "economics" };
 
 /**
  * Configuração de julgamento do pack.
@@ -105,7 +115,10 @@ export function PackJudgmentDialog({ pack, open, onOpenChange, accountCurrency, 
   // Como os campos abriram: é a referência de "há alteração a perder".
   const [initialForm, setInitialForm] = useState<PackJudgmentFormValues>(EMPTY_FORM);
   const [mqlValue, setMqlValue] = useState("");
-  const [targets, setTargets] = useState<Record<string, string>>({});
+  // CPR alvo em LINHAS (só eventos com meta); o mapa com todos os eventos, que o resto
+  // do diálogo usa, é derivado delas logo abaixo (`targetsFromRows`).
+  const [targetRows, setTargetRows] = useState<TargetCprRow[]>([]);
+  const [tab, setTab] = useState<JudgmentTab>("mql");
   // Semente da abertura em massa: valores acordados, divergências, união dos eventos.
   const [bulkSeed, setBulkSeed] = useState<BulkJudgmentSeed | null>(null);
 
@@ -126,6 +139,8 @@ export function PackJudgmentDialog({ pack, open, onOpenChange, accountCurrency, 
     if (isBulk) return bulkSeed?.conversionTypes ?? [];
     return Array.isArray(pack?.conversion_types) ? pack!.conversion_types : [];
   }, [isBulk, bulkSeed, pack]);
+
+  const targets = useMemo(() => targetsFromRows(targetRows, conversionTypes), [targetRows, conversionTypes]);
 
   const packCount = isBulk ? bulkPacks!.length : 1;
   // Direto dos packs (não da semente, que só existe depois do primeiro efeito): senão a
@@ -176,7 +191,8 @@ export function PackJudgmentDialog({ pack, open, onOpenChange, accountCurrency, 
       setBulkSeed(seed);
       setInitialForm(seed.form);
       setMqlValue(seed.form.mql);
-      setTargets(seed.form.targets);
+      setTargetRows(rowsFromTargets(seed.form.targets, seed.conversionTypes));
+      setTab(seed.packsWithSheet > 0 ? "mql" : "cpr");
       setEconomicsSaved(seed.economicsSaved);
       setEconomicsRawExists(seed.economicsRawExists);
       setEconomics(openLeadEconomicsEdit(seed.economicsSaved));
@@ -190,7 +206,9 @@ export function PackJudgmentDialog({ pack, open, onOpenChange, accountCurrency, 
     const initial = packJudgmentFormValues(pack, types);
     setInitialForm(initial);
     setMqlValue(initial.mql);
-    setTargets(initial.targets);
+    setTargetRows(rowsFromTargets(initial.targets, types));
+    // Sem planilha, corte e economia só têm o aviso: abre onde há o que editar.
+    setTab(pack.sheet_integration ? "mql" : "cpr");
 
     // Cadastro inválido conta como não configurado (mesma regra das telas que o leem).
     const savedEconomics = normalizeLeadEconomics(pack.lead_economics);
@@ -212,10 +230,6 @@ export function PackJudgmentDialog({ pack, open, onOpenChange, accountCurrency, 
 
   const handleMqlChange = useCallback((value: string) => {
     setMqlValue(value);
-  }, []);
-
-  const handleTargetChange = useCallback((type: string, value: string) => {
-    setTargets((prev) => ({ ...prev, [type]: value }));
   }, []);
 
   const handleEconomicsChange = useCallback((next: LeadEconomicsDraft) => {
@@ -279,6 +293,7 @@ export function PackJudgmentDialog({ pack, open, onOpenChange, accountCurrency, 
     const built = buildBulkPackJudgmentPayload({ mql: mqlValue, targets }, initialForm, economicsDecision);
     if (built.kind === "error") {
       if (built.field === "economics") setShowEconomicsErrors(true);
+      setTab(TAB_OF_FIELD[built.field]);
       showError(built.message);
       return;
     }
@@ -332,6 +347,7 @@ export function PackJudgmentDialog({ pack, open, onOpenChange, accountCurrency, 
     const built = buildPackJudgmentPayload({ mql: mqlValue, targets }, economicsDecision);
     if (built.kind === "error") {
       if (built.field === "economics") setShowEconomicsErrors(true);
+      setTab(TAB_OF_FIELD[built.field]);
       showError(built.message);
       return;
     }
@@ -363,6 +379,21 @@ export function PackJudgmentDialog({ pack, open, onOpenChange, accountCurrency, 
   const packsNoun = packCount === 1 ? "pack" : "packs";
   const mqlEffect = isBulk ? bulkFieldEffect(initialForm.mql, mqlValue) : null;
   const changedTargets = isBulk ? changedBulkTargets(initialForm, { mql: mqlValue, targets }) : [];
+  // Ponto na aba com alteração não salva: com as seções escondidas, é o que lembra
+  // que o "Salvar" leva o que foi mexido nas outras abas também.
+  const tabChanged: Record<JudgmentTab, boolean> = {
+    mql: initialForm.mql.trim() !== mqlValue.trim(),
+    cpr: isPackJudgmentFormDirty({ mql: "", targets: initialForm.targets }, { mql: "", targets }),
+    economics: isLeadEconomicsEditDirty(economics),
+  };
+  const divergentHiddenTargets =
+    isBulk && bulkSeed ? bulkSeed.divergent.targetKeys.filter((key) => !targetRows.some((row) => row.event === key)) : [];
+  const tabTrigger = (value: JudgmentTab, label: string) => (
+    <TabsTrigger value={value} className="flex-1 gap-2">
+      {label}
+      {tabChanged[value] ? <span className="h-1.5 w-1.5 rounded-full bg-current" aria-label="alterado" /> : null}
+    </TabsTrigger>
+  );
 
   return (
     // 2xl (e não lg): as tabelas de produtos e faixas da economia do lead não cabem
@@ -395,16 +426,20 @@ export function PackJudgmentDialog({ pack, open, onOpenChange, accountCurrency, 
           )}
         </header>
 
-        <div className="space-y-6">
+        <Tabs value={tab} onValueChange={(value) => setTab(value as JudgmentTab)}>
+          <TabsList className="w-full">
+            {tabTrigger("mql", "Leadscore")}
+            {tabTrigger("cpr", "CPR alvo")}
+            {tabTrigger("economics", "Economia do lead")}
+          </TabsList>
+
           {/* ── Leadscore mínimo para MQL ── */}
+          <TabsContent value="mql" className="pt-4">
           <section className="space-y-2">
-            <div>
-              <p className="text-sm font-medium text-foreground">Leadscore mínimo para MQL</p>
-              <p className="text-xs text-muted-foreground">
-                Leads com leadscore maior ou igual a este valor contam como MQL. A escala vem da
-                planilha integrada.
-              </p>
-            </div>
+            <p className="text-xs text-muted-foreground">
+              Leadscore mínimo para MQL: leads com nota maior ou igual a este valor contam como MQL. A
+              escala vem da planilha integrada.
+            </p>
 
             {hasSheetIntegration ? (
               <>
@@ -458,16 +493,16 @@ export function PackJudgmentDialog({ pack, open, onOpenChange, accountCurrency, 
               </p>
             )}
           </section>
+          </TabsContent>
 
           {/* ── CPR alvo por evento ── */}
-          <section className="space-y-2">
-            <div>
-              <p className="text-sm font-medium text-foreground">CPR alvo por evento</p>
-              <p className="text-xs text-muted-foreground">
-                Opcional. Usado pelo plano de ação para comparar o custo real com a sua meta.
-                {isBulk ? " Só os eventos que você mexer mudam nos packs; os outros ficam como estão em cada um." : ""}
-              </p>
-            </div>
+          <TabsContent value="cpr" className="pt-4">
+          <section className="space-y-3">
+            <p className="text-xs text-muted-foreground">
+              Opcional. A meta de custo por evento de conversão, usada pelo plano de ação para comparar o
+              custo real com o que você quer pagar.
+              {isBulk ? " Só os eventos que você mexer mudam nos packs; os outros ficam como estão em cada um." : ""}
+            </p>
 
             {conversionTypes.length === 0 ? (
               <p className="flex items-start gap-2 text-xs text-muted-foreground">
@@ -478,45 +513,40 @@ export function PackJudgmentDialog({ pack, open, onOpenChange, accountCurrency, 
               </p>
             ) : (
               <div className="space-y-2">
-                {conversionTypes.map((type) => {
-                  const diverges = isBulk && !!bulkSeed?.divergent.targetKeys.includes(type) && !changedTargets.includes(type);
-                  return (
-                    <div key={type} className="flex items-center gap-3">
-                      <span className="flex-1 truncate text-xs text-muted-foreground" title={type}>
-                        {formatActionTypeLabel(type)}
-                        {diverges ? <span className="opacity-50"> · os packs discordam</span> : null}
-                      </span>
-                      <Input
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        size="sm"
-                        className="w-32"
-                        value={targets[type] ?? ""}
-                        onChange={(e) => handleTargetChange(type, e.target.value)}
-                        placeholder="sem meta"
-                        disabled={isSaving}
-                      />
-                    </div>
-                  );
-                })}
+                <TargetCprRowsEditor
+                  rows={targetRows}
+                  onChange={setTargetRows}
+                  conversionTypes={conversionTypes}
+                  disabled={isSaving}
+                  eventNote={isBulk ? (event) => (bulkSeed?.divergent.targetKeys.includes(event) ? "os packs discordam" : undefined) : undefined}
+                />
+                {divergentHiddenTargets.length > 0 ? (
+                  <p className="flex items-start gap-2 text-xs text-muted-foreground">
+                    <IconInfoCircle className="mt-0.5 h-3 w-3 shrink-0" />
+                    {divergentHiddenTargets.length === 1 ? "1 evento tem" : `${divergentHiddenTargets.length} eventos têm`} metas
+                    diferentes entre os packs e {divergentHiddenTargets.length === 1 ? "fica" : "ficam"} como{" "}
+                    {divergentHiddenTargets.length === 1 ? "está" : "estão"}{" "}
+                    {`(${divergentHiddenTargets.map(formatActionTypeLabel).join(", ")}).`} Para definir igual em todos, adicione o evento.
+                  </p>
+                ) : null}
                 {changedTargets.length > 0 ? (
                   <p className="text-xs text-muted-foreground">
                     {changedTargets.length === 1 ? "1 evento alterado" : `${changedTargets.length} eventos alterados`}: a meta vale
-                    para os {packCount} {packsNoun} (campo vazio remove a meta desse evento em todos).
+                    para os {packCount} {packsNoun} (linha removida ou vazia tira a meta desse evento de todos).
                   </p>
                 ) : null}
               </div>
             )}
           </section>
+          </TabsContent>
 
           {/* ── Economia do lead ── */}
+          <TabsContent value="economics" className="pt-4">
           <section className="space-y-3">
             {/* Quebra de linha em vez de espremer: em tela estreita o botão desce e o
                 texto fica com a largura toda (piso de 12rem antes de quebrar). */}
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div className="min-w-[12rem] flex-1">
-                <p className="text-sm font-medium text-foreground">Economia do lead</p>
                 <p className="text-xs text-muted-foreground">
                   Dá o teto de CPL e a margem de cada anúncio, a partir do que você vende e de quem compra.
                   {isBulk && economicsSaved ? ` Os ${packCount} ${packsNoun} têm o mesmo cadastro; o que você salvar vale para todos.` : ""}
@@ -645,7 +675,8 @@ export function PackJudgmentDialog({ pack, open, onOpenChange, accountCurrency, 
               />
             )}
           </section>
-        </div>
+          </TabsContent>
+        </Tabs>
 
         <footer className="flex justify-end gap-3 border-t border-border pt-4">
           <Button variant="outline" onClick={requestClose} disabled={isSaving}>
