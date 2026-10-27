@@ -23,7 +23,6 @@
  */
 
 import {
-  LEAD_ECONOMICS_MAX_BANDS,
   LEAD_ECONOMICS_MAX_PRODUCTS,
   LEAD_ECONOMICS_MESSAGES,
   LEAD_ECONOMICS_PRODUCT_NAME_MAX,
@@ -522,20 +521,37 @@ export function draftBandMins(draft: LeadEconomicsDraft): (number | null)[] {
 }
 
 /**
- * Rótulo da faixa para a tela e para o aviso de "produto em uso". Enquanto o corte
- * seguinte não é um número, a primeira faixa não tem como dizer "abaixo de quanto".
+ * Rótulo da faixa a partir dos cortes JÁ convertidos (`draftBandMins`). A conta é
+ * uma só para o rótulo de uma faixa e o de todas, para elas nunca divergirem.
  */
-export function draftBandLabel(draft: LeadEconomicsDraft, index: number): string {
-  const mins = draftBandMins(draft);
-  if (draft.bands.length <= 1) return "todas as notas";
+function bandLabelFromMins(mins: readonly (number | null)[], index: number): string {
+  if (mins.length <= 1) return "todas as notas";
   const own = mins[index] ?? null;
   const next = index + 1 < mins.length ? mins[index + 1] : null;
-  const isLast = index === draft.bands.length - 1;
+  const isLast = index === mins.length - 1;
   if (index === 0) return next === null ? "abaixo do próximo corte" : `abaixo de ${formatLeadScore(next)}`;
   if (own === null) return `faixa ${index + 1}`;
   if (isLast) return `${formatLeadScore(own)} ou mais`;
   if (next === null) return `a partir de ${formatLeadScore(own)}`;
   return `${formatLeadScore(own)} a menos de ${formatLeadScore(next)}`;
+}
+
+/**
+ * Rótulo da faixa para a tela e para o aviso de "produto em uso". Enquanto o corte
+ * seguinte não é um número, a primeira faixa não tem como dizer "abaixo de quanto".
+ */
+export function draftBandLabel(draft: LeadEconomicsDraft, index: number): string {
+  return bandLabelFromMins(draftBandMins(draft), index);
+}
+
+/**
+ * O rótulo de TODAS as faixas, lendo os cortes uma vez. O editor chama isto a cada
+ * tecla: com `draftBandLabel` por faixa, cada rótulo relia todos os cortes e o render
+ * custava O(n²) — 0,8 s por tecla com mil faixas (o cadastro não tem teto de faixas).
+ */
+export function draftBandLabels(draft: LeadEconomicsDraft): string[] {
+  const mins = draftBandMins(draft);
+  return mins.map((_, index) => bandLabelFromMins(mins, index));
 }
 
 /**
@@ -547,9 +563,17 @@ export function draftBandLabel(draft: LeadEconomicsDraft, index: number): string
  * da faixa e ela como faixa única), para não repetir aqui as regras de cada campo.
  */
 export function draftBandCeiling(draft: LeadEconomicsDraft, index: number): number | null {
-  const band = draft.bands[index];
-  if (!band) return null;
+  if (!draft.bands[index]) return null;
+  return bandCeilingFromDocument(draftToLeadEconomicsDocument(draft), index);
+}
+
+/** O teto de TODAS as faixas, convertendo o rascunho uma vez (ver `draftBandLabels`). */
+export function draftBandCeilings(draft: LeadEconomicsDraft): (number | null)[] {
   const doc = draftToLeadEconomicsDocument(draft);
+  return doc.bands.map((_, index) => bandCeilingFromDocument(doc, index));
+}
+
+function bandCeilingFromDocument(doc: ReturnType<typeof draftToLeadEconomicsDocument>, index: number): number | null {
   const productId = doc.bands[index].product;
   const product = doc.products.find((item) => item.id === productId);
   if (!product) return null;
@@ -574,7 +598,6 @@ export function bandsUsingProduct(draft: LeadEconomicsDraft, productId: string):
 /** Separa as mensagens do contrato por bloco da tela: faixas × produtos. */
 const BAND_MESSAGES = new Set<string>([
   LEAD_ECONOMICS_MESSAGES.noBands,
-  LEAD_ECONOMICS_MESSAGES.tooManyBands,
   LEAD_ECONOMICS_MESSAGES.firstBandHasMin,
   LEAD_ECONOMICS_MESSAGES.bandMinMissing,
   LEAD_ECONOMICS_UNREADABLE_CUT_MESSAGE,
@@ -591,10 +614,6 @@ export function isLeadEconomicsBandMessage(message: string): boolean {
 
 export function canAddDraftProduct(draft: LeadEconomicsDraft): boolean {
   return draft.products.length < LEAD_ECONOMICS_MAX_PRODUCTS;
-}
-
-export function canAddDraftBand(draft: LeadEconomicsDraft): boolean {
-  return draft.bands.length < LEAD_ECONOMICS_MAX_BANDS;
 }
 
 export function addDraftProduct(draft: LeadEconomicsDraft): LeadEconomicsDraft {
@@ -660,7 +679,6 @@ export function suggestNextCut(draft: LeadEconomicsDraft, mqlLeadscoreMin: numbe
 
 /** Faixa nova no fim, com o corte sugerido e o produto da última faixa. */
 export function addDraftBand(draft: LeadEconomicsDraft, mqlLeadscoreMin: number | null): LeadEconomicsDraft {
-  if (!canAddDraftBand(draft)) return draft;
   const last = draft.bands[draft.bands.length - 1];
   const band: LeadEconomicsBandDraft = {
     key: newLeadEconomicsId(),

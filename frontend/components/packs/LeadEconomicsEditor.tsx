@@ -12,10 +12,9 @@ import {
   addDraftBand,
   addDraftProduct,
   bandsUsingProduct,
-  canAddDraftBand,
   canAddDraftProduct,
-  draftBandCeiling,
-  draftBandLabel,
+  draftBandCeilings,
+  draftBandLabels,
   draftBandMins,
   isLeadEconomicsBandMessage,
   leadEconomicsDraftErrors,
@@ -294,6 +293,10 @@ export function LeadEconomicsEditor({
   const activeRemovalId = activeRemoval?.productId ?? null;
   const currencySymbol = useMemo(() => leadEconomicsCurrencySymbol(currency), [currency]);
   const mins = useMemo(() => draftBandMins(value), [value]);
+  // Rótulo e teto de todas as faixas, uma vez por mudança do rascunho: por faixa, cada
+  // um relia o cadastro inteiro (O(n²) por tecla; o cadastro não tem teto de faixas).
+  const labels = useMemo(() => draftBandLabels(value), [value]);
+  const ceilings = useMemo(() => draftBandCeilings(value), [value]);
 
   const errors = useMemo(
     () => (showAllErrors ? leadEconomicsDraftErrors(value) : leadEconomicsDraftLiveErrors(value)),
@@ -446,7 +449,7 @@ export function LeadEconomicsEditor({
               const removal = activeRemoval?.productId === product.id ? activeRemoval : null;
               // Destino que a tela mostra é o que vale no "Mover e remover".
               const moveTo = removal && others.some(({ item }) => item.id === removal.moveTo) ? removal.moveTo : (others[0]?.item.id ?? "");
-              const usedBy = removal ? bandsUsingProduct(value, product.id).map((i) => `"${draftBandLabel(value, i)}"`) : [];
+              const usedBy = removal ? bandsUsingProduct(value, product.id).map((i) => `"${labels[i]}"`) : [];
 
               return (
                 <div key={product.id}>
@@ -599,8 +602,8 @@ export function LeadEconomicsEditor({
             </div>
 
             {value.bands.map((band, index) => {
-              const label = draftBandLabel(value, index);
-              const ceiling = draftBandCeiling(value, index);
+              const label = labels[index];
+              const ceiling = ceilings[index];
               const suffix = cutSuffix(index);
               const bandIssues = issues.bands[index] ?? {};
               // Com um produto só, a faixa é dele qualquer que seja o id guardado (o
@@ -722,7 +725,7 @@ export function LeadEconomicsEditor({
           </p>
         </div>
         <div>
-          <Button ref={addBandRef} variant="outline" size="sm" onClick={addBand} disabled={disabled || !canAddDraftBand(value)}>
+          <Button ref={addBandRef} variant="outline" size="sm" onClick={addBand} disabled={disabled}>
             <IconPlus />
             Adicionar faixa
           </Button>

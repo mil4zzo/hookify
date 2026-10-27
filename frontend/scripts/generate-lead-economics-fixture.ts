@@ -213,11 +213,20 @@ const CASOS: CasoDeEntrada[] = [
     input: cadastro([produto()], [faixa(), faixa({ min: 59.5 }), faixa({ min: 60 })]),
   },
   {
-    name: "valido: 10 produtos e 10 faixas (no limite)",
+    name: "valido: 10 produtos e 10 faixas",
     input: cadastro(
       produtosNumerados(10),
       Array.from({ length: 10 }, (_, i) => faixa({ min: i === 0 ? null : i * 10, product: `p${i + 1}` })),
     ),
+  },
+  // Faixas não têm teto (2026-10-27): 11 já foi o primeiro caso recusado.
+  {
+    name: "valido: 11 faixas",
+    input: cadastro([produto()], Array.from({ length: 11 }, (_, i) => faixa({ min: i === 0 ? null : i * 10 }))),
+  },
+  {
+    name: "valido: 300 faixas, uma por décimo de nota",
+    input: cadastro([produto()], Array.from({ length: 300 }, (_, i) => faixa({ min: i === 0 ? null : i / 10 }))),
   },
 
   // Forma
@@ -241,8 +250,11 @@ const CASOS: CasoDeEntrada[] = [
   { name: "11 produtos", input: cadastro(produtosNumerados(11)) },
   { name: "0 faixas", input: cadastro([produto()], []) },
   {
-    name: "11 faixas",
-    input: cadastro([produto()], Array.from({ length: 11 }, (_, i) => faixa({ min: i === 0 ? null : i * 10 }))),
+    name: "300 faixas com um corte fora de ordem no fim",
+    input: cadastro(
+      [produto()],
+      Array.from({ length: 300 }, (_, i) => faixa({ min: i === 0 ? null : i === 299 ? 5 : i })),
+    ),
   },
 
   // Id do produto

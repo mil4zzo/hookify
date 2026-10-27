@@ -289,6 +289,22 @@ test("um produto só: campo de nome e coluna \"Produto\" continuam na tela (revi
   tagWith(html, 'aria-label="Ticket de Mentoria"');
 });
 
+test("faixas não têm teto: com 10, 11 e 300 faixas o editor desenha todas e deixa adicionar mais", () => {
+  for (const quantidade of [10, 11, 300]) {
+    const many: LeadEconomicsDraft = {
+      products: [{ id: "p1", name: "Mentoria", ticket: "3.000", contribution: "55", target: "40" }],
+      bands: Array.from({ length: quantidade }, (_, i) => ({ key: `b${i}`, min: i === 0 ? "" : String(i * 10), product: "p1", conversion: "4" })),
+    };
+    const html = render({ value: many });
+    // Uma linha de teto por faixa (o <output> com nome), a última com "ou mais".
+    assert.equal(html.match(/<output /g)?.length, quantidade, `${quantidade} faixas desenhadas`);
+    // Só a última faixa é "ou mais" (o corte vem com milhar: "2.990 ou mais").
+    assert.equal(html.match(/aria-label="Teto por lead da faixa [^"]* ou mais"/g)?.length, 1, `última de ${quantidade}`);
+    const add = html.slice(html.lastIndexOf("<button", html.indexOf("Adicionar faixa")), html.indexOf("Adicionar faixa"));
+    assert.ok(!/\sdisabled(=|\s|>)/.test(add), `"Adicionar faixa" desabilitado com ${quantidade} faixas`);
+  }
+});
+
 test("rótulos truncáveis têm title: o limite de cima da faixa não some em tela estreita", () => {
   const html = render({ value: draftWithMistakes() });
   assert.ok(html.includes('title="abaixo de 70"'), "rótulo da primeira faixa");

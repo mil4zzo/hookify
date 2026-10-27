@@ -10,7 +10,9 @@ import {
   createLeadEconomicsDraft,
   decideLeadEconomicsPayload,
   draftBandCeiling,
+  draftBandCeilings,
   draftBandLabel,
+  draftBandLabels,
   draftToLeadEconomicsDocument,
   editLeadEconomicsDraft,
   formatMoneyInput,
@@ -918,4 +920,70 @@ test("erro por campo (propriedade): há erro de campo ⇔ o contrato recusa; e �
       `ao vivo ≠ leadEconomicsDraftLiveErrors: ${JSON.stringify(d)}`,
     );
   }
+});
+
+// ── Faixas sem teto (2026-10-27) ─────────────────────────────────────────────
+
+test("faixas não têm teto: adicionar passa de 10, de 11 e de 300", () => {
+  // Com corte de MQL o rascunho nasce com 2 faixas (a sugestão do corte parte dele).
+  let current = createLeadEconomicsDraft(70);
+  for (let i = 0; i < 299; i++) current = addDraftBand(current, 70);
+  assert.equal(current.bands.length, 301);
+  // Cada uma nasce com o corte sugerido acima da anterior: o rascunho todo valida quando preenchido.
+  const filled = {
+    ...current,
+    products: current.products.map((product) => ({ ...product, name: "Mentoria", ticket: "3.000", contribution: "55", target: "40" })),
+    bands: current.bands.map((band) => ({ ...band, conversion: "4" })),
+  };
+  const { value, errors } = validateLeadEconomicsDraft(filled);
+  assert.deepEqual(errors, []);
+  assert.equal(value?.bands.length, 301);
+});
+
+test("rótulos e tetos em lote dão EXATAMENTE o de cada faixa, também com campos errados", () => {
+  const drafts = [
+    leadEconomicsToDraft(EXAMPLE),
+    createLeadEconomicsDraft(70),
+    createLeadEconomicsDraft(null),
+    // Corte ilegível, vazio e fora de ordem; conversão em branco; produto que sumiu.
+    draft(
+      [MENTORIA, EBOOK],
+      [
+        { min: "", product: "p2", conversion: "0,5" },
+        { min: "7O", product: "p1", conversion: "4" },
+        { min: "", product: "p1", conversion: "" },
+        { min: "50", product: "sumiu", conversion: "12" },
+        { min: "40", product: "p1", conversion: "150" },
+      ],
+    ),
+  ];
+  for (const d of drafts) {
+    assert.deepEqual(draftBandLabels(d), d.bands.map((_, i) => draftBandLabel(d, i)));
+    assert.deepEqual(draftBandCeilings(d), d.bands.map((_, i) => draftBandCeiling(d, i)));
+  }
+});
+
+test("rótulos e tetos em lote são lineares no número de faixas, não quadráticos", () => {
+  // Por RAZÃO entre tamanhos, não por segundos (variam com a máquina). Quadruplicar as
+  // faixas quadruplica o tempo se for linear (~4x) e o multiplica por 16 se não for.
+  // O render do editor chamava um rótulo e um teto por faixa: 0,8 s/tecla com mil faixas.
+  const doc = (quantidade: number) =>
+    leadEconomicsToDraft({
+      products: [{ id: "p1", name: "Mentoria", ticket: 3000, contribution_margin: 0.55, target_margin: 0.4 }],
+      bands: Array.from({ length: quantidade }, (_, i) => ({ min: i === 0 ? null : i / 10, product: "p1", conversion: 0.04 })),
+    });
+  const melhor = (quantidade: number) => {
+    const d = doc(quantidade);
+    let best = Infinity;
+    for (let run = 0; run < 3; run++) {
+      const start = performance.now();
+      draftBandLabels(d);
+      draftBandCeilings(d);
+      best = Math.min(best, performance.now() - start);
+    }
+    return best;
+  };
+  const pequeno = melhor(500);
+  const grande = melhor(2000);
+  assert.ok(grande / pequeno < 9, `2000 faixas levaram ${(grande / pequeno).toFixed(1)}x o tempo de 500 (linear ~4x)`);
 });

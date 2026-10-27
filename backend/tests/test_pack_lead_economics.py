@@ -35,7 +35,6 @@ from app.core.auth import get_current_user
 from app.routes import analytics
 from app.services import pack_access, supabase_repo
 from app.services.lead_economics import (
-    LEAD_ECONOMICS_MAX_BANDS,
     LEAD_ECONOMICS_MAX_PRODUCTS,
     LEAD_ECONOMICS_MESSAGES as M,
     validate_lead_economics,
@@ -271,11 +270,16 @@ def test_margem_desejada_nao_menor_que_a_sobra_400(client, sb, target):
     assert sb.updates == []
 
 
-def test_onze_faixas_400(client, sb):
-    r = _patch(client, {"lead_economics": _com_mins(None, *range(10, 110, 10))})
-    assert r.status_code == 400
-    assert r.json()["detail"] == M["tooManyBands"]
-    assert sb.updates == []
+@pytest.mark.parametrize("quantidade", [11, 300, 5_000])
+def test_faixas_nao_tem_teto(client, sb, quantidade):
+    # 2026-10-27: o limite de 10 faixas deixou de existir. Uma faixa por décimo de nota
+    # (e muito mais) grava, com a ordem dos cortes preservada.
+    doc = _com_mins(None, *[i / 10 for i in range(1, quantidade)])
+    r = _patch(client, {"lead_economics": doc})
+    assert r.status_code == 200, r.text
+    gravado = sb.updates[0]["data"]["lead_economics"]
+    assert len(gravado["bands"]) == quantidade
+    assert [b["min"] for b in gravado["bands"]] == [b["min"] for b in doc["bands"]]
 
 
 @pytest.mark.parametrize("cru", [[], "abc", 42, {"products": []}])
@@ -334,14 +338,44 @@ def test_duzentos_mil_produtos_400_em_menos_de_1s(client, sb, validador_espiao):
     assert sb.updates == []
 
 
-def test_duzentas_mil_faixas_400_em_menos_de_1s(client, sb, validador_espiao):
+def test_duzentas_mil_faixas_invalidas_400_sem_travar_o_worker(client, sb, validador_espiao):
+    # Sem teto de faixas, o validador percorre TODAS: o que segura o custo é ele ser
+    # linear (dedupe por set), não um corte da lista. 200 mil faixas vazias.
     doc = {"products": copy.deepcopy(VALIDO["products"]), "bands": [{} for _ in range(200_000)]}
+    _, erros_cheios = validate_lead_economics(copy.deepcopy(doc))
     r, decorrido = _patch_cronometrado(client, {"lead_economics": doc})
     assert r.status_code == 400
-    assert r.json()["detail"] == M["tooManyBands"]
-    assert decorrido < 1, f"rota levou {decorrido:.2f}s"
-    assert validador_espiao == [{"products": 2, "bands": LEAD_ECONOMICS_MAX_BANDS + 1}]
+    assert r.json()["detail"] == erros_cheios[0]
+    # Folga larga: a rota mede também a serialização de 200 mil itens pelo cliente de
+    # teste (0,6–1,4 s); quem prova o custo linear é test_validador_e_linear_em_faixas.
+    assert decorrido < 5, f"rota levou {decorrido:.2f}s"
+    assert validador_espiao == [{"products": 2, "bands": 200_000}]
     assert sb.updates == []
+
+
+def test_cinquenta_mil_faixas_validas_gravam(client, sb):
+    doc = _com_mins(None, *range(1, 50_000))
+    r = _patch(client, {"lead_economics": doc})
+    assert r.status_code == 200, r.text
+    assert len(sb.updates[0]["data"]["lead_economics"]["bands"]) == 50_000
+
+
+def test_validador_e_linear_em_faixas():
+    # Prova "linear, não quadrático" por RAZÃO entre tamanhos — não por segundos, que
+    # variam com a máquina (0,4 s a 2 s para o mesmo documento). Quadrupicar as faixas
+    # quadruplica o tempo se for linear (razão ~4) e o multiplica por 16 se não for.
+    def melhor_tempo(quantidade):
+        doc = _com_mins(None, *range(1, quantidade))
+        tempos = []
+        for _ in range(3):
+            inicio = time.perf_counter()
+            valor, erros = validate_lead_economics(doc)
+            tempos.append(time.perf_counter() - inicio)
+            assert erros == [] and valor is not None
+        return min(tempos)
+
+    pequeno, grande = melhor_tempo(20_000), melhor_tempo(80_000)
+    assert grande / pequeno < 9, f"80 mil faixas levaram {grande / pequeno:.1f}x o tempo de 20 mil (linear ~4x)"
 
 
 def _faixas(n, **extra):
@@ -370,10 +404,6 @@ _ACIMA_DO_TETO = {
     "produtos validos e 50 faixas com erro ja na primeira": {
         "products": copy.deepcopy(VALIDO["products"]),
         "bands": [{"min": 5, "product": "p9", "conversion": 2}] + _faixas(49),
-    },
-    "produtos validos e 11 faixas que nao sao objeto": {
-        "products": copy.deepcopy(VALIDO["products"]),
-        "bands": ["x"] * (LEAD_ECONOMICS_MAX_BANDS + 1),
     },
 }
 

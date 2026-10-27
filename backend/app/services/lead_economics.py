@@ -70,7 +70,6 @@ import re
 from typing import Any, Dict, List, Optional, Tuple
 
 LEAD_ECONOMICS_MAX_PRODUCTS = 10
-LEAD_ECONOMICS_MAX_BANDS = 10
 LEAD_ECONOMICS_PRODUCT_ID_MAX = 40
 LEAD_ECONOMICS_PRODUCT_NAME_MAX = 60
 
@@ -81,7 +80,6 @@ LEAD_ECONOMICS_MESSAGES: Dict[str, str] = {
     "noProducts": "Cadastre ao menos um produto.",
     "tooManyProducts": f"Cadastre no máximo {LEAD_ECONOMICS_MAX_PRODUCTS} produtos.",
     "noBands": "Cadastre ao menos uma faixa de nota.",
-    "tooManyBands": f"Cadastre no máximo {LEAD_ECONOMICS_MAX_BANDS} faixas de nota.",
     "productNameMissing": "Dê um nome a cada produto.",
     "productNameTooLong": f"O nome do produto pode ter no máximo {LEAD_ECONOMICS_PRODUCT_NAME_MAX} caracteres.",
     "productNameDuplicate": 'Dois produtos com o nome "{name}".',
@@ -280,8 +278,6 @@ def validate_lead_economics(raw: Any) -> Tuple[Optional[Dict[str, Any]], List[st
     raw_bands: List[Any] = raw["bands"]
     if len(raw_bands) == 0:
         push(M["noBands"])
-    if len(raw_bands) > LEAD_ECONOMICS_MAX_BANDS:
-        push(M["tooManyBands"])
 
     bands: List[Dict[str, Any]] = []
     # Última nota de corte VÁLIDA vista. Uma nota inválida no meio não a apaga;

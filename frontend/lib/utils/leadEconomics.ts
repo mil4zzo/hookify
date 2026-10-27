@@ -46,7 +46,6 @@ export interface LeadEconomics {
 }
 
 export const LEAD_ECONOMICS_MAX_PRODUCTS = 10;
-export const LEAD_ECONOMICS_MAX_BANDS = 10;
 export const LEAD_ECONOMICS_PRODUCT_ID_MAX = 40;
 export const LEAD_ECONOMICS_PRODUCT_NAME_MAX = 60;
 /** Abaixo disto o teto aparece esmaecido, como número instável (D7). */
@@ -59,7 +58,6 @@ export const LEAD_ECONOMICS_MESSAGES = {
   noProducts: "Cadastre ao menos um produto.",
   tooManyProducts: `Cadastre no máximo ${LEAD_ECONOMICS_MAX_PRODUCTS} produtos.`,
   noBands: "Cadastre ao menos uma faixa de nota.",
-  tooManyBands: `Cadastre no máximo ${LEAD_ECONOMICS_MAX_BANDS} faixas de nota.`,
   productNameMissing: "Dê um nome a cada produto.",
   productNameTooLong: `O nome do produto pode ter no máximo ${LEAD_ECONOMICS_PRODUCT_NAME_MAX} caracteres.`,
   productNameDuplicate: (name: string) => `Dois produtos com o nome "${name}".`,
@@ -199,7 +197,6 @@ function checkLeadEconomics(raw: unknown, mode: LeadEconomicsCheckMode): LeadEco
   // Faixas
   const rawBands = raw.bands as unknown[];
   if (rawBands.length === 0) push(M.noBands);
-  if (rawBands.length > LEAD_ECONOMICS_MAX_BANDS) push(M.tooManyBands);
 
   const bands: LeadEconomicsBand[] = [];
   let previousMin: number | null = null;

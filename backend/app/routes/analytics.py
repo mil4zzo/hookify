@@ -23,7 +23,6 @@ from app.services import entity_performance as EP
 from app.services.pack_access import assert_pack_role, resolve_entity_pack_scope, resolve_pack_roles
 from app.services import pack_action_log
 from app.services.lead_economics import (
-    LEAD_ECONOMICS_MAX_BANDS,
     LEAD_ECONOMICS_MAX_PRODUCTS,
     LEAD_ECONOMICS_MESSAGES,
     validate_lead_economics,
@@ -355,16 +354,8 @@ def _validate_judgment_fields(fields: Dict[str, Any], *, target_removal: bool = 
             # antes de qualquer item. Ela e o errors[0].
             if len(raw_economics["products"]) > LEAD_ECONOMICS_MAX_PRODUCTS:
                 raise HTTPException(status_code=400, detail=LEAD_ECONOMICS_MESSAGES["tooManyProducts"])
-            # Faixas demais: valida com MAX + 1. Os produtos seguem inteiros e
-            # vem antes, entao um erro de produto continua sendo o errors[0]; sem
-            # erro de produto, o primeiro das faixas e tooManyBands (noBands e
-            # impossivel), emitido antes de qualquer faixa e ainda emitido com
-            # MAX + 1. Com tooManyBands nao ha documento valido nos dois casos.
-            if len(raw_economics["bands"]) > LEAD_ECONOMICS_MAX_BANDS:
-                raw_economics = {
-                    **raw_economics,
-                    "bands": raw_economics["bands"][: LEAD_ECONOMICS_MAX_BANDS + 1],
-                }
+            # Faixas NAO tem teto (2026-10-27): o cadastro aceita quantas o usuario
+            # quiser, e o validador as percorre em tempo linear (set, nao lista).
         economics, economics_errors = validate_lead_economics(raw_economics)
         if economics_errors:
             # A primeira: a tela ja validou com as mesmas regras e mostra todas;
