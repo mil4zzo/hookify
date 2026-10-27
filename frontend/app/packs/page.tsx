@@ -48,7 +48,7 @@ import { cn } from "@/lib/utils/cn";
 import { isPackRefreshingOnServer } from "@/lib/utils/packRefreshState";
 import { useFolders } from "@/lib/hooks/useFolders";
 import { ALL_PACKS_VIEW, PackFolderTree, TreeRowMenuTrigger, type FolderView } from "@/components/packs/PackFolderTree";
-import { FolderActionsMenu } from "@/components/packs/FolderActionsMenu";
+import { FolderActionsMenu, type FolderPackAction } from "@/components/packs/FolderActionsMenu";
 import { PackActionsMenu } from "@/components/packs/PackActionsMenu";
 import { MoveToFolderDialog } from "@/components/packs/MoveToFolderDialog";
 import { FolderCard } from "@/components/packs/FolderCard";
@@ -394,29 +394,35 @@ export default function PacksPage() {
   // do Google vivem no silo do dono; pack compartilhado com você fica de fora (avisado).
   const selectedOwnedPacks = useMemo(() => selectedPacksList.filter((p) => !p.shared_role), [selectedPacksList]);
   const [bulkSheetPackIds, setBulkSheetPackIds] = useState<string[] | null>(null);
-  const handleBulkConfigureSheet = () => {
-    const guests = selectedPacksList.length - selectedOwnedPacks.length;
+  // As ações em massa recebem a LISTA de packs: a barra passa a seleção, o menu da
+  // pasta passa os packs da pasta e de todas as subpastas.
+  const configureSheetFor = (list: AdsPack[]) => {
+    const owned = list.filter((p) => !p.shared_role);
+    const guests = list.length - owned.length;
     if (guests > 0) {
       showWarning(
         `${guests} ${guests === 1 ? "pack compartilhado com você fica" : "packs compartilhados com você ficam"} de fora: só o dono configura a planilha.`,
       );
     }
-    if (selectedOwnedPacks.length > 0) setBulkSheetPackIds(selectedOwnedPacks.map((p) => p.id));
+    if (owned.length > 0) setBulkSheetPackIds(owned.map((p) => p.id));
   };
+  const handleBulkConfigureSheet = () => configureSheetFor(selectedPacksList);
 
   // Critérios de julgamento em massa: dono e editor escrevem (o critério é do pack,
   // não do silo); pack compartilhado só para leitura fica de fora (avisado).
   const selectedWritablePacks = useMemo(() => selectedPacksList.filter((p) => p.shared_role !== "viewer"), [selectedPacksList]);
   const [bulkJudgmentPacks, setBulkJudgmentPacks] = useState<AdsPack[] | null>(null);
-  const handleBulkConfigureJudgment = () => {
-    const viewers = selectedPacksList.length - selectedWritablePacks.length;
+  const configureJudgmentFor = (list: AdsPack[]) => {
+    const writable = list.filter((p) => p.shared_role !== "viewer");
+    const viewers = list.length - writable.length;
     if (viewers > 0) {
       showWarning(
         `${viewers} ${viewers === 1 ? "pack compartilhado só para leitura fica" : "packs compartilhados só para leitura ficam"} de fora: só dono ou editor mudam os critérios.`,
       );
     }
-    if (selectedWritablePacks.length > 0) setBulkJudgmentPacks(selectedWritablePacks);
+    if (writable.length > 0) setBulkJudgmentPacks(writable);
   };
+  const handleBulkConfigureJudgment = () => configureJudgmentFor(selectedPacksList);
 
   /**
    * Desconecta a planilha de vários packs, um de cada vez. O pack em si fica
@@ -424,7 +430,12 @@ export default function PacksPage() {
    * Limpar ANTES de deletar: a limpeza descobre o pack a partir da integração.
    */
   const handleBulkRemoveSheetIntegration = async () => {
-    const targets = selectedPacksWithSheets;
+    await removeSheetIntegrationsFrom(selectedPacksWithSheets);
+    clearPackSelection();
+  };
+
+  const removeSheetIntegrationsFrom = async (list: AdsPack[]) => {
+    const targets = list.filter((p) => !!p.sheet_integration?.id);
     if (targets.length === 0) return;
 
     const failed: string[] = [];
@@ -442,7 +453,6 @@ export default function PacksPage() {
       }
     }
 
-    clearPackSelection();
     if (totalCleared > 0) {
       invalidateAdPerformance();
       await Promise.all(targets.map((p) => invalidatePackAds(p.id).catch(() => {})));
@@ -613,6 +623,54 @@ export default function PacksPage() {
     const targets = selectedPacksList.map((p) => ({ id: p.id, name: p.name }));
     clearPackSelection();
     await deletePacks(targets);
+  };
+
+  // Ações em massa no menu da PASTA: valem para os packs dela e de todas as
+  // subpastas, recursivamente (`allPacks` do bucket já é a árvore inteira).
+  // As destrutivas passam por confirmação com o número e a frase "com as subpastas".
+  const [folderPackConfirm, setFolderPackConfirm] = useState<{ kind: "remove-sheets" | "delete"; folder: PackFolder; packs: AdsPack[] } | null>(null);
+  const folderPackActions = (folder: PackFolder): FolderPackAction[] => {
+    const list = bucketById.get(folder.id)?.allPacks ?? [];
+    const withSheet = list.filter((p) => !!p.sheet_integration?.id);
+    return [
+      {
+        id: "judgment",
+        label: "Critérios de julgamento",
+        icon: <IconTargetArrow />,
+        disabled: !list.some((p) => p.shared_role !== "viewer"),
+        onSelect: () => configureJudgmentFor(list),
+      },
+      {
+        id: "configure-sheets",
+        label: "Configurar planilha",
+        icon: <GoogleSheetsIcon />,
+        disabled: !list.some((p) => !p.shared_role),
+        onSelect: () => configureSheetFor(list),
+      },
+      {
+        id: "remove-sheets",
+        label: "Desconectar planilha",
+        icon: <GoogleSheetsIcon />,
+        description: withSheet.length > 0 ? `${withSheet.length} com planilha` : "Nenhum com planilha",
+        disabled: withSheet.length === 0,
+        onSelect: () => setFolderPackConfirm({ kind: "remove-sheets", folder, packs: withSheet }),
+      },
+      {
+        id: "delete",
+        label: "Deletar os packs",
+        icon: <IconTrash />,
+        description: "A pasta continua",
+        destructive: true,
+        onSelect: () => setFolderPackConfirm({ kind: "delete", folder, packs: list }),
+      },
+    ];
+  };
+  const handleConfirmFolderPackAction = async () => {
+    const pending = folderPackConfirm;
+    setFolderPackConfirm(null);
+    if (!pending) return;
+    if (pending.kind === "remove-sheets") await removeSheetIntegrationsFrom(pending.packs);
+    else await deletePacks(pending.packs.map((p) => ({ id: p.id, name: p.name })));
   };
 
   // Sem useMemo: os handlers acima são recriados a cada render de qualquer forma, e a barra
@@ -1201,6 +1259,7 @@ export default function PacksPage() {
                   onDelete={setFolderToDelete}
                   onRefreshAll={handleRefreshFolder}
                   onCreateSubfolder={(f) => setFolderDialog({ mode: "create", packIds: [], parentId: f.id })}
+                  getPackActions={folderPackActions}
                   hasSubfolders={(bucketById.get(folder.id)?.children.length ?? 0) > 0}
                 >
                   <TreeRowMenuTrigger label={`Ações da pasta ${folder.name}`} />
@@ -1339,6 +1398,7 @@ export default function PacksPage() {
                     onDelete={setFolderToDelete}
                     onRefreshAll={handleRefreshFolder}
                     onCreateSubfolder={(f) => setFolderDialog({ mode: "create", packIds: [], parentId: f.id })}
+                    getPackActions={folderPackActions}
                     onDropPacks={handleDropPacks}
                     onDragStateChange={setDropTargetFolderId}
                     onFolderDragStart={setDraggingFolderId}
@@ -1977,6 +2037,25 @@ export default function PacksPage() {
         }}
         packId={sheetIntegrationPack?.id ?? null}
         bulkPackIds={bulkSheetPackIds}
+      />
+
+      {/* Ações destrutivas em massa vindas do menu da pasta (com as subpastas) */}
+      <ConfirmDialog
+        isOpen={!!folderPackConfirm}
+        onClose={() => setFolderPackConfirm(null)}
+        title={
+          folderPackConfirm?.kind === "delete"
+            ? `Deletar ${folderPackConfirm.packs.length} ${folderPackConfirm.packs.length === 1 ? "pack" : "packs"} de "${folderPackConfirm.folder.name}"?`
+            : `Desconectar a planilha de ${folderPackConfirm?.packs.length ?? 0} ${folderPackConfirm?.packs.length === 1 ? "pack" : "packs"} de "${folderPackConfirm?.folder.name ?? ""}"?`
+        }
+        message={
+          folderPackConfirm?.kind === "delete"
+            ? `Vale para os packs desta pasta e de todas as subpastas. Os anúncios e métricas exclusivos deles são apagados, junto com a integração com o Google Sheets de cada um. As pastas continuam existindo. Esta ação não pode ser desfeita.`
+            : "Vale para os packs desta pasta e de todas as subpastas. Os packs continuam existindo e a planilha no Google não é alterada. O leadscore já importado por essas planilhas é apagado junto, e não há como desfazer."
+        }
+        confirmText={folderPackConfirm?.kind === "delete" ? "Deletar" : "Desconectar e apagar"}
+        variant="destructive"
+        onConfirm={() => void handleConfirmFolderPackAction()}
       />
 
       {/* Critérios de julgamento por pack (herança com override) */}

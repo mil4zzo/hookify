@@ -1,13 +1,15 @@
 "use client";
 
 import { forwardRef, useEffect, useId, useMemo, useRef, useState, type MutableRefObject, type ReactNode, type Ref } from "react";
-import { IconAlertTriangle, IconInfoCircle, IconPlus, IconTrash } from "@tabler/icons-react";
+import { IconAlertTriangle, IconInfoCircle, IconPlus, IconTrash, IconUpload } from "@tabler/icons-react";
 
+import { InlineNotice } from "@/components/common/States";
 import { Button } from "@/components/ui/button";
 import { Input, type InputProps } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils/cn";
 import { LEAD_ECONOMICS_PRODUCT_NAME_MAX, formatLeadScore } from "@/lib/utils/leadEconomics";
+import { LEAD_ECONOMICS_BANDS_CSV_TEMPLATE, decodeCsvBytes, importLeadEconomicsBandsCsv } from "@/lib/utils/leadEconomicsCsv";
 import {
   addDraftBand,
   addDraftProduct,
@@ -274,6 +276,14 @@ export function LeadEconomicsEditor({
   // outra mudança de estrutura (produto ou faixa que entra ou sai) fecha a pergunta:
   // ela descreve as faixas de ANTES, e guardada reaparecia sem ninguém pedir.
   const [pendingRemoval, setPendingRemoval] = useState<PendingProductRemoval | null>(null);
+  // Resultado da última importação de CSV. `imported` é o rascunho que ela gerou: o
+  // "Desfazer" só aparece enquanto a tela ainda é exatamente ele (mexeu, some).
+  const [csvNotice, setCsvNotice] = useState<
+    | { kind: "ok"; fileName: string; count: number; warnings: string[]; previous: LeadEconomicsDraft; imported: LeadEconomicsDraft }
+    | { kind: "error"; fileName: string; message: string }
+    | null
+  >(null);
+  const csvInputRef = useRef<HTMLInputElement>(null);
 
   // Foco acompanhando a troca de conteúdo: lixeiras (produto `p:<id>`, faixa
   // `b:<key>`), campos que recebem o foco ao adicionar, e os botões fixos.
@@ -373,6 +383,30 @@ export function LeadEconomicsEditor({
     pendingFieldFocus.current = `nome:${next.products[next.products.length - 1].id}`;
     onChange(next);
     setPendingRemoval(null);
+  };
+
+  const importCsv = async (file: File) => {
+    try {
+      const result = importLeadEconomicsBandsCsv(decodeCsvBytes(await file.arrayBuffer()), value);
+      if (result.kind === "error") {
+        setCsvNotice({ kind: "error", fileName: file.name, message: result.message });
+        return;
+      }
+      onChange(result.draft);
+      setPendingRemoval(null);
+      setCsvNotice({ kind: "ok", fileName: file.name, count: result.bandCount, warnings: result.warnings, previous: value, imported: result.draft });
+    } catch {
+      setCsvNotice({ kind: "error", fileName: file.name, message: "Não deu para ler o arquivo." });
+    }
+  };
+
+  const downloadCsvTemplate = () => {
+    const url = URL.createObjectURL(new Blob([LEAD_ECONOMICS_BANDS_CSV_TEMPLATE], { type: "text/csv;charset=utf-8" }));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "faixas-economia-do-lead.csv";
+    link.click();
+    URL.revokeObjectURL(url);
   };
 
   const addBand = () => {
@@ -589,7 +623,68 @@ export function LeadEconomicsEditor({
 
       {/* ── Quem compra ── */}
       <div className="space-y-2">
-        <p className="text-xs font-medium text-foreground">Quem compra</p>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <p className="text-xs font-medium text-foreground">Quem compra</p>
+          {/* Faixas em lote: a análise do CRM costuma estar numa planilha. Substitui as
+              faixas da tela (produtos ficam); nada é gravado antes do "Salvar". */}
+          <div className="flex items-center gap-3">
+            <Button variant="ghost" size="sm" onClick={downloadCsvTemplate} disabled={disabled}>
+              Baixar modelo
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => csvInputRef.current?.click()} disabled={disabled}>
+              <IconUpload />
+              Importar CSV
+            </Button>
+            <input
+              ref={csvInputRef}
+              type="file"
+              accept=".csv,.txt,text/csv"
+              className="hidden"
+              aria-label="Arquivo CSV com as faixas"
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                // Zera antes: escolher o MESMO arquivo de novo (depois de corrigir) tem de disparar.
+                event.target.value = "";
+                if (file) void importCsv(file);
+              }}
+            />
+          </div>
+        </div>
+
+        {csvNotice?.kind === "error" ? (
+          <InlineNotice tone="destructive" title={`Não importamos ${csvNotice.fileName}`}>
+            {csvNotice.message}
+          </InlineNotice>
+        ) : csvNotice?.kind === "ok" ? (
+          <InlineNotice
+            tone={csvNotice.warnings.length > 0 ? "warning" : "success"}
+            title={`${csvNotice.count} ${csvNotice.count === 1 ? "faixa importada" : "faixas importadas"} de ${csvNotice.fileName}`}
+            action={
+              value === csvNotice.imported ? (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    onChange(csvNotice.previous);
+                    setCsvNotice(null);
+                  }}
+                >
+                  Desfazer
+                </Button>
+              ) : undefined
+            }
+          >
+            {csvNotice.warnings.length > 0 ? (
+              <ul className="list-disc space-y-0.5 pl-4 text-xs">
+                {csvNotice.warnings.map((warning) => (
+                  <li key={warning}>{warning}</li>
+                ))}
+              </ul>
+            ) : (
+              <span className="text-xs">Confira as faixas abaixo e salve.</span>
+            )}
+          </InlineNotice>
+        ) : null}
 
         <div className="overflow-x-auto rounded-md border border-border bg-surface-2">
           <div className="min-w-[37.5rem] divide-y divide-border">

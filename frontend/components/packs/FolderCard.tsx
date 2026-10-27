@@ -2,7 +2,7 @@
 
 import React, { useState } from "react";
 import { IconDots } from "@tabler/icons-react";
-import { FolderActionsMenu } from "./FolderActionsMenu";
+import { FolderActionsMenu, type FolderPackAction } from "./FolderActionsMenu";
 import { FolderGlyph } from "./FolderGlyph";
 import { FOLDER_DRAG_TYPE } from "./PackFolderTree";
 import { cn } from "@/lib/utils/cn";
@@ -23,6 +23,8 @@ export interface FolderCardProps {
   onDelete: (folder: PackFolder) => void;
   onRefreshAll: (folder: PackFolder) => void;
   onCreateSubfolder: (folder: PackFolder) => void;
+  /** Ações em massa sobre os packs da pasta e das subpastas (ver `FolderActionsMenu`). */
+  getPackActions?: (folder: PackFolder) => FolderPackAction[];
   hasSubfolders?: boolean;
   onDropPacks: (folderId: string) => void;
   onDragStateChange: (folderId: string | null) => void;
@@ -57,6 +59,7 @@ export function FolderCard({
   onDelete,
   onRefreshAll,
   onCreateSubfolder,
+  getPackActions,
   hasSubfolders = false,
   onDropPacks,
   onDragStateChange,
@@ -129,6 +132,7 @@ export function FolderCard({
         onDelete={onDelete}
         onRefreshAll={onRefreshAll}
         onCreateSubfolder={onCreateSubfolder}
+        getPackActions={getPackActions}
         hasSubfolders={hasSubfolders}
       >
         <button

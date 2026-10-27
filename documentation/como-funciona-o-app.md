@@ -141,6 +141,25 @@ entra depois não herda nada. Junto com **Desconectar planilha**, completa o tri
   acompanhamento usa o `GET /sync-jobs/{id}` de sempre, com o resultado por pack em
   `details.bulk_results`.
 
+### Ações em massa pelo menu da pasta
+
+O menu `⋯` de uma pasta (no card e na árvore da Biblioteca) traz as mesmas ações da barra
+de seleção: **Atualizar todos**, **Critérios de julgamento**, **Configurar planilha**,
+**Desconectar planilha** e **Deletar os packs**. Todas valem para os packs da pasta **e de
+todas as subpastas, recursivamente** — aplicar na pasta mãe é aplicar em tudo que está
+debaixo dela. O menu mostra o número de packs atingidos no topo do grupo, as regras de
+papel são as da barra (planilha só nos seus packs; critérios com dono e editor), e
+desconectar e deletar pedem confirmação dizendo "esta pasta e todas as subpastas".
+Deletar os packs não apaga as pastas; desfazer a pasta continua sendo a outra ação.
+
+### Critérios de julgamento do pack (o diálogo)
+
+Menu do pack → **Critérios de julgamento**. Três abas: **Leadscore** (corte de MQL), **CPR
+alvo** e **Economia do lead**. Um ponto na aba marca alteração ainda não salva; o botão salva
+as três de uma vez, e um erro de validação leva para a aba dele. O CPR alvo é uma lista de
+linhas "evento + meta", como as condições dos filtros: só aparecem os eventos com meta (ou
+uma linha em branco), e **+ Meta** acrescenta outra. Remover a linha tira a meta do evento.
+
 ### Critérios de julgamento em massa
 
 Na Biblioteca, com vários packs marcados: **Mais → Critérios de julgamento**. É o mesmo
@@ -154,9 +173,11 @@ do mesmo lançamento, em vez de repetir produtos e faixas pack a pack.
   um valor comum apagado **limpa em todos**. Num campo que abriu vazio por divergência,
   digitar e apagar volta a "não mexe" — limpar um critério que os packs não compartilham se
   faz pack a pack.
-- **CPR alvo é por evento.** A lista traz a união dos eventos dos packs; só os eventos que você
-  mexer mudam, e os outros ficam como estão em cada pack (os packs não têm os mesmos eventos —
-  mandar o mapa inteiro apagaria a meta dos eventos que só alguns têm).
+- **CPR alvo é por evento.** O seletor traz a união dos eventos dos packs; só os eventos que
+  você mexer mudam, e os outros ficam como estão em cada pack (os packs não têm os mesmos
+  eventos — mandar o mapa inteiro apagaria a meta dos eventos que só alguns têm). Evento com
+  metas diferentes entre os packs não aparece como linha: é avisado, e para definir igual em
+  todos basta adicioná-lo.
 - **Economia do lead:** com o mesmo cadastro em todos, abre para editar; com cadastros
   diferentes (ou só alguns com cadastro), oferece "Configurar para todos" e "Remover de
   todos". Packs em contas de moedas diferentes recebem um aviso: o ticket é um número só.
@@ -496,6 +517,15 @@ leitor só vê o resultado.
   mais"), cada uma com o produto que essa faixa compra e a **conversão** (de cada 100
   leads da faixa, quantos viram venda). A nota exata do corte entra na faixa de cima.
   Ao lado de cada faixa, o **teto por lead** daquela faixa aparece enquanto se digita.
+- **Importar faixas de um CSV** ("Importar CSV", ao lado de "Quem compra"; "Baixar modelo"
+  traz um exemplo). Colunas: nota, conversão e, opcional, produto — com ou sem cabeçalho,
+  separadas por `;`, tab ou vírgula. A nota pode ser o piso ("60"), um intervalo ("60 a
+  79", "80+", "80 ou mais") ou a faixa de baixo ("abaixo de 60", vazio). A conversão é em
+  porcentagem, como na tela ("4" ou "4%" = 4%). O arquivo **substitui as faixas** da tela;
+  os produtos ficam, e produto que o arquivo nomeia e o cadastro não tem entra em branco
+  para preencher. Nada é gravado até salvar, e "Desfazer" volta ao que estava. Avisos:
+  conversões que parecem fração (nenhuma passa de 1%) e faixa mais baixa com piso acima de
+  zero (a primeira faixa não tem piso, então passa a cobrir as notas abaixo dela).
 
 **A conta, por anúncio** (com a fatia de leads com nota em cada faixa):
 

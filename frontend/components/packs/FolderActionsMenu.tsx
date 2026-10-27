@@ -1,9 +1,20 @@
 "use client";
 
 import React from "react";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { IconFolderOpen, IconFolderPlus, IconPencil, IconRefresh, IconTrash } from "@tabler/icons-react";
 import type { PackFolder } from "@/lib/types";
+
+/** Ação em massa sobre TODOS os packs da pasta (com as subpastas), montada pela página. */
+export interface FolderPackAction {
+  id: string;
+  label: string;
+  icon: React.ReactNode;
+  description?: string;
+  disabled?: boolean;
+  destructive?: boolean;
+  onSelect: () => void;
+}
 
 export interface FolderActionsMenuProps {
   folder: PackFolder;
@@ -20,14 +31,19 @@ export interface FolderActionsMenuProps {
   onDelete: (folder: PackFolder) => void;
   onRefreshAll: (folder: PackFolder) => void;
   onCreateSubfolder: (folder: PackFolder) => void;
+  /**
+   * As mesmas ações da barra de seleção, sobre os packs da pasta e de todas as
+   * subpastas. Função (e não lista) para só montar quando o menu abre.
+   */
+  getPackActions?: (folder: PackFolder) => FolderPackAction[];
 }
 
 /**
  * Menu de ações de uma pasta, com o gatilho de quem chamar.
  *
- * "Atualizar todos" age sobre TODOS os packs da pasta — é a única ação em massa
- * que existe hoje aqui; compartilhar e transcrever em lote são do Lote 1 e ainda
- * não têm o diálogo agregado.
+ * As ações em massa ("Atualizar todos" e as de `getPackActions`) agem sobre TODOS
+ * os packs da pasta e das subpastas, recursivamente: aplicar na pasta mãe é aplicar
+ * em tudo que está debaixo dela. O rótulo do grupo diz isso com o número.
  *
  * Vive separado do `FolderCard` porque a árvore da Biblioteca precisa do mesmo
  * menu. Duplicar faria as duas divergirem no primeiro item novo — o mesmo motivo
@@ -46,8 +62,10 @@ export function FolderActionsMenu({
   onDelete,
   onRefreshAll,
   onCreateSubfolder,
+  getPackActions,
 }: FolderActionsMenuProps) {
   const noun = packCount === 1 ? "pack" : "packs";
+  const packActions = getPackActions ? getPackActions(folder) : [];
 
   return (
     <DropdownMenu onOpenChange={onOpenChange}>
@@ -57,14 +75,24 @@ export function FolderActionsMenu({
           Abrir
         </DropdownMenuItem>
         <DropdownMenuSeparator />
-        <DropdownMenuItem
-          icon={<IconRefresh />}
-          description={`${packCount} ${noun} ${hasSubfolders ? "com as subpastas" : "desta pasta"}`}
-          onClick={() => onRefreshAll(folder)}
-          disabled={packCount === 0}
-        >
+        <DropdownMenuLabel className="text-2xs font-medium uppercase tracking-wide text-muted-foreground">
+          {packCount} {noun} {hasSubfolders ? "com as subpastas" : "desta pasta"}
+        </DropdownMenuLabel>
+        <DropdownMenuItem icon={<IconRefresh />} onClick={() => onRefreshAll(folder)} disabled={packCount === 0}>
           Atualizar todos
         </DropdownMenuItem>
+        {packActions.map((action) => (
+          <DropdownMenuItem
+            key={action.id}
+            icon={action.icon}
+            description={action.description}
+            onClick={action.onSelect}
+            disabled={packCount === 0 || action.disabled}
+            className={action.destructive ? "text-destructive focus:bg-destructive-10 focus:text-destructive" : undefined}
+          >
+            {action.label}
+          </DropdownMenuItem>
+        ))}
         <DropdownMenuSeparator />
         <DropdownMenuItem icon={<IconFolderPlus />} onClick={() => onCreateSubfolder(folder)}>
           Nova subpasta
