@@ -3,6 +3,7 @@
 import { EMPTY_RULE_TREE, type RuleTree } from "@/lib/rules/types";
 
 import React, { useEffect, useMemo, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { IconArrowsMaximize, IconArrowsMinimize } from "@tabler/icons-react";
 import { AppDialog } from "@/components/common/AppDialog";
 import { Button } from "@/components/ui/button";
@@ -50,7 +51,21 @@ export function ManagerDrillModal({
   mqlLeadscoreMin = null,
   onSelectAd,
 }: ManagerDrillModalProps) {
-  const { stack, isOpen, current, push, popTo, close } = useDrillState();
+  const { stack, isOpen, current, push, popTo, close: closeDrill } = useDrillState();
+  const queryClient = useQueryClient();
+
+  // Pausar/ativar dentro do drill patcha só as linhas de anúncio e marca as linhas de grupo
+  // (ad_name, conjunto, campanha) como obsoletas SEM refetch — o contador "ativos / total" da
+  // tabela de trás continuava velho porque ela já estava montada e nada a recarregava. Ao
+  // fechar, recarrega só o que foi marcado (sem pausa no drill = zero request extra).
+  const close = () => {
+    closeDrill();
+    void queryClient.refetchQueries({
+      queryKey: ["analytics", "rankings"],
+      type: "active",
+      predicate: (query) => query.state.isInvalidated,
+    });
+  };
   // Tela cheia = o modal ocupa a janela inteira menos uma margem de 1rem (nunca encosta nas bordas).
   const [isFullscreen, setIsFullscreen] = useState(false);
 
