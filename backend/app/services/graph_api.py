@@ -113,6 +113,31 @@ def _meta_error_text(err_obj: Dict[str, Any], fallback: str) -> str:
     return " — ".join(p for p in (user_title, user_msg) if p) or str(err_obj.get("message") or "").strip() or fallback
 
 
+def _http_error_json(http_err: requests.exceptions.HTTPError) -> Dict[str, Any]:
+    """
+    Corpo JSON de um HTTPError, ou {} quando não há corpo ou ele não é JSON (502/504 do proxy
+    da Meta chegam em HTML). Um `.json()` solto dentro do `except HTTPError` levanta de dentro
+    do handler — o `except Exception` irmão não pega — e o lote inteiro vira 500 genérico.
+    """
+    response = http_err.response
+    if response is None or not response.content:
+        return {}
+    try:
+        data = response.json()
+    except ValueError:
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _budget_to_minor(value: Any) -> Optional[int]:
+    """Orçamento da Meta (string em subunidade) → int; ausente, zero ou ilegível → None."""
+    try:
+        minor = int(str(value))
+    except (TypeError, ValueError):
+        return None
+    return minor if minor > 0 else None
+
+
 def test_facebook_connection(access_token: str) -> Dict[str, Any]:
     """
     Testa se um token do Facebook está válido fazendo uma chamada simples à API.
@@ -140,7 +165,7 @@ def test_facebook_connection(access_token: str) -> Dict[str, Any]:
         return {'status': 'success', 'data': data}
         
     except requests.exceptions.HTTPError as http_err:
-        error_data = http_err.response.json() if http_err.response.content else {}
+        error_data = _http_error_json(http_err)
         error_code = error_data.get('error', {}).get('code')
         error_message = error_data.get('error', {}).get('message', '')
         
@@ -802,7 +827,7 @@ class GraphAPI:
             return {"status": "success", "data": data}
 
         except requests.exceptions.HTTPError as http_err:
-            error_data = http_err.response.json() if http_err.response is not None and http_err.response.content else {}
+            error_data = _http_error_json(http_err)
             error_obj = error_data.get("error", {}) if isinstance(error_data, dict) else {}
             error_code = error_obj.get("code")
             error_message = error_obj.get("message") or str(http_err)
@@ -849,7 +874,7 @@ class GraphAPI:
                 "effective_status": (str(data.get("effective_status") or "").upper() or None),
             }
         except requests.exceptions.HTTPError as http_err:
-            error_data = http_err.response.json() if http_err.response is not None and http_err.response.content else {}
+            error_data = _http_error_json(http_err)
             error_obj = error_data.get("error", {}) if isinstance(error_data, dict) else {}
             error_code = error_obj.get("code")
             error_message = error_obj.get("message") or str(http_err)
@@ -892,18 +917,11 @@ class GraphAPI:
         if result.get("status") != "success":
             return result
 
-        def _to_minor(value: Any) -> Optional[int]:
-            try:
-                minor = int(str(value))
-            except (TypeError, ValueError):
-                return None
-            return minor if minor > 0 else None
-
         data = result.get("data") or {}
         return {
             "status": "success",
-            "daily_budget": _to_minor(data.get("daily_budget")),
-            "lifetime_budget": _to_minor(data.get("lifetime_budget")),
+            "daily_budget": _budget_to_minor(data.get("daily_budget")),
+            "lifetime_budget": _budget_to_minor(data.get("lifetime_budget")),
         }
 
     def update_entity_budget(
@@ -982,7 +1000,13 @@ class GraphAPI:
             "lifetime_budget": verify.get("lifetime_budget"),
         }
 
-    def _batch_graph(self, items: List[Tuple[str, Dict[str, Any]]], operation_name: str) -> Dict[str, Any]:
+    def _batch_graph(
+        self,
+        items: List[Tuple[str, Dict[str, Any]]],
+        operation_name: str,
+        *,
+        deadline: Optional[float] = None,
+    ) -> Dict[str, Any]:
         """
         Envia sub-requests pela Meta Batch API (chunks de 50) e devolve o desfecho POR id:
         {"status": "success", "results": {id: {"ok": bool, "body": dict, "error": dict}}}.
@@ -991,9 +1015,18 @@ class GraphAPI:
         o que isso significa (num write, "não sei se aplicou": o verify responde). auth_error
         (#190) em qualquer ponto aborta e é propagado — levando em `results` o desfecho dos
         chunks que JÁ foram (num write, eles podem ter sido aplicados).
+
+        `deadline` (time.monotonic) interrompe ENTRE chunks: os ids não enviados ficam
+        ausentes de `results`.
+
+        É o ÚNICO laço de Batch API do arquivo — status e orçamento passam por aqui, para que
+        uma correção de parse (corpo não-JSON, item None, #190) valha para todos de uma vez.
         """
         results: Dict[str, Dict[str, Any]] = {}
         for i in range(0, len(items), 50):
+            if deadline is not None and time.monotonic() > deadline:
+                logger.warning("%s: deadline estourado no chunk %d — parcial", operation_name, i // 50)
+                break
             chunk = items[i : i + 50]
             try:
                 resp = requests.post(
@@ -1027,10 +1060,7 @@ class GraphAPI:
             except requests.exceptions.HTTPError as http_err:
                 # Corpo pode não ser JSON (502 do proxy da Meta em HTML): um .json() solto
                 # aqui levantaria de dentro do except e derrubaria o lote inteiro em 500.
-                try:
-                    error_data = http_err.response.json() if http_err.response is not None and http_err.response.content else {}
-                except ValueError:
-                    error_data = {}
+                error_data = _http_error_json(http_err)
                 error_obj = error_data.get("error", {}) if isinstance(error_data, dict) else {}
                 if error_obj.get("code") == 190:
                     return {"status": "auth_error", "message": error_obj.get("message", "Token expirado"), "error": error_obj, "results": results}
@@ -1060,21 +1090,14 @@ class GraphAPI:
         if read.get("status") != "success":
             return read
 
-        def _to_minor(value: Any) -> Optional[int]:
-            try:
-                minor = int(str(value))
-            except (TypeError, ValueError):
-                return None
-            return minor if minor > 0 else None
-
         configs: Dict[str, Dict[str, Optional[int]]] = {}
         errors: Dict[str, str] = {}
         for eid, res in (read.get("results") or {}).items():
             if res.get("ok"):
                 body = res.get("body") or {}
                 configs[eid] = {
-                    "daily_budget": _to_minor(body.get("daily_budget")),
-                    "lifetime_budget": _to_minor(body.get("lifetime_budget")),
+                    "daily_budget": _budget_to_minor(body.get("daily_budget")),
+                    "lifetime_budget": _budget_to_minor(body.get("lifetime_budget")),
                 }
             else:
                 errors[eid] = _meta_error_text(res.get("error") or {}, "Não foi possível ler o orçamento na Meta")
@@ -1412,53 +1435,17 @@ class GraphAPI:
         statuses: Dict[str, Any] = {}
         if not ad_ids:
             return {"status": "success", "statuses": statuses}
-
-        batch_url = self.base_url  # https://graph.facebook.com/v24.0/
-        for i in range(0, len(ad_ids), 50):
-            if deadline is not None and time.monotonic() > deadline:
-                logger.warning("batch_get_effective_status: deadline estourado no chunk %d — parcial fail-open", i // 50)
-                break
-            chunk = ad_ids[i : i + 50]
-            batch_items = [
-                {"method": "GET", "relative_url": f"{ad_id}?fields=effective_status"}
-                for ad_id in chunk
-            ]
-            try:
-                resp = requests.post(
-                    batch_url,
-                    params={"access_token": self.access_token, "include_headers": "false"},
-                    data={"batch": json.dumps(batch_items)},
-                    timeout=60,
-                )
-                resp.raise_for_status()
-                log_meta_usage(resp, "GraphAPI.batch_get_effective_status")
-                results = resp.json()
-                if not isinstance(results, list):
-                    logger.warning("batch_get_effective_status: resposta inesperada do Meta: %s", results)
-                    continue  # fail-open: chunk sem status → não bloqueia
-                for ad_id, item in zip(chunk, results):
-                    if item is None:
-                        continue
-                    body_raw = item.get("body", "{}")
-                    try:
-                        body_data = json.loads(body_raw) if isinstance(body_raw, str) else (body_raw or {})
-                    except Exception:
-                        body_data = {}
-                    err_obj = body_data.get("error", {}) if isinstance(body_data, dict) else {}
-                    if err_obj.get("code") == 190:
-                        return {"status": "auth_error", "message": err_obj.get("message", "Token expirado"), "error": err_obj}
-                    if item.get("code") == 200 and isinstance(body_data, dict):
-                        statuses[str(ad_id)] = str(body_data.get("effective_status") or "").upper() or None
-                    # code != 200 → deixa ausente (fail-open)
-            except requests.exceptions.HTTPError as http_err:
-                error_data = http_err.response.json() if http_err.response is not None and http_err.response.content else {}
-                error_obj = error_data.get("error", {}) if isinstance(error_data, dict) else {}
-                if error_obj.get("code") == 190:
-                    return {"status": "auth_error", "message": error_obj.get("message", "Token expirado"), "error": error_obj}
-                logger.warning("batch_get_effective_status HTTP error no chunk %d: %s", i // 50, http_err)
-                # fail-open: chunk inteiro fica ausente → não bloqueia
-            except Exception as err:
-                logger.exception("batch_get_effective_status error no chunk %d: %s", i // 50, err)
+        read = self._batch_graph(
+            [(str(ad_id), {"method": "GET", "relative_url": f"{ad_id}?fields=effective_status"}) for ad_id in ad_ids],
+            "GraphAPI.batch_get_effective_status",
+            deadline=deadline,
+        )
+        if read.get("status") != "success":
+            return {key: value for key, value in read.items() if key != "results"}
+        for ad_id, res in (read.get("results") or {}).items():
+            # Falha de leitura → ausente (fail-open: não bloqueia o write).
+            if res.get("ok"):
+                statuses[ad_id] = str((res.get("body") or {}).get("effective_status") or "").upper() or None
         return {"status": "success", "statuses": statuses}
 
     def get_ad_statuses_by_parent(
@@ -1522,7 +1509,7 @@ class GraphAPI:
                 params = {}
             return {"status": "success", "statuses": statuses}
         except requests.exceptions.HTTPError as http_err:
-            error_data = http_err.response.json() if http_err.response is not None and http_err.response.content else {}
+            error_data = _http_error_json(http_err)
             error_obj = error_data.get("error", {}) if isinstance(error_data, dict) else {}
             if error_obj.get("code") == 190:
                 return {"status": "auth_error", "message": error_obj.get("message", "Token expirado"), "error": error_obj}
@@ -1577,7 +1564,7 @@ class GraphAPI:
                     if row_id:
                         statuses[row_id] = str(row.get("effective_status") or "").upper() or None
             except requests.exceptions.HTTPError as http_err:
-                error_data = http_err.response.json() if http_err.response is not None and http_err.response.content else {}
+                error_data = _http_error_json(http_err)
                 error_obj = error_data.get("error", {}) if isinstance(error_data, dict) else {}
                 if error_obj.get("code") == 190:
                     return {"status": "auth_error", "message": error_obj.get("message", "Token expirado"), "error": error_obj}
@@ -1668,7 +1655,7 @@ class GraphAPI:
                 params = {}
             return {"status": "success", "statuses": statuses}
         except requests.exceptions.HTTPError as http_err:
-            error_data = http_err.response.json() if http_err.response is not None and http_err.response.content else {}
+            error_data = _http_error_json(http_err)
             error_obj = error_data.get("error", {}) if isinstance(error_data, dict) else {}
             if error_obj.get("code") == 190:
                 return {"status": "auth_error", "message": error_obj.get("message", "Token expirado"), "error": error_obj}
@@ -1815,66 +1802,20 @@ class GraphAPI:
         failed_ids: List[str] = []
         if not ad_ids:
             return {"status": "success", "updated_ids": updated_ids, "failed_ids": failed_ids}
-
-        batch_url = self.base_url  # https://graph.facebook.com/v24.0/
-        for i in range(0, len(ad_ids), 50):
-            chunk = ad_ids[i : i + 50]
-            batch_items = [
-                {"method": "POST", "relative_url": str(ad_id), "body": f"status={status}"}
-                for ad_id in chunk
-            ]
-            try:
-                resp = requests.post(
-                    batch_url,
-                    params={"access_token": self.access_token, "include_headers": "false"},
-                    data={"batch": json.dumps(batch_items)},
-                    timeout=60,
-                )
-                resp.raise_for_status()
-                log_meta_usage(resp, "GraphAPI.batch_update_ad_status")
-                results = resp.json()
-
-                if not isinstance(results, list):
-                    logger.warning("batch_update_ad_status: resposta inesperada do Meta: %s", results)
-                    for ad_id in chunk:
-                        failed_ids.append(str(ad_id))
-                    continue
-
-                for ad_id, item in zip(chunk, results):
-                    if item is None:
-                        failed_ids.append(str(ad_id))
-                        continue
-
-                    code = item.get("code")
-                    body_raw = item.get("body", "{}")
-                    try:
-                        body_data = json.loads(body_raw) if isinstance(body_raw, str) else (body_raw or {})
-                    except Exception:
-                        body_data = {}
-
-                    err_obj = body_data.get("error", {}) if isinstance(body_data, dict) else {}
-                    if err_obj.get("code") == 190:
-                        return {"status": "auth_error", "message": err_obj.get("message", "Token expirado"), "error": err_obj}
-
-                    if code == 200 and not err_obj:
-                        updated_ids.append(str(ad_id))
-                    else:
-                        logger.warning("batch_update_ad_status: ad_id=%s code=%s erro=%s", ad_id, code, err_obj)
-                        failed_ids.append(str(ad_id))
-
-            except requests.exceptions.HTTPError as http_err:
-                error_data = http_err.response.json() if http_err.response is not None and http_err.response.content else {}
-                error_obj = error_data.get("error", {}) if isinstance(error_data, dict) else {}
-                if error_obj.get("code") == 190:
-                    return {"status": "auth_error", "message": error_obj.get("message", "Token expirado"), "error": error_obj}
-                logger.warning("batch_update_ad_status HTTP error no chunk %d: %s", i // 50, http_err)
-                for ad_id in chunk:
-                    failed_ids.append(str(ad_id))
-            except Exception as err:
-                logger.exception("batch_update_ad_status error no chunk %d: %s", i // 50, err)
-                for ad_id in chunk:
-                    failed_ids.append(str(ad_id))
-
+        write = self._batch_graph(
+            [(str(ad_id), {"method": "POST", "relative_url": str(ad_id), "body": f"status={status}"}) for ad_id in ad_ids],
+            "GraphAPI.batch_update_ad_status",
+        )
+        if write.get("status") != "success":
+            return {key: value for key, value in write.items() if key != "results"}
+        results = write.get("results") or {}
+        for ad_id in (str(a) for a in ad_ids):
+            res = results.get(ad_id) or {"ok": False, "error": {}}
+            if res.get("ok"):
+                updated_ids.append(ad_id)
+            else:
+                logger.warning("batch_update_ad_status: ad_id=%s erro=%s", ad_id, sanitize_error_dict_for_log(res.get("error") or {}))
+                failed_ids.append(ad_id)
         return {"status": "success", "updated_ids": updated_ids, "failed_ids": failed_ids}
 
     ## BULK CREATE ADS
