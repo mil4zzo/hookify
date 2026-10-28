@@ -193,7 +193,40 @@ tela plana. Enquanto a UI for plana, `parent_id` é sempre `NULL`.
 *(2026-09-21: a aposta pagou — a 174 trouxe subpastas sem mexer na tabela, só trigger e
 RPCs.)*
 
-**Decisão 3 — a pasta é atalho de seleção, não sujeito de permissão.** "Compartilhar
+> **REVISTA em 2026-10-27 (migration 181).** O pedido virou "compartilhar a pasta inteira,
+> com subpastas e packs de hoje E de depois — e quem recebe vê e mexe na mesma pasta, como
+> no Google Drive". O que mudou e o que ficou:
+>
+> - A **autorização de pack** continua em `pack_shares`: quem tem a pasta (`folder_shares`)
+>   é materializado por gatilhos em convites por pack (`source_folder_id`), então
+>   `resolve_pack_access` e toda leitura de métrica ficam como estavam.
+> - A **árvore é uma só**, a do dono. Quem recebe não ganha cópia: as RPCs da 181
+>   (`create_folder`, `rename_folder`, `place_folder`, `dissolve_folder`,
+>   `move_packs_to_folder`, `list_shared_folders`) leem e escrevem nas linhas do dono depois
+>   de conferir o papel (`folder_access_role`). A RLS das tabelas segue "só o próprio dono".
+> - **Dentro da pasta, tudo segue a pasta**: o convite direto de quem a pasta cobre é
+>   absorvido (vira "via pasta", com o papel da pasta) e sai junto com a pessoa. Decisão do
+>   idealizador, pelo motivo prático: "tirei da pasta" tem de significar "não vê mais nada
+>   dela", sem convite direto esquecido num pack.
+> - Pack que o **editor** pôs na pasta continua dele (`pack_folder_members.contributed`) e só
+>   fica lá enquanto ele enxerga a pasta onde está — saiu, foi tirado, ou a pasta foi levada
+>   para fora do alcance dele: o pack volta para ele. Primeiro decidimos "fica na pasta, como
+>   no Drive", e revertemos no mesmo dia: o pack só atualiza com o token Meta de quem o criou,
+>   e ficaria puxando a conta de anúncio de quem já saiu. Transferir a outro membro foi
+>   rejeitado (os dados moram no silo do criador; a conta de anúncio pode nem existir no Meta
+>   de quem receberia). Pack de terceiro só organizado ali não é repassado.
+> - O editor que recebeu o pack **pela pasta** tem os poderes de dono sobre ele: renomear,
+>   mudar o período, excluir (`assert_owner_powers`). Editor por convite direto só calibra.
+> - O "silêncio" que a decisão temia foi tratado na tela: aviso antes de mover pack/pasta
+>   para dentro ou fora de uma pasta compartilhada, acesso "via pasta" visível no pack.
+>
+> Alternativas rejeitadas: herança calculada na leitura (`resolve_pack_access` subindo a
+> árvore — mexe na base de toda autorização e custa em toda consulta do Manager); cópia da
+> árvore na conta de quem recebe (sai de sincronia a cada renomear/mover); carimbar o id do
+> convidado em cada pasta/pack (reescreve centenas de linhas a cada convite, e a pasta nova
+> nasce sem o carimbo).
+
+**Decisão 3 (original) — a pasta é atalho de seleção, não sujeito de permissão.** "Compartilhar
 pasta" compartilha os packs que estão nela **naquele momento**, e a tela diz isso com
 todas as letras. Não existe `folder_shares`.
 
@@ -262,7 +295,7 @@ gesto é o do Explorer. Cabe, desde que tenha volta.
 | Ação na pasta | Semântica | Por quê |
 |---|---|---|
 | Atualizar todos | atalho de seleção | igual à barra em massa |
-| Compartilhar pasta | atalho de seleção (**Decisão 3**) | pack que entra depois não herda acesso |
+| Compartilhar pasta | **a mesma pasta, como no Drive** (**Decisão 3 revista, migration 181**) | pack que entra depois ganha o acesso, com aviso antes e "via pasta" visível; editor mexe na pasta como o dono |
 | Transcrever | atalho de seleção, diálogo agregado | custo por minuto, total antes do botão |
 | Planilha do Google | **aplicar a todos os packs de agora** | cada pack continua dono do próprio vínculo |
 | Critérios (MQL, CPR alvo, métrica) | **aplicar a todos os packs de agora** | ver abaixo |

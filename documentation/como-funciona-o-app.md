@@ -152,6 +152,46 @@ papel são as da barra (planilha só nos seus packs; critérios com dono e edito
 desconectar e deletar pedem confirmação dizendo "esta pasta e todas as subpastas".
 Deletar os packs não apaga as pastas; desfazer a pasta continua sendo a outra ação.
 
+### Compartilhar a pasta inteira (como no Google Drive)
+
+No `⋯` da pasta → **Compartilhar pasta**. A pessoa convidada (por e-mail exato, como no pack)
+passa a ver **a mesma pasta que você**: as subpastas e todos os packs, os de hoje e os que
+entrarem depois, no papel que você escolher.
+
+- **Editor mexe na pasta como você.** Renomeia, cria e desfaz subpastas, move packs e pastas
+  dentro dela, cria packs lá dentro e, nos packs da pasta (inclusive os seus), **renomeia,
+  muda o período e exclui** — decisão de produto; fica registrado no histórico quem fez. Só
+  não convida outras pessoas, não move nem desfaz a própria pasta que você compartilhou, e não
+  leva nada seu para fora dela. Editor por convite **direto** num pack (fora de pasta) continua
+  só calibrando. **Leitura** só consulta.
+- **Dentro da pasta, tudo segue a pasta.** Se a pessoa já tinha recebido um pack direto e
+  esse pack está (ou entra) na pasta compartilhada com ela, o convite direto vira "via pasta",
+  com o papel da pasta. Tirar a pessoa da pasta tira de **todos** os packs dela de uma vez —
+  nada fica esquecido num pack. O convite direto continua servindo para quem não está na
+  pasta e para packs fora de pastas.
+- **Entrou na pasta, ganhou; saiu, perdeu.** Mover um pack para dentro de uma pasta
+  compartilhada abre um aviso antes ("Ana passa a ver este pack"; "Ana já via 1 destes packs
+  por convite direto: passa a valer pela pasta"). Tirar de lá avisa o contrário.
+- **Pack criado pelo editor dentro da pasta continua DELE** (é a conexão Meta e a conta de
+  anúncio dele). Você e quem tem a pasta passam a vê-lo **enquanto ele estiver na pasta**: se
+  ele sair (ou for tirado), ou se a pasta for levada para fora do que ele vê, o pack volta para
+  a Biblioteca dele e vocês deixam de vê-lo. Motivo: o pack só atualiza com o token Meta de quem
+  o criou — deixá-lo lá seguiria puxando a conta de anúncio de quem já saiu. Transferir o pack
+  para outro membro não existe: os dados moram na conta de quem o criou, e a conta de anúncio
+  pode nem estar no Meta de quem receberia. Por isso o banco também recusa mover um pack desses
+  para uma pasta que quem o criou não vê, e o aviso antes de mover/desfazer uma pasta diz
+  quantos packs voltam para quem os criou.
+- **Subpasta aperta ou afrouxa.** Se a mesma pessoa está na pasta de cima e numa subpasta,
+  vale a mais próxima do pack (ex.: Editor em cima, Leitura na subpasta).
+- **O que fica de fora.** Pack que outra pessoa compartilhou com você não é repassado pela
+  sua pasta: ninguém compartilha o que não é seu. O diálogo diz quantos ficam de fora.
+- **Do lado de quem recebe**, a pasta aparece na Biblioteca depois das pastas dele, com o
+  selo de compartilhada e "de {dono}". No `⋯` dela há **Sair da pasta** (sai da pasta
+  inteira; de um pack só dela não dá, o acesso voltaria pela pasta).
+- No **Compartilhar pack**, o acesso por pasta aparece como "Editor · via pasta «Cliente A»",
+  sem botão de revogar: tirar é pela pasta. O histórico do pack registra "via pasta
+  compartilhada".
+
 ### Critérios de julgamento do pack (o diálogo)
 
 Menu do pack → **Critérios de julgamento**. Três abas: **Leadscore** (corte de MQL), **CPR

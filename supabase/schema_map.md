@@ -388,6 +388,7 @@ Jobs assíncronos de longa duração (ex: criação em lote de anúncios).
 | pack_id | uuid | NOT NULL |
 | folder_id | uuid | NOT NULL |
 | created_at | timestamp | NOT NULL, DEFAULT |
+| contributed | boolean | NOT NULL, DEFAULT |
 
 ---
 
@@ -397,6 +398,22 @@ Jobs assíncronos de longa duração (ex: criação em lote de anúncios).
 |--------|------|-------|
 | id | uuid | NOT NULL, DEFAULT |
 | pack_id | uuid | NOT NULL |
+| owner_id | uuid | NOT NULL |
+| grantee_id | uuid | NOT NULL |
+| role | text | NOT NULL, DEFAULT |
+| created_at | timestamp | NOT NULL, DEFAULT |
+| updated_at | timestamp | NOT NULL, DEFAULT |
+| source_folder_id | uuid |  |
+
+---
+
+### folder_shares
+Quem tem a pasta (e tudo debaixo dela, hoje e depois) — migration 181. Gatilhos a materializam em `pack_shares.source_folder_id`; as RPCs de pasta conferem o papel aqui (`folder_access_role`). O convidado lê e apaga (sai) a própria linha.
+
+| Coluna | Tipo | Flags |
+|--------|------|-------|
+| id | uuid | NOT NULL, DEFAULT |
+| folder_id | uuid | NOT NULL |
 | owner_id | uuid | NOT NULL |
 | grantee_id | uuid | NOT NULL |
 | role | text | NOT NULL, DEFAULT |
