@@ -4,7 +4,7 @@ import React, { useCallback, useMemo, useState } from "react";
 import { IconAlertTriangle, IconPencil, IconSquareCheck } from "@tabler/icons-react";
 import type { RankingsItem } from "@/lib/api/schemas";
 import { useFormatCurrency, getCurrencySymbol } from "@/lib/utils/currency";
-import { budgetMinorToValue, budgetValueToMinor, formatBudgetTotals, type BudgetTotals, type ManagerBudgetTotals } from "@/lib/manager/budget";
+import { BUDGET_BIG_CHANGE, budgetMinorToValue, budgetValueToMinor, formatBudgetTotals, type BudgetTotals, type ManagerBudgetTotals } from "@/lib/manager/budget";
 import { useBudgetControl, type BudgetEntityType } from "@/lib/hooks/useBudgetControl";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Input } from "@/components/ui/input";
@@ -172,8 +172,8 @@ function BudgetEditor({ entityType, entityId, packIds, currentMinor, isDaily, cu
   );
 
   const parsed = parseBudgetInput(draft);
-  // Mudança grande (>25%) pode devolver o conjunto/campanha à fase de aprendizado do Meta.
-  const isBigChange = parsed !== null && currentValue > 0 && Math.abs(parsed - currentValue) / currentValue > 0.25;
+  // Mudança grande pode devolver o conjunto/campanha à fase de aprendizado do Meta.
+  const isBigChange = parsed !== null && currentValue > 0 && Math.abs(parsed - currentValue) / currentValue > BUDGET_BIG_CHANGE;
 
   const handleSave = useCallback(async () => {
     if (parsed === null || isLoading) return;
@@ -221,7 +221,7 @@ function BudgetEditor({ entityType, entityId, packIds, currentMinor, isDaily, cu
           {isBigChange && (
             <div className="flex items-start gap-1.5 text-xs text-muted-foreground">
               <IconAlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-              <span>Mudanças acima de ~25% podem devolver a entrega à fase de aprendizado do Meta.</span>
+              <span>Mudanças acima de 25% podem devolver a entrega à fase de aprendizado do Meta.</span>
             </div>
           )}
           <div className="flex justify-end gap-2">

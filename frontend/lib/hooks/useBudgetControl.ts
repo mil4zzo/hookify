@@ -1,7 +1,6 @@
 import { useCallback } from "react";
 import { useMutation, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api/endpoints";
-import type { UpdateEntityBudgetResponse } from "@/lib/api/schemas";
 import { showError, showSuccess } from "@/lib/utils/toast";
 import { toast } from "sonner";
 
@@ -23,11 +22,15 @@ export interface BudgetInput {
  * Métricas não mudam ao editar budget → nenhuma invalidação/refetch é necessária; o
  * valor patchado É a verdade verificada, e o sync on-focus re-confirma em ≤5min.
  */
-function patchBudgetInCaches(qc: QueryClient, entityId: string, verified: UpdateEntityBudgetResponse): void {
+export type VerifiedBudget = { daily_budget: number | null; lifetime_budget: number | null };
+
+export function patchBudgetsInCaches(qc: QueryClient, verifiedById: ReadonlyMap<string, VerifiedBudget>): void {
+  if (verifiedById.size === 0) return;
   const patchRow = (row: any): any => {
     if (!row || typeof row !== "object") return row;
     if (!Object.prototype.hasOwnProperty.call(row, "budget_daily")) return row;
-    if (String(row.group_key ?? "") !== entityId) return row;
+    const verified = verifiedById.get(String(row.group_key ?? ""));
+    if (!verified) return row;
     return { ...row, budget_daily: verified.daily_budget, budget_lifetime: verified.lifetime_budget };
   };
   qc.setQueriesData<unknown>({ queryKey: ["analytics", "rankings"] }, (cached: unknown) => {
@@ -98,7 +101,7 @@ export function useBudgetControl({ entityType, entityId, packIds }: UseBudgetCon
         return;
       }
       showSuccess("Orçamento atualizado com sucesso.");
-      patchBudgetInCaches(qc, entityId, data);
+      patchBudgetsInCaches(qc, new Map([[entityId, data]]));
     },
     onError: (e: any) => {
       const msg = e?.message || "Falha ao atualizar o orçamento.";

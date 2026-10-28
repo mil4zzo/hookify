@@ -91,6 +91,139 @@ export function computeBudgetTotals(rows: readonly RankingsItem[]): BudgetTotals
   return { byCurrency, withBudget, withoutBudget };
 }
 
+// ── Ajuste em massa ─────────────────────────────────────────────────────────
+
+export type BulkBudgetEntityType = "adset" | "campaign";
+/** percent: sobe/desce N% sobre o próprio valor · delta: soma um valor a cada um · fixed: todos ficam com o valor. */
+export type BulkBudgetMode = "percent" | "delta" | "fixed";
+export type BudgetKind = "daily" | "lifetime";
+
+/**
+ * Acima disto a edição avisa (sem bloquear): mudança grande pode devolver a entrega à fase de
+ * aprendizado. Um valor só para a célula (edição individual) e para o ajuste em massa.
+ */
+export const BUDGET_BIG_CHANGE = 0.25;
+
+/** Teto por pedido — o mesmo do backend (BatchBudgetRequest). */
+export const BULK_BUDGET_MAX = 300;
+
+export type BulkBudgetRow = {
+  id: string;
+  name: string;
+  currency: string | null;
+  kind: BudgetKind;
+  /** Subunidade da moeda (o que a tela sabe — o backend recalcula sobre o valor vivo). */
+  currentMinor: number;
+};
+
+export type BulkBudgetSelection = {
+  /** Com orçamento próprio: entram no ajuste. */
+  eligible: BulkBudgetRow[];
+  /** Orçamento no outro nível (campanha ABO / conjunto sob CBO): pulados, com aviso antes. */
+  elsewhere: { id: string; name: string }[];
+  /** Ainda sem orçamento sincronizado: pulados, com aviso antes. */
+  unknown: { id: string; name: string }[];
+  /**
+   * Por que soma e valor fixo não podem ser usados (null = podem). Dinheiro só tem um
+   * significado quando todos são do mesmo tipo (R$ 50/dia ≠ R$ 50 no total) e da mesma moeda.
+   */
+  moneyBlockedReason: "mixed-kind" | "mixed-currency" | null;
+  /** Tipo e moeda comuns — definidos só quando os modos em dinheiro estão liberados. */
+  kind: BudgetKind | null;
+  currency: string | null;
+};
+
+/** Lê a seleção da aba por-conjunto/por-campanha. Precedência daily ?? lifetime, a mesma da célula. */
+export function analyzeBulkBudgetSelection(rows: readonly RankingsItem[], entityType: BulkBudgetEntityType): BulkBudgetSelection {
+  const eligible: BulkBudgetRow[] = [];
+  const elsewhere: { id: string; name: string }[] = [];
+  const unknown: { id: string; name: string }[] = [];
+
+  for (const row of rows) {
+    const id = String((entityType === "adset" ? row.adset_id : row.campaign_id) ?? "").trim();
+    if (!id) continue;
+    const name = String((entityType === "adset" ? row.adset_name : row.campaign_name) ?? "").trim() || id;
+    const daily = row.budget_daily ?? null;
+    const lifetime = row.budget_lifetime ?? null;
+    if (daily !== null || lifetime !== null) {
+      eligible.push({
+        id,
+        name,
+        currency: row.budget_currency ?? null,
+        kind: daily !== null ? "daily" : "lifetime",
+        currentMinor: (daily ?? lifetime) as number,
+      });
+    } else if (row.budget_mode) {
+      elsewhere.push({ id, name });
+    } else {
+      unknown.push({ id, name });
+    }
+  }
+
+  const kinds = new Set(eligible.map((r) => r.kind));
+  const currencies = new Set(eligible.map((r) => String(r.currency || "").toUpperCase()));
+  const moneyBlockedReason = kinds.size > 1 ? "mixed-kind" : currencies.size > 1 ? "mixed-currency" : null;
+  return {
+    eligible,
+    elsewhere,
+    unknown,
+    moneyBlockedReason,
+    kind: moneyBlockedReason || eligible.length === 0 ? null : eligible[0].kind,
+    currency: moneyBlockedReason || eligible.length === 0 ? null : eligible[0].currency,
+  };
+}
+
+/**
+ * Aceita "-20", "+15", "10,5", "1.500,50", "150.50". Com vírgula, pontos são milhar; sem
+ * vírgula, um ponto é decimal. null = não é número.
+ */
+export function parseSignedDecimal(raw: string): number | null {
+  let normalized = raw.trim().replace(/\s/g, "");
+  if (!normalized || normalized === "-" || normalized === "+") return null;
+  if (normalized.includes(",")) normalized = normalized.replace(/\./g, "").replace(",", ".");
+  if (!/^[+-]?(\d+\.?\d*|\.\d+)$/.test(normalized)) return null;
+  const value = Number(normalized);
+  return Number.isFinite(value) ? value : null;
+}
+
+/**
+ * current × (1 + percent/100), arredondado ao centavo com meio para cima — a mesma conta do
+ * backend (`compute_budget_target`). Em inteiros escalados: em ponto flutuante 10000 × 1,101
+ * dá 11009,999… e a prévia mostraria um centavo a menos do que a Meta vai receber.
+ */
+export function applyBudgetPercent(currentMinor: number, percent: number): number {
+  const den = 1_000_000;
+  const num = currentMinor * (den + Math.round(percent * 10_000));
+  return num >= 0 ? Math.floor((2 * num + den) / (2 * den)) : -Math.floor((-2 * num + den) / (2 * den));
+}
+
+export type BulkBudgetAdjustment =
+  | { mode: "percent"; percent: number }
+  | { mode: "delta" | "fixed"; amountMinor: number; kind: BudgetKind };
+
+export type BulkBudgetPreviewRow = BulkBudgetRow & {
+  newMinor: number;
+  status: "change" | "unchanged" | "invalid";
+  /** Variação relativa (0,5 = +50%). */
+  change: number;
+  big: boolean;
+};
+
+/** Prévia de cada linha. Estimativa sobre o valor da tela; quem decide é a releitura no backend. */
+export function previewBulkBudget(rows: readonly BulkBudgetRow[], adjustment: BulkBudgetAdjustment): BulkBudgetPreviewRow[] {
+  return rows.map((row) => {
+    const newMinor =
+      adjustment.mode === "percent"
+        ? applyBudgetPercent(row.currentMinor, adjustment.percent)
+        : adjustment.mode === "delta"
+          ? row.currentMinor + adjustment.amountMinor
+          : adjustment.amountMinor;
+    const change = row.currentMinor > 0 ? (newMinor - row.currentMinor) / row.currentMinor : 0;
+    const status = newMinor <= 0 ? "invalid" : newMinor === row.currentMinor ? "unchanged" : "change";
+    return { ...row, newMinor, status, change, big: status === "change" && Math.abs(change) > BUDGET_BIG_CHANGE };
+  });
+}
+
 /** Recorte ativo do header (mesma semântica das médias: seleção ganha do filtro). */
 export type BudgetSubsetTotals = {
   kind: "selection" | "filter";

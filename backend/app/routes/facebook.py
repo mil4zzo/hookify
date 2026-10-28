@@ -48,7 +48,7 @@ from app.core.auth import get_current_user
 from app.core.tier import require_insider
 from pydantic import BaseModel
 from pydantic import ValidationError
-from app.schemas import AdsRequestFrontend, VideoSourceRequest, ErrorResponse, FacebookTokenRequest, RefreshPackRequest, UpdateStatusRequest, UpdateBudgetRequest, BatchStatusRequest, BatchEntityStatusRequest, BatchStatusResult, BulkAdConfig, BulkAdRetryRequest, BulkAdItem, CampaignBulkConfig, CampaignBulkItem, CampaignTemplateResponse, CampaignAdsetConfig
+from app.schemas import AdsRequestFrontend, VideoSourceRequest, ErrorResponse, FacebookTokenRequest, RefreshPackRequest, UpdateStatusRequest, UpdateBudgetRequest, BatchBudgetRequest, BatchBudgetResult, BatchBudgetItemResult, BatchStatusRequest, BatchEntityStatusRequest, BatchStatusResult, BulkAdConfig, BulkAdRetryRequest, BulkAdItem, CampaignBulkConfig, CampaignBulkItem, CampaignTemplateResponse, CampaignAdsetConfig
 from app.core.config import (
     FACEBOOK_CLIENT_ID,
     FACEBOOK_CLIENT_SECRET,
@@ -2320,6 +2320,167 @@ def update_campaign_budget(
             result=result, user_jwt=user_jwt, user_id=user_id,
             entity_type="campaign", entity_id=campaign_id,
         )
+
+
+_BATCH_BUDGET_ACTION_BY_ENTITY = {
+    "adset": pack_action_log.ACTION_ADSET_BUDGET,
+    "campaign": pack_action_log.ACTION_CAMPAIGN_BUDGET,
+}
+
+
+def _batch_budget_detail(request: BatchBudgetRequest) -> Dict[str, Any]:
+    """O ajuste pedido, para o log — o valor final difere por entidade, o pedido não."""
+    out: Dict[str, Any] = {"mode": request.mode}
+    if request.mode == "percent":
+        out["percent"] = request.percent
+    else:
+        out["amount"] = request.amount
+        out["budget_type"] = request.budget_type
+    return out
+
+
+_BUDGET_SKIP_REASON_PT = {
+    "no_own_budget": "orçamento no outro nível (CBO/ABO)",
+    "type_mismatch": "tipo de orçamento diferente (diário × total)",
+}
+
+
+def _summarize_budget_failures(items: List[Dict[str, Any]]) -> Optional[str]:
+    """
+    Motivo legível das falhas de um lote, para o histórico do pack: "2 de 10 não mudaram:
+    Orçamento baixo — Mínimo R$ 6,00 (2)". Agrupa por mensagem (o mesmo mínimo da Meta
+    costuma se repetir em várias) e põe a mais frequente primeiro. Puladas não entram:
+    foram avisadas antes de aplicar e não são erro.
+    """
+    failed = [it for it in items if it.get("outcome") == "failed"]
+    if not failed:
+        return None
+    attempted = sum(1 for it in items if it.get("outcome") in ("updated", "failed"))
+    counts: Dict[str, int] = {}
+    for it in failed:
+        msg = str(it.get("message") or it.get("reason") or "erro desconhecido").strip()
+        counts[msg] = counts.get(msg, 0) + 1
+    reasons = "; ".join(f"{msg} ({n})" for msg, n in sorted(counts.items(), key=lambda kv: -kv[1]))
+    return f"{len(failed)} de {attempted} não mudaram: {reasons}"
+
+
+def _update_entities_batch_budget(
+    *,
+    entity_type: str,
+    request: BatchBudgetRequest,
+    user: Dict[str, Any],
+) -> BatchBudgetResult:
+    """
+    Ajuste de orçamento em lote (percentual / soma / valor fixo) de conjuntos ou campanhas.
+    Mesmo contrato do individual (lê o vigente → escreve → relê), em Batch API. Resultado
+    parcial é o normal: cada entidade volta com o próprio desfecho e motivo, e a UI oferece
+    repetir só as que falharam.
+    """
+    ctx = _resolve_entity_write_context(
+        user=user, entity_type=entity_type, entity_ids=request.ids, pack_ids=request.pack_ids,
+    )
+    api, user_jwt, user_id = ctx.api, ctx.user_jwt, ctx.user_id
+
+    owned_ids = _filter_entities_belonging_to_user(
+        user_jwt=user_jwt, user_id=user_id, entity_type=entity_type,
+        ids=(ctx.allowed_ids if ctx.is_guest else request.ids),
+    )
+    if not owned_ids:
+        kind_pt = _ENTITY_KIND_PT.get(entity_type, "item")
+        raise HTTPException(status_code=404, detail={"error": "entity_not_found", "message": f"Nenhum {kind_pt} encontrado para este usuário"})
+    owned_set = set(owned_ids)
+
+    with _record_entity_action(
+        ctx, _BATCH_BUDGET_ACTION_BY_ENTITY[entity_type], entity_type, owned_ids,
+        detail=_batch_budget_detail(request), target_count=len(owned_ids),
+    ) as _entry:
+        result = api.batch_update_entity_budget(
+            owned_ids, entity_type,
+            mode=request.mode, percent=request.percent, amount=request.amount, budget_type=request.budget_type,
+        )
+
+        if result.get("status") == "auth_error":
+            mark_connection_as_expired(user_jwt, user_id)
+            raise HTTPException(
+                status_code=401,
+                detail={
+                    "error": "facebook_token_expired",
+                    "code": "TOKEN_EXPIRED",
+                    "message": "Token do Facebook expirado. Por favor, reconecte sua conta do Facebook.",
+                },
+            )
+        if result.get("status") != "success":
+            raise HTTPException(
+                status_code=502,
+                detail={
+                    "error": "meta_api_error",
+                    "code": "META_API_ERROR",
+                    "message": result.get("message") or "Falha ao atualizar orçamentos em lote no Meta",
+                },
+            )
+
+        items: List[Dict[str, Any]] = list(result.get("items") or [])
+        # Pedidos que não pertencem ao silo nem chegaram na Meta — voltam com motivo, não somem.
+        for eid in dict.fromkeys(request.ids):
+            if eid not in owned_set:
+                items.append({"id": eid, "outcome": "failed", "reason": "not_found", "message": "Não encontrado nos dados deste pack."})
+
+        verified_budgets = {
+            str(it["id"]): (it.get("daily_budget"), it.get("lifetime_budget"))
+            for it in items
+            if it.get("outcome") == "updated" and it.get("verified")
+            # Releitura sem nenhum orçamento: gravar (None, None) marcaria a campanha como CBO
+            # sem orçamento. O próximo sync resolve; aqui não há verdade para persistir.
+            and (it.get("daily_budget") or it.get("lifetime_budget"))
+        }
+        if verified_budgets:
+            # Best-effort: falha local nunca esconde o write que já aconteceu no Meta.
+            try:
+                supabase_repo.update_parent_entity_budgets_bulk(
+                    user_jwt, user_id, sb_client=_sb_for(user_jwt), level=entity_type, budgets=verified_budgets,
+                )
+            except Exception:
+                logger.exception("[BATCH_BUDGET] Falha ao persistir budgets locais (%s)", entity_type)
+
+        _mark_batch_outcome(
+            _entry,
+            updated_ids=[str(it["id"]) for it in items if it.get("outcome") == "updated"],
+            failed_ids=[str(it["id"]) for it in items if it.get("outcome") == "failed"],
+            blocked={},
+        )
+        failure_summary = _summarize_budget_failures(items)
+        if failure_summary:
+            _entry["error"] = failure_summary
+            # Amostra por item no detail (o `error` corta em 300 caracteres).
+            _entry["failures"] = [
+                {"id": it["id"], "reason": it.get("reason"), "message": it.get("message")}
+                for it in items if it.get("outcome") == "failed"
+            ][:20]
+        skipped = [it for it in items if it.get("outcome") == "skipped"]
+        if skipped:
+            _entry["skipped"] = [
+                {"id": it["id"], "reason": _BUDGET_SKIP_REASON_PT.get(str(it.get("reason")), it.get("reason"))}
+                for it in skipped
+            ][:20]
+        return BatchBudgetResult(total=len(items), items=[BatchBudgetItemResult(**it) for it in items])
+
+
+@router.post("/adsets/batch-budget", response_model=BatchBudgetResult)
+def update_adsets_batch_budget(
+    request: BatchBudgetRequest = Body(...),
+    user: Dict[str, Any] = Depends(get_current_user),
+):
+    """Ajusta o orçamento de vários conjuntos (ABO) de uma vez."""
+    return _update_entities_batch_budget(entity_type="adset", request=request, user=user)
+
+
+@router.post("/campaigns/batch-budget", response_model=BatchBudgetResult)
+def update_campaigns_batch_budget(
+    request: BatchBudgetRequest = Body(...),
+    user: Dict[str, Any] = Depends(get_current_user),
+):
+    """Ajusta o orçamento de várias campanhas (CBO) de uma vez."""
+    return _update_entities_batch_budget(entity_type="campaign", request=request, user=user)
 
 
 @router.get("/ads/tree")

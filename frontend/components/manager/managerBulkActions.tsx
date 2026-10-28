@@ -1,4 +1,4 @@
-import { IconArrowBarToUp, IconPlayerPause, IconPlayerPlay, IconShare2, IconTag } from "@tabler/icons-react";
+import { IconArrowBarToUp, IconCoin, IconPlayerPause, IconPlayerPlay, IconShare2, IconTag } from "@tabler/icons-react";
 import type { BulkAction } from "@/components/common/BulkActionsBar";
 
 interface BuildManagerBulkActionsParams {
@@ -14,6 +14,11 @@ interface BuildManagerBulkActionsParams {
    */
   onTags?: () => void;
   /**
+   * Abre o ajuste de orçamento em massa. Só nas abas Por conjunto e Por campanha — é
+   * onde o orçamento mora (ABO no conjunto, CBO na campanha).
+   */
+  onBudget?: () => void;
+  /**
    * Liga/desliga "selecionados no topo". Existe só onde a tabela sabe reordenar
    * (ManagerTable); a tabela de filhos do drill não passa.
    */
@@ -27,7 +32,7 @@ interface BuildManagerBulkActionsParams {
  * ManagerChildrenTable renderizam a mesma barra: a copy dos dialogs precisa
  * existir em um lugar só, senão as duas superfícies divergem com o tempo.
  */
-export function buildManagerBulkActions({ onPause, onActivate, onShare, onTags, onTogglePin, isPinned = false }: BuildManagerBulkActionsParams): BulkAction[] {
+export function buildManagerBulkActions({ onPause, onActivate, onShare, onTags, onBudget, onTogglePin, isPinned = false }: BuildManagerBulkActionsParams): BulkAction[] {
   const actions: BulkAction[] = [];
 
   if (onTogglePin) {
@@ -50,6 +55,16 @@ export function buildManagerBulkActions({ onPause, onActivate, onShare, onTags, 
       icon: <IconTag className="h-3.5 w-3.5" />,
       // Sem confirm: o diálogo já é a confirmação, e marcar é reversível num clique.
       onSelect: onTags,
+    });
+  }
+
+  if (onBudget) {
+    actions.push({
+      id: "budget",
+      label: "Orçamento",
+      icon: <IconCoin className="h-3.5 w-3.5" />,
+      // Sem confirm da barra: o diálogo já mostra a prévia e pede o "Aplicar".
+      onSelect: onBudget,
     });
   }
 

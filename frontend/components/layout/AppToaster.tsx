@@ -4,6 +4,7 @@ import React from "react";
 import { Toaster } from "sonner";
 import { ErrorCardStack } from "@/components/common/ErrorCardStack";
 import { RefreshQueueBar } from "@/components/common/RefreshQueueBar";
+import { BulkBudgetMiniCard } from "@/components/manager/BulkBudgetMiniCard";
 
 /** VIEWPORT_OFFSET do sonner (constante interna, 32px). A coluna do canto usa o mesmo valor. */
 const TOASTER_BASE_OFFSET = 32;
@@ -21,7 +22,8 @@ const STACK_GAP = 8;
 const TOASTER_STYLE = { "--width": "22rem" } as React.CSSProperties;
 
 /**
- * Toaster do app + a coluna ancorada no canto: cards de erro e placar do lote.
+ * Toaster do app + a coluna ancorada no canto: orçamento em massa minimizado, cards de erro e
+ * placar do lote.
  *
  * De baixo para cima: placar da fila, cards de erro, pilha de progresso. Os dois primeiros
  * são nossos porque o sonner mantém UMA lista por posição e ordena por recência — dentro da
@@ -79,6 +81,7 @@ export function AppToaster() {
         ref={cornerRef}
         className="pointer-events-none fixed bottom-8 right-8 z-toast flex flex-col items-end gap-2"
       >
+        <BulkBudgetMiniCard />
         <ErrorCardStack />
         <RefreshQueueBar />
       </div>

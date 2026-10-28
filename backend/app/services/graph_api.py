@@ -2,6 +2,7 @@ import json
 import time
 import urllib.parse
 import logging
+from decimal import ROUND_HALF_UP, Decimal
 from typing import Any, BinaryIO, Callable, Dict, List, Optional, Tuple, Union
 import requests
 from app.core.config import META_GRAPH_BASE_URL
@@ -55,6 +56,61 @@ def _reconcile_verified_status(requested: str, verified: Optional[str]) -> Optio
     if value in _UNSETTLED_VERIFY_BY_REQUEST.get(str(requested).upper(), set()):
         return None
     return value
+
+
+def compute_budget_target(
+    current_daily: Optional[int],
+    current_lifetime: Optional[int],
+    *,
+    mode: str,
+    percent: Optional[float] = None,
+    amount: Optional[int] = None,
+    budget_type: Optional[str] = None,
+) -> Dict[str, Any]:
+    """
+    Calcula o novo orçamento de UMA entidade a partir do valor VIGENTE (lido do Meta na
+    hora, não o da tela) — é isso que impede um "+10%" de incidir sobre valor velho.
+
+    Modos (valores em SUBUNIDADE da moeda; arredondamento ao centavo, meio para cima):
+    - percent: atual × (1 + percent/100). Vale para diário e total — cada um no seu tipo.
+    - delta:   atual + amount (amount pode ser negativo). Exige `budget_type`.
+    - fixed:   amount. Exige `budget_type`.
+    delta/fixed carregam dinheiro, e "R$ 50" num orçamento diário é outra grandeza que
+    "R$ 50" num total — por isso a entidade cujo tipo vigente difere do pedido é PULADA.
+
+    Retorna {"outcome": "write", "field", "value", "current"} | {"outcome": "unchanged", ...}
+    | {"outcome": "skipped", "reason": "no_own_budget"|"type_mismatch"}
+    | {"outcome": "failed", "reason": "invalid_value"}.
+    """
+    if current_daily is None and current_lifetime is None:
+        return {"outcome": "skipped", "reason": "no_own_budget"}
+    current_type = "daily" if current_daily is not None else "lifetime"
+    current = int(current_daily if current_daily is not None else current_lifetime)  # type: ignore[arg-type]
+    field = f"{current_type}_budget"
+
+    if mode == "percent":
+        factor = (Decimal(100) + Decimal(str(percent or 0))) / Decimal(100)
+        new_value = int((Decimal(current) * factor).quantize(Decimal(1), rounding=ROUND_HALF_UP))
+    elif mode in ("delta", "fixed"):
+        if budget_type != current_type:
+            return {"outcome": "skipped", "reason": "type_mismatch", "current_type": current_type}
+        new_value = current + int(amount or 0) if mode == "delta" else int(amount or 0)
+    else:
+        raise ValueError(f"modo de ajuste inválido: {mode}")
+
+    if new_value <= 0:
+        return {"outcome": "failed", "reason": "invalid_value", "field": field, "value": new_value, "current": current}
+    if new_value == current:
+        return {"outcome": "unchanged", "field": field, "value": new_value, "current": current}
+    return {"outcome": "write", "field": field, "value": new_value, "current": current}
+
+
+def _meta_error_text(err_obj: Dict[str, Any], fallback: str) -> str:
+    """Mensagem amigável da Meta (error_user_title/msg cobre mínimo de orçamento, limite
+    da conta etc.) antes da técnica — mesma preferência do fluxo individual."""
+    user_title = str(err_obj.get("error_user_title") or "").strip()
+    user_msg = str(err_obj.get("error_user_msg") or "").strip()
+    return " — ".join(p for p in (user_title, user_msg) if p) or str(err_obj.get("message") or "").strip() or fallback
 
 
 def test_facebook_connection(access_token: str) -> Dict[str, Any]:
@@ -925,6 +981,250 @@ class GraphAPI:
             "daily_budget": verify.get("daily_budget"),
             "lifetime_budget": verify.get("lifetime_budget"),
         }
+
+    def _batch_graph(self, items: List[Tuple[str, Dict[str, Any]]], operation_name: str) -> Dict[str, Any]:
+        """
+        Envia sub-requests pela Meta Batch API (chunks de 50) e devolve o desfecho POR id:
+        {"status": "success", "results": {id: {"ok": bool, "body": dict, "error": dict}}}.
+
+        Falha do chunk inteiro (HTTP/timeout) vira erro em cada id do chunk — o caller decide
+        o que isso significa (num write, "não sei se aplicou": o verify responde). auth_error
+        (#190) em qualquer ponto aborta e é propagado — levando em `results` o desfecho dos
+        chunks que JÁ foram (num write, eles podem ter sido aplicados).
+        """
+        results: Dict[str, Dict[str, Any]] = {}
+        for i in range(0, len(items), 50):
+            chunk = items[i : i + 50]
+            try:
+                resp = requests.post(
+                    self.base_url,
+                    params={"access_token": self.access_token, "include_headers": "false"},
+                    data={"batch": json.dumps([item for _, item in chunk])},
+                    timeout=60,
+                )
+                resp.raise_for_status()
+                log_meta_usage(resp, operation_name)
+                payload = resp.json()
+                if not isinstance(payload, list):
+                    logger.warning("%s: resposta inesperada do Meta: %s", operation_name, payload)
+                    for entity_id, _ in chunk:
+                        results[entity_id] = {"ok": False, "body": {}, "error": {"message": "Resposta inesperada da Meta"}}
+                    continue
+                for (entity_id, _), item in zip(chunk, payload):
+                    if item is None:
+                        results[entity_id] = {"ok": False, "body": {}, "error": {"message": "Sem resposta da Meta para este item"}}
+                        continue
+                    body_raw = item.get("body", "{}")
+                    try:
+                        body = json.loads(body_raw) if isinstance(body_raw, str) else (body_raw or {})
+                    except Exception:
+                        body = {}
+                    err_obj = body.get("error", {}) if isinstance(body, dict) else {}
+                    if err_obj.get("code") == 190:
+                        return {"status": "auth_error", "message": err_obj.get("message", "Token expirado"), "error": err_obj, "results": results}
+                    ok = item.get("code") == 200 and not err_obj
+                    results[entity_id] = {"ok": ok, "body": body if isinstance(body, dict) else {}, "error": err_obj}
+            except requests.exceptions.HTTPError as http_err:
+                # Corpo pode não ser JSON (502 do proxy da Meta em HTML): um .json() solto
+                # aqui levantaria de dentro do except e derrubaria o lote inteiro em 500.
+                try:
+                    error_data = http_err.response.json() if http_err.response is not None and http_err.response.content else {}
+                except ValueError:
+                    error_data = {}
+                error_obj = error_data.get("error", {}) if isinstance(error_data, dict) else {}
+                if error_obj.get("code") == 190:
+                    return {"status": "auth_error", "message": error_obj.get("message", "Token expirado"), "error": error_obj, "results": results}
+                logger.warning("%s HTTP error no chunk %d: %s", operation_name, i // 50, http_err)
+                for entity_id, _ in chunk:
+                    results[entity_id] = {"ok": False, "body": {}, "error": error_obj or {"message": "Falha de comunicação com a Meta"}}
+            except Exception as err:
+                logger.exception("%s error no chunk %d: %s", operation_name, i // 50, err)
+                for entity_id, _ in chunk:
+                    results[entity_id] = {"ok": False, "body": {}, "error": {"message": "Sem resposta da Meta (tempo esgotado ou conexão caiu)"}}
+        return {"status": "success", "results": results}
+
+    def batch_get_budget_configs(self, ids: List[str], entity_type: str) -> Dict[str, Any]:
+        """
+        Lê daily/lifetime_budget de vários adsets/campanhas via Batch GET (1 req/50).
+
+        Retorna {"status": "success", "configs": {id: {"daily_budget", "lifetime_budget"}},
+        "errors": {id: mensagem}} — id ilegível fica em `errors`, nunca em `configs`.
+        """
+        fields = self._BUDGET_CONFIG_FIELDS.get(entity_type)
+        if not fields:
+            return {"status": "error", "message": f"entity_type inválido para budget: {entity_type}"}
+        read = self._batch_graph(
+            [(str(eid), {"method": "GET", "relative_url": f"{eid}?fields={fields}"}) for eid in ids],
+            "GraphAPI.batch_get_budget_configs",
+        )
+        if read.get("status") != "success":
+            return read
+
+        def _to_minor(value: Any) -> Optional[int]:
+            try:
+                minor = int(str(value))
+            except (TypeError, ValueError):
+                return None
+            return minor if minor > 0 else None
+
+        configs: Dict[str, Dict[str, Optional[int]]] = {}
+        errors: Dict[str, str] = {}
+        for eid, res in (read.get("results") or {}).items():
+            if res.get("ok"):
+                body = res.get("body") or {}
+                configs[eid] = {
+                    "daily_budget": _to_minor(body.get("daily_budget")),
+                    "lifetime_budget": _to_minor(body.get("lifetime_budget")),
+                }
+            else:
+                errors[eid] = _meta_error_text(res.get("error") or {}, "Não foi possível ler o orçamento na Meta")
+        return {"status": "success", "configs": configs, "errors": errors}
+
+    def batch_update_entity_budget(
+        self,
+        ids: List[str],
+        entity_type: str,
+        *,
+        mode: str,
+        percent: Optional[float] = None,
+        amount: Optional[int] = None,
+        budget_type: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Ajuste de orçamento em lote (percentual, soma ou valor fixo) — o mesmo contrato do
+        `update_entity_budget` individual, em 3 viagens de Batch API em vez de 3 por entidade:
+
+        1. Lê o orçamento VIGENTE de todos (o cálculo parte dele, nunca do valor da tela).
+        2. Calcula o alvo de cada um (`compute_budget_target`) e escreve só os que mudam.
+        3. Relê TODOS os que tentaram escrever — inclusive os que voltaram com erro: um
+           timeout pode ter sido aplicado do lado da Meta, e só a releitura sabe. É isso que
+           torna o "tentar de novo" seguro num ajuste percentual (nunca aplica +10% duas vezes).
+
+        Resultado parcial NÃO é desfeito: cada entidade tem o seu desfecho.
+
+        Retorna {"status": "success", "items": [{id, outcome, reason?, message?,
+        before_daily, before_lifetime, daily_budget, lifetime_budget, verified}]}, com
+        outcome ∈ updated | unchanged | skipped | failed. auth_error é propagado.
+        """
+        items: Dict[str, Dict[str, Any]] = {}
+        ordered = [str(i) for i in ids]
+
+        pre = self.batch_get_budget_configs(ordered, entity_type)
+        if pre.get("status") != "success":
+            return pre
+        configs = pre.get("configs") or {}
+        read_errors = pre.get("errors") or {}
+
+        writes: Dict[str, Tuple[str, int]] = {}
+        write_results: Dict[str, Dict[str, Any]] = {}
+        for eid in ordered:
+            if eid not in configs:
+                items[eid] = {
+                    "id": eid, "outcome": "failed", "reason": "read_failed",
+                    "message": read_errors.get(eid) or "Não foi possível ler o orçamento na Meta",
+                }
+                continue
+            cfg = configs[eid]
+            base = {
+                "id": eid,
+                "before_daily": cfg.get("daily_budget"),
+                "before_lifetime": cfg.get("lifetime_budget"),
+                "daily_budget": cfg.get("daily_budget"),
+                "lifetime_budget": cfg.get("lifetime_budget"),
+                "verified": True,
+            }
+            target = compute_budget_target(
+                cfg.get("daily_budget"), cfg.get("lifetime_budget"),
+                mode=mode, percent=percent, amount=amount, budget_type=budget_type,
+            )
+            outcome = target["outcome"]
+            if outcome == "write":
+                writes[eid] = (target["field"], int(target["value"]))
+                items[eid] = base
+            elif outcome == "unchanged":
+                items[eid] = {**base, "outcome": "unchanged"}
+            elif outcome == "skipped":
+                items[eid] = {**base, "outcome": "skipped", "reason": target["reason"]}
+            else:
+                items[eid] = {
+                    **base, "outcome": "failed", "reason": target["reason"],
+                    "message": "O valor resultante ficaria zero ou negativo.",
+                }
+
+        if writes:
+            write = self._batch_graph(
+                [(eid, {"method": "POST", "relative_url": eid, "body": f"{field}={value}"}) for eid, (field, value) in writes.items()],
+                f"GraphAPI.batch_update_{entity_type}_budget",
+            )
+            # Token caiu NO MEIO dos writes (ou no verify): os chunks anteriores podem ter sido
+            # aplicados. Devolver auth_error inteiro jogaria isso fora — a tela veria um 401
+            # "nada aconteceu" e ofereceria repetir um percentual já aplicado. Cada item sai com
+            # o desfecho que se sabe; o que ficou sem resposta vira "unconfirmed".
+            auth_lost = write.get("status") == "auth_error"
+            if write.get("status") not in ("success", "auth_error"):
+                return write
+            write_results = write.get("results") or {}
+
+            verified_configs: Dict[str, Dict[str, Optional[int]]] = {}
+            if not auth_lost:
+                verify = self.batch_get_budget_configs(list(writes.keys()), entity_type)
+                auth_lost = verify.get("status") == "auth_error"
+                if verify.get("status") == "success":
+                    verified_configs = verify.get("configs") or {}
+
+            for eid, (field, value) in writes.items():
+                wres = write_results.get(eid) or {"ok": False, "error": {}}
+                read_back = verified_configs.get(eid)
+                if read_back is not None:
+                    applied = read_back.get(field) == value
+                    if wres.get("ok") or applied:
+                        items[eid].update({
+                            "outcome": "updated", "verified": True,
+                            "daily_budget": read_back.get("daily_budget"),
+                            "lifetime_budget": read_back.get("lifetime_budget"),
+                        })
+                    else:
+                        # Recusado e a releitura confirma que nada mudou: vale o valor lido.
+                        items[eid].update({
+                            "outcome": "failed", "reason": "meta_error",
+                            "message": _meta_error_text(wres.get("error") or {}, "A Meta recusou a alteração"),
+                            "daily_budget": read_back.get("daily_budget"),
+                            "lifetime_budget": read_back.get("lifetime_budget"),
+                        })
+                elif wres.get("ok"):
+                    # Write aceito, releitura falhou: sem verdade lida — caller não persiste.
+                    items[eid].update({"outcome": "updated", "verified": False, "daily_budget": None, "lifetime_budget": None})
+                elif not (wres.get("error") or {}).get("code"):
+                    # Nem resposta da Meta no write nem releitura: pode ter sido aplicado.
+                    # Repetir um percentual às cegas aplicaria duas vezes — a UI avisa.
+                    items[eid].update({
+                        "outcome": "failed", "reason": "unconfirmed",
+                        "message": (
+                            "A conexão com o Facebook expirou no meio do lote: a alteração pode ter sido aplicada. Reconecte e confira o valor antes de repetir."
+                            if auth_lost
+                            else "Sem confirmação da Meta: a alteração pode ter sido aplicada. Confira o valor antes de tentar de novo."
+                        ),
+                    })
+                else:
+                    items[eid].update({
+                        "outcome": "failed", "reason": "meta_error",
+                        "message": _meta_error_text(wres.get("error") or {}, "A Meta recusou a alteração"),
+                    })
+
+        # Uma linha por falha, com o erro da Meta — o resumo do log de ação corta em 300
+        # caracteres, e é aqui que o suporte acha o code/subcode de cada item.
+        for eid in ordered:
+            item = items.get(eid) or {}
+            if item.get("outcome") != "failed":
+                continue
+            raw = (write_results.get(eid) or {}).get("error")
+            logger.warning(
+                "batch_update_entity_budget: %s %s falhou (%s): %s | meta=%s",
+                entity_type, eid, item.get("reason"), item.get("message"),
+                sanitize_error_dict_for_log(raw) if raw else None,
+            )
+
+        return {"status": "success", "items": [items[eid] for eid in ordered if eid in items]}
 
     # effective_status que indicam pausa herdada de um PAI, por tipo de entidade.
     # Ativar a própria entidade não resolve entrega nesses casos — o pai é o bloqueador.

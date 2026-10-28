@@ -251,6 +251,26 @@ export const UpdateEntityBudgetResponseSchema = z.object({
   lifetime_budget: z.number().nullable(),
 })
 
+export const BatchBudgetItemSchema = z.object({
+  id: z.string(),
+  outcome: z.enum(["updated", "unchanged", "skipped", "failed"]),
+  // skipped: no_own_budget | type_mismatch · failed: read_failed | invalid_value | meta_error | unconfirmed | not_found
+  reason: z.string().nullable().optional(),
+  // Já em português (mensagem da Meta quando houver).
+  message: z.string().nullable().optional(),
+  before_daily: z.number().nullable().optional(),
+  before_lifetime: z.number().nullable().optional(),
+  // Verdade RELIDA do Meta; null quando verified=false (write aceito, releitura falhou).
+  daily_budget: z.number().nullable().optional(),
+  lifetime_budget: z.number().nullable().optional(),
+  verified: z.boolean(),
+})
+
+export const BatchBudgetResponseSchema = z.object({
+  total: z.number(),
+  items: z.array(BatchBudgetItemSchema),
+})
+
 // Type exports
 export type FacebookUser = z.infer<typeof FacebookUserSchema>
 export type FacebookAdAccount = z.infer<typeof FacebookAdAccountSchema>
@@ -275,6 +295,8 @@ export type UpdateEntityStatusResponse = z.infer<typeof UpdateEntityStatusRespon
 export type BatchStatusResponse = z.infer<typeof BatchStatusResponseSchema>
 export type StatusSyncResponse = z.infer<typeof StatusSyncResponseSchema>
 export type UpdateEntityBudgetResponse = z.infer<typeof UpdateEntityBudgetResponseSchema>
+export type BatchBudgetItem = z.infer<typeof BatchBudgetItemSchema>
+export type BatchBudgetResponse = z.infer<typeof BatchBudgetResponseSchema>
 
 // ========== Google Sheets Integration Schemas ==========
 

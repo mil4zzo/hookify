@@ -90,6 +90,18 @@ function describeDetail(entry: PackActivityEntry): string | null {
     return d.to === "PAUSED" ? "pausou" : "ativou";
   }
   if (entry.action.endsWith(".budget")) {
+    // Ajuste em massa: guarda o PEDIDO (o valor final difere por entidade).
+    if (d.mode === "percent" && d.percent != null) {
+      const pct = Number(d.percent);
+      return `${pct > 0 ? "+" : ""}${pct.toLocaleString("pt-BR")}% em cada`;
+    }
+    if (d.mode === "delta" && d.amount != null) {
+      const amount = Number(d.amount);
+      return `${amount < 0 ? "−" : "+"}${formatMoneySubunit(Math.abs(amount))} em cada ${d.budget_type === "lifetime" ? "total" : "diário"}`;
+    }
+    if (d.mode === "fixed" && d.amount != null) {
+      return `${d.budget_type === "lifetime" ? "total" : "diário"} para ${formatMoneySubunit(d.amount)}`;
+    }
     if (d.daily_budget != null) return `diário para ${formatMoneySubunit(d.daily_budget)}`;
     if (d.lifetime_budget != null) return `total para ${formatMoneySubunit(d.lifetime_budget)}`;
     return null;
@@ -181,6 +193,13 @@ function ActivityRow({ entry }: { entry: PackActivityEntry }) {
           <p className="mt-1 flex items-start gap-1.5 text-xs text-destructive">
             <IconAlertTriangle className="mt-px h-3 w-3 shrink-0" />
             <span>Não concluído{entry.error ? `: ${entry.error}` : ""}</span>
+          </p>
+        )}
+        {/* Parcial também diz o porquê: "3 de 50 não mudaram" sem motivo não responde nada. */}
+        {entry.status === "partial" && entry.error && (
+          <p className="mt-1 flex items-start gap-1.5 text-xs text-warning">
+            <IconAlertTriangle className="mt-px h-3 w-3 shrink-0" />
+            <span>{entry.error}</span>
           </p>
         )}
       </div>

@@ -89,6 +89,10 @@ export const useSessionStore = create<SessionStore>()(
             localStorage.removeItem(REACT_QUERY_PERSIST_KEY)
             // Foto de perfil cacheada para o primeiro frame do Topbar.
             clearAvatarCache()
+            // Resultado do último ajuste de orçamento em massa é da sessão que saiu.
+            import('@/lib/store/bulkBudgetJob').then(({ useBulkBudgetJobStore }) => {
+              useBulkBudgetJobStore.getState().reset()
+            })
             // Limpar IndexedDB em background
             indexedDB.clearAllPacks().catch((error) => {
               console.error('Erro ao limpar IndexedDB no logout:', error)

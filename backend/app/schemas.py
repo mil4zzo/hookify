@@ -118,6 +118,72 @@ class BatchEntityStatusRequest(BaseModel):
         return [str(v).strip() for v in value if str(v).strip()]
 
 
+class BatchBudgetRequest(BaseModel):
+    """
+    Ajuste de orçamento de vários conjuntos (ABO) ou campanhas (CBO) de uma vez.
+
+    - percent: cada um sobe/desce `percent`% sobre o próprio valor VIGENTE (lido do Meta
+      na hora). Vale para diário e total misturados.
+    - delta:   soma `amount` (subunidade; negativo reduz) ao vigente de cada um.
+    - fixed:   todos ficam com `amount` (subunidade).
+    delta/fixed carregam dinheiro → exigem `budget_type`: quem tiver o outro tipo é pulado.
+    """
+    ids: List[str]
+    mode: Literal["percent", "delta", "fixed"]
+    percent: Optional[float] = None
+    amount: Optional[int] = None
+    budget_type: Optional[Literal["daily", "lifetime"]] = None
+    # Contexto de pack (P3.3b-resto) — mesma semântica do UpdateBudgetRequest.
+    pack_ids: Optional[List[str]] = None
+
+    @field_validator("ids")
+    @classmethod
+    def validate_ids(cls, value: List[str]) -> List[str]:
+        cleaned = [str(v).strip() for v in value if str(v).strip()]
+        if not cleaned:
+            raise ValueError("ids não pode ser vazio")
+        # 3 viagens de Batch API por 50 ids; acima disso a requisição encosta no timeout do cliente.
+        if len(cleaned) > 300:
+            raise ValueError("ids deve conter no máximo 300 ids por requisição")
+        return cleaned
+
+    @model_validator(mode="after")
+    def _validate_adjustment(self):
+        if self.mode == "percent":
+            if self.percent is None or self.percent == 0:
+                raise ValueError("percent é obrigatório e diferente de zero")
+            if self.percent <= -100:
+                raise ValueError("percent deve ser maior que -100")
+        else:
+            if self.amount is None or self.budget_type is None:
+                raise ValueError("amount e budget_type são obrigatórios em delta/fixed")
+            if self.mode == "fixed" and self.amount <= 0:
+                raise ValueError("amount deve ser positivo no valor fixo")
+            if self.mode == "delta" and self.amount == 0:
+                raise ValueError("amount deve ser diferente de zero")
+        return self
+
+
+class BatchBudgetItemResult(BaseModel):
+    id: str
+    # updated | unchanged | skipped | failed
+    outcome: str
+    # skipped: no_own_budget | type_mismatch · failed: read_failed | invalid_value | meta_error | unconfirmed | not_found
+    reason: Optional[str] = None
+    message: Optional[str] = None
+    before_daily: Optional[int] = None
+    before_lifetime: Optional[int] = None
+    # Verdade RELIDA do Meta (null quando verified=False).
+    daily_budget: Optional[int] = None
+    lifetime_budget: Optional[int] = None
+    verified: bool = True
+
+
+class BatchBudgetResult(BaseModel):
+    total: int
+    items: List[BatchBudgetItemResult]
+
+
 class BatchStatusResult(BaseModel):
     """Resultado da atualização de status em lote."""
     success: bool

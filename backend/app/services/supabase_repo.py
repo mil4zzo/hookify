@@ -1197,6 +1197,48 @@ def update_parent_entity_budget(
     )
 
 
+def update_parent_entity_budgets_bulk(
+    user_jwt: Optional[str],
+    user_id: str,
+    *,
+    level: str,
+    budgets: Dict[str, Tuple[Optional[int], Optional[int]]],
+    sb_client: Optional["Client"] = None,
+) -> None:
+    """
+    Versão em lote do `update_parent_entity_budget`: um upsert por até 200 entidades.
+
+    Todas as linhas levam EXATAMENTE as mesmas chaves — num upsert em lote o PostgREST
+    preenche com NULL a chave que faltar numa linha, e isso apagaria account_id/campaign_id
+    já gravados. Por isso account_id fica de fora (a linha existente o mantém).
+    """
+    if not user_id or level not in ("campaign", "adset") or not budgets:
+        return
+    sb = _get_sb(user_jwt, sb_client)
+    now = _now_iso()
+    rows: List[Dict[str, Any]] = []
+    for entity_id, (daily_budget, lifetime_budget) in budgets.items():
+        row: Dict[str, Any] = {
+            "user_id": user_id,
+            "entity_id": str(entity_id),
+            "level": level,
+            "daily_budget": daily_budget,
+            "lifetime_budget": lifetime_budget,
+            "updated_at": now,
+        }
+        # Campanha com budget próprio verificado é, por definição, CBO (sempre verdade aqui:
+        # só entra nesta função quem foi atualizado, e quem não tem budget próprio é pulado).
+        if level == "campaign":
+            row["budget_mode"] = "cbo"
+        rows.append(row)
+    for i in range(0, len(rows), 200):
+        chunk = rows[i : i + 200]
+        with_postgrest_retry(
+            f"update_parent_entity_budgets_bulk[{level}:{len(chunk)}]",
+            lambda c=chunk: sb.table("parent_entities").upsert(c, on_conflict="user_id,entity_id").execute(),
+        )
+
+
 def get_cached_thumbs_by_ad_names(
     user_id: str,
     ad_names: List[str],

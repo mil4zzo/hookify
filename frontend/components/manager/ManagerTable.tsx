@@ -34,6 +34,7 @@ import { FilterBar } from "@/components/manager/FilterBar";
 import { BulkActionsBar } from "@/components/common/BulkActionsBar";
 import { buildManagerBulkActions } from "@/components/manager/managerBulkActions";
 import { BulkTagDialog } from "@/components/manager/BulkTagDialog";
+import { useBulkBudgetJobStore } from "@/lib/store/bulkBudgetJob";
 import { TagScopeProvider } from "@/components/manager/TagScopeProvider";
 import { ManagerColumnFilter, type ManagerColumnType } from "@/components/common/ManagerColumnFilter";
 import { MANAGER_COLUMN_RENDER_ORDER } from "@/components/manager/managerColumns";
@@ -1364,6 +1365,21 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
     return out;
   }, [canBulkTag, table, rowSelection, data]);
 
+  // Orçamento mora no conjunto (ABO) ou na campanha (CBO): só essas abas ajustam em massa.
+  const canBulkBudget = bulkEntityType === "adset" || bulkEntityType === "campaign";
+  const openBulkBudgetForm = useBulkBudgetJobStore((s) => s.openForm);
+  // O diálogo retrata a seleção no instante do clique: depois de aplicar, o cache muda os
+  // valores das linhas e a tela de resultado não pode "andar" por baixo.
+  const handleOpenBulkBudget = useCallback(() => {
+    openBulkBudgetForm({
+      entityType: bulkEntityType as "adset" | "campaign",
+      rows: table.getSelectedRowModel().rows.map((row) => row.original as RankingsItem),
+      packIds: packCtxIds,
+      // A seleção virou lote: limpa ao aplicar (o diálogo mora no AppLayout, fora daqui).
+      onStarted: () => setRowSelection({}),
+    });
+  }, [openBulkBudgetForm, bulkEntityType, table, packCtxIds]);
+
   const bulkActions = useMemo(
     () =>
       buildManagerBulkActions({
@@ -1371,10 +1387,11 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
         onActivate: isCreativesTab ? undefined : () => { bulkActivate(selectedIds); setRowSelection({}); },
         onShare: isCreativesTab ? openShareFromSelection : undefined,
         onTags: canBulkTag ? () => setBulkTagOpen(true) : undefined,
+        onBudget: canBulkBudget ? handleOpenBulkBudget : undefined,
         onTogglePin: () => setPinSelectionToTop((prev) => !prev),
         isPinned: pinSelectionToTop,
       }),
-    [isCreativesTab, bulkPause, bulkActivate, openShareFromSelection, selectedIds, canBulkTag, pinSelectionToTop],
+    [isCreativesTab, bulkPause, bulkActivate, openShareFromSelection, selectedIds, canBulkTag, canBulkBudget, handleOpenBulkBudget, pinSelectionToTop],
   );
 
   // Toolbar única compartilhada pelas 4 abas: busca (leadingSlot) + contagem + botão Filtros.
@@ -1481,6 +1498,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
         selection={bulkTagSelection}
         onApplied={() => setRowSelection({})}
       />
+
       </div>
 
       {/* Drill Modal — substitui a expansão inline (campanha → conjuntos → anúncios) */}

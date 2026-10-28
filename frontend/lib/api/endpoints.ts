@@ -36,6 +36,7 @@ import {
   SheetColumnMapping,
   UpdateEntityStatusResponse,
   UpdateEntityBudgetResponse,
+  BatchBudgetResponse,
   BatchStatusResponse,
   StatusSyncResponse,
   AdsTreeResponse,
@@ -216,6 +217,17 @@ export const api = {
     /** Edita o orçamento de uma campanha (CBO). Valores em SUBUNIDADE da moeda da conta; exatamente um dos campos. */
     updateCampaignBudget: (campaignId: string, budget: { daily_budget?: number; lifetime_budget?: number }, packIds?: string[]): Promise<UpdateEntityBudgetResponse> =>
       apiClient.post(`/facebook/campaigns/${encodeURIComponent(campaignId)}/budget`, { ...budget, pack_ids: packIds }),
+
+    /**
+     * Ajuste de orçamento em lote. percent sobre o valor vigente de cada um; delta/fixed em
+     * SUBUNIDADE e com budget_type (quem tiver o outro tipo é pulado).
+     */
+    batchUpdateBudget: (
+      entityType: "adset" | "campaign",
+      body: { ids: string[]; mode: "percent" | "delta" | "fixed"; percent?: number; amount?: number; budget_type?: "daily" | "lifetime" },
+      packIds?: string[],
+    ): Promise<BatchBudgetResponse> =>
+      apiClient.post(`/facebook/${entityType === "adset" ? "adsets" : "campaigns"}/batch-budget`, { ...body, pack_ids: packIds }),
 
     batchUpdateAdStatus: (adIds: string[], status: "PAUSED" | "ACTIVE", packIds?: string[]): Promise<BatchStatusResponse> =>
       apiClient.post("/facebook/ads/batch-status", { ad_ids: adIds, status, pack_ids: packIds }),

@@ -7,6 +7,7 @@ import Topbar from "./Topbar";
 import { MainContent } from "./MainContent";
 import BottomNavigationBar from "./BottomNavigationBar";
 import { PacksLoader } from "./PacksLoader";
+import { BulkBudgetDialog } from "@/components/manager/BulkBudgetDialog";
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -42,6 +43,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         <MainContent>{children}</MainContent>
       </LayoutContent>
       {!isOnboardingRoute && <BottomNavigationBar />}
+      {/* Aqui e não no Manager: minimizado, o lote segue e reabre de qualquer página. */}
+      <BulkBudgetDialog />
     </PacksLoader>
   );
 }
