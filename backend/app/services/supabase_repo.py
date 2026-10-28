@@ -3075,13 +3075,15 @@ def list_shared_packs(actor_id: str) -> List[Dict[str, Any]]:
 
     sb = get_supabase_service()
     grants = _fetch_all_paginated(
-        sb, "pack_shares", "pack_id, owner_id, role",
+        sb, "pack_shares", "pack_id, owner_id, role, source_folder_id",
         lambda q: q.eq("grantee_id", str(actor_id)),
     )
     if not grants:
         return []
 
     role_by_pack = {str(g["pack_id"]): str(g.get("role") or "viewer") for g in grants}
+    # Acesso por pasta compartilhada (181): o editor da pasta age como o dono (exclui o pack).
+    via_folder = {str(g["pack_id"]) for g in grants if g.get("source_folder_id")}
     owner_by_pack = {str(g["pack_id"]): str(g["owner_id"]) for g in grants}
     pack_ids = sorted(role_by_pack.keys())
 
@@ -3121,6 +3123,7 @@ def list_shared_packs(actor_id: str) -> List[Dict[str, Any]]:
     for pack in packs:
         pid = str(pack.get("id"))
         pack["shared_role"] = role_by_pack.get(pid, "viewer")
+        pack["shared_via_folder"] = pid in via_folder
         owner_id = owner_by_pack.get(pid, "")
         pack["shared_owner_name"] = owner_names.get(owner_id) or None
         sid = pack.get("sheet_integration_id")
@@ -3848,10 +3851,9 @@ def update_pack_name(
     """Atualiza o campo name de um pack.
 
     ATENCAO: escreve com SERVICE ROLE e sem filtro de dono. A autorizacao NAO
-    acontece aqui: quem chama e obrigado a ter passado por
-    `assert_pack_role(..., roles=("dono",))` antes — renomear e SO do dono
-    (nome e identidade do pack, nao conteudo). Com isso, ator == dono por
-    construcao, e a unicidade de nome e checada contra o silo do proprio ator.
+    acontece aqui: quem chama e obrigado a ter passado por `assert_owner_powers`
+    antes (o dono, ou o editor da pasta compartilhada — 181). `actor_id` e o DONO
+    do pack (o silo): a unicidade de nome e checada contra ele.
 
     Raises:
         ValueError / PackNameConflictError

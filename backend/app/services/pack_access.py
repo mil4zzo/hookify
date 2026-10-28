@@ -125,6 +125,49 @@ def assert_pack_role(
     return access
 
 
+def is_folder_editor(actor_id: str, pack_id: str) -> bool:
+    """O ator e editor deste pack POR UMA PASTA compartilhada (migration 181)?
+
+    E o que separa "editor da pasta" (age como o dono: renomeia, muda o periodo,
+    exclui) de "editor por convite direto no pack" (calibra, nao redefine). Falha de
+    leitura nega: as acoes que dependem disto apagam dado, entao na duvida fica so
+    com o dono.
+    """
+    try:
+        rows = (
+            get_supabase_service()
+            .table("pack_shares").select("role, source_folder_id")
+            .eq("pack_id", str(pack_id)).eq("grantee_id", str(actor_id)).limit(1).execute()
+        ).data or []
+    except Exception as e:
+        logger.warning("[PACK_ACCESS] Nao deu para conferir o acesso por pasta: %s", e)
+        return False
+    return bool(rows) and rows[0].get("role") == "editor" and bool(rows[0].get("source_folder_id"))
+
+
+def has_owner_powers(access: PackAccess, actor_id: str, pack_id: str) -> bool:
+    """Dono, ou editor que recebeu o pack por pasta. Para rotas que ja resolveram o
+    papel com outra regra (o refresh aceita viewer) e so precisam desta checagem a mais."""
+    return access.role == "dono" or (access.role == "editor" and is_folder_editor(actor_id, pack_id))
+
+
+def assert_owner_powers(actor_id: str, pack_id: str) -> PackAccess:
+    """Acoes que redefinem o pack (nome, periodo, excluir): o DONO, ou o editor que
+    recebeu o pack por uma pasta compartilhada — na pasta, o editor age como o dono
+    (decisao de produto, 181). Editor por convite direto e viewer: 403.
+
+    O write continua no silo do DONO (`access.owner_id`), por service role quando o
+    ator nao e o dono.
+    """
+    access = assert_pack_role(actor_id, pack_id, roles=("dono", "editor"))
+    if not has_owner_powers(access, actor_id, pack_id):
+        raise HTTPException(
+            status_code=403,
+            detail="Somente o dono do pack, ou quem edita a pasta compartilhada onde ele esta, pode fazer isso",
+        )
+    return access
+
+
 # ── Escrita por ENTIDADE (P3.3b-resto) ───────────────────────────────────────
 # As escritas de status/budget/transcricao nao recebem pack_id: recebem ad_id,
 # adset_id ou campaign_id. Sem saber a que pack a entidade pertence, nao ha como

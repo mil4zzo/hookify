@@ -2,22 +2,27 @@
 
 A pasta e de QUEM ORGANIZA, nao do pack (migration 168). Consequencias no codigo:
 
-  - `user_id` e sempre o ATOR (`user["user_id"]`), nunca o dono do pack. Um
-    convidado arquiva um pack compartilhado na pasta dele sem tocar no pack do
-    dono — e por isso nao ha checagem de papel aqui, so de ACESSO.
-  - Tudo passa pela RLS com o cliente do usuario. Nao existe caminho por service
-    role nesta rota: se a policy nao deixa, e porque nao e do ator mesmo.
-  - Exclusividade (um pack, uma pasta) e da PK (user_id, pack_id). Mover e
-    upsert nessa chave, nunca delete + insert — senao duas chamadas concorrentes
+  - Na arvore do proprio ator, um convidado arquiva pack compartilhado na pasta dele
+    sem tocar no pack do dono.
+  - Exclusividade (um pack, uma pasta, por arvore) e da PK (user_id, pack_id). Mover
+    e upsert nessa chave, nunca delete + insert — senao duas chamadas concorrentes
     deixariam o pack sem pasta nenhuma no meio do caminho.
 
 Subpastas (migration 174): o banco garante sem ciclo e sem pai alheio (trigger),
 mover e desfazer sao RPCs de uma transacao so. Os erros do trigger/RPC chegam
 como P0001 com a mensagem-codigo e viram 4xx em `_folder_rpc_error`.
 
-NAO existe compartilhamento de pasta, e nao deve passar a existir: ver Decisao 3
-na migration 168. "Compartilhar pasta" e acucar de UI sobre /pack-shares, um
-pack de cada vez, com os packs que estao na pasta NAQUELE momento.
+Pasta compartilhada (migration 181, que revisa a Decisao 3 da 168), como no Drive:
+quem recebe a pasta ve A MESMA arvore do dono, e o editor mexe nela como o dono.
+Por isso TODA escrita aqui passa pelas RPCs da 181 (create_folder, rename_folder,
+place_folder, reorder_folders, dissolve_folder, move_packs_to_folder): elas escrevem
+nas linhas do dono depois de conferir o papel, coisa que a RLS (so o proprio dono) nao
+faria. Nenhum caminho por service role escreve aqui.
+
+Qualquer gesto que muda o que mora debaixo de uma pasta compartilhada concede ou retira
+acesso — quem faz isso sao os gatilhos do banco. A rota so FOTOGRAFA antes e depois
+(`tracked_access_changes`): registra no feed dos packs e devolve `access_changes`
+para a tela dizer o que mudou.
 """
 from __future__ import annotations
 
@@ -31,18 +36,20 @@ from postgrest.exceptions import APIError
 from pydantic import BaseModel, Field
 
 from app.core.auth import get_current_user
-from app.core.supabase_client import get_supabase_for_user, get_supabase_service
+from app.core.supabase_client import get_supabase_for_user
 from app.core.supabase_retry import with_postgrest_retry
+from app.services import folder_scope
+from app.routes.pack_shares import _hydrate_display_names
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/folders", tags=["folders"])
 
 MAX_NAME_LEN = 60          # espelha o CHECK folders_name_max_len da migration 168
-MAX_FOLDERS_PER_USER = 100
-# PostgREST monta o .in_() na URL: lote grande estoura o limite de tamanho.
-# Mesmo teto usado no resto do projeto para listas de uuid.
-ID_BATCH = 200
+MAX_FOLDERS_PER_USER = 100  # espelha o teto da RPC create_folder (181), por arvore
+# Teto de packs por chamada de mover: a RPC confere pack a pack num laco, e o arrasto
+# real (selecao da tela) fica bem abaixo disto.
+MAX_PACKS_PER_MOVE = 1000
 
 
 class FolderCreate(BaseModel):
@@ -69,7 +76,7 @@ class ReorderRequest(BaseModel):
 
 
 class MoveRequest(BaseModel):
-    pack_ids: List[str] = Field(min_length=1)
+    pack_ids: List[str] = Field(min_length=1, max_length=MAX_PACKS_PER_MOVE)
     # None = tirar da pasta (volta para "packs soltos").
     folder_id: Optional[str] = None
 
@@ -99,58 +106,24 @@ def _valid_uuids(raw: List[str], field: str) -> List[str]:
     return out
 
 
-def _assert_folder_owner(sb, folder_id: str, actor_id: str) -> Dict[str, Any]:
-    """A RLS ja esconde pasta alheia: se nao veio linha, nao e do ator."""
-    res = with_postgrest_retry(
-        "folders.get",
-        lambda: sb.table("folders").select("id, name, parent_id").eq("id", folder_id).limit(1).execute(),
-    )
-    rows = res.data or []
-    if not rows:
-        raise HTTPException(status_code=404, detail="Pasta nao encontrada.")
-    return rows[0]
-
-
-def _assert_packs_accessible(pack_ids: List[str], user: Dict[str, Any]) -> None:
-    """Arquivar exige ACESSO ao pack, nao posse — o convidado organiza a tela dele.
-
-    Sem esta checagem daria para inventar um pack_id qualquer e criar um vinculo
-    apontando para pack alheio: a RLS de pack_folder_members so olha user_id, que
-    seria o do proprio atacante, entao ela deixaria passar.
-
-    Uma chamada so para a lista inteira. `resolve_pack_role` resolveria um pack
-    por vez — N idas ao banco para arrastar N packs de uma vez.
-    """
-    if not pack_ids:
-        return
-    try:
-        sb = get_supabase_service()
-        res = sb.rpc(
-            "resolve_pack_access",
-            {"p_pack_ids": pack_ids, "p_actor_id": str(user["user_id"])},
-        ).execute()
-    except Exception as e:
-        logger.exception("[FOLDERS] Falha ao resolver acesso aos packs: %s", e)
-        raise HTTPException(status_code=500, detail="Erro ao verificar acesso aos packs")
-
-    allowed = {
-        str(row.get("pack_id"))
-        for row in (res.data or [])
-        if isinstance(row, dict) and row.get("pack_id") and row.get("role")
-    }
-    missing = [pid for pid in pack_ids if pid not in allowed]
-    if missing:
-        # 403 e nao 404: quem organiza ja sabe que o pack existe (ele esta na
-        # lista dele). Esconder aqui so confundiria.
-        raise HTTPException(status_code=403, detail=f"Sem acesso a {len(missing)} pack(s) informado(s).")
-
-
-# Mensagens-codigo levantadas pelo trigger e pelas RPCs da 174.
+# Mensagens-codigo levantadas pelo trigger e pelas RPCs da 174 e da 181.
 _FOLDER_ERRORS = {
     "folder_cycle": (422, "Uma pasta nao pode ir para dentro dela mesma."),
     "folder_parent_not_found": (404, "A pasta de destino nao existe."),
     "folder_not_found": (404, "Pasta nao encontrada."),
     "folder_not_in_siblings": (422, "Ordem invalida para a pasta movida."),
+    "folder_limit": (422, f"Limite de {MAX_FOLDERS_PER_USER} pastas atingido."),
+    "folder_forbidden": (403, "Esta acao e so de quem edita esta pasta."),
+    "pack_move_forbidden": (
+        403,
+        "Algum pack nao pode ir para la. Numa pasta compartilhada com voce, so entram os packs que sao seus, "
+        "e os packs do dono so saem dela para outra pasta dela.",
+    ),
+    "pack_owner_outside": (
+        403,
+        "Este pack e de quem o criou e so pode ficar em pastas que essa pessoa ve. Para tira-lo da pasta, use Tirar da pasta.",
+    ),
+    "not_authenticated": (401, "Sessao expirada."),
 }
 
 
@@ -164,6 +137,26 @@ def _folder_rpc_error(e: Exception) -> HTTPException:
     return HTTPException(status_code=500, detail="Erro ao salvar as pastas.")
 
 
+def _rpc(sb, name: str, params: Dict[str, Any]):
+    try:
+        return with_postgrest_retry(f"folders.{name}", lambda: sb.rpc(name, params).execute()).data
+    except APIError as e:
+        raise _folder_rpc_error(e)
+
+
+def _subtree_pack_ids(sb, folder_id: str) -> List[str]:
+    """Packs da pasta e de todas as subpastas (na arvore do dono): os que podem mudar de
+    acesso quando a pasta muda de lugar ou e desfeita. Quem nunca compartilhou nem
+    recebeu pasta paga uma leitura (o atalho) e sai com lista vazia, sem varrer a arvore."""
+    try:
+        if not folder_scope.actor_has_folder_shares(sb):
+            return []
+        return folder_scope.subtree_pack_ids(folder_id)
+    except Exception as e:  # leitura de apoio (so alimenta a foto): nunca derruba o gesto
+        logger.warning("[FOLDERS] Nao deu para ler a subarvore de %s: %s", folder_id, e)
+        return []
+
+
 def _members_for(sb, actor_id: str) -> List[Dict[str, Any]]:
     res = with_postgrest_retry(
         "folders.members",
@@ -174,11 +167,10 @@ def _members_for(sb, actor_id: str) -> List[Dict[str, Any]]:
 
 @router.get("")
 def list_folders(user=Depends(get_current_user)):
-    """Pastas do ator + o vinculo pack->pasta.
+    """Pastas do ator + as compartilhadas com ele + o vinculo pack->pasta.
 
-    Devolve os dois juntos de proposito: a tela precisa das duas coisas para
-    desenhar uma vez so, e separar em duas rotas daria um frame com as pastas
-    ja na tela e todo pack ainda solto.
+    Devolve tudo junto de proposito: a tela precisa das coisas para desenhar uma vez
+    so, e separar em rotas daria um frame com as pastas ja na tela e todo pack solto.
     """
     sb = get_supabase_for_user(user["token"])
     actor_id = str(user["user_id"])
@@ -192,21 +184,61 @@ def list_folders(user=Depends(get_current_user)):
         .order("name")
         .execute(),
     ).data or []
+    folders = [{**f, "access": "dono", "owner_id": actor_id} for f in folders]
 
-    members = _members_for(sb, actor_id)
+    members = {str(m["pack_id"]): str(m["folder_id"]) for m in _members_for(sb, actor_id) if m.get("pack_id") and m.get("folder_id")}
+
+    # Pastas que outras pessoas compartilharam com o ator: a MESMA arvore do dono, a
+    # partir da pasta compartilhada (que sai com parent_id nulo — a raiz do que ele ve).
+    shared = with_postgrest_retry("folders.shared", lambda: sb.rpc("list_shared_folders", {}).execute()).data or {}
+    shared_folders = shared.get("folders") or []
+    if shared_folders:
+        owners = _hydrate_display_names(sorted({str(f["owner_id"]) for f in shared_folders if f.get("owner_id")}))
+        folders.extend({**f, "owner_name": owners.get(str(f.get("owner_id"))) or None} for f in shared_folders)
+        # Onde o dono pos o pack vale mais que onde o ator o tinha arquivado: o pack
+        # esta NA pasta compartilhada, e e la que ele aparece.
+        for m in shared.get("members") or []:
+            if m.get("pack_id") and m.get("folder_id"):
+                members[str(m["pack_id"])] = str(m["folder_id"])
+
+    # Quem tem cada pasta do ator: a tela precisa saber QUAL pasta esta compartilhada,
+    # e com quem, para avisar antes de mover um pack para dentro dela. O nome so e
+    # buscado quando ha compartilhamento (uma RPC).
+    folder_shares = with_postgrest_retry(
+        "folders.shares",
+        lambda: sb.table("folder_shares").select("folder_id, grantee_id, role").eq("owner_id", actor_id).execute(),
+    ).data or []
+    direct_shares: List[Dict[str, Any]] = []
+    if folder_shares:
+        names = _hydrate_display_names(sorted({str(r["grantee_id"]) for r in folder_shares if r.get("grantee_id")}))
+        folder_shares = [{**r, "display_name": names.get(str(r.get("grantee_id"))) or None} for r in folder_shares]
+        # Acesso DIRETO dos packs do ator: a pasta o absorve ao cobrir a pessoa ("Ana tinha
+        # editor neste pack; passa a valer o papel da pasta"). Sem pasta compartilhada,
+        # nada a absorver — por isso so e lido aqui.
+        direct_shares = with_postgrest_retry(
+            "folders.direct_shares",
+            lambda: sb.table("pack_shares")
+            .select("pack_id, grantee_id, role")
+            .eq("owner_id", actor_id)
+            .is_("source_folder_id", "null")
+            .execute(),
+        ).data or []
 
     return {
         "success": True,
         "folders": folders,
+        "folder_shares": folder_shares,
+        "direct_shares": direct_shares,
         # {pack_id: folder_id} — o cliente deriva contagem e conteudo a partir
         # dos packs que a pagina ja carregou. Zero query por pasta.
-        "members": {str(m["pack_id"]): str(m["folder_id"]) for m in members if m.get("pack_id") and m.get("folder_id")},
+        "members": members,
     }
 
 
 @router.post("")
 def create_folder(payload: FolderCreate = Body(...), user=Depends(get_current_user)):
-    """Cria a pasta e, se vierem pack_ids, ja move os packs para dentro."""
+    """Cria a pasta (na arvore de quem tem a pasta de cima) e, se vierem pack_ids, ja
+    move os packs para dentro."""
     sb = get_supabase_for_user(user["token"])
     actor_id = str(user["user_id"])
     name = _clean_name(payload.name)
@@ -214,60 +246,37 @@ def create_folder(payload: FolderCreate = Body(...), user=Depends(get_current_us
     parent_id = (payload.parent_id or "").strip() or None
     if parent_id:
         _valid_uuids([parent_id], "parent_id")
-        _assert_folder_owner(sb, parent_id, actor_id)
 
-    # Uma ida so traz a contagem (limite) e a maior posicao (pasta nova vai para
-    # o FIM da lista, nao para o meio da ordem que o usuario montou).
-    last = with_postgrest_retry(
-        "folders.count",
-        lambda: sb.table("folders")
-        .select("position", count="exact")
-        .eq("user_id", actor_id)
-        .order("position", desc=True)
-        .limit(1)
-        .execute(),
-    )
-    count = last.count or 0
-    next_position = (int((last.data or [{}])[0].get("position") or 0) + 1) if last.data else 0
-    if count >= MAX_FOLDERS_PER_USER:
-        raise HTTPException(status_code=422, detail=f"Limite de {MAX_FOLDERS_PER_USER} pastas atingido.")
-
-    if pack_ids:
-        _assert_packs_accessible(pack_ids, user)
-
-    try:
-        created = with_postgrest_retry(
-            "folders.create",
-            lambda: sb.table("folders")
-            .insert({"user_id": actor_id, "name": name, "position": next_position, "parent_id": parent_id})
-            .execute(),
-        ).data
-    except APIError as e:
-        raise _folder_rpc_error(e)
-    if not created:
+    folder = _rpc(sb, "create_folder", {"p_name": name, "p_parent_id": parent_id})
+    if not folder:
         raise HTTPException(status_code=500, detail="Erro ao criar a pasta.")
-    folder = created[0]
 
     moved = 0
+    access_changes = {"granted": 0, "revoked": 0, "changed": 0}
     if pack_ids:
-        moved = _upsert_members(sb, actor_id, pack_ids, str(folder["id"]))
+        try:
+            with folder_scope.tracked_access_changes(sb, actor_id, pack_ids) as access_changes:
+                moved = int(_rpc(sb, "move_packs_to_folder", {"p_pack_ids": pack_ids, "p_folder_id": folder["id"]}) or 0)
+        except HTTPException:
+            # Pasta vazia que o usuario nao pediu: desfaz antes de devolver o erro.
+            try:
+                _rpc(sb, "dissolve_folder", {"p_folder_id": folder["id"]})
+            except HTTPException:
+                logger.warning("[FOLDERS] Pasta %s ficou vazia apos falha ao mover packs", folder["id"])
+            raise
 
-    return {"success": True, "folder": folder, "moved": moved}
+    return {"success": True, "folder": folder, "moved": moved, "access_changes": access_changes}
 
 
 @router.patch("/{folder_id}")
 def rename_folder(folder_id: str, payload: FolderRename = Body(...), user=Depends(get_current_user)):
     sb = get_supabase_for_user(user["token"])
-    _assert_folder_owner(sb, folder_id, str(user["user_id"]))
+    _valid_uuids([folder_id], "folder_id")
     name = _clean_name(payload.name)
-
-    updated = with_postgrest_retry(
-        "folders.rename",
-        lambda: sb.table("folders").update({"name": name}).eq("id", folder_id).execute(),
-    ).data
-    if not updated:
+    folder = _rpc(sb, "rename_folder", {"p_folder_id": folder_id, "p_name": name})
+    if not folder:
         raise HTTPException(status_code=404, detail="Pasta nao encontrada.")
-    return {"success": True, "folder": updated[0]}
+    return {"success": True, "folder": folder}
 
 
 @router.delete("/{folder_id}")
@@ -279,14 +288,12 @@ def delete_folder(folder_id: str, user=Depends(get_current_user)):
     """
     sb = get_supabase_for_user(user["token"])
     _valid_uuids([folder_id], "folder_id")
-    try:
-        result = with_postgrest_retry(
-            "folders.dissolve",
-            lambda: sb.rpc("dissolve_folder", {"p_folder_id": folder_id}).execute(),
-        ).data or {}
-    except APIError as e:
-        raise _folder_rpc_error(e)
+    actor_id = str(user["user_id"])
+    affected = _subtree_pack_ids(sb, folder_id)
+    with folder_scope.tracked_access_changes(sb, actor_id, affected) as access_changes:
+        result = _rpc(sb, "dissolve_folder", {"p_folder_id": folder_id}) or {}
     return {
+        "access_changes": access_changes,
         "success": True,
         "deleted": True,
         "id": folder_id,
@@ -310,85 +317,50 @@ def place_folder(folder_id: str, payload: PlaceRequest = Body(...), user=Depends
     if folder_id not in sibling_ids:
         raise HTTPException(status_code=422, detail="Ordem invalida para a pasta movida.")
 
-    try:
-        changed = with_postgrest_retry(
-            "folders.place",
-            lambda: sb.rpc(
-                "place_folder",
-                {"p_folder_id": folder_id, "p_parent_id": parent_id, "p_sibling_ids": sibling_ids},
-            ).execute(),
-        ).data
-    except APIError as e:
-        raise _folder_rpc_error(e)
-    return {"success": True, "changed": int(changed or 0), "parent_id": parent_id}
+    actor_id = str(user["user_id"])
+    affected = _subtree_pack_ids(sb, folder_id)
+    with folder_scope.tracked_access_changes(sb, actor_id, affected) as access_changes:
+        changed = _rpc(
+            sb, "place_folder", {"p_folder_id": folder_id, "p_parent_id": parent_id, "p_sibling_ids": sibling_ids}
+        )
+    return {"success": True, "changed": int(changed or 0), "parent_id": parent_id, "access_changes": access_changes}
 
 
 @router.post("/reorder")
 def reorder_folders(payload: ReorderRequest = Body(...), user=Depends(get_current_user)):
-    """Grava a ordem das pastas numa ida so (RPC reorder_folders, migration 173).
+    """Grava a ordem das pastas numa ida so (RPC reorder_folders, migrations 173/181).
 
     Um UPDATE por pasta seriam N idas em serie; a RPC faz um UPDATE com a lista
-    inteira e escreve so as linhas cuja posicao mudou. Id de pasta alheia e
-    ignorado pela RLS e pelo filtro da propria funcao.
+    inteira e escreve so as linhas cuja posicao mudou. Pasta que o ator nao edita
+    e ignorada pela propria funcao.
     """
     sb = get_supabase_for_user(user["token"])
     folder_ids = _valid_uuids(payload.folder_ids, "folder_id")
     if not folder_ids:
         raise HTTPException(status_code=422, detail="Nenhuma pasta informada.")
 
-    changed = with_postgrest_retry(
-        "folders.reorder",
-        lambda: sb.rpc("reorder_folders", {"p_folder_ids": folder_ids}).execute(),
-    ).data
+    changed = _rpc(sb, "reorder_folders", {"p_folder_ids": folder_ids})
     return {"success": True, "changed": int(changed or 0)}
-
-
-def _upsert_members(sb, actor_id: str, pack_ids: List[str], folder_id: str) -> int:
-    """Upsert em (user_id, pack_id) — a chave que carrega a exclusividade.
-
-    Nunca delete + insert: duas chamadas concorrentes deixariam o pack sem pasta
-    nenhuma na janela entre as duas, e a tela mostraria o pack solto por engano.
-    """
-    total = 0
-    for i in range(0, len(pack_ids), ID_BATCH):
-        chunk = pack_ids[i : i + ID_BATCH]
-        rows = [{"user_id": actor_id, "pack_id": pid, "folder_id": folder_id} for pid in chunk]
-        with_postgrest_retry(
-            "folders.move.upsert",
-            lambda rows=rows: sb.table("pack_folder_members").upsert(rows, on_conflict="user_id,pack_id").execute(),
-        )
-        total += len(chunk)
-    return total
 
 
 @router.post("/move")
 def move_packs(payload: MoveRequest = Body(...), user=Depends(get_current_user)):
-    """Move packs para uma pasta, ou tira da pasta quando folder_id vem nulo."""
+    """Move packs para uma pasta, ou tira da pasta quando folder_id vem nulo.
+
+    A RPC confere, pack a pack, se o ator tem acesso ao pack e o papel nas duas pontas
+    (pasta de origem e de destino); um recusado recusa o lote inteiro.
+    """
     sb = get_supabase_for_user(user["token"])
     actor_id = str(user["user_id"])
     pack_ids = _valid_uuids(payload.pack_ids, "pack_id")
     if not pack_ids:
         raise HTTPException(status_code=422, detail="Nenhum pack informado.")
 
-    _assert_packs_accessible(pack_ids, user)
-
     folder_id = (payload.folder_id or "").strip() or None
     if folder_id:
         _valid_uuids([folder_id], "folder_id")
-        _assert_folder_owner(sb, folder_id, actor_id)
-        moved = _upsert_members(sb, actor_id, pack_ids, folder_id)
-    else:
-        moved = 0
-        for i in range(0, len(pack_ids), ID_BATCH):
-            chunk = pack_ids[i : i + ID_BATCH]
-            with_postgrest_retry(
-                "folders.move.clear",
-                lambda chunk=chunk: sb.table("pack_folder_members")
-                .delete()
-                .eq("user_id", actor_id)
-                .in_("pack_id", chunk)
-                .execute(),
-            )
-            moved += len(chunk)
 
-    return {"success": True, "moved": moved, "folder_id": folder_id}
+    with folder_scope.tracked_access_changes(sb, actor_id, pack_ids) as access_changes:
+        moved = int(_rpc(sb, "move_packs_to_folder", {"p_pack_ids": pack_ids, "p_folder_id": folder_id}) or 0)
+
+    return {"success": True, "moved": moved, "folder_id": folder_id, "access_changes": access_changes}

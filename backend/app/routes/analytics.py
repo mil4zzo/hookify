@@ -20,7 +20,7 @@ from app.core import config as _config
 from app.core.config import ANALYTICS_MANAGER_POSTGREST_TIMEOUT_SECONDS
 from app.services import supabase_repo
 from app.services import entity_performance as EP
-from app.services.pack_access import assert_pack_role, resolve_entity_pack_scope, resolve_pack_roles
+from app.services.pack_access import assert_owner_powers, assert_pack_role, resolve_entity_pack_scope, resolve_pack_roles
 from app.services import pack_action_log
 from app.services.lead_economics import (
     LEAD_ECONOMICS_MAX_PRODUCTS,
@@ -1037,6 +1037,7 @@ def _pack_name_snapshot(pack_id: str) -> Optional[str]:
         return (rows[0].get("name") if rows else None)
     except Exception:
         return None  # nome e enfeite; nunca derrubar a acao por causa dele
+
 
 
 def _hydrate_transcription_flags_for_rankings_rows(
@@ -2117,17 +2118,23 @@ def delete_pack(
 ):
     """Deleta um pack e todos os dados relacionados (ads e ad_metrics) em cascata.
 
-    So o DONO. Editor/viewer recebem 403 — para sair do pack, o convidado usa
-    DELETE /pack-shares/{pack_id}/me. Os grants somem junto via ON DELETE CASCADE.
+    O DONO, ou o EDITOR de uma pasta compartilhada onde o pack mora (migration 181:
+    na pasta, o editor tem o poder do dono — decisao de produto, com o registro no
+    feed abaixo como a resposta de quem apagou). Editor por convite direto e viewer
+    recebem 403 — para sair do pack, o convidado usa DELETE /pack-shares/{pack_id}/me.
+    Os grants somem junto via ON DELETE CASCADE.
     """
     try:
-        access = assert_pack_role(user["user_id"], pack_id, roles=("dono",))
+        access = assert_owner_powers(user["user_id"], pack_id)
         deleted_name = _pack_name_snapshot(pack_id)
         result = supabase_repo.delete_pack(
             user["token"],
             pack_id=pack_id,
             ad_ids=request.ad_ids or [],  # Opcional, backend busca do pack se nÃ£o fornecido
-            user_id=user["user_id"]
+            # Os dados vivem no silo do DONO; o editor da pasta apaga por service role
+            # (a RLS de packs so deixa o proprio dono), ja autorizado acima.
+            user_id=access.owner_id,
+            sb_client=None if access.role == "dono" else get_supabase_service(),
         )
 
         # Autoria (P3.5). O pack acabou de sumir para todos os membros — esta e a
@@ -2414,10 +2421,11 @@ def preview_pack_date_range(
     Conta o dado real, não a janela declarada: existem linhas fora da janela do
     próprio pack (847 no mapa em produção, medido na 146) e elas também saem.
 
-    Só o DONO: o período define o que o pack é, como o nome.
+    Só o DONO (ou o editor da pasta compartilhada onde o pack está, que age como
+    ele — 181): o período define o que o pack é, como o nome.
     """
     try:
-        access = assert_pack_role(user["user_id"], pack_id, roles=("dono",))
+        access = assert_owner_powers(user["user_id"], pack_id)
         try:
             date.fromisoformat(date_start)
             date.fromisoformat(date_stop)
@@ -2442,14 +2450,15 @@ def update_pack_name(
     request: UpdatePackNameRequest = Body(...),
     user=Depends(get_current_user)
 ):
-    """Atualiza o nome de um pack. SO O DONO.
+    """Atualiza o nome de um pack. O DONO, ou o editor da pasta compartilhada onde o
+    pack esta (181: na pasta, o editor age como o dono).
 
     Nome e IDENTIDADE, nao conteudo: renomear muda como o time inteiro encontra
-    o pack — mesma classe de acao que compartilhar e apagar, que ja sao do dono.
-    Editor calibra o pack (julgamento, auto-refresh); nao redefine quem ele e.
+    o pack — mesma classe de acao que apagar. Editor por convite DIRETO calibra o
+    pack (julgamento, auto-refresh); nao redefine quem ele e.
     """
     try:
-        access = assert_pack_role(user["user_id"], pack_id, roles=("dono",))
+        access = assert_owner_powers(user["user_id"], pack_id)
 
         if not request.name or not request.name.strip():
             raise HTTPException(status_code=400, detail="Nome do pack nÃ£o pode ser vazio")
@@ -2458,7 +2467,9 @@ def update_pack_name(
         supabase_repo.update_pack_name(
             pack_id,
             request.name.strip(),
-            actor_id=user["user_id"],
+            # Unicidade de nome e por SILO: a do dono, mesmo quando quem renomeia e o
+            # editor da pasta.
+            actor_id=access.owner_id,
         )
         pack_action_log.log_pack_action(
             action=pack_action_log.ACTION_PACK_RENAME,

@@ -90,6 +90,11 @@ _RULES: Tuple[Tuple[str, re.Pattern[str], str, int], ...] = tuple(
         ("POST", r"^/pack-shares/", "pack-share-write", 60),
         ("DELETE", r"^/pack-shares/", "pack-share-write", 60),
         ("PATCH", r"^/pack-shares/", "pack-share-write", 60),
+        # Pasta compartilhada (181): mesmo ritmo humano do convite de pack. Cada escrita
+        # recalcula a subarvore inteira no banco, entao o teto tambem protege isso.
+        ("POST", r"^/folder-shares/", "folder-share-write", 60),
+        ("DELETE", r"^/folder-shares/", "folder-share-write", 60),
+        ("PATCH", r"^/folder-shares/", "folder-share-write", 60),
         ("GET", r"^/shares/public/", "share-public-lookup", 20),
     ]
 )

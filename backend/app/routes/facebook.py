@@ -17,6 +17,7 @@ from app.core.supabase_client import get_supabase_for_user, get_supabase_service
 from app.core.supabase_retry import with_postgrest_retry
 from app.services.pack_access import (
     assert_pack_role,
+    has_owner_powers,
     resolve_entity_pack_groups,
     resolve_entity_pack_scope,
 )
@@ -4485,9 +4486,10 @@ def refresh_pack(
         # date_stop de pack fechado (0.1 do plano de edição de período).
         refresh_type = request.refresh_type
         # Editar o período redefine o que o pack É — mesma classe que renomear e
-        # excluir: só o dono. Editor calibra (julgamento, toggle); não redefine.
-        if refresh_type == WINDOW_EDIT and access.role != "dono":
-            raise HTTPException(status_code=403, detail="Só o dono do pack pode editar o período.")
+        # excluir: o dono, ou o editor da pasta compartilhada onde o pack está (181:
+        # na pasta, ele age como o dono). Editor por convite direto calibra; não redefine.
+        if refresh_type == WINDOW_EDIT and not has_owner_powers(access, user["user_id"], pack_id):
+            raise HTTPException(status_code=403, detail="Só o dono do pack, ou quem edita a pasta onde ele está, pode editar o período.")
         try:
             window = plan_refresh_window(
                 pack, refresh_type, request.until_date,

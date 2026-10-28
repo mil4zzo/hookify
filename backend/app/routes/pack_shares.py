@@ -17,6 +17,12 @@ Garantias que NAO estao aqui, e sim no banco (migration 103):
 - convidado nao promove o proprio papel: existe policy de DELETE para ele, nao
   de UPDATE;
 - dono apaga o pack -> grants somem junto, via ON DELETE CASCADE.
+
+Acesso por PASTA (migration 181): `source_folder_id` preenchido marca o grant que
+veio de uma pasta compartilhada. Esse acesso e mantido pelos gatilhos do banco, entao
+aqui ele e SOMENTE LEITURA — trocar papel, revogar ou sair "so neste pack" seria
+desfeito na proxima mudanca da pasta, e um acesso que volta sozinho e pior que um
+recusado com o motivo. O caminho para tira-lo e a pasta (ou o pack sair dela).
 """
 from __future__ import annotations
 
@@ -51,6 +57,40 @@ class CreatePackShareRequest(BaseModel):
 
 class UpdatePackShareRequest(BaseModel):
     role: str = Field(..., description="editor | viewer")
+
+
+def _folder_managed_error(folder_name: Optional[str] = None) -> HTTPException:
+    where = f" «{folder_name}»" if folder_name else ""
+    return HTTPException(
+        status_code=409,
+        detail={
+            "error": "share_managed_by_folder",
+            "message": (
+                f"Este acesso vem da pasta compartilhada{where}. "
+                "Para tirá-lo, remova a pessoa da pasta ou tire o pack dela."
+            ),
+        },
+    )
+
+
+def _existing_share(sb, pack_id: str, grantee_id: str) -> Optional[Dict[str, Any]]:
+    rows = (
+        sb.table("pack_shares")
+        .select("id, role, source_folder_id")
+        .eq("pack_id", pack_id)
+        .eq("grantee_id", grantee_id)
+        .limit(1)
+        .execute()
+    ).data or []
+    return rows[0] if rows else None
+
+
+def _folder_name(sb, folder_id: Optional[str]) -> Optional[str]:
+    """Nome da pasta de origem. So o DONO chama isto (a rota ja provou isso)."""
+    if not folder_id:
+        return None
+    rows = sb.table("folders").select("name").eq("id", folder_id).limit(1).execute().data or []
+    return rows[0].get("name") if rows else None
 
 
 def _assert_owner(user: Dict[str, Any], pack_id: str) -> Dict[str, Any]:
@@ -181,13 +221,20 @@ def list_pack_shares(pack_id: str, user=Depends(get_current_user)):
     sb = get_supabase_for_user(user["token"])
     res = (
         sb.table("pack_shares")
-        .select("id, grantee_id, role, created_at")
+        .select("id, grantee_id, role, created_at, source_folder_id")
         .eq("pack_id", pack_id)
         .order("created_at")
         .execute()
     )
     rows = res.data or []
     names = _hydrate_display_names([str(r["grantee_id"]) for r in rows if r.get("grantee_id")])
+    folder_ids = sorted({str(r["source_folder_id"]) for r in rows if r.get("source_folder_id")})
+    folder_names: Dict[str, str] = {}
+    if folder_ids:
+        folder_names = {
+            str(f["id"]): f.get("name") or ""
+            for f in (sb.table("folders").select("id, name").in_("id", folder_ids).execute().data or [])
+        }
 
     return {
         "success": True,
@@ -199,6 +246,9 @@ def list_pack_shares(pack_id: str, user=Depends(get_current_user)):
                 "display_name": names.get(str(r.get("grantee_id"))) or None,
                 "role": r.get("role"),
                 "created_at": r.get("created_at"),
+                # Preenchido = veio de uma pasta compartilhada (somente leitura aqui).
+                "source_folder_id": r.get("source_folder_id"),
+                "source_folder_name": folder_names.get(str(r.get("source_folder_id"))) if r.get("source_folder_id") else None,
             }
             for r in rows
         ],
@@ -224,6 +274,9 @@ def create_pack_share(
         raise HTTPException(status_code=400, detail="Voce nao pode compartilhar um pack consigo mesmo")
 
     sb = get_supabase_for_user(user["token"])
+    existing = _existing_share(sb, pack_id, grantee_id)
+    if existing and existing.get("source_folder_id"):
+        raise _folder_managed_error(_folder_name(sb, str(existing["source_folder_id"])))
     payload = {
         "pack_id": pack_id,
         # owner_id vem do PACK, nunca do cliente. A FK composta no banco recusaria
@@ -276,6 +329,9 @@ def update_pack_share_role(
         raise HTTPException(status_code=400, detail="role deve ser 'editor' ou 'viewer'")
 
     sb = get_supabase_for_user(user["token"])
+    existing = _existing_share(sb, pack_id, grantee_id)
+    if existing and existing.get("source_folder_id"):
+        raise _folder_managed_error(_folder_name(sb, str(existing["source_folder_id"])))
     res = (
         sb.table("pack_shares")
         .update({"role": request.role})
@@ -309,9 +365,21 @@ def leave_pack(pack_id: str, user=Depends(get_current_user)):
         .delete()
         .eq("pack_id", pack_id)
         .eq("grantee_id", user["user_id"])
+        # A policy de DELETE do convidado ja exige isto; o filtro aqui existe para a
+        # resposta dizer o motivo em vez de um 404 igual ao de "nao tenho acesso".
+        .is_("source_folder_id", "null")
         .execute()
     )
     if not (res.data or []):
+        existing = _existing_share(sb, pack_id, str(user["user_id"]))
+        if existing and existing.get("source_folder_id"):
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "error": "share_managed_by_folder",
+                    "message": "Este pack chega por uma pasta compartilhada pelo dono. Peça a ele para remover você da pasta.",
+                },
+            )
         raise HTTPException(status_code=404, detail="Voce nao tem acesso compartilhado a este pack")
 
     logger.info("[PACK_SHARES] Usuario %s saiu do pack %s", user["user_id"], pack_id)
@@ -334,6 +402,9 @@ def revoke_pack_share(pack_id: str, grantee_id: str, user=Depends(get_current_us
     pack = _assert_owner(user, pack_id)
 
     sb = get_supabase_for_user(user["token"])
+    existing = _existing_share(sb, pack_id, grantee_id)
+    if existing and existing.get("source_folder_id"):
+        raise _folder_managed_error(_folder_name(sb, str(existing["source_folder_id"])))
     res = (
         sb.table("pack_shares")
         .delete()
