@@ -18,7 +18,10 @@ export interface FolderBucket {
 
 export type FolderDropEdge = "before" | "after" | "inside";
 
-const byOrder = (a: PackFolder, b: PackFolder) => a.position - b.position || a.name.localeCompare(b.name, "pt-BR");
+// Na raiz, as pastas compartilhadas COM o usuário vêm depois das dele: a posição delas
+// é a da árvore do dono, e misturá-las intercalaria duas ordens que ninguém montou junto.
+const byOrder = (a: PackFolder, b: PackFolder) =>
+  Number(!!a.shared_root) - Number(!!b.shared_root) || a.position - b.position || a.name.localeCompare(b.name, "pt-BR");
 
 function summarize(folder: PackFolder, packs: AdsPack[], children: FolderBucket[], depth: number): FolderBucket {
   const allPacks = [...children.flatMap((c) => c.allPacks), ...packs];

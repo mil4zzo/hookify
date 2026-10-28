@@ -11,6 +11,7 @@ import { IconUsers, IconFilter, IconLoader2, IconAlertTriangle, IconAlertCircle 
 import { MetaIcon, GoogleSheetsIcon } from "@/components/icons";
 import { FilterRule } from "@/lib/api/schemas";
 import { AdsPack } from "@/lib/types";
+import { canRedefinePack } from "@/lib/utils/folderShares";
 import { api } from "@/lib/api/endpoints";
 import { showError } from "@/lib/utils/toast";
 import { useClientPacks } from "@/lib/hooks/useClientSession";
@@ -141,7 +142,8 @@ export function PackCard({ pack, adAccountName, formatCurrency, formatDate, onRe
   const handleStartEditName = (e: React.MouseEvent | React.PointerEvent) => {
     e.stopPropagation(); // Prevenir que o dropdown abra
     e.preventDefault(); // Prevenir comportamento padrão
-    if (isSharedGuest) return; // nome é identidade — só o dono renomeia
+    // Nome é identidade: o dono renomeia, e o editor da pasta compartilhada, que age como ele (181).
+    if (!canRedefinePack(pack)) return;
     setIsEditingName(true);
     setEditingName(pack.name);
     setHasNameError(false); // Resetar erro ao iniciar edição

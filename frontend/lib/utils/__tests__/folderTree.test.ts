@@ -31,6 +31,12 @@ test("ordem desenhada: pai, depois filhos, na posição de cada grupo", () => {
   assert.equal(flattenTree(roots).find((n) => n.folder.id === "A1a")!.depth, 2);
 });
 
+test("na raiz, as pastas compartilhadas com o usuário vêm depois das dele", () => {
+  const shared = { ...folder("C", null, 0), shared_root: true, access: "editor" as const };
+  const { roots } = buildFolderTree([shared, ...FOLDERS], PACKS, MEMBERS);
+  assert.deepEqual(roots.map((r) => r.folder.id), ["A", "B", "C"]);
+});
+
 test("pai que não veio (apagado em outra aba) sobe para a raiz, não some", () => {
   const { roots } = buildFolderTree([folder("X", "fantasma", 0)], [], {});
   assert.deepEqual(roots.map((n) => n.folder.id), ["X"]);

@@ -141,6 +141,11 @@ export function useLoadPacks() {
                 // Compartilhamento (P3.7): ausente = pack próprio
                 shared_role: pack.shared_role ?? null,
                 shared_owner_name: pack.shared_owner_name ?? null,
+                // Pasta compartilhada (181): o editor da pasta age como o dono (exclui).
+                shared_via_folder: !!pack.shared_via_folder,
+                // O pack posto pelo editor na sua pasta só fica onde ele vê: a tela
+                // precisa saber de quem é para avisar antes de levá-lo para fora.
+                owner_id: pack.user_id ?? undefined,
               }
             })
           )
@@ -196,6 +201,11 @@ export function useLoadPacks() {
               // pode reidratar um papel antigo e liberar/esconder ação errada.
               if ((pack.shared_role ?? null) !== ((existing as any).shared_role ?? null)) {
                 patch.shared_role = pack.shared_role ?? null
+              }
+              // Mesma razão: o pack pode passar a vir pela pasta (ou deixar de vir), e
+              // com isso ganhar ou perder o "Remover pack" do editor da pasta.
+              if (pack.shared_via_folder !== !!(existing as any).shared_via_folder) {
+                patch.shared_via_folder = pack.shared_via_folder
               }
               if (Object.keys(patch).length > 0) {
                 updatePack(pack.id, patch as any)

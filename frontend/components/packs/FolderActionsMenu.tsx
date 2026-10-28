@@ -2,7 +2,8 @@
 
 import React from "react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { IconFolderOpen, IconFolderPlus, IconPencil, IconRefresh, IconTrash } from "@tabler/icons-react";
+import { IconFolderOpen, IconFolderPlus, IconLogout, IconPencil, IconRefresh, IconTrash, IconUsers } from "@tabler/icons-react";
+import { canEditFolder, isOwnFolder } from "@/lib/utils/folderShares";
 import type { PackFolder } from "@/lib/types";
 
 /** Ação em massa sobre TODOS os packs da pasta (com as subpastas), montada pela página. */
@@ -31,6 +32,17 @@ export interface FolderActionsMenuProps {
   onDelete: (folder: PackFolder) => void;
   onRefreshAll: (folder: PackFolder) => void;
   onCreateSubfolder: (folder: PackFolder) => void;
+  /** Compartilhar a pasta inteira (subpastas e packs, de hoje e de depois). */
+  onShare?: (folder: PackFolder) => void;
+  /** Pessoas com quem a pasta (ou uma de cima) já está compartilhada. */
+  sharedWith?: number;
+  /**
+   * Mover/desfazer: o dono, ou o editor da pasta de cima (a pasta compartilhada com o
+   * usuário só o dono desfaz). Calculado pela página, que conhece a árvore.
+   */
+  canRestructure?: boolean;
+  /** Sair de uma pasta compartilhada com o usuário (só na raiz do que ele vê). */
+  onLeave?: (folder: PackFolder) => void;
   /**
    * As mesmas ações da barra de seleção, sobre os packs da pasta e de todas as
    * subpastas. Função (e não lista) para só montar quando o menu abre.
@@ -62,10 +74,19 @@ export function FolderActionsMenu({
   onDelete,
   onRefreshAll,
   onCreateSubfolder,
+  onShare,
+  sharedWith = 0,
+  canRestructure = true,
+  onLeave,
   getPackActions,
 }: FolderActionsMenuProps) {
   const noun = packCount === 1 ? "pack" : "packs";
   const packActions = getPackActions ? getPackActions(folder) : [];
+  // Pasta compartilhada (181): convidar é do dono; editar, de quem edita; sair, de
+  // quem recebeu (na pasta compartilhada com ele, não numa subpasta dela).
+  const isOwn = isOwnFolder(folder);
+  const canEdit = canEditFolder(folder);
+  const canLeave = !isOwn && !!folder.shared_root && !!onLeave;
 
   return (
     <DropdownMenu onOpenChange={onOpenChange}>
@@ -94,21 +115,46 @@ export function FolderActionsMenu({
           </DropdownMenuItem>
         ))}
         <DropdownMenuSeparator />
-        <DropdownMenuItem icon={<IconFolderPlus />} onClick={() => onCreateSubfolder(folder)}>
-          Nova subpasta
-        </DropdownMenuItem>
-        <DropdownMenuItem icon={<IconPencil />} onClick={() => onRename(folder)}>
-          Renomear
-        </DropdownMenuItem>
+        {onShare && isOwn && (
+          <DropdownMenuItem
+            icon={<IconUsers />}
+            description={sharedWith > 0 ? `Com ${sharedWith} ${sharedWith === 1 ? "pessoa" : "pessoas"}` : "Packs de hoje e de depois"}
+            onClick={() => onShare(folder)}
+          >
+            Compartilhar pasta
+          </DropdownMenuItem>
+        )}
+        {canEdit && (
+          <>
+            <DropdownMenuItem icon={<IconFolderPlus />} onClick={() => onCreateSubfolder(folder)}>
+              Nova subpasta
+            </DropdownMenuItem>
+            <DropdownMenuItem icon={<IconPencil />} onClick={() => onRename(folder)}>
+              Renomear
+            </DropdownMenuItem>
+          </>
+        )}
         {/* Nada é apagado: o conteúdo sobe um nível (migration 174). */}
-        <DropdownMenuItem
-          icon={<IconTrash />}
-          description="O conteúdo sobe um nível"
-          onClick={() => onDelete(folder)}
-          className="text-destructive focus:bg-destructive-10 focus:text-destructive"
-        >
-          Desfazer pasta
-        </DropdownMenuItem>
+        {canRestructure && (
+          <DropdownMenuItem
+            icon={<IconTrash />}
+            description="O conteúdo sobe um nível"
+            onClick={() => onDelete(folder)}
+            className="text-destructive focus:bg-destructive-10 focus:text-destructive"
+          >
+            Desfazer pasta
+          </DropdownMenuItem>
+        )}
+        {canLeave && (
+          <DropdownMenuItem
+            icon={<IconLogout />}
+            description={folder.owner_name ? `Compartilhada por ${folder.owner_name}` : "Você deixa de ver os packs dela"}
+            onClick={() => onLeave!(folder)}
+            className="text-destructive focus:bg-destructive-10 focus:text-destructive"
+          >
+            Sair da pasta
+          </DropdownMenuItem>
+        )}
       </DropdownMenuContent>
     </DropdownMenu>
   );

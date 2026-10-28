@@ -44,6 +44,10 @@ export interface FolderGlyphProps {
   /** Selos do que existe dentro, sem precisar abrir. */
   hasSheet?: boolean;
   hasShared?: boolean;
+  /** Pasta compartilhada POR VOCÊ com N pessoas (migration 181): selo próprio, com o número no título. */
+  sharedWith?: number;
+  /** Pasta compartilhada COM você: o nome de quem compartilhou ("" = sem nome). `null` = não é. */
+  sharedBy?: string | null;
   /** Alvo de arrasto ativo: a lombada inclina e o contorno acende. */
   isDropTarget?: boolean;
   /** Pasta aberta no momento. */
@@ -51,7 +55,7 @@ export interface FolderGlyphProps {
   className?: string;
 }
 
-export function FolderGlyph({ hasSheet = false, hasShared = false, isDropTarget = false, isCurrent = false, className }: FolderGlyphProps) {
+export function FolderGlyph({ hasSheet = false, hasShared = false, sharedWith = 0, sharedBy = null, isDropTarget = false, isCurrent = false, className }: FolderGlyphProps) {
   // Um degradê por instância: id duplicado no documento resolve para o primeiro
   // e amarraria todas as pastas ao ciclo de vida da que montou primeiro.
   const rawId = useId();
@@ -110,8 +114,18 @@ export function FolderGlyph({ hasSheet = false, hasShared = false, isDropTarget 
             <GoogleSheetsIcon className="h-2.5 w-2.5 text-success" />
           </FolderBadge>
         )}
-        {hasShared && (
-          <FolderBadge title="Algum pack é compartilhado">
+        {(hasShared || sharedWith > 0 || sharedBy !== null) && (
+          <FolderBadge
+            title={
+              sharedBy !== null
+                ? sharedBy
+                  ? `Compartilhada com você por ${sharedBy}`
+                  : "Compartilhada com você"
+                : sharedWith > 0
+                  ? `Pasta compartilhada com ${sharedWith} ${sharedWith === 1 ? "pessoa" : "pessoas"}`
+                  : "Algum pack é compartilhado"
+            }
+          >
             <IconUsers className="h-2.5 w-2.5 text-primary" />
           </FolderBadge>
         )}

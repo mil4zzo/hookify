@@ -14,6 +14,8 @@ export interface FolderCardProps {
   totalSpend: number;
   hasSheet: boolean;
   hasShared: boolean;
+  /** Pessoas com quem ESTA pasta (ou uma de cima) está compartilhada. */
+  sharedWith?: number;
   isCurrent?: boolean;
   /** Packs estão sendo arrastados sobre esta pasta. */
   isDropTarget?: boolean;
@@ -23,6 +25,13 @@ export interface FolderCardProps {
   onDelete: (folder: PackFolder) => void;
   onRefreshAll: (folder: PackFolder) => void;
   onCreateSubfolder: (folder: PackFolder) => void;
+  onShare?: (folder: PackFolder) => void;
+  /** Sair de uma pasta compartilhada com o usuário. */
+  onLeave?: (folder: PackFolder) => void;
+  /** Mover/desfazer esta pasta (ver `FolderActionsMenu`). Falso também tira o arrasto. */
+  canRestructure?: boolean;
+  /** Os packs arrastados podem cair aqui (pasta só de leitura, pack que não sai de onde está). */
+  acceptsPackDrop?: boolean;
   /** Ações em massa sobre os packs da pasta e das subpastas (ver `FolderActionsMenu`). */
   getPackActions?: (folder: PackFolder) => FolderPackAction[];
   hasSubfolders?: boolean;
@@ -51,6 +60,7 @@ export function FolderCard({
   totalSpend,
   hasSheet,
   hasShared,
+  sharedWith = 0,
   isCurrent = false,
   isDropTarget = false,
   formatCurrency,
@@ -59,6 +69,10 @@ export function FolderCard({
   onDelete,
   onRefreshAll,
   onCreateSubfolder,
+  onShare,
+  onLeave,
+  canRestructure = true,
+  acceptsPackDrop = true,
   getPackActions,
   hasSubfolders = false,
   onDropPacks,
@@ -75,7 +89,7 @@ export function FolderCard({
   return (
     <div
       className={cn("group/folder relative transition-opacity", isDraggingSelf && "opacity-40")}
-      draggable
+      draggable={canRestructure}
       onDragStart={(e) => {
         e.dataTransfer.effectAllowed = "move";
         e.dataTransfer.setData(FOLDER_DRAG_TYPE, folder.id);
@@ -85,7 +99,8 @@ export function FolderCard({
       onDragOver={(e) => {
         // Pasta arrastada: só cai onde não criaria ciclo (nem nela mesma). Sem
         // preventDefault o cursor mostra "proibido" e o drop não acontece.
-        if (e.dataTransfer.types.includes(FOLDER_DRAG_TYPE) && !acceptsFolderDrop) return;
+        const isFolder = e.dataTransfer.types.includes(FOLDER_DRAG_TYPE);
+        if (isFolder ? !acceptsFolderDrop : !acceptsPackDrop) return;
         e.preventDefault();
         e.dataTransfer.dropEffect = "move";
         onDragStateChange(folder.id);
@@ -96,8 +111,9 @@ export function FolderCard({
       onDrop={(e) => {
         e.preventDefault();
         onDragStateChange(null);
-        if (e.dataTransfer.types.includes(FOLDER_DRAG_TYPE)) onDropFolder(folder.id);
-        else onDropPacks(folder.id);
+        if (e.dataTransfer.types.includes(FOLDER_DRAG_TYPE)) {
+          if (acceptsFolderDrop) onDropFolder(folder.id);
+        } else if (acceptsPackDrop) onDropPacks(folder.id);
       }}
     >
       <button
@@ -114,12 +130,21 @@ export function FolderCard({
           (isDropTarget || isCurrent || menuOpen) && "bg-surface",
         )}
       >
-        <FolderGlyph hasSheet={hasSheet} hasShared={hasShared} isDropTarget={isDropTarget} isCurrent={isCurrent} />
+        <FolderGlyph
+          hasSheet={hasSheet}
+          hasShared={hasShared}
+          sharedWith={sharedWith}
+          sharedBy={folder.shared_root ? folder.owner_name ?? "" : null}
+          isDropTarget={isDropTarget}
+          isCurrent={isCurrent}
+        />
         <span className="flex w-full min-w-0 flex-col gap-0.5 px-1">
           <span className="truncate text-sm font-semibold text-foreground">{folder.name}</span>
           <span className="text-xs text-muted-foreground tabular-nums">
             {packCount} {noun} · {formatCurrency(totalSpend)}
           </span>
+          {/* De quem é: a pasta compartilhada com o usuário mora na árvore de outra pessoa. */}
+          {folder.shared_root && folder.owner_name && <span className="truncate text-xs text-muted-foreground">de {folder.owner_name}</span>}
         </span>
       </button>
 
@@ -132,6 +157,10 @@ export function FolderCard({
         onDelete={onDelete}
         onRefreshAll={onRefreshAll}
         onCreateSubfolder={onCreateSubfolder}
+        onShare={onShare}
+        onLeave={onLeave}
+        canRestructure={canRestructure}
+        sharedWith={sharedWith}
         getPackActions={getPackActions}
         hasSubfolders={hasSubfolders}
       >

@@ -64,6 +64,10 @@ export interface AdsPack {
   // O papel gateia a UI; a autorização real é do backend (assert_pack_role).
   shared_role?: 'editor' | 'viewer' | null
   shared_owner_name?: string | null
+  /** O acesso vem de uma pasta compartilhada (181): o editor dela age como o dono, inclusive exclui. */
+  shared_via_folder?: boolean
+  /** Dono do pack (o silo). Numa pasta compartilhada, o pack posto pelo editor é dele. */
+  owner_id?: string
   created_at: string
   updated_at: string
 }
@@ -165,9 +169,12 @@ export interface AppConfig {
 }
 
 /**
- * Pasta da Biblioteca (migration 168). É de QUEM ORGANIZA, não do pack: um
- * convidado arquiva pack compartilhado na pasta dele sem tocar no pack do dono.
- * `parent_id` existe no schema mas a UI ainda é plana — sempre null por ora.
+ * Pasta da Biblioteca (migration 168). Na árvore do próprio usuário, é de QUEM
+ * ORGANIZA: um convidado arquiva pack compartilhado na pasta dele sem tocar no pack.
+ *
+ * Pasta compartilhada (migration 181), como no Drive: quem recebe vê a MESMA pasta
+ * do dono, com o papel dele nela em `access`. A pasta compartilhada mais alta de cada
+ * ramo chega com `shared_root` e `parent_id` nulo — é a raiz do que ele enxerga.
  */
 export interface PackFolder {
   id: string
@@ -176,10 +183,69 @@ export interface PackFolder {
   position: number
   created_at?: string
   updated_at?: string
+  /** Papel do usuário na pasta. Ausente = da árvore dele (como 'dono'). */
+  access?: 'dono' | 'editor' | 'viewer'
+  /** Dono da árvore onde a pasta mora. */
+  owner_id?: string
+  /** Nome do dono, nas pastas compartilhadas com o usuário. */
+  owner_name?: string | null
+  shared_root?: boolean
+}
+
+/** Convite DIRETO num pack do usuário: a pasta o absorve ao cobrir a pessoa (181). */
+export interface DirectShareEntry {
+  pack_id: string
+  grantee_id: string
+  role: 'editor' | 'viewer'
 }
 
 /** {pack_id: folder_id} — o vínculo, resolvido no cliente sobre os packs já carregados. */
 export type PackFolderMembers = Record<string, string>
+
+/**
+ * Pasta compartilhada (migration 181): a pasta é de `grantee_id`, com este papel, com
+ * tudo que tem debaixo dela hoje e o que entrar depois. A lista é a do dono da pasta.
+ */
+export interface FolderShareEntry {
+  folder_id: string
+  grantee_id: string
+  display_name?: string | null
+  role: 'editor' | 'viewer'
+}
+
+/** O que uma pasta compartilhada cobre: subpastas, packs do dono e packs que não são dele (ficam de fora). */
+export interface FolderShareScope {
+  subfolders: number
+  owned_packs: number
+  foreign_packs: number
+}
+
+/** Uma linha de `/folder-shares/{id}`: a pessoa na pasta (própria ou herdada das de cima). */
+export interface FolderShareMember {
+  id: string
+  folder_id: string
+  folder_name: string | null
+  grantee_id: string
+  display_name: string | null
+  role: 'editor' | 'viewer'
+  created_at: string
+}
+
+export interface FolderShareDetail {
+  success: boolean
+  folder: { id: string; name: string }
+  shares: FolderShareMember[]
+  /** Compartilhamentos das pastas de cima: valem aqui também e só se mudam lá. */
+  inherited: FolderShareMember[]
+  scope: FolderShareScope
+}
+
+/** Quanto acesso um gesto de pasta concedeu/retirou (pares pack × pessoa). */
+export interface FolderAccessChanges {
+  granted: number
+  revoked: number
+  changed: number
+}
 
 // Tipos para notificações
 export interface Notification {

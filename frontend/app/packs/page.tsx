@@ -19,7 +19,7 @@ import { useClientAuth, useClientPacks } from "@/lib/hooks/useClientSession";
 import { useOnboardingGate } from "@/lib/hooks/useOnboardingGate";
 import { showSuccess, showError, showWarning } from "@/lib/utils/toast";
 import { api } from "@/lib/api/endpoints";
-import { IconFilter, IconPlus, IconTrash, IconChartBar, IconSearch, IconLoader2, IconCircleCheck, IconCircleX, IconCircleDot, IconInfoCircle, IconRefresh, IconChevronLeft, IconChevronRight, IconPencil, IconFolderPlus, IconFolderSymlink, IconSortAscending, IconSortDescending, IconTargetArrow } from "@tabler/icons-react";
+import { IconFilter, IconPlus, IconTrash, IconChartBar, IconSearch, IconLoader2, IconCircleCheck, IconCircleX, IconCircleDot, IconInfoCircle, IconRefresh, IconChevronLeft, IconChevronRight, IconPencil, IconFolderPlus, IconFolderSymlink, IconLogout, IconSortAscending, IconSortDescending, IconTargetArrow } from "@tabler/icons-react";
 
 import { FilterRule, ClearEnrichmentResult } from "@/lib/api/schemas";
 import { AdsPack } from "@/lib/types";
@@ -54,8 +54,28 @@ import { MoveToFolderDialog } from "@/components/packs/MoveToFolderDialog";
 import { FolderCard } from "@/components/packs/FolderCard";
 import { PacksActionsSkeleton, PacksLibrarySkeleton } from "@/components/packs/PacksLibrarySkeleton";
 import { FolderNameDialog } from "@/components/packs/FolderNameDialog";
-import { filterFolderTree, flattenTree, folderPath, subtreeIds } from "@/lib/utils/folderTree";
-import type { PackFolder } from "@/lib/types";
+import { filterFolderTree, flattenTree, folderPath, planFolderMove, subtreeIds, type FolderDropEdge } from "@/lib/utils/folderTree";
+import {
+  absorbedDirect,
+  canEditFolder,
+  canMovePack,
+  canPlaceFolder,
+  canRedefinePack,
+  canRestructureFolder,
+  describePeople,
+  effectiveGrantees,
+  folderDissolveImpact,
+  folderMoveImpact,
+  isEmptyDelta,
+  isOwnFolder,
+  packMoveDelta,
+  returningPacks,
+  type ForeignPlacement,
+  type AbsorbedDirect,
+  type AccessDelta,
+} from "@/lib/utils/folderShares";
+import { FolderShareDialog } from "@/components/packs/FolderShareDialog";
+import type { FolderShareEntry, PackFolder } from "@/lib/types";
 
 const STORAGE_KEY_DATE_RANGE = "hookify-packs-date-range";
 const STORAGE_KEY_REFRESH_TOGGLES = "hookify:refresh-toggles";
@@ -291,7 +311,7 @@ export default function PacksPage() {
 
   // ── Pastas (migration 168) ────────────────────────────────────────────────
   // O agrupamento é derivado no cliente sobre os packs que a página já carregou.
-  const { rootBuckets, buckets, bucketById, loosePacks, folderIdByPack, isLoading: isLoadingFolders, createFolder, renameFolder, deleteFolder, moveFolder, movePacks, undoMove } = useFolders(packs);
+  const { folders: allFolders, folderShares, directShares, leaveFolder, reload: reloadFolders, rootBuckets, buckets, bucketById, loosePacks, folderIdByPack, isLoading: isLoadingFolders, createFolder, renameFolder, deleteFolder, moveFolder: moveFolderNow, movePacks, undoMove } = useFolders(packs);
   // A Biblioteca só é desenhada com packs E pastas na mão: sem esperar as pastas, a
   // grade mostrava todos os packs soltos por um instante e eles "pulavam" para dentro.
   const isLoadingLibrary = isLoadingPacks || isLoadingFolders;
@@ -303,6 +323,14 @@ export default function PacksPage() {
   // `parentId` só na criação: onde a pasta nova nasce (null = raiz).
   const [folderDialog, setFolderDialog] = useState<{ mode: "create" | "rename"; folder?: PackFolder; packIds: string[]; parentId?: string | null } | null>(null);
   const [folderToDelete, setFolderToDelete] = useState<PackFolder | null>(null);
+  // Pasta compartilhada (migration 181): o diálogo de convidar e o aviso ANTES de um
+  // gesto que concede ou retira acesso (mover pack/pasta para dentro ou fora de uma
+  // pasta compartilhada). Sem o aviso, o pack movido passaria a ser visto por outras
+  // pessoas em silêncio — a razão da Decisão 3 da 168.
+  const [folderShareTarget, setFolderShareTarget] = useState<PackFolder | null>(null);
+  const [accessGuard, setAccessGuard] = useState<{ title: string; message: React.ReactNode; confirmText: string; run: () => void } | null>(null);
+  // Sair de uma pasta compartilhada com o usuário (confirmação antes: os packs dela somem da tela).
+  const [folderToLeave, setFolderToLeave] = useState<PackFolder | null>(null);
 
   const currentBucket = useMemo(() => (folderView && folderView !== ALL_PACKS_VIEW ? bucketById.get(folderView) ?? null : null), [bucketById, folderView]);
 
@@ -316,8 +344,10 @@ export default function PacksPage() {
   // buscando, a grade é a de "Todos os packs"; limpar a busca devolve a vista de antes.
   const gridView: FolderView = isSearching ? ALL_PACKS_VIEW : folderView;
   const isAllView = gridView === ALL_PACKS_VIEW;
-  // Pasta onde um pack criado agora vai parar (a aberta; buscando, nenhuma).
-  const creationFolder = gridView && !isAllView ? currentBucket?.folder ?? null : null;
+  // Pasta onde um pack criado agora vai parar (a aberta; buscando, nenhuma). Pasta
+  // compartilhada só para leitura não recebe: o pack nasce solto.
+  const openFolder = gridView && !isAllView ? currentBucket?.folder ?? null : null;
+  const creationFolder = openFolder && canEditFolder(openFolder) ? openFolder : null;
 
   // O universo da tela: na raiz, os packs SOLTOS (os em pasta estão colapsados nela);
   // dentro de uma pasta, só os dela; em "Todos", todos. A busca filtra por cima.
@@ -505,8 +535,14 @@ export default function PacksPage() {
   const levelDropProps = (levelId: string | null) => {
     const key = levelId ?? "__root__";
     const canTake = () => {
-      if (draggingFolderId) return !(levelId && folderDragForbidden.has(levelId)) && (bucketById.get(draggingFolderId)?.folder.parent_id ?? null) !== levelId;
-      return draggingPackIds.length > 0;
+      if (draggingFolderId) {
+        return (
+          !(levelId && folderDragForbidden.has(levelId)) &&
+          (bucketById.get(draggingFolderId)?.folder.parent_id ?? null) !== levelId &&
+          canPlaceFolder(allFolders, draggingFolderId, levelId)
+        );
+      }
+      return canMovePacksTo(draggingPackIds, levelId);
     };
     return {
       onDragOver: (e: React.DragEvent) => {
@@ -537,6 +573,196 @@ export default function PacksPage() {
     };
   };
 
+  // ── Pasta compartilhada (181): o que o usuário pode fazer onde ─────────────
+  // Espelho das RPCs para a tela não oferecer o gesto que o banco recusaria.
+  const folderById = useMemo(() => new Map(allFolders.map((f) => [f.id, f])), [allFolders]);
+  const folderOfPack = (packId: string) => {
+    const id = folderIdByPack[packId];
+    return id ? folderById.get(id) ?? null : null;
+  };
+  const isOwnPack = (packId: string) => !packs.find((p) => p.id === packId)?.shared_role;
+  /**
+   * Pack que OUTRA pessoa pôs numa pasta do usuário (o editor criou o dele lá dentro):
+   * só fica onde quem o criou enxerga — o banco recusa levá-lo para fora (181).
+   */
+  const foreignPlacement = (packId: string): ForeignPlacement | null => {
+    const pack = packs.find((p) => p.id === packId);
+    const folder = folderOfPack(packId);
+    if (!pack?.shared_role || !pack.shared_via_folder || !pack.owner_id || !folder || !isOwnFolder(folder)) return null;
+    return { packId, ownerId: pack.owner_id, folderId: folder.id };
+  };
+  /** Todos os packs podem ir para `folderId` (null = tirar da pasta)? */
+  const canMovePacksTo = (ids: string[], folderId: string | null) => {
+    const target = folderId ? folderById.get(folderId) ?? null : null;
+    if (folderId && !target) return false;
+    return (
+      ids.length > 0 &&
+      ids.every((id) => {
+        if (!canMovePack(isOwnPack(id), folderOfPack(id), target)) return false;
+        const foreign = folderId ? foreignPlacement(id) : null;
+        return !foreign || returningPacks(allFolders, folderShares, [{ ...foreign, folderId }]).length === 0;
+      })
+    );
+  };
+  /** Dono do pack, ou editor da pasta compartilhada onde ele está (age como o dono). */
+  const canDeletePack = canRedefinePack;
+
+  /**
+   * Os packs postos por outras pessoas que VOLTAM para elas se a árvore ficar como
+   * `after` (pasta movida ou desfeita para fora do que elas veem). Vira linha do aviso.
+   */
+  const returningNotice = (placements: ForeignPlacement[], after: PackFolder[], afterShares: FolderShareEntry[]): React.ReactNode => {
+    const ids = returningPacks(after, afterShares, placements);
+    if (ids.length === 0) return null;
+    const owners = [...new Set(ids.map((id) => packs.find((p) => p.id === id)?.shared_owner_name).filter(Boolean))] as string[];
+    const who = owners.length === 1 ? owners[0] : owners.length > 1 ? `${owners.slice(0, -1).join(", ")} e ${owners[owners.length - 1]}` : "quem os criou";
+    return (
+      <span className="block">
+        {ids.length === 1 ? "1 pack criado" : `${ids.length} packs criados`} por <strong>{who}</strong> {ids.length === 1 ? "volta" : "voltam"} para{" "}
+        {owners.length > 1 ? "eles" : "a pessoa"}: um pack posto por um editor só fica onde ele vê a pasta, e você deixa de vê-{ids.length === 1 ? "lo" : "los"}.
+      </span>
+    );
+  };
+  /** Packs de outras pessoas que moram nesta pasta ou em alguma subpasta dela. */
+  const foreignPlacementsUnder = (folderId: string) =>
+    (bucketById.get(folderId)?.allPacks ?? []).map((p) => foreignPlacement(p.id)).filter((f): f is ForeignPlacement => f !== null);
+  /** A pasta compartilhada mais alta acima desta (a raiz do que o usuário vê dela). */
+  const sharedRootOf = (folder: PackFolder | null) => {
+    let current = folder;
+    const seen = new Set<string>();
+    while (current && !current.shared_root && current.parent_id && !seen.has(current.id)) {
+      seen.add(current.id);
+      current = folderById.get(current.parent_id) ?? null;
+    }
+    return current?.shared_root ? current : null;
+  };
+
+  /**
+   * Gesto do usuário numa pasta compartilhada COM ele: a lista de quem tem a pasta é do
+   * dono e não vem para cá, então o aviso fala da pasta, não das pessoas.
+   */
+  const sharedTreeNotice = (ids: string[], folderId: string | null): React.ReactNode => {
+    const target = folderId ? folderById.get(folderId) ?? null : null;
+    const toShared = target && !isOwnFolder(target) ? target : null;
+    let entering = 0;
+    let leaving = 0;
+    let losing = 0;
+    let fromRoot: PackFolder | null = null;
+    ids.forEach((id) => {
+      const current = folderOfPack(id);
+      const fromShared = current && !isOwnFolder(current) ? current : null;
+      if (fromShared && toShared && fromShared.owner_id === toShared.owner_id) return;
+      if (toShared) entering += 1;
+      if (fromShared) {
+        leaving += 1;
+        fromRoot = fromRoot ?? sharedRootOf(fromShared);
+        if (!isOwnPack(id)) losing += 1;
+      }
+    });
+    if (entering === 0 && leaving === 0) return null;
+    const toRoot = sharedRootOf(toShared);
+    const n = (count: number) => (count === 1 ? "este pack" : `estes ${count} packs`);
+    const of = (root: PackFolder | null) => (root ? `«${root.name}»${root.owner_name ? `, de ${root.owner_name}` : ""}` : "compartilhada");
+    return (
+      <span className="block space-y-2">
+        {entering > 0 && (
+          <span className="block">
+            Quem tem a pasta {of(toRoot)} passa a ver {n(entering)}. {entering === 1 ? "Ele continua seu" : "Eles continuam seus"}, e você pode tirá-{entering === 1 ? "lo" : "los"} de lá quando quiser.
+          </span>
+        )}
+        {leaving > 0 && (
+          <span className="block">
+            {n(leaving).replace(/^e/, "E")} {leaving === 1 ? "sai" : "saem"} da pasta {of(fromRoot)}: quem tem a pasta deixa de {leaving === 1 ? "vê-lo" : "vê-los"}.
+            {losing > 0 && <> Você também perde o acesso a {losing === 1 ? "1 deles" : `${losing} deles`}, que {losing === 1 ? "é" : "são"} do dono da pasta.</>}
+          </span>
+        )}
+      </span>
+    );
+  };
+
+  /** Packs DIRETOS da pasta que são do usuário: pack compartilhado COM ele não entra em compartilhamento de pasta. */
+  const ownedPacksIn = (folderId: string) => bucketById.get(folderId)?.packs.filter((p) => !p.shared_role).length ?? 0;
+  const shareCountOf = (folderId: string) => effectiveGrantees(allFolders, folderShares, folderId).size;
+
+  /** O texto do aviso: quem ganha e quem perde acesso, com o número de packs. */
+  const describeAccess = (delta: AccessDelta, packCount: number, absorbed: AbsorbedDirect[] = []): React.ReactNode => {
+    const these = packCount === 1 ? "este pack" : `estes ${packCount} packs`;
+    return (
+      <span className="block space-y-2">
+        {/* Dentro da pasta, tudo segue a pasta: o convite direto vira "via pasta" e sai
+            junto quando a pessoa sair dela. */}
+        {absorbed.map((a) => (
+          <span key={a.grantee.grantee_id} className="block">
+            <strong>{describePeople([a.grantee])}</strong> já via {a.packCount === 1 ? "1 destes packs" : `${a.packCount} destes packs`} por convite direto: passa a valer pela pasta
+            {a.roleChanges ? <>, como <strong>{a.grantee.role === "editor" ? "Editor" : "Leitura"}</strong></> : null}. Tirar a pessoa da pasta tira também {a.packCount === 1 ? "esse" : "esses"}.
+          </span>
+        ))}
+        {delta.granted.length > 0 && (
+          <span className="block">
+            <strong>{describePeople(delta.granted)}</strong> {delta.granted.length === 1 ? "passa" : "passam"} a ver {these}.
+          </span>
+        )}
+        {delta.changed.length > 0 && (
+          <span className="block">
+            <strong>{describePeople(delta.changed)}</strong> {delta.changed.length === 1 ? "muda" : "mudam"} de papel em {these}.
+          </span>
+        )}
+        {delta.revoked.length > 0 && (
+          <span className="block">
+            <strong>{describePeople(delta.revoked)}</strong> {delta.revoked.length === 1 ? "perde" : "perdem"} o acesso a {these}.
+          </span>
+        )}
+      </span>
+    );
+  };
+
+  /**
+   * Efeito de levar estes packs para `toFolderId`, somado: só pack MEU concede/retira
+   * acesso, e cada um tem a sua origem. `affected` = quantos packs mudam de acesso.
+   */
+  const packsMoveImpact = (ids: string[], toFolderId: string | null) => {
+    const merged: AccessDelta = { granted: [], revoked: [], changed: [] };
+    let affected = 0;
+    const owned: string[] = [];
+    ids.forEach((id) => {
+      if (packs.find((p) => p.id === id)?.shared_role) return;
+      owned.push(id);
+      const delta = packMoveDelta(allFolders, folderShares, folderIdByPack[id] ?? null, toFolderId);
+      if (isEmptyDelta(delta)) return;
+      affected += 1;
+      (["granted", "revoked", "changed"] as const).forEach((kind) =>
+        delta[kind].forEach((g) => {
+          if (!merged[kind].some((x) => x.grantee_id === g.grantee_id)) merged[kind].push(g);
+        }),
+      );
+    });
+    // Quem passa a ser coberto pela pasta e já tinha convite direto nestes packs.
+    return { delta: merged, affected, absorbed: absorbedDirect(directShares, owned, merged.granted) };
+  };
+
+  /** Roda `run` já, ou depois da confirmação quando o gesto muda quem enxerga os packs. */
+  const guardAccess = (delta: AccessDelta, packCount: number, title: string, run: () => void, absorbed: AbsorbedDirect[] = [], notice: React.ReactNode = null) => {
+    const ownChange = !isEmptyDelta(delta) && packCount > 0;
+    if (!ownChange && !notice) {
+      run();
+      return;
+    }
+    setAccessGuard({
+      title,
+      message: (
+        <span className="block space-y-2">
+          {ownChange && describeAccess(delta, packCount, absorbed)}
+          {notice}
+        </span>
+      ),
+      confirmText: "Continuar",
+      run,
+    });
+  };
+
+  const MOVE_FORBIDDEN =
+    "Algum pack não pode ir para lá. Numa pasta compartilhada com você só entram os packs que são seus, e os do dono só circulam dentro dela.";
+
   /**
    * O ÚNICO caminho de escrita de "mover": arrastar, a barra de ações e o menu do pack
    * chamam esta função. Ela é que decide o que é movimento, escreve, limpa a seleção e
@@ -548,6 +774,21 @@ export default function PacksPage() {
     // Mover para onde já estava não é movimento — não vale toast nem escrita.
     if (ids.every((id) => (folderIdByPack[id] ?? null) === folderId)) return;
 
+    if (!canMovePacksTo(ids, folderId)) {
+      showError({ message: MOVE_FORBIDDEN });
+      return;
+    }
+    const { delta, affected, absorbed } = packsMoveImpact(ids, folderId);
+    const notice = sharedTreeNotice(ids, folderId);
+    if (affected > 0 || notice) {
+      const targetName = folderId ? bucketById.get(folderId)?.folder.name : null;
+      guardAccess(delta, affected, targetName ? `Mover para “${targetName}”?` : "Tirar da pasta?", () => void performMove(ids, folderId), absorbed, notice);
+      return;
+    }
+    await performMove(ids, folderId);
+  };
+
+  const performMove = async (ids: string[], folderId: string | null) => {
     const result = await movePacks(ids, folderId);
     if (!result) return;
     clearPackSelection();
@@ -577,6 +818,30 @@ export default function PacksPage() {
   const openMoveDialog = (pack: AdsPack) => {
     const withinSelection = selectedPackKeys.has(pack.id) && selectedPackCount > 1;
     setMoveTarget(withinSelection ? { ids: selectedPackIds, name: null } : { ids: [pack.id], name: pack.name });
+  };
+
+  /**
+   * Mover a pasta leva a subárvore inteira para dentro/fora de pastas compartilhadas:
+   * mesma lógica do pack, somada pasta a pasta.
+   */
+  const moveFolder = (folderId: string, targetId: string, edge: FolderDropEdge) => {
+    const plan = planFolderMove(allFolders, folderId, targetId, edge);
+    if (!plan) return;
+    if (!canPlaceFolder(allFolders, folderId, plan.parentId)) {
+      showError({ message: "A pasta não pode ir para lá: numa pasta compartilhada com você, as pastas só circulam dentro dela." });
+      return;
+    }
+    const impact = folderMoveImpact(allFolders, folderShares, folderId, plan.parentId, ownedPacksIn);
+    const name = bucketById.get(folderId)?.folder.name ?? "a pasta";
+    const after = allFolders.map((f) => (f.id === folderId ? { ...f, parent_id: plan.parentId } : f));
+    const returning = returningNotice(foreignPlacementsUnder(folderId), after, folderShares);
+    guardAccess(impact.delta, impact.packCount, `Mover «${name}»?`, () => void moveFolderNow(folderId, targetId, edge), [], returning);
+  };
+
+  /** A pasta arrastada pode cair nesta borda deste alvo? (árvore e tiles) */
+  const canDropFolderAt = (draggedId: string, targetId: string, edge: FolderDropEdge) => {
+    const plan = planFolderMove(allFolders, draggedId, targetId, edge);
+    return !!plan && canPlaceFolder(allFolders, draggedId, plan.parentId);
   };
 
   /** Solta os packs arrastados. `folderId` nulo tira da pasta. */
@@ -610,6 +875,17 @@ export default function PacksPage() {
     setRefreshType("since_last_refresh");
   };
 
+  /** Sai da pasta inteira. Os packs que vinham por ela somem já; o resto vem do reload. */
+  const handleConfirmLeaveFolder = async () => {
+    const folder = folderToLeave;
+    setFolderToLeave(null);
+    if (!folder) return;
+    const lost = (bucketById.get(folder.id)?.allPacks ?? []).filter((p) => p.shared_role && p.shared_via_folder);
+    if (folderView && (folderView === folder.id || folderPath(bucketById, folderView).some((n) => n.folder.id === folder.id))) setFolderView(null);
+    await leaveFolder(folder.id);
+    lost.forEach((p) => removePack(p.id));
+  };
+
   const handleConfirmDeleteFolder = async () => {
     const folder = folderToDelete;
     setFolderToDelete(null);
@@ -620,9 +896,13 @@ export default function PacksPage() {
   };
 
   const handleBulkDeletePacks = async () => {
-    const targets = selectedPacksList.map((p) => ({ id: p.id, name: p.name }));
+    const deletable = selectedPacksList.filter(canDeletePack);
+    const skipped = selectedPacksList.length - deletable.length;
+    if (skipped > 0) {
+      showWarning(`${skipped} ${skipped === 1 ? "pack compartilhado com você fica" : "packs compartilhados com você ficam"} de fora: só o dono, ou quem edita a pasta onde ele está, exclui.`);
+    }
     clearPackSelection();
-    await deletePacks(targets);
+    if (deletable.length > 0) await deletePacks(deletable.map((p) => ({ id: p.id, name: p.name })));
   };
 
   // Ações em massa no menu da PASTA: valem para os packs dela e de todas as
@@ -661,7 +941,10 @@ export default function PacksPage() {
         icon: <IconTrash />,
         description: "A pasta continua",
         destructive: true,
-        onSelect: () => setFolderPackConfirm({ kind: "delete", folder, packs: list }),
+        // Só o que o usuário pode excluir: o dele e, numa pasta compartilhada que ele
+        // edita, os que vêm por ela (decisão de produto: o editor age como o dono).
+        disabled: !list.some(canDeletePack),
+        onSelect: () => setFolderPackConfirm({ kind: "delete", folder, packs: list.filter(canDeletePack) }),
       },
     ];
   };
@@ -1185,7 +1468,12 @@ export default function PacksPage() {
                 </DropdownMenuContent>
               </DropdownMenu>
             )}
-            <Button variant="outline" className="flex items-center gap-2" onClick={() => setFolderDialog({ mode: "create", packIds: selectedPackIds, parentId: newFolderParentId })}>
+            <Button
+              variant="outline"
+              className="flex items-center gap-2"
+              disabled={!!currentBucket && !isSearching && !canEditFolder(currentBucket.folder)}
+              onClick={() => setFolderDialog({ mode: "create", packIds: selectedPackIds, parentId: newFolderParentId })}
+            >
               <IconFolderPlus className="w-4 h-4" />
               Nova pasta
             </Button>
@@ -1259,6 +1547,10 @@ export default function PacksPage() {
                   onDelete={setFolderToDelete}
                   onRefreshAll={handleRefreshFolder}
                   onCreateSubfolder={(f) => setFolderDialog({ mode: "create", packIds: [], parentId: f.id })}
+                  onShare={setFolderShareTarget}
+                  onLeave={setFolderToLeave}
+                  canRestructure={canRestructureFolder(allFolders, folder)}
+                  sharedWith={shareCountOf(folder.id)}
                   getPackActions={folderPackActions}
                   hasSubfolders={(bucketById.get(folder.id)?.children.length ?? 0) > 0}
                 >
@@ -1266,6 +1558,9 @@ export default function PacksPage() {
                 </FolderActionsMenu>
               )}
               onDropPacks={handleDropPacks}
+              canDropPacks={(folderId) => canMovePacksTo(draggingPackIds, folderId)}
+              canDragFolder={(folder) => canRestructureFolder(allFolders, folder)}
+              canDropFolder={canDropFolderAt}
               isDragging={draggingPackIds.length > 0}
               onMoveFolder={moveFolder}
               onFolderDragChange={setDraggingFolderId}
@@ -1351,6 +1646,15 @@ export default function PacksPage() {
                   </nav>
                 )}
                 <span className="truncate text-sm font-semibold text-foreground">{currentBucket.folder.name}</span>
+                {!isOwnFolder(currentBucket.folder) && (
+                  <span className="text-xs text-muted-foreground">
+                    {(() => {
+                      const root = sharedRootOf(currentBucket.folder);
+                      const by = root?.owner_name ? ` por ${root.owner_name}` : "";
+                      return currentBucket.folder.access === "viewer" ? `Compartilhada com você${by} · só leitura` : `Compartilhada com você${by} · você edita`;
+                    })()}
+                  </span>
+                )}
                 <span className="text-xs text-muted-foreground tabular-nums">
                   {currentBucket.allPacks.length} {currentBucket.allPacks.length === 1 ? "pack" : "packs"}
                   {currentBucket.children.length > 0 && ` em ${flattenTree([currentBucket]).length} pastas`} · {formatCurrency(currentBucket.totalSpend)}
@@ -1361,14 +1665,24 @@ export default function PacksPage() {
                   <IconRefresh className="h-4 w-4" />
                   Atualizar todos
                 </Button>
-                <Button variant="outline" size="sm" onClick={() => setFolderDialog({ mode: "rename", folder: currentBucket.folder, packIds: [] })}>
-                  <IconPencil className="h-4 w-4" />
-                  Renomear
-                </Button>
-                <Button variant="destructiveOutline" size="sm" onClick={() => setFolderToDelete(currentBucket.folder)}>
-                  <IconTrash className="h-4 w-4" />
-                  Desfazer pasta
-                </Button>
+                {canEditFolder(currentBucket.folder) && (
+                  <Button variant="outline" size="sm" onClick={() => setFolderDialog({ mode: "rename", folder: currentBucket.folder, packIds: [] })}>
+                    <IconPencil className="h-4 w-4" />
+                    Renomear
+                  </Button>
+                )}
+                {canRestructureFolder(allFolders, currentBucket.folder) && (
+                  <Button variant="destructiveOutline" size="sm" onClick={() => setFolderToDelete(currentBucket.folder)}>
+                    <IconTrash className="h-4 w-4" />
+                    Desfazer pasta
+                  </Button>
+                )}
+                {currentBucket.folder.shared_root && !isOwnFolder(currentBucket.folder) && (
+                  <Button variant="destructiveOutline" size="sm" onClick={() => setFolderToLeave(currentBucket.folder)}>
+                    <IconLogout className="h-4 w-4" />
+                    Sair da pasta
+                  </Button>
+                )}
               </div>
             </div>
           )}
@@ -1390,6 +1704,7 @@ export default function PacksPage() {
                     totalSpend={totalSpend}
                     hasSheet={hasSheet}
                     hasShared={hasShared}
+                    sharedWith={shareCountOf(folder.id)}
                     isCurrent={false}
                     isDropTarget={dropTargetFolderId === folder.id}
                     formatCurrency={formatCurrency}
@@ -1398,12 +1713,16 @@ export default function PacksPage() {
                     onDelete={setFolderToDelete}
                     onRefreshAll={handleRefreshFolder}
                     onCreateSubfolder={(f) => setFolderDialog({ mode: "create", packIds: [], parentId: f.id })}
+                    onShare={setFolderShareTarget}
+                    onLeave={setFolderToLeave}
+                    canRestructure={canRestructureFolder(allFolders, folder)}
+                    acceptsPackDrop={draggingPackIds.length === 0 || canMovePacksTo(draggingPackIds, folder.id)}
                     getPackActions={folderPackActions}
                     onDropPacks={handleDropPacks}
                     onDragStateChange={setDropTargetFolderId}
                     onFolderDragStart={setDraggingFolderId}
                     onFolderDragEnd={handleFolderDragEnd}
-                    acceptsFolderDrop={draggingFolderId !== null && !folderDragForbidden.has(folder.id)}
+                    acceptsFolderDrop={draggingFolderId !== null && !folderDragForbidden.has(folder.id) && canDropFolderAt(draggingFolderId, folder.id, "inside")}
                     onDropFolder={(targetId) => {
                       const dragged = draggingFolderId;
                       handleFolderDragEnd();
@@ -1536,14 +1855,28 @@ export default function PacksPage() {
         rootBuckets={rootBuckets}
         folderIdByPack={folderIdByPack}
         onClose={() => setMoveTarget(null)}
+        canMoveTo={(folderId) => canMovePacksTo(moveTarget?.ids ?? [], folderId)}
         onMove={(folderId) => { if (moveTarget) void commitMove(moveTarget.ids, folderId); }}
         onCreateAndMove={async (name) => {
           if (!moveTarget) return;
           // Cria JÁ com os packs dentro: uma chamada só, e nada de pasta vazia se a
           // segunda metade falhasse. Sem "Desfazer" aqui de propósito — desfazer
           // deixaria uma pasta vazia recém-criada, que é pior que o movimento.
-          await createFolder(name, moveTarget.ids, null);
-          clearPackSelection();
+          const ids = moveTarget.ids;
+          const create = async () => {
+            await createFolder(name, ids, null);
+            clearPackSelection();
+          };
+          // A pasta nova nasce na raiz (sem compartilhamento): tirar pack de uma pasta
+          // compartilhada para ela retira o acesso, e isso é avisado como em qualquer mover.
+          // A pasta nova é do usuário: o teste é o de mover para uma pasta dele.
+          const newOwnFolder: PackFolder = { id: "", name, parent_id: null, position: 0, access: "dono" };
+          if (ids.some((id) => !canMovePack(isOwnPack(id), folderOfPack(id), newOwnFolder))) {
+            showError({ message: MOVE_FORBIDDEN });
+            return;
+          }
+          const { delta, affected, absorbed } = packsMoveImpact(ids, null);
+          guardAccess(delta, affected, `Criar “${name}” com estes packs?`, () => void create(), absorbed, sharedTreeNotice(ids, null));
         }}
       />
 
@@ -1563,8 +1896,19 @@ export default function PacksPage() {
           if (folderDialog.mode === "rename" && folderDialog.folder) {
             await renameFolder(folderDialog.folder.id, name);
           } else {
-            await createFolder(name, folderDialog.packIds, folderDialog.parentId ?? null);
-            clearPackSelection();
+            const parentId = folderDialog.parentId ?? null;
+            const packIds = folderDialog.packIds;
+            const create = async () => {
+              await createFolder(name, packIds, parentId);
+              clearPackSelection();
+            };
+            // A pasta nova herda o compartilhamento da pasta de cima.
+            if (packIds.length > 0 && !canMovePacksTo(packIds, parentId)) {
+              showError({ message: MOVE_FORBIDDEN });
+              return;
+            }
+            const { delta, affected, absorbed } = packsMoveImpact(packIds, parentId);
+            guardAccess(delta, affected, `Criar “${name}” com estes packs?`, () => void create(), absorbed, sharedTreeNotice(packIds, parentId));
           }
         }}
       />
@@ -1577,14 +1921,74 @@ export default function PacksPage() {
           const parent = folderToDelete?.parent_id ? bucketById.get(folderToDelete.parent_id)?.folder.name : null;
           const hasSubfolders = (folderToDelete && bucketById.get(folderToDelete.id)?.children.length) || 0;
           const what = hasSubfolders ? "As subpastas e os packs dela" : "Os packs dela";
-          return parent
+          const base = parent
             ? `Nada é apagado. ${what} sobem para “${parent}”, no lugar desta pasta. Só este agrupamento desaparece.`
             : `Nada é apagado. ${what} voltam para a Biblioteca${hasSubfolders ? " (os packs como soltos)" : " como packs soltos"}. Só este agrupamento desaparece.`;
+          // A pasta compartilhada deixa de existir: quem tinha acesso por ela perde.
+          const impact = folderToDelete ? folderDissolveImpact(allFolders, folderShares, folderToDelete.id, ownedPacksIn) : null;
+          const lostAccess = !!impact && !isEmptyDelta(impact.delta) && impact.packCount > 0;
+          // E o pack que um editor pôs aqui volta para ele se o lugar novo sair do alcance dele.
+          let returning: React.ReactNode = null;
+          if (folderToDelete) {
+            const parent = folderToDelete.parent_id ?? null;
+            const after = allFolders.filter((f) => f.id !== folderToDelete.id).map((f) => (f.parent_id === folderToDelete.id ? { ...f, parent_id: parent } : f));
+            const afterShares = folderShares.filter((s) => s.folder_id !== folderToDelete.id);
+            const placements = foreignPlacementsUnder(folderToDelete.id).map((p) => (p.folderId === folderToDelete.id ? { ...p, folderId: parent } : p));
+            returning = returningNotice(placements, after, afterShares);
+          }
+          if (!lostAccess && !returning) return base;
+          return (
+            <span className="block space-y-2">
+              <span className="block">{base}</span>
+              {lostAccess && (
+                <span className="block font-medium text-foreground">
+                  Atenção: {describePeople(impact!.delta.revoked)} {impact!.delta.revoked.length === 1 ? "perde" : "perdem"} o acesso a {impact!.packCount} {impact!.packCount === 1 ? "pack" : "packs"} que {impact!.delta.revoked.length === 1 ? "vinha" : "vinham"} por esta pasta.
+                </span>
+              )}
+              {returning}
+            </span>
+          );
         })()}
         confirmText="Desfazer pasta"
         variant="destructive"
         confirmIcon={<IconTrash className="h-5 w-5" />}
         onConfirm={handleConfirmDeleteFolder}
+      />
+
+      <ConfirmDialog
+        isOpen={!!folderToLeave}
+        onClose={() => setFolderToLeave(null)}
+        title={`Sair da pasta "${folderToLeave?.name ?? ""}"?`}
+        message={
+          folderToLeave?.owner_name
+            ? `Você deixa de ver esta pasta e os packs que vêm por ela. Os packs que você criou lá dentro voltam para a sua Biblioteca, e quem tem a pasta deixa de vê-los. Para voltar, ${folderToLeave.owner_name} precisa compartilhar de novo.`
+            : "Você deixa de ver esta pasta e os packs que vêm por ela. Os packs que você criou lá dentro voltam para a sua Biblioteca, e quem tem a pasta deixa de vê-los. Para voltar, o dono precisa compartilhar de novo."
+        }
+        confirmText="Sair da pasta"
+        variant="destructive"
+        confirmIcon={<IconLogout className="h-5 w-5" />}
+        onConfirm={handleConfirmLeaveFolder}
+      />
+
+      {/* Aviso antes de um gesto que muda QUEM enxerga os packs (pasta compartilhada) */}
+      <ConfirmDialog
+        isOpen={!!accessGuard}
+        onClose={() => setAccessGuard(null)}
+        title={accessGuard?.title ?? ""}
+        message={accessGuard?.message}
+        confirmText={accessGuard?.confirmText ?? "Continuar"}
+        onConfirm={() => {
+          const pending = accessGuard;
+          setAccessGuard(null);
+          pending?.run();
+        }}
+      />
+
+      <FolderShareDialog
+        folder={folderShareTarget}
+        open={!!folderShareTarget}
+        onOpenChange={(open) => { if (!open) setFolderShareTarget(null); }}
+        onChanged={() => void reloadFolders()}
       />
 
       {/* Load Pack Modal */}
@@ -1593,7 +1997,19 @@ export default function PacksPage() {
           <h2 className="text-lg font-semibold leading-none tracking-tight">Carregar Pack de Anúncios</h2>
           <p className="text-sm text-muted-foreground">
             Configure os parâmetros para carregar um novo pack de anúncios
-            {creationFolder && <> · ele vai para a pasta <span className="font-medium text-foreground">{creationFolder.name}</span></>}
+            {creationFolder && (
+              <>
+                {" "}· ele vai para a pasta <span className="font-medium text-foreground">{creationFolder.name}</span>
+                {shareCountOf(creationFolder.id) > 0 && (
+                  <>, compartilhada com <span className="font-medium text-foreground">{describePeople([...effectiveGrantees(allFolders, folderShares, creationFolder.id).values()])}</span></>
+                )}
+                {!isOwnFolder(creationFolder) && (
+                  <>
+                    , compartilhada com você{sharedRootOf(creationFolder)?.owner_name ? ` por ${sharedRootOf(creationFolder)!.owner_name}` : ""}: quem tem a pasta vai ver o pack, e ele continua seu
+                  </>
+                )}
+              </>
+            )}
           </p>
         </div>
 

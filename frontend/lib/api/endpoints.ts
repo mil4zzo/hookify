@@ -1,5 +1,5 @@
 import { apiClient } from './client'
-import type { PackFolder, PackFolderMembers } from '@/lib/types'
+import type { DirectShareEntry, FolderAccessChanges, FolderShareDetail, FolderShareEntry, FolderShareScope, PackFolder, PackFolderMembers } from '@/lib/types'
 import { getActiveCustomColumns } from '@/lib/metrics/customColumnsRegistry'
 import { asRowPayload, type ColumnarPayload } from './managerColumns'
 import { ANALYTICS_REQUEST_TIMEOUT_MS } from './limits'
@@ -582,7 +582,7 @@ export const api = {
     lookupUser: (email: string): Promise<{ found: boolean; user_id?: string | null; display_name?: string | null }> =>
       apiClient.get(`/pack-shares/lookup?email=${encodeURIComponent(email)}`),
     /** Convidados de um pack. Só o dono enxerga (404 para os demais). */
-    listShares: (packId: string): Promise<{ success: boolean; pack_id: string; shares: Array<{ id: string; grantee_id: string; display_name: string | null; role: 'editor' | 'viewer'; created_at: string }> }> =>
+    listShares: (packId: string): Promise<{ success: boolean; pack_id: string; shares: Array<{ id: string; grantee_id: string; display_name: string | null; role: 'editor' | 'viewer'; created_at: string; source_folder_id: string | null; source_folder_name: string | null }> }> =>
       apiClient.get(`/pack-shares/${packId}`),
     create: (packId: string, granteeId: string, role: 'editor' | 'viewer'): Promise<{ success: boolean }> =>
       apiClient.post(`/pack-shares/${packId}`, { grantee_id: granteeId, role }),
@@ -597,30 +597,50 @@ export const api = {
 
   /**
    * Pastas da Biblioteca (migration 168). A pasta e de QUEM ORGANIZA, nao do
-   * pack: nao ha pack_ids de contexto aqui como em /tags, porque nao existe silo
-   * a resolver — o dono da pasta e sempre o ator.
+   * pack: nao ha pack_ids de contexto aqui como em /tags.
    *
-   * NAO existe compartilhamento de pasta. "Compartilhar pasta" na UI e acucar
-   * sobre /pack-shares, um pack de cada vez, com o conteudo daquele momento.
+   * Pasta compartilhada (migration 181), como no Drive: a lista traz tambem as pastas
+   * compartilhadas com o usuario (a arvore do dono, com o papel dele em `access`), e o
+   * editor age nelas pelas mesmas rotas. O banco transforma quem tem a pasta em acesso
+   * por pack; por isso os gestos de pasta devolvem `access_changes`.
    */
   folders: {
-    /** Pastas + vinculo {pack_id: folder_id} na mesma resposta: a tela desenha uma vez so. */
-    list: (options?: { signal?: AbortSignal }): Promise<{ success: boolean; folders: PackFolder[]; members: PackFolderMembers }> =>
+    /** Pastas + vinculo {pack_id: folder_id} + quem tem cada pasta, na mesma resposta: a tela desenha uma vez so. */
+    list: (options?: { signal?: AbortSignal }): Promise<{ success: boolean; folders: PackFolder[]; members: PackFolderMembers; folder_shares?: FolderShareEntry[]; direct_shares?: DirectShareEntry[] }> =>
       apiClient.get('/folders', { signal: options?.signal }),
-    create: (name: string, packIds: string[] = [], parentId: string | null = null): Promise<{ success: boolean; folder: PackFolder; moved: number }> =>
+    create: (name: string, packIds: string[] = [], parentId: string | null = null): Promise<{ success: boolean; folder: PackFolder; moved: number; access_changes?: FolderAccessChanges }> =>
       apiClient.post('/folders', { name, pack_ids: packIds, parent_id: parentId }),
     rename: (folderId: string, name: string): Promise<{ success: boolean; folder: PackFolder }> =>
       apiClient.patch(`/folders/${folderId}`, { name }),
-    /** Desfaz a pasta. Os packs FICAM — voltam para "soltos" pela cascata da FK. */
     /** Desfaz: subpastas e packs sobem um nível. Devolve quanto subiu. */
-    remove: (folderId: string): Promise<{ success: boolean; deleted: boolean; id: string; parent_id: string | null; folders_moved: number; packs_moved: number }> =>
+    remove: (folderId: string): Promise<{ success: boolean; deleted: boolean; id: string; parent_id: string | null; folders_moved: number; packs_moved: number; access_changes?: FolderAccessChanges }> =>
       apiClient.delete(`/folders/${folderId}`),
     /** Muda o pai (null = raiz) e grava a ordem COMPLETA dos irmãos no destino — uma ida só. */
-    place: (folderId: string, parentId: string | null, siblingIds: string[]): Promise<{ success: boolean; changed: number; parent_id: string | null }> =>
+    place: (folderId: string, parentId: string | null, siblingIds: string[]): Promise<{ success: boolean; changed: number; parent_id: string | null; access_changes?: FolderAccessChanges }> =>
       apiClient.post(`/folders/${folderId}/place`, { parent_id: parentId, sibling_ids: siblingIds }),
     /** `folderId` nulo tira os packs da pasta (voltam para soltos). */
-    move: (packIds: string[], folderId: string | null): Promise<{ success: boolean; moved: number; folder_id: string | null }> =>
+    move: (packIds: string[], folderId: string | null): Promise<{ success: boolean; moved: number; folder_id: string | null; access_changes?: FolderAccessChanges }> =>
       apiClient.post('/folders/move', { pack_ids: packIds, folder_id: folderId }),
+  },
+
+  /**
+   * Compartilhar uma PASTA (com subpastas e packs, de hoje e de depois). Só o dono da
+   * pasta convida; quem recebe sai sozinho (`leave`). O convite reaproveita
+   * `packShares.lookupUser` (e-mail exato).
+   */
+  folderShares: {
+    /** Quem tem a pasta, o que ela cobre e o que vem herdado das pastas de cima. */
+    list: (folderId: string): Promise<FolderShareDetail> =>
+      apiClient.get(`/folder-shares/${folderId}`),
+    create: (folderId: string, granteeId: string, role: 'editor' | 'viewer'): Promise<{ success: boolean; access_changes: FolderAccessChanges; absorbed: number; scope: FolderShareScope }> =>
+      apiClient.post(`/folder-shares/${folderId}`, { grantee_id: granteeId, role }),
+    updateRole: (folderId: string, granteeId: string, role: 'editor' | 'viewer'): Promise<{ success: boolean; access_changes: FolderAccessChanges }> =>
+      apiClient.patch(`/folder-shares/${folderId}/${granteeId}`, { role }),
+    revoke: (folderId: string, granteeId: string): Promise<{ success: boolean; access_changes: FolderAccessChanges }> =>
+      apiClient.delete(`/folder-shares/${folderId}/${granteeId}`),
+    /** Quem recebeu a pasta sai dela inteira (de um pack só dela, não dá: voltaria pela pasta). */
+    leave: (folderId: string): Promise<{ success: boolean; left: boolean; access_changes: FolderAccessChanges }> =>
+      apiClient.delete(`/folder-shares/${folderId}/me`),
   },
 
   /**

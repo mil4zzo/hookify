@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { IconChevronRight, IconDots, IconFolder, IconFolderOpenFilled, IconLayoutGrid } from "@tabler/icons-react";
+import { IconChevronRight, IconDots, IconFolder, IconFolderOpenFilled, IconFolderShare, IconLayoutGrid } from "@tabler/icons-react";
 import { SearchInputWithClear } from "@/components/common/SearchInputWithClear";
 import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils/cn";
@@ -47,6 +47,16 @@ export interface PackFolderTreeProps {
   renderFolderMenu: (folder: PackFolder, packCount: number) => React.ReactNode;
   /** Soltar packs arrastados: `null` tira da pasta. */
   onDropPacks: (folderId: string | null) => void;
+  /**
+   * Pasta compartilhada (181): o que o usuário pode fazer depende do papel dele em cada
+   * pasta. Sem estas funções, tudo pode (a árvore só do próprio usuário).
+   *   - `canDropPacks`: os packs arrastados podem cair aqui (`null` = "Sem pasta")?
+   *   - `canDragFolder`: esta pasta pode ser arrastada (mover é do dono ou do editor da de cima)?
+   *   - `canDropFolder`: a pasta arrastada pode cair nesta borda desta linha?
+   */
+  canDropPacks?: (folderId: string | null) => boolean;
+  canDragFolder?: (folder: PackFolder) => boolean;
+  canDropFolder?: (draggedId: string, targetId: string, edge: FolderDropEdge) => boolean;
   isDragging: boolean;
   /** Move a pasta para antes, depois ou para dentro de `targetId`. */
   onMoveFolder: (folderId: string, targetId: string, edge: FolderDropEdge) => void;
@@ -102,6 +112,9 @@ export function PackFolderTree({
   renderPackMenu,
   renderFolderMenu,
   onDropPacks,
+  canDropPacks = () => true,
+  canDragFolder = () => true,
+  canDropFolder = () => true,
   isDragging,
   onMoveFolder,
   onFolderDragChange,
@@ -222,7 +235,7 @@ export function PackFolderTree({
   };
 
   const folderDragProps = (node: FolderBucket) => ({
-    draggable: true,
+    draggable: canDragFolder(node.folder),
     onDragStart: (e: React.DragEvent) => {
       draggingFolderRef.current = node.folder.id;
       forbiddenRef.current = subtreeIds(node);
@@ -262,9 +275,16 @@ export function PackFolderTree({
         cancelHoverExpand();
         return;
       }
+      const edge = edgeAt(e, node);
+      if (!canDropFolder(dragged, targetId, edge)) {
+        // Borda que o banco recusaria (fora do que o usuário edita): nem acende.
+        setInsertAt(null);
+        if (edge === "inside") scheduleHoverExpand(node);
+        else cancelHoverExpand();
+        return;
+      }
       e.preventDefault();
       e.dataTransfer.dropEffect = "move";
-      const edge = edgeAt(e, node);
       if (edge === "inside") scheduleHoverExpand(node);
       else cancelHoverExpand();
       setInsertAt((prev) => (prev?.id === targetId && prev.edge === edge ? prev : { id: targetId, edge }));
@@ -275,8 +295,8 @@ export function PackFolderTree({
       e.preventDefault();
       // A borda sai do PRÓPRIO evento, não do estado: cruzando rápido de uma linha
       // para outra, o estado ainda seria o da anterior e o drop se perderia calado.
-      if (!forbiddenIds().has(node.folder.id)) {
-        const edge = edgeAt(e, node);
+      const edge = edgeAt(e, node);
+      if (!forbiddenIds().has(node.folder.id) && canDropFolder(dragged, node.folder.id, edge)) {
         onMoveFolder(dragged, node.folder.id, edge);
         if (edge === "inside") expand(node.folder.id);
       }
@@ -296,6 +316,14 @@ export function PackFolderTree({
   const dropProps = (key: string | "loose", folderId: string | null, node?: FolderBucket) => ({
     onDragOver: (e: React.DragEvent) => {
       if (!isDragging) return;
+      if (!canDropPacks(folderId)) {
+        // Pasta só de leitura, ou pack que não pode sair de onde está: sem
+        // preventDefault, o cursor mostra "proibido". Abrir ao parar continua valendo,
+        // para chegar numa subpasta onde o pack cabe.
+        setDropTarget(null);
+        if (node) scheduleHoverExpand(node);
+        return;
+      }
       e.preventDefault();
       e.dataTransfer.dropEffect = "move" as const;
       setDropTarget(key);
@@ -311,7 +339,7 @@ export function PackFolderTree({
       e.preventDefault();
       setDropTarget(null);
       cancelHoverExpand();
-      onDropPacks(folderId);
+      if (canDropPacks(folderId)) onDropPacks(folderId);
     },
   });
 
@@ -342,7 +370,16 @@ export function PackFolderTree({
         <TreeRow
           label={folder.name}
           count={allPacks.length}
-          icon={view === folder.id ? <IconFolderOpenFilled className="h-4 w-4" /> : <IconFolder className="h-4 w-4" />}
+          icon={
+            view === folder.id ? (
+              <IconFolderOpenFilled className="h-4 w-4" />
+            ) : folder.shared_root ? (
+              // Pasta que outra pessoa compartilhou com o usuário: a raiz do que ele vê dela.
+              <IconFolderShare className="h-4 w-4" aria-label={folder.owner_name ? `Compartilhada por ${folder.owner_name}` : "Compartilhada com você"} />
+            ) : (
+              <IconFolder className="h-4 w-4" />
+            )
+          }
           isCurrent={view === folder.id}
           isDropTarget={dropTarget === folder.id || (insertAt?.id === folder.id && insertAt.edge === "inside")}
           isOpen={open}

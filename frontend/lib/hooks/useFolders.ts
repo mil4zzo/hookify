@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "@/lib/api/endpoints";
 import { showError, showSuccess } from "@/lib/utils/toast";
 import { logger } from "@/lib/utils/logger";
-import type { AdsPack, PackFolder, PackFolderMembers } from "@/lib/types";
+import type { AdsPack, DirectShareEntry, FolderAccessChanges, FolderShareEntry, PackFolder, PackFolderMembers } from "@/lib/types";
 import { buildFolderTree, flattenTree, planFolderMove, type FolderBucket, type FolderDropEdge } from "@/lib/utils/folderTree";
 
 export type { FolderBucket } from "@/lib/utils/folderTree";
@@ -20,6 +20,12 @@ export type { FolderBucket } from "@/lib/utils/folderTree";
 export function useFolders(packs: AdsPack[]) {
   const [folders, setFolders] = useState<PackFolder[]>([]);
   const [members, setMembers] = useState<PackFolderMembers>({});
+  // Quem tem cada pasta que o usuário compartilhou (migration 181). Só leitura aqui:
+  // quem muda é o diálogo de compartilhar, que chama `reload`.
+  const [folderShares, setFolderShares] = useState<FolderShareEntry[]>([]);
+  // Convites diretos dos packs do usuário: a pasta os absorve ao cobrir a pessoa, e o
+  // aviso antes de mover diz isso. Só vem quando o usuário compartilha alguma pasta.
+  const [directShares, setDirectShares] = useState<DirectShareEntry[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const abortRef = useRef<AbortController | null>(null);
 
@@ -32,6 +38,8 @@ export function useFolders(packs: AdsPack[]) {
       if (controller.signal.aborted) return;
       setFolders(res.folders || []);
       setMembers(res.members || {});
+      setFolderShares(res.folder_shares || []);
+      setDirectShares(res.direct_shares || []);
     } catch (error) {
       if (controller.signal.aborted) return;
       logger.error("Erro ao carregar pastas:", error);
@@ -59,7 +67,11 @@ export function useFolders(packs: AdsPack[]) {
     async (name: string, packIds: string[] = [], parentId: string | null = null) => {
       try {
         const res = await api.folders.create(name, packIds, parentId);
-        setFolders((prev) => [...prev, res.folder].sort((a, b) => a.position - b.position || a.name.localeCompare(b.name, "pt-BR")));
+        // Subpasta de uma pasta compartilhada nasce na árvore do DONO, com o papel que o
+        // usuário tem na de cima — senão o menu dela ofereceria o que o banco recusaria.
+        const parent = parentId ? folders.find((f) => f.id === parentId) : undefined;
+        const created: PackFolder = { ...res.folder, access: parent?.access ?? "dono", owner_id: parent?.owner_id ?? res.folder.owner_id, owner_name: parent?.owner_name ?? null };
+        setFolders((prev) => [...prev, created].sort((a, b) => a.position - b.position || a.name.localeCompare(b.name, "pt-BR")));
         if (packIds.length) {
           setMembers((prev) => {
             const next = { ...prev };
@@ -74,7 +86,7 @@ export function useFolders(packs: AdsPack[]) {
         return null;
       }
     },
-    [],
+    [folders],
   );
 
   const renameFolder = useCallback(async (folderId: string, name: string) => {
@@ -117,12 +129,14 @@ export function useFolders(packs: AdsPack[]) {
     try {
       const res = await api.folders.remove(folderId);
       const moved = (res.packs_moved || 0) + (res.folders_moved || 0);
+      const lostAccess = res.access_changes?.revoked ?? 0;
       const parts = [
         res.packs_moved > 0 ? `${res.packs_moved} ${res.packs_moved === 1 ? "pack" : "packs"}` : null,
         res.folders_moved > 0 ? `${res.folders_moved} ${res.folders_moved === 1 ? "subpasta" : "subpastas"}` : null,
       ].filter(Boolean);
       const where = parentName ? `para “${parentName}”` : "para a Biblioteca";
-      showSuccess(moved > 0 ? `Pasta desfeita. ${parts.join(" e ")} ${moved > 1 ? "subiram" : "subiu"} ${where}.` : "Pasta desfeita.");
+      const base = moved > 0 ? `Pasta desfeita. ${parts.join(" e ")} ${moved > 1 ? "subiram" : "subiu"} ${where}.` : "Pasta desfeita.";
+      showSuccess(lostAccess > 0 ? `${base} O acesso que vinha por ela terminou.` : base);
     } catch (error) {
       showError(error instanceof Error ? error : new Error("Erro ao desfazer a pasta"));
     } finally {
@@ -179,8 +193,8 @@ export function useFolders(packs: AdsPack[]) {
       });
 
       try {
-        await api.folders.move(packIds, folderId);
-        return { packIds, before };
+        const res = await api.folders.move(packIds, folderId);
+        return { packIds, before, accessChanges: res.access_changes as FolderAccessChanges | undefined };
       } catch (error) {
         setMembers((prev) => {
           const next = { ...prev };
@@ -224,5 +238,17 @@ export function useFolders(packs: AdsPack[]) {
     }
   }, [load]);
 
-  return { folders, rootBuckets, buckets, bucketById, loosePacks, folderIdByPack, isLoading, createFolder, renameFolder, deleteFolder, moveFolder, movePacks, undoMove, reload: load };
+  /** Quem recebeu a pasta sai dela inteira. A verdade (o que sumiu da tela) vem do reload. */
+  const leaveFolder = useCallback(async (folderId: string) => {
+    try {
+      await api.folderShares.leave(folderId);
+      showSuccess("Você saiu da pasta.");
+    } catch (error) {
+      showError(error instanceof Error ? error : new Error("Erro ao sair da pasta"));
+    } finally {
+      load();
+    }
+  }, [load]);
+
+  return { folders, folderShares, directShares, leaveFolder, rootBuckets, buckets, bucketById, loosePacks, folderIdByPack, isLoading, createFolder, renameFolder, deleteFolder, moveFolder, movePacks, undoMove, reload: load };
 }

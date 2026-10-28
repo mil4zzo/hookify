@@ -9,6 +9,7 @@ import { api } from "@/lib/api/endpoints";
 import { useClientPacks } from "@/lib/hooks/useClientSession";
 import { showError, showSuccess } from "@/lib/utils/toast";
 import type { AdsPack } from "@/lib/types";
+import { canRedefinePack } from "@/lib/utils/folderShares";
 
 export interface PackActionsMenuProps {
   pack: AdsPack;
@@ -104,7 +105,7 @@ export function PackActionsMenu({
               Mover para pasta…
             </DropdownMenuItem>
           )}
-          {onEditDateRange && !isSharedGuest && (
+          {onEditDateRange && canRedefinePack(pack) && (
             <DropdownMenuItem icon={<IconCalendarEvent />} onClick={() => onEditDateRange(pack)} disabled={isUpdating}>
               Editar período
             </DropdownMenuItem>
@@ -159,7 +160,17 @@ export function PackActionsMenu({
             Histórico
           </DropdownMenuItem>
           <DropdownMenuSeparator />
-          {isSharedGuest ? (
+          {isSharedGuest && pack.shared_via_folder && pack.shared_role === "editor" ? (
+            // Editor de uma pasta compartilhada age como o dono (181), inclusive exclui.
+            <DropdownMenuItem icon={<IconTrash />} onClick={() => onRemove(pack.id)} className="text-destructive focus:text-destructive focus:bg-destructive-10">
+              Remover pack
+            </DropdownMenuItem>
+          ) : isSharedGuest && pack.shared_via_folder ? (
+            // Vem pela pasta: sair só deste pack não dá — o acesso voltaria por ela.
+            <DropdownMenuItem icon={<IconLogout />} disabled description="Vem por uma pasta: saia pela pasta">
+              Sair do pack
+            </DropdownMenuItem>
+          ) : isSharedGuest ? (
             // Convidado não apaga o pack do dono — ele SAI (remove o próprio grant).
             <DropdownMenuItem icon={<IconLogout />} onClick={handleLeavePack} disabled={isLeaving} className="text-destructive focus:text-destructive focus:bg-destructive-10">
               Sair do pack

@@ -24,6 +24,9 @@ interface ShareRow {
   display_name: string | null;
   role: "editor" | "viewer";
   created_at: string;
+  /** Preenchido = o acesso vem de uma pasta compartilhada (migration 181): somente leitura aqui. */
+  source_folder_id: string | null;
+  source_folder_name: string | null;
 }
 
 /**
@@ -31,7 +34,7 @@ interface ShareRow {
  * o círculo e a segunda linha dão o ritmo que o olho usa para percorrer a lista.
  * Neutro de propósito: um círculo de cor sólida por membro pesaria mais que o conteúdo.
  */
-function MemberIdentity({ name, fallback, since }: { name: string | null; fallback: string; since?: string }) {
+export function MemberIdentity({ name, fallback, since }: { name: string | null; fallback: string; since?: string }) {
   const label = name?.trim() || fallback;
   const words = label.split(/\s+/).filter(Boolean);
   const initials = (words.length > 1 ? `${words[0][0]}${words[words.length - 1][0]}` : label.slice(0, 2)).toUpperCase();
@@ -243,31 +246,39 @@ export function PackShareDialog({ pack, open, onOpenChange }: PackShareDialogPro
               {shares.map((share) => (
                 <div key={share.id} className="flex flex-wrap items-center justify-between gap-2 p-3">
                   <MemberIdentity name={share.display_name} fallback={share.grantee_id.slice(0, 8)} since={share.created_at} />
-                  <div className="flex items-center gap-2">
-                    <Select
-                      value={share.role}
-                      onValueChange={(v) => void handleChangeRole(share.grantee_id, v as "editor" | "viewer")}
-                      disabled={busyGranteeId === share.grantee_id}
-                    >
-                      <SelectTrigger size="sm" className="w-28">
-                        <SelectValue>{ROLE_LABEL[share.role]}</SelectValue>
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="editor">Editor</SelectItem>
-                        <SelectItem value="viewer">Leitura</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      className="text-destructive hover:text-destructive"
-                      onClick={() => void handleRevoke(share)}
-                      disabled={busyGranteeId === share.grantee_id}
-                      aria-label={`Revogar acesso de ${share.display_name || "membro"}`}
-                    >
-                      <IconTrash className="h-4 w-4" />
-                    </Button>
-                  </div>
+                  {share.source_folder_id ? (
+                    // Mantido pelo banco a partir da pasta: mexer aqui seria desfeito na próxima
+                    // mudança dela. O caminho para tirar é a pasta (ou o pack sair dela).
+                    <span className="text-xs text-muted-foreground" title="Para tirar este acesso, remova a pessoa da pasta ou tire o pack dela.">
+                      {ROLE_LABEL[share.role]} · via pasta «{share.source_folder_name ?? "compartilhada"}»
+                    </span>
+                  ) : (
+                    <div className="flex items-center gap-2">
+                      <Select
+                        value={share.role}
+                        onValueChange={(v) => void handleChangeRole(share.grantee_id, v as "editor" | "viewer")}
+                        disabled={busyGranteeId === share.grantee_id}
+                      >
+                        <SelectTrigger size="sm" className="w-28">
+                          <SelectValue>{ROLE_LABEL[share.role]}</SelectValue>
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="editor">Editor</SelectItem>
+                          <SelectItem value="viewer">Leitura</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="text-destructive hover:text-destructive"
+                        onClick={() => void handleRevoke(share)}
+                        disabled={busyGranteeId === share.grantee_id}
+                        aria-label={`Revogar acesso de ${share.display_name || "membro"}`}
+                      >
+                        <IconTrash className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  )}
                 </div>
               ))}
             </div>

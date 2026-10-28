@@ -126,7 +126,13 @@ function describeDetail(entry: PackActivityEntry): string | null {
     return d.pending != null ? `${String(d.pending)} vídeo(s)` : null;
   }
   if (entry.action === "share.grant" || entry.action === "share.role") {
-    return typeof d.role === "string" ? (ROLE_LABEL[d.role] ?? d.role) : null;
+    const role = typeof d.role === "string" ? (ROLE_LABEL[d.role] ?? d.role) : null;
+    // Acesso que veio de uma pasta compartilhada (181). Sem o nome da pasta: o feed é lido
+    // também pelo convidado, e a pasta é organização pessoal do dono.
+    return d.via_folder ? [role, "via pasta compartilhada"].filter(Boolean).join(" · ") : role;
+  }
+  if (entry.action === "share.revoke" && d.via_folder) {
+    return "via pasta compartilhada";
   }
   if (entry.action === "pack.sheet_relink") {
     return typeof d.google_email === "string" ? d.google_email : null;

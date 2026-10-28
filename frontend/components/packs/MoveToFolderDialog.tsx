@@ -25,6 +25,12 @@ export interface MoveToFolderDialogProps {
   onMove: (folderId: string | null) => void;
   /** Criar a pasta e já mover para dentro dela. */
   onCreateAndMove: (name: string) => void;
+  /**
+   * Os packs podem ir para esta pasta (`null` = tirar da pasta)? Pasta compartilhada
+   * (181): pasta só de leitura, ou pack do dono que não sai da pasta dele. Sem a
+   * função, todas podem.
+   */
+  canMoveTo?: (folderId: string | null) => boolean;
 }
 
 /**
@@ -36,7 +42,7 @@ export interface MoveToFolderDialogProps {
  * (o toast traz "Desfazer", igual ao arrasto), e confirmar o que já foi escolhido só
  * adiciona um clique. A exceção é a pasta nova, que precisa do nome antes.
  */
-export function MoveToFolderDialog({ isOpen, packIds, singlePackName, rootBuckets, folderIdByPack, onClose, onMove, onCreateAndMove }: MoveToFolderDialogProps) {
+export function MoveToFolderDialog({ isOpen, packIds, singlePackName, rootBuckets, folderIdByPack, onClose, onMove, onCreateAndMove, canMoveTo = () => true }: MoveToFolderDialogProps) {
   const [isNaming, setIsNaming] = React.useState(false);
   const [name, setName] = React.useState("");
 
@@ -76,21 +82,24 @@ export function MoveToFolderDialog({ isOpen, packIds, singlePackName, rootBucket
       que a pessoa acabou de ver na página, para a hierarquia ser a mesma coisa nos dois. */
   const renderBucket = (bucket: FolderBucket): React.ReactNode => {
     const isCurrent = bucket.folder.id === commonFolderId;
+    const blocked = !isCurrent && !canMoveTo(bucket.folder.id);
     const total = bucket.allPacks.length;
     return (
       <React.Fragment key={bucket.folder.id}>
         <button
           type="button"
-          disabled={isCurrent}
+          disabled={isCurrent || blocked}
           onClick={() => handleMove(bucket.folder.id)}
           className={cn(
             "focus-inset flex h-control-default items-center gap-2.5 rounded-md border border-border bg-surface-2 px-3 text-left text-sm transition-colors",
-            isCurrent ? "cursor-default opacity-50" : "hover:border-primary hover:bg-primary-10",
+            isCurrent || blocked ? "cursor-default opacity-50" : "hover:border-primary hover:bg-primary-10",
           )}
         >
           <IconFolder className="h-4 w-4 shrink-0 text-muted-foreground" />
           <span className="truncate font-medium text-foreground">{bucket.folder.name}</span>
-          <span className="ml-auto shrink-0 text-xs tabular-nums text-muted-foreground">{isCurrent ? "atual" : `${total} ${total === 1 ? "pack" : "packs"}`}</span>
+          <span className="ml-auto shrink-0 text-xs tabular-nums text-muted-foreground">
+            {isCurrent ? "atual" : blocked ? (bucket.folder.access === "viewer" ? "só leitura" : "não cabe aqui") : `${total} ${total === 1 ? "pack" : "packs"}`}
+          </span>
         </button>
         {bucket.children.length > 0 ? <div className="ml-4 flex flex-col gap-1.5 border-l border-border pl-3">{bucket.children.map(renderBucket)}</div> : null}
       </React.Fragment>
@@ -141,7 +150,7 @@ export function MoveToFolderDialog({ isOpen, packIds, singlePackName, rootBucket
         <div className="flex flex-wrap items-center justify-end gap-3">
           {/* Tirar da pasta é o oposto do movimento, não uma pasta da lista: fica com os
               botões, à esquerda, longe do alvo que a pessoa está mirando. */}
-          {!isNaming && someInFolder ? (
+          {!isNaming && someInFolder && canMoveTo(null) ? (
             <Button variant="outline" className="mr-auto" onClick={() => handleMove(null)}>
               <IconArrowBackUp />
               Tirar da pasta
