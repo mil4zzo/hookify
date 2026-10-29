@@ -15,6 +15,7 @@ import {
   BULK_BUDGET_MAX,
   budgetMinorToValue,
   budgetValueToMinor,
+  maskDecimalInput,
   parseSignedDecimal,
   previewBulkBudget,
   type BulkBudgetAdjustment,
@@ -322,7 +323,7 @@ function FormView({
             autoFocus
             value={draft}
             placeholder={mode === "percent" ? "Ex.: 15 ou -20" : mode === "delta" ? "Ex.: 50 ou -30" : "Ex.: 150"}
-            onChange={(e) => setDraft(e.target.value)}
+            onChange={(e) => setDraft(maskDecimalInput(e.target.value, mode === "percent" ? 1 : 2, mode !== "fixed"))}
             onKeyDown={(e) => {
               if (e.key === "Enter" && canReview) setConfirming(true);
             }}
@@ -411,8 +412,8 @@ function PreviewList({ rows, formatMinor }: { rows: BulkBudgetPreviewRow[]; form
               <span className="text-muted-foreground"> {row.kind === "daily" ? "/dia" : "total"}</span>
             </span>
             {row.status === "change" ? (
-              <span className={cn("inline-flex items-center justify-end gap-0.5 text-xs tabular-nums text-muted-foreground", row.big && "text-warning")}>
-                {row.big ? <IconAlertTriangle className="h-3 w-3" /> : null}
+              <span className={cn("inline-flex items-center justify-end gap-0.5 text-xs tabular-nums", row.change > 0 ? "text-success" : row.change < 0 ? "text-destructive" : "text-muted-foreground")}>
+                {row.big ? <IconAlertTriangle className="h-3 w-3 text-warning" /> : null}
                 {formatPercent(row.change)}
               </span>
             ) : (

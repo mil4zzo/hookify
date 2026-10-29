@@ -177,6 +177,15 @@ export function analyzeBulkBudgetSelection(rows: readonly RankingsItem[], entity
  * Aceita "-20", "+15", "10,5", "1.500,50", "150.50". Com vírgula, pontos são milhar; sem
  * vírgula, um ponto é decimal. null = não é número.
  */
+export function maskDecimalInput(raw: string, decimals: number, allowNegative: boolean): string {
+  const negative = allowNegative && raw.trimStart().startsWith("-");
+  const cleaned = raw.replace(/[^\d.,]/g, "");
+  const sepAt = cleaned.search(/[.,]/);
+  const int = (sepAt === -1 ? cleaned : cleaned.slice(0, sepAt)).replace(/[.,]/g, "");
+  const frac = sepAt === -1 ? null : cleaned.slice(sepAt + 1).replace(/[.,]/g, "").slice(0, decimals);
+  return `${negative ? "-" : ""}${int}${frac === null ? "" : `,${frac}`}`;
+}
+
 export function parseSignedDecimal(raw: string): number | null {
   let normalized = raw.trim().replace(/\s/g, "");
   if (!normalized || normalized === "-" || normalized === "+") return null;
