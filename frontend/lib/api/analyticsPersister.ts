@@ -9,14 +9,30 @@
  * resposta de uma chave é imutável — pode viver em disco e ser servida em qualquer
  * recarga, aba ou dia, sem refetch. `staleTime: Infinity` nos hooks e
  * `refetchOnRestore: false` aqui fecham o circuito: restaurar do disco NÃO dispara
- * busca. As invalidações explícitas (toggle de status, tags, status-sync) continuam
- * funcionando pelo prefixo da chave e regravam a entrada.
+ * busca. Mudança que não passa pelo carimbo (status, orçamento, tag) precisa de
+ * `markAnalyticsChanged` — ver abaixo.
  *
  * ISOLAMENTO POR USUÁRIO
  * ----------------------
  * A queryKey não carrega user_id, e tags são do ATOR (um pack compartilhado tem o
  * mesmo id para dois usuários). `buster` = user id: entrada de outro usuário é
  * descartada na leitura. E o logout apaga o store inteiro (session.ts).
+ *
+ * MUDANÇA QUE O CARIMBO NÃO VÊ
+ * ----------------------------
+ * Status (pausar/ativar aqui, ou no Gerenciador e trazido pelo sync de foco),
+ * orçamento e tag mudam a resposta SEM mudar o carimbo. As invalidações e patches
+ * em memória só alcançam as queries que estão em memória — e o gcTime é de 60 s.
+ * A entrada em disco de um período visitado antes ficava com o retrato da hora em
+ * que foi buscada e voltava intacta: "hoje" com 5 anúncios ativos, "hoje e ontem"
+ * com 3, cada período congelado num momento diferente (a RPC é monótona no
+ * período; quem não era é o cache).
+ *
+ * `markAnalyticsChanged()` grava o instante da mudança (localStorage: vale entre
+ * abas e recargas). Na leitura, resposta BUSCADA antes dele é descartada e vira
+ * busca nova. A hora que vale é a do pedido ao servidor (`fetched_at`, posto pelo
+ * useAdPerformance), não a do `dataUpdatedAt`: um patch manual renova este último
+ * sem renovar o resto da linha.
  *
  * TAMANHO
  * -------
@@ -35,7 +51,68 @@ import { asRowPayload, columnsFromRows, isColumnarPayload } from '@/lib/api/mana
 export const ANALYTICS_PERSIST_PREFIX = 'hookify-analytics'
 export const ANALYTICS_PERSIST_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000
 // Bump para descartar tudo de uma vez (ex.: mudança de contrato do payload).
-export const ANALYTICS_PERSIST_VERSION = 'v1'
+// v2: as entradas da v1 não têm `fetched_at` e podem guardar status velho.
+export const ANALYTICS_PERSIST_VERSION = 'v2'
+
+/** Campo que o useAdPerformance põe na resposta: Date.now() de quando PEDIU ao servidor. */
+export const FETCHED_AT_FIELD = 'fetched_at'
+
+const LOCAL_CHANGE_STORAGE_KEY = 'hookify-analytics-local-change'
+
+/**
+ * `all`: muda linha de qualquer agrupamento (status de anúncio, tag).
+ * `parents`: só as linhas de conjunto/campanha (orçamento, status só do pai).
+ */
+export type AnalyticsChangeScope = 'all' | 'parents'
+
+type LocalChangeMarks = Record<AnalyticsChangeScope, number>
+
+// Espelho em memória: sem localStorage (SSR, testes, site data bloqueado) a aba
+// atual continua protegida.
+let memoryMarks: LocalChangeMarks = { all: 0, parents: 0 }
+
+function readLocalChangeMarks(): LocalChangeMarks {
+  try {
+    const raw = globalThis.localStorage?.getItem(LOCAL_CHANGE_STORAGE_KEY)
+    if (raw) {
+      const stored = JSON.parse(raw) as Partial<LocalChangeMarks>
+      return {
+        all: Math.max(Number(stored.all) || 0, memoryMarks.all),
+        parents: Math.max(Number(stored.parents) || 0, memoryMarks.parents),
+      }
+    }
+  } catch {
+    // best-effort: fica o espelho em memória
+  }
+  return memoryMarks
+}
+
+/**
+ * Chamar ANTES de patchar/invalidar o cache por uma mudança que não passa pelo
+ * carimbo de frescor. Respostas buscadas antes deste instante deixam de valer no disco.
+ */
+export function markAnalyticsChanged(scope: AnalyticsChangeScope = 'all'): void {
+  const marks = { ...readLocalChangeMarks(), [scope]: Date.now() }
+  memoryMarks = marks
+  try {
+    globalThis.localStorage?.setItem(LOCAL_CHANGE_STORAGE_KEY, JSON.stringify(marks))
+  } catch {
+    // best-effort
+  }
+}
+
+/** A resposta em disco foi buscada antes de uma mudança local que a afeta? */
+function predatesLocalChange(pq: PersistedQuery): boolean {
+  const key = pq?.queryKey
+  // A série diária não carrega status, orçamento nem tag.
+  if (!Array.isArray(key) || key[1] !== 'rankings') return false
+  const data = pq.state?.data as Record<string, unknown> | undefined
+  const fetchedAt = Number(data?.[FETCHED_AT_FIELD]) || pq.state?.dataUpdatedAt || 0
+  const marks = readLocalChangeMarks()
+  if (fetchedAt < marks.all) return true
+  // group_by na posição 4 (queryKeys.adPerformance)
+  return (key[4] === 'adset_id' || key[4] === 'campaign_id') && fetchedAt < marks.parents
+}
 
 export type AnalyticsPersister = ReturnType<typeof experimental_createQueryPersister<string>>
 
@@ -83,6 +160,10 @@ export function serializeAnalyticsQuery(pq: PersistedQuery): string {
 /** Aceita os dois formatos: entradas gravadas antes da 161 estão em linhas. */
 export function deserializeAnalyticsQuery(stored: string): PersistedQuery {
   const pq = JSON.parse(stored) as PersistedQuery
+  if (predatesLocalChange(pq)) {
+    // dataUpdatedAt 0 = vencida para o persister: ele apaga a entrada e o queryFn busca.
+    return { ...pq, state: { ...pq.state, dataUpdatedAt: 0 } }
+  }
   const data = pq?.state?.data
   if (isColumnarPayload(data)) {
     pq.state.data = asRowPayload(data)
@@ -139,4 +220,5 @@ export function persistManualAnalyticsUpdate(query: Query): void {
 export function __resetAnalyticsPersisters(): void {
   byUser.clear()
   current = null
+  memoryMarks = { all: 0, parents: 0 }
 }

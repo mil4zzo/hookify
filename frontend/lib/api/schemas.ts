@@ -897,6 +897,9 @@ export const RankingsResponseSchema = z.object({
       has_more: z.boolean(),
     })
     .optional(),
+  // Posto no navegador (useAdPerformance), não vem do servidor: hora do pedido, que o
+  // cache em disco compara com a última mudança de status/orçamento/tag.
+  fetched_at: z.number().optional(),
 })
 
 export const RankingsSeriesRequestSchema = z.object({

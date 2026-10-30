@@ -1,6 +1,7 @@
 import { useCallback } from "react";
 import { useMutation, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api/endpoints";
+import { markAnalyticsChanged } from "@/lib/api/analyticsPersister";
 import { showError, showSuccess } from "@/lib/utils/toast";
 import { toast } from "sonner";
 
@@ -26,6 +27,8 @@ export type VerifiedBudget = { daily_budget: number | null; lifetime_budget: num
 
 export function patchBudgetsInCaches(qc: QueryClient, verifiedById: ReadonlyMap<string, VerifiedBudget>): void {
   if (verifiedById.size === 0) return;
+  // O patch só alcança o que está em memória; o disco dos outros períodos, não.
+  markAnalyticsChanged("parents");
   const patchRow = (row: any): any => {
     if (!row || typeof row !== "object") return row;
     if (!Object.prototype.hasOwnProperty.call(row, "budget_daily")) return row;

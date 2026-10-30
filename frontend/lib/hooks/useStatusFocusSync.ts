@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api/endpoints";
+import { markAnalyticsChanged } from "@/lib/api/analyticsPersister";
 import { useFilters } from "@/lib/hooks/useFilters";
 import { useAppAuthReady } from "@/lib/hooks/useAppAuthReady";
 import { logger } from "@/lib/utils/logger";
@@ -59,9 +60,13 @@ export function useStatusFocusSync(): void {
       if (res.synced.length > 0) {
         const changedAds = typeof res.changed_ads === "number" ? res.changed_ads : null;
         const changedParents = typeof res.changed_parents === "number" ? res.changed_parents : null;
+        // O marco vem antes: a invalidação só alcança o que está em memória, e um período
+        // visitado antes (só no disco) voltaria com o status da hora em que foi buscado.
         if (changedAds === null || changedAds > 0) {
+          markAnalyticsChanged("all");
           await qc.invalidateQueries({ queryKey: ["analytics", "rankings"], refetchType: "active" });
         } else if (changedParents === null || changedParents > 0) {
+          markAnalyticsChanged("parents");
           await qc.invalidateQueries({
             queryKey: ["analytics", "rankings"],
             refetchType: "active",

@@ -32,7 +32,7 @@ import { getCachedPackAds, cachePackAds, removeCachedPackAds } from '@/lib/stora
 import { filterVideoAds } from '@/lib/utils/filterVideoAds'
 import { usePacksLoading } from '@/components/layout/PacksLoader'
 import { computePacksFreshnessStamp } from '@/lib/utils/packsFreshness'
-import { getAnalyticsPersister } from '@/lib/api/analyticsPersister'
+import { FETCHED_AT_FIELD, getAnalyticsPersister, markAnalyticsChanged } from '@/lib/api/analyticsPersister'
 
 // Query Keys
 export const queryKeys = {
@@ -553,7 +553,13 @@ export const useAdPerformance = (params: RankingsRequest, enabled: boolean = tru
   const persister = getAnalyticsPersister(userId)
   return useQuery<RankingsResponse>({
     queryKey: queryKeys.adPerformance(params, freshness),
-    queryFn: ({ signal }) => api.analytics.getAdPerformance(params, { signal }),
+    // Hora do PEDIDO: o persister descarta a resposta pedida antes de uma mudança de
+    // status/orçamento/tag (markAnalyticsChanged). Ver analyticsPersister.ts.
+    queryFn: async ({ signal }) => {
+      const fetchedAt = Date.now()
+      const response = await api.analytics.getAdPerformance(params, { signal })
+      return { ...response, [FETCHED_AT_FIELD]: fetchedAt }
+    },
     persister: persister?.persisterFn,
     // `!!userId`: useSupabaseAuth resolve a sessão de forma assíncrona, por instância.
     // Sem este gate a query disparava nas primeiras renderizações com persister
@@ -870,6 +876,8 @@ function patchCachedRankingTags(
   queryClient: ReturnType<typeof useQueryClient>,
   mutate: (tags: RankingsRowTag[], adName: string) => RankingsRowTag[],
 ) {
+  // O patch só alcança o que está em memória; o disco dos outros períodos, não.
+  markAnalyticsChanged('all')
   queryClient.setQueriesData<unknown>({ queryKey: ['analytics', 'rankings'] }, (cached: unknown) => {
     const payload = cached as { data?: unknown } | undefined
     if (!payload || !Array.isArray(payload.data)) return cached

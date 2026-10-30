@@ -3,10 +3,12 @@ import assert from "node:assert/strict";
 import type { AsyncStorage } from "@tanstack/query-persist-client-core";
 import {
   ANALYTICS_PERSIST_MAX_AGE_MS,
+  FETCHED_AT_FIELD,
   __resetAnalyticsPersisters,
   busterFor,
   getAnalyticsPersister,
   isPersistedAnalyticsKey,
+  markAnalyticsChanged,
 } from "../analyticsPersister";
 
 function fakeStorage(): AsyncStorage<string> & { map: Map<string, string> } {
@@ -105,6 +107,69 @@ test("GC remove entradas vencidas e mantém as vivas", async () => {
   await p.persisterGc();
   assert.equal(storage.map.size, 1);
   assert.ok([...storage.map.keys()][0].includes("viva"));
+});
+
+// O bug: "hoje" mostrava 5 anúncios ativos e "hoje e ontem" 3. Cada período voltava do
+// disco com o status da hora em que foi buscado; a invalidação do sync de status só
+// alcançava o período aberto (em memória).
+test("mudança de status descarta do disco a resposta pedida antes dela", async () => {
+  __resetAnalyticsPersisters();
+  const storage = fakeStorage();
+  const p = getAnalyticsPersister("user-a", storage)!;
+  const antes = Date.now() - 1000;
+  const q = fakeQuery(RANKINGS_KEY, { data: [{ group_key: "x", active_count: 5 }], [FETCHED_AT_FIELD]: antes });
+  await p.persistQuery(q);
+
+  markAnalyticsChanged("all");
+
+  const restored = await p.retrieveQuery<any>(q.queryHash);
+  assert.equal(restored, undefined, "resposta velha não volta: vira busca");
+  assert.equal(storage.map.size, 0, "e sai do disco");
+});
+
+test("resposta pedida DEPOIS da mudança continua valendo", async () => {
+  __resetAnalyticsPersisters();
+  const storage = fakeStorage();
+  const p = getAnalyticsPersister("user-a", storage)!;
+  markAnalyticsChanged("all");
+  const q = fakeQuery(RANKINGS_KEY, { data: [{ group_key: "x" }], [FETCHED_AT_FIELD]: Date.now() + 1 });
+  await p.persistQuery(q);
+  const restored = await p.retrieveQuery<any>(q.queryHash);
+  assert.deepEqual(restored, q.state.data);
+});
+
+test("patch manual renova dataUpdatedAt mas não salva a linha pedida antes da mudança", async () => {
+  __resetAnalyticsPersisters();
+  const storage = fakeStorage();
+  const p = getAnalyticsPersister("user-a", storage)!;
+  const antes = Date.now() - 1000;
+  markAnalyticsChanged("all");
+  // regravada por um patch (tag) depois do marco: dataUpdatedAt novo, fetched_at velho
+  const q = fakeQuery(RANKINGS_KEY, { data: [{ group_key: "x" }], [FETCHED_AT_FIELD]: antes }, Date.now() + 1);
+  await p.persistQuery(q);
+  assert.equal(await p.retrieveQuery<any>(q.queryHash), undefined);
+});
+
+test("mudança só de pai (orçamento) não descarta as abas de anúncio nem a série", async () => {
+  __resetAnalyticsPersisters();
+  const storage = fakeStorage();
+  const p = getAnalyticsPersister("user-a", storage)!;
+  const antes = Date.now() - 1000;
+  const adset = [...RANKINGS_KEY];
+  adset[4] = "adset_id";
+  const serie = ["analytics", "rankings-series", "2026-06-01", "2026-07-27", "ad_name", null, ["p1"], 5, "h", "n=3"];
+  const qAdName = fakeQuery(RANKINGS_KEY, { data: [{ group_key: "x" }], [FETCHED_AT_FIELD]: antes });
+  const qAdset = fakeQuery(adset, { data: [{ group_key: "y" }], [FETCHED_AT_FIELD]: antes });
+  const qSerie = fakeQuery(serie, { series_by_group: {} }, antes);
+  await p.persistQuery(qAdName);
+  await p.persistQuery(qAdset);
+  await p.persistQuery(qSerie);
+
+  markAnalyticsChanged("parents");
+
+  assert.deepEqual(await p.retrieveQuery<any>(qAdName.queryHash), qAdName.state.data);
+  assert.equal(await p.retrieveQuery<any>(qAdset.queryHash), undefined);
+  assert.deepEqual(await p.retrieveQuery<any>(qSerie.queryHash), qSerie.state.data);
 });
 
 test("uma instância por usuário; sem usuário não há persister", () => {

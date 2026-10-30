@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useMutation, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api/endpoints";
+import { markAnalyticsChanged } from "@/lib/api/analyticsPersister";
 import { showError } from "@/lib/utils/toast";
 import { toast } from "sonner";
 
@@ -47,6 +48,7 @@ function isAdLevelRankingsKey(queryKey: readonly unknown[]): boolean {
  * (fetch_manager_rankings_core_v2) e estoura statement_timeout.
  */
 function patchRankingsCaches(qc: QueryClient, patchRow: (row: any) => any): void {
+  markAnalyticsChanged("all");
   qc.setQueriesData<unknown>(
     { queryKey: ["analytics", "rankings"], predicate: (q) => isAdLevelRankingsKey(q.queryKey) },
     (cached: unknown) => {
@@ -84,6 +86,15 @@ function patchRankingsCaches(qc: QueryClient, patchRow: (row: any) => any): void
     refetchType: "none",
     predicate: (q) => !isAdLevelRankingsKey(q.queryKey),
   });
+}
+
+/**
+ * Status de conjunto/campanha muda o effective_status dos anúncios filhos (ADSET_PAUSED…):
+ * vale para toda linha de todo período, inclusive os que só estão no disco.
+ */
+function invalidateRankingsAfterParentStatus(qc: QueryClient): Promise<void> {
+  markAnalyticsChanged("all");
+  return qc.invalidateQueries({ queryKey: ["analytics", "rankings"], refetchType: "active" });
 }
 
 function makeAdStatusPatcher(adId: string, nextStatus: string): (row: any) => any {
@@ -220,7 +231,7 @@ export function useBulkEntityStatusControl(entityType: AdEntityType = "ad", pack
       } else {
         // adset/campaign: o backend releu do Meta e reconciliou o cache local. Toggles em massa
         // desses são raros e é 1 mutação só — invalidação ampla aceitável (sem amplificação).
-        await qc.invalidateQueries({ queryKey: ["analytics", "rankings"], refetchType: "active" });
+        await invalidateRankingsAfterParentStatus(qc);
         await qc.invalidateQueries({ queryKey: ["facebook", "me"] });
       }
 
@@ -327,7 +338,7 @@ export function useAdStatusControl(options: UseAdStatusControlOptions): UseAdSta
       } else {
         // adset/campaign: o backend releu do Meta e persistiu o estado real dos filhos.
         // Toggles desses são raros — invalidação ampla aceitável.
-        await qc.invalidateQueries({ queryKey: ["analytics", "rankings"], refetchType: "active" });
+        await invalidateRankingsAfterParentStatus(qc);
       }
       // /me é cache pequeno e barato de revalidar
       await qc.invalidateQueries({ queryKey: ["facebook", "me"] });
@@ -346,7 +357,7 @@ export function useAdStatusControl(options: UseAdStatusControlOptions): UseAdSta
           }
         }
         if (entityType !== "ad") {
-          void qc.invalidateQueries({ queryKey: ["analytics", "rankings"], refetchType: "active" });
+          void invalidateRankingsAfterParentStatus(qc);
         }
         toast.warning(msg, { id: toastId, duration: 6000 });
         return;
