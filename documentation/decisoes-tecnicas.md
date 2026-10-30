@@ -1153,6 +1153,8 @@ Hierarquia do problema:
 
 **Regra geral aplicável:** Antes de usar `invalidateQueries` em uma mutation, perguntar: "essa mutation muda métricas/dados agregados ou só um campo derivado/display?" Se for só display, prefira `setQueriesData` para evitar amplificação. O custo de manter invalidação broad é proporcional a (componentes ativos) × (frequência da ação).
 
+**Atualização 2026-10-30 — patch e invalidação não alcançam o disco.** Desde a fase 2 do cache (resposta do Manager em IndexedDB, chave = período + packs + carimbo de frescor), `setQueriesData` e `invalidateQueries` só tocam queries em memória (gcTime 60 s). Um período visitado antes voltava do disco com o status da hora em que foi buscado. Sintoma: o "X / Y anúncios" do conjunto/criativo mudava ao trocar o período (hoje 5 ativos, hoje+ontem 3) — a RPC é monótona no período (conferido no laboratório), quem não era é o cache. **Regra:** toda mudança que não passa pelo carimbo (status, orçamento, tag, ou qualquer campo novo patchado) chama `markAnalyticsChanged('all' | 'parents')` antes do patch/invalidação; o persister descarta a resposta cujo `fetched_at` (hora do pedido, posto pelo `useAdPerformance`) é anterior. `dataUpdatedAt` não serve: o patch manual o renova sem renovar o resto da linha. Ver [frontend/lib/api/analyticsPersister.ts](../frontend/lib/api/analyticsPersister.ts).
+
 ---
 
 ## Eliminação da probe de `available_conversion_types` (D + C + B)
