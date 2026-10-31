@@ -134,10 +134,11 @@ export interface UseAdStatusControlReturn {
   toggleStatus: () => Promise<void>;
 }
 
+// Toggle ligado = entregando, a mesma régua da contagem de ativos (só ACTIVE). Com
+// erro de veiculação o Meta reporta WITH_ISSUES/DISAPPROVED no lugar de PAUSED, e a
+// régua antiga ("desligado só se *_PAUSED") mostrava ligado o anúncio desligado.
 function isPausedStatus(status?: string | null): boolean {
-  if (!status) return false;
-  const s = String(status).toUpperCase();
-  return s === "PAUSED" || s === "ADSET_PAUSED" || s === "CAMPAIGN_PAUSED";
+  return String(status ?? "").toUpperCase() !== "ACTIVE";
 }
 
 /**
@@ -329,7 +330,13 @@ export function useAdStatusControl(options: UseAdStatusControlOptions): UseAdSta
       setStatusOverride(realStatus);
       onSuccess?.(data.status);
 
-      toast.success(data.status === "PAUSED" ? "Pausado com sucesso." : "Ativado com sucesso.", { id: toastId });
+      if (data.status === "ACTIVE" && String(realStatus).toUpperCase() !== "ACTIVE") {
+        // Ligou, mas não entrega (ex.: erro de veiculação): o toggle segue desligado e o
+        // toast explica o porquê, em vez de um "sucesso" que a tela contradiz.
+        toast.warning(`Ativado no Meta, mas sem entrega: o Meta reporta ${realStatus}.`, { id: toastId, duration: 7000 });
+      } else {
+        toast.success(data.status === "PAUSED" ? "Pausado com sucesso." : "Ativado com sucesso.", { id: toastId });
+      }
 
       if (entityType === "ad") {
         // Toggle de status não muda métricas — só effective_status. Patch in-place
