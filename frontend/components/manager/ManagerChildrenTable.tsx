@@ -255,6 +255,8 @@ export function ManagerChildrenTable({
         // Pré-calculados com a economia de cada pack: a ordenação e a célula das filhas
         // leem o campo da linha (sem contexto). null atravessa — "—", nunca teto zero.
         cpl_ceiling: getMetricNumericValueOrNull(child, "cpl_ceiling", { leadEconomicsByPack }),
+        cpl_actual: getMetricNumericValueOrNull(child, "cpl_actual", { leadEconomicsByPack }),
+        leads_scored: getMetricNumericValueOrNull(child, "leads_scored", { leadEconomicsByPack }),
         lead_margin: getMetricNumericValueOrNull(child, "lead_margin", { leadEconomicsByPack }),
         // adsets têm ad_count real vindo do backend — não sobrescrever
         ad_count: config.addAdCount ? 1 : Number((child as any).ad_count ?? 0),

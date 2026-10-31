@@ -44,12 +44,14 @@ export function buildShareMetricsFromRow(
     // Backend/viewer usam "mql_count"; no registry a chave canônica é "mqls".
     mql_count: value("mqls"),
     cpl_ceiling: value("cpl_ceiling"),
+    cpl_actual: value("cpl_actual"),
+    leads_scored: value("leads_scored"),
     lead_margin: value("lead_margin"),
   };
 }
 
 /** Métricas que só existem com a economia do lead cadastrada no pack. */
-const LEAD_ECONOMICS_SHARE_KEYS = new Set<ShareMetricKey>(["cpl_ceiling", "lead_margin"]);
+const LEAD_ECONOMICS_SHARE_KEYS = new Set<ShareMetricKey>(["cpl_ceiling", "cpl_actual", "lead_margin"]);
 
 /**
  * Destaques que o diálogo oferece. Teto e Margem só quando algum criativo do link tem
@@ -88,6 +90,7 @@ export function buildShareAverages(averages: ManagerAverages | null | undefined)
     video_watched_p50: averages.video_watched_p50,
     // Ponderadas pelos leads com nota (`aggregateRowsLeadEconomics`), as do cabeçalho.
     cpl_ceiling: averages.cpl_ceiling,
+    cpl_actual: averages.cpl_actual,
     lead_margin: averages.lead_margin,
   };
 }

@@ -36,6 +36,8 @@ export type ManagerMetricKey = Extract<
   | "leadscore_avg"
   | "mql_rate"
   | "cpl_ceiling"
+  | "cpl_actual"
+  | "leads_scored"
   | "lead_margin"
 >;
 
@@ -83,6 +85,9 @@ export interface ManagerAverages {
    * cadastro nos packs selecionados, ou nenhuma linha com lead com nota.
    */
   cpl_ceiling: number | null;
+  cpl_actual: number | null;
+  /** SOMA dos leads com nota das linhas que entraram na média (não uma média). */
+  leads_scored: number | null;
   lead_margin: number | null;
   /** Meta do conjunto (margem desejada ponderada pelo faturamento) — o tooltip da Margem. */
   lead_margin_target: number | null;
@@ -143,6 +148,8 @@ const EMPTY_MANAGER_AVERAGES: ManagerAverages = {
   sumResults: 0,
   sumMqls: 0,
   cpl_ceiling: null,
+  cpl_actual: null,
+  leads_scored: null,
   lead_margin: null,
   lead_margin_target: null,
   lead_economics_rows: null,
@@ -176,6 +183,8 @@ export const MANAGER_METRIC_KEYS: readonly ManagerMetricKey[] = [
   "leadscore_avg",
   "mql_rate",
   "cpl_ceiling",
+  "cpl_actual",
+  "leads_scored",
   "lead_margin",
 ] as const;
 
@@ -525,6 +534,8 @@ export function computeManagerAverages(rows: MetricValueSource[], options: Compu
     sumResults,
     sumMqls,
     cpl_ceiling: leadEconomics?.aggregate?.cplCeiling ?? null,
+    cpl_actual: leadEconomics?.aggregate?.cplActual ?? null,
+    leads_scored: leadEconomics?.aggregate?.leadsScored ?? null,
     lead_margin: leadEconomics?.aggregate?.margin ?? null,
     lead_margin_target: leadEconomics?.aggregate?.targetMargin ?? null,
     lead_economics_rows: leadEconomics

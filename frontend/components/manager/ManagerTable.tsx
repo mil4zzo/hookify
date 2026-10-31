@@ -272,7 +272,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
     }
   }, []);
 
-  // Economia do lead de cada pack selecionado (D27): Teto de CPL e Margem se resolvem
+  // Economia do lead de cada pack selecionado (D27): CPL Max e Margem se resolvem
   // por linha. Direto do store, como o corte de MQL mais abaixo. As duas colunas NÃO
   // entram nem saem de `activeColumns` sozinhas (ao contrário de cpmql/mqls logo abaixo):
   // a escolha do usuário fica guardada, e `isManagerColumnAvailable` decide se existem.
@@ -749,6 +749,8 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
         // Economia do lead: só o cliente tem a economia de cada pack (D27) — o override
         // do backend não a conhece. Sem estas linhas, o cabeçalho ficava sem média.
         cpl_ceiling: computedAverages.cpl_ceiling,
+        cpl_actual: computedAverages.cpl_actual,
+        leads_scored: computedAverages.leads_scored,
         lead_margin: computedAverages.lead_margin,
         lead_margin_target: computedAverages.lead_margin_target,
         lead_economics_rows: computedAverages.lead_economics_rows,
@@ -1128,7 +1130,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
   // Sobre o que está na tela (a média filtrada, quando há filtro).
   const leadEconomicsRowsSummary = (filteredAverages ?? computedAverages).lead_economics_rows;
   const showsLeadEconomicsColumn =
-    hasSheetIntegration && hasLeadEconomics && (activeColumns.has("lead_margin") || activeColumns.has("cpl_ceiling"));
+    hasSheetIntegration && hasLeadEconomics && (activeColumns.has("lead_margin") || activeColumns.has("cpl_ceiling") || activeColumns.has("cpl_actual"));
   const belowTargetCount = leadEconomicsRowsSummary?.rowsBelowTarget ?? 0;
   const withMarginCount = leadEconomicsRowsSummary?.rowsWithMargin ?? 0;
   // O texto é um link: o clique liga (ou desliga) o filtro "Margem vs meta" com

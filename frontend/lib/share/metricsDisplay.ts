@@ -24,18 +24,20 @@ export const METRIC_LABELS: Record<ShareMetricKey, string> = {
   results: "Resultados",
   clicks: "Cliques",
   mql_count: "MQLs",
-  cpl_ceiling: "Teto de CPL",
+  cpl_ceiling: "CPL Max",
+  cpl_actual: "CPL Real",
+  leads_scored: "Leads com nota",
   lead_margin: "Margem",
 };
 
-const CURRENCY_KEYS = new Set<ShareMetricKey>(["cpmql", "cpr", "cpc", "cpm", "spend", "cpl_ceiling"]);
+const CURRENCY_KEYS = new Set<ShareMetricKey>(["cpmql", "cpr", "cpc", "cpm", "spend", "cpl_ceiling", "cpl_actual"]);
 // Frações 0–1 no snapshot (mesma escala da linha do Manager) — exibir ×100.
 const FRACTION_PCT_KEYS = new Set<ShareMetricKey>([
   "ctr", "website_ctr", "connect_rate", "page_conv", "scroll_stop", "hook", "hold_rate", "lead_margin",
 ]);
 
 /** Métricas cujo valor MENOR é melhor — inverte a escala de cor. */
-const LOWER_IS_BETTER = new Set<ShareMetricKey>(["cpmql", "cpr", "cpc", "cpm", "frequency"]);
+const LOWER_IS_BETTER = new Set<ShareMetricKey>(["cpmql", "cpr", "cpc", "cpm", "frequency", "cpl_actual"]);
 
 export function isLowerBetter(key: ShareMetricKey): boolean {
   return LOWER_IS_BETTER.has(key);
@@ -85,7 +87,7 @@ export const SHARE_METRIC_SECTIONS: ShareMetricSection[] = [
   // Só aparece com a economia do lead cadastrada (sem ela, as duas vêm null e somem).
   // A cor segue a média do conjunto, como as outras — não a meta de margem do Manager,
   // que o link não carrega.
-  { title: "Economia do lead", cards: [{ key: "cpl_ceiling" }, { key: "lead_margin" }] },
+  { title: "Economia do lead", cards: [{ key: "cpl_ceiling" }, { key: "cpl_actual" }, { key: "leads_scored" }, { key: "lead_margin" }] },
 ];
 
 /** Métricas presentes no snapshot deste criativo (esconde as indisponíveis). */

@@ -91,7 +91,7 @@ export type CreateManagerTableColumnsParams = {
   provenanceIndex: ProvenanceIndex;
   hasSheetIntegration: boolean;
   mqlLeadscoreMin: number | null;
-  /** Economia do lead de cada pack selecionado (D27): Teto de CPL e Margem se resolvem por linha. */
+  /** Economia do lead de cada pack selecionado (D27): CPL Max e Margem se resolvem por linha. */
   leadEconomicsByPack: LeadEconomicsByPack;
   /** Algum pack selecionado tem cadastro — as duas colunas existem. */
   hasLeadEconomics: boolean;

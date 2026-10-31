@@ -400,7 +400,7 @@ export function buildMetricColumns(params: CreateManagerTableColumnsParams): Col
     );
   }
 
-  // ── Economia do lead: Teto de CPL e Margem (plano-economia-do-lead.md) ─────
+  // ── Economia do lead: CPL Max e Margem (plano-economia-do-lead.md) ─────
   // Cada linha usa o cadastro dos packs dela (D27). A média do cabeçalho pondera pelos
   // leads com nota de cada anúncio e avisa quando deixou anúncios de fora — os que
   // juntam packs com cadastros diferentes ou de packs sem cadastro.
@@ -423,7 +423,7 @@ export function buildMetricColumns(params: CreateManagerTableColumnsParams): Col
         : null;
     const average = formatAverageRef.current(metricId);
     const averageTooltip = [
-      "Média ponderada pelos leads com nota de cada anúncio",
+      metricId === "leads_scored" ? "Soma dos leads com nota dos anúncios incluídos" : "Média ponderada pelos leads com nota de cada anúncio",
       metricId === "lead_margin" && averages?.lead_margin_target != null ? `meta ${formatMetricValue("lead_margin", averages.lead_margin_target)}` : null,
       rowsSummary?.lowSample ? `número instável: só ${rowsSummary.leadsScored} leads com nota` : null,
     ]
@@ -496,7 +496,7 @@ export function buildMetricColumns(params: CreateManagerTableColumnsParams): Col
               formatCurrency={formatCurrencyRef.current}
               minimal={isMinimal}
               colorMetricValue={colorMetricValue}
-              average={averagesRef.current?.cpl_ceiling ?? null}
+              average={metricId === "cpl_actual" ? (averagesRef.current?.cpl_actual ?? null) : (averagesRef.current?.cpl_ceiling ?? null)}
             />
           ),
         },
@@ -505,6 +505,8 @@ export function buildMetricColumns(params: CreateManagerTableColumnsParams): Col
   };
 
   pushLeadEconomicsColumn("cpl_ceiling");
+  pushLeadEconomicsColumn("cpl_actual");
+  pushLeadEconomicsColumn("leads_scored");
   pushLeadEconomicsColumn("lead_margin");
 
   // CPM

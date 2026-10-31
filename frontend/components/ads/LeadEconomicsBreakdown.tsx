@@ -24,7 +24,7 @@ export interface LeadEconomicsBreakdownProps {
 }
 
 /**
- * A conta aberta no modal do anúncio (F3): de onde saem o Teto de CPL e a Margem da
+ * A conta aberta no modal do anúncio (F3): de onde saem o CPL Max e a Margem da
  * coluna do Manager.
  *
  * Não recalcula nada: recebe o resultado de `computeLeadEconomics` e mostra as parcelas.
@@ -58,9 +58,9 @@ export function LeadEconomicsBreakdown({ outcome, formatCurrency, defaultExpande
     <div className="space-y-2">
       {header}
       <div className="grid grid-cols-4 gap-3">
-        <VideoMetricCell label="Teto de CPL" value={formatCurrency(result.cplCeiling)} subtitle="por lead com nota" subtitleInLabelRow />
+        <VideoMetricCell label="CPL Max" value={formatCurrency(result.cplCeiling)} subtitle="por lead com nota" subtitleInLabelRow />
         <VideoMetricCell
-          label="CPL real"
+          label="CPL Real"
           value={result.cplActual === null ? "—" : formatCurrency(result.cplActual)}
           subtitle="gasto ÷ leads com nota"
           subtitleInLabelRow
@@ -118,7 +118,7 @@ export function LeadEconomicsBreakdown({ outcome, formatCurrency, defaultExpande
               </tbody>
               <tfoot>
                 <tr className="border-t border-border font-semibold text-foreground">
-                  <th scope="row" colSpan={5} className="px-3 py-2 text-left">Teto de CPL</th>
+                  <th scope="row" colSpan={5} className="px-3 py-2 text-left">CPL Max</th>
                   <td className="px-3 py-2 text-right">{formatCurrency(result.cplCeiling)}</td>
                 </tr>
               </tfoot>

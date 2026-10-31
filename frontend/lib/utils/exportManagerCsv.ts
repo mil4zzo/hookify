@@ -199,7 +199,7 @@ export async function exportManagerToCsv({
   metricContext?: MetricValueContext
   /** 140: colunas vinculadas da planilha nos packs selecionados. */
   customColumns?: ReadonlyArray<CustomColumnDef>
-  /** Algum pack selecionado tem a economia do lead (Teto de CPL e Margem exportáveis). */
+  /** Algum pack selecionado tem a economia do lead (CPL Max e Margem exportáveis). */
   hasLeadEconomics?: boolean
 }): Promise<void> {
   const rows = rowsSnapshot ?? table.getSortedRowModel().rows

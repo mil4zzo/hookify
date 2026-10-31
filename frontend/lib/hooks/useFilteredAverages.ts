@@ -16,7 +16,7 @@ interface UseFilteredAveragesOptions {
   actionType?: string;
   hasSheetIntegration?: boolean;
   mqlLeadscoreMin: number | null;
-  /** Economia do lead de cada pack selecionado (D27): média de Teto de CPL e Margem. */
+  /** Economia do lead de cada pack selecionado (D27): média de CPL Max e Margem. */
   leadEconomicsByPack?: LeadEconomicsByPack | null;
   /** 140: colunas vinculadas da planilha (médias em `custom`). */
   customColumns?: ReadonlyArray<CustomColumnDef>;

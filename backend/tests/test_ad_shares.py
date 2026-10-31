@@ -70,9 +70,9 @@ class TestSanitizeMetrics:
     def test_lead_economics_metrics_kept(self):
         # D18 revista (2026-09-30): teto e margem vão no link como qualquer métrica.
         # O documento do cadastro (ticket, margens) continua de fora.
-        out = sanitize_metrics({"cpl_ceiling": 30, "lead_margin": -0.1, "lead_economics": {"products": []}})
-        assert out == {"cpl_ceiling": 30.0, "lead_margin": -0.1}
-        assert sanitize_highlight_metrics(["lead_margin", "cpl_ceiling"]) == ["lead_margin", "cpl_ceiling"]
+        out = sanitize_metrics({"cpl_ceiling": 30, "cpl_actual": 12.5, "leads_scored": 42, "lead_margin": -0.1, "lead_economics": {"products": []}})
+        assert out == {"cpl_ceiling": 30.0, "cpl_actual": 12.5, "leads_scored": 42.0, "lead_margin": -0.1}
+        assert sanitize_highlight_metrics(["lead_margin", "cpl_actual"]) == ["lead_margin", "cpl_actual"]
 
 
 # ── validate_share_payload ───────────────────────────────────────────────────

@@ -50,6 +50,8 @@ export const MANAGER_COLUMNS: readonly ManagerColumnOption[] = [
   // respondem a mesma pergunta em dois níveis (quanto custou o qualificado × quanto
   // este lead aguenta custar). Desligadas por padrão: só existem com cadastro.
   { id: "cpl_ceiling", name: getManagerMetricLabel("cpl_ceiling") },
+  { id: "cpl_actual", name: getManagerMetricLabel("cpl_actual") },
+  { id: "leads_scored", name: getManagerMetricLabel("leads_scored") },
   { id: "lead_margin", name: getManagerMetricLabel("lead_margin") },
   { id: "cpc", name: getManagerMetricLabel("cpc"), defaultVisible: true },
   { id: "cplc", name: getManagerMetricLabel("cplc"), defaultVisible: true },

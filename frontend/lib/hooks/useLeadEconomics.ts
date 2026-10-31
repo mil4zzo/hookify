@@ -7,7 +7,7 @@ import { normalizeLeadEconomics, type LeadEconomics, type LeadEconomicsByPack } 
 interface UseLeadEconomicsReturn {
   /**
    * Economia do lead EFETIVA (produtos e faixas de nota), resolvida contra os
-   * packs selecionados e já normalizada. Alimenta Teto de CPL e Margem.
+   * packs selecionados e já normalizada. Alimenta CPL Max e Margem.
    *
    * `null` = NÃO CONFIGURADO (pack sem cadastro, cadastro inválido, ou packs que
    * discordam). Quem consome precisa exibir indisponível — nunca tratar como
@@ -49,7 +49,7 @@ interface UseLeadEconomicsByPackReturn {
    * fica sem teto — não a tela inteira, como no `useLeadEconomics` acima.
    */
   byPack: LeadEconomicsByPack;
-  /** Algum pack selecionado tem cadastro: as colunas Teto de CPL e Margem existem. */
+  /** Algum pack selecionado tem cadastro: as colunas CPL Max e Margem existem. */
   hasLeadEconomics: boolean;
 }
 

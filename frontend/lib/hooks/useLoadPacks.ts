@@ -135,7 +135,7 @@ export function useLoadPacks() {
                 mql_leadscore_min: pack.mql_leadscore_min ?? null,
                 target_cpr: pack.target_cpr ?? null,
                 // Economia do lead (migration 179) — mesma postura: null = não
-                // configurado (Teto de CPL e Margem indisponíveis), nunca zero.
+                // configurado (CPL Max e Margem indisponíveis), nunca zero.
                 // Antes da migration o backend nem manda a chave: undefined → null.
                 lead_economics: pack.lead_economics ?? null,
                 // Compartilhamento (P3.7): ausente = pack próprio

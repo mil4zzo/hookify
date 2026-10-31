@@ -69,6 +69,8 @@ export type MetricSparklineKey = Extract<
   | "leadscore_avg"
   | "mql_rate"
   | "cpl_ceiling"
+  | "cpl_actual"
+  | "leads_scored"
   | "lead_margin"
 >;
 
@@ -437,6 +439,8 @@ export function getMetricSeriesAvailability(
     }
     // Economia do lead: sem série diária no v0 (plano, seção 10) — nenhum dia "tem dado".
     case "cpl_ceiling":
+    case "cpl_actual":
+    case "leads_scored":
     case "lead_margin":
       return { dataAvailability: [] };
     default: {

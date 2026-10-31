@@ -64,7 +64,7 @@ test("o modal explica a coluna: mesmo teto e mesma margem, e as parcelas somam o
   const html = render(ROW);
   // Cada parcela na tabela, e o total no rodapé.
   for (const value of parcels) assert.ok(html.includes(`>${brl(value)}</td>`), brl(value));
-  assert.match(html, /<tfoot>.*Teto de CPL.*R\$ 17\.91.*<\/tfoot>/);
+  assert.match(html, /<tfoot>.*CPL Max.*R\$ 17\.91.*<\/tfoot>/);
   // Linha por faixa, na ordem do cadastro, com o produto de cada uma.
   const labels = [...html.matchAll(/<th scope="row" class="[^"]*">([^<]+)<\/th>/g)].map((match) => match[1]);
   assert.deepEqual(labels.slice(0, 3), ["abaixo de 60", "60 a menos de 80", "80 ou mais"]);

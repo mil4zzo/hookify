@@ -142,10 +142,10 @@ const METRIC_COLUMN_IDS: ReadonlySet<string> = new Set(MANAGER_COLUMNS.filter(is
  * calados ao abrir a página e a cada troca de colunas.
  *
  * "Margem vs meta" (o filtro do "N de M abaixo da meta de margem") não é coluna, mas
- * nasce das colunas Margem e Teto de CPL: vale enquanto uma delas está na tela.
+ * nasce das colunas Margem e CPL Max: vale enquanto uma delas está na tela.
  */
 export function isManagerRuleFieldVisible(fieldId: string, enabledColumns: ReadonlySet<string>): boolean {
-  if (fieldId === LEAD_MARGIN_STATUS_FIELD_ID) return enabledColumns.has("lead_margin") || enabledColumns.has("cpl_ceiling");
+  if (fieldId === LEAD_MARGIN_STATUS_FIELD_ID) return enabledColumns.has("lead_margin") || enabledColumns.has("cpl_ceiling") || enabledColumns.has("cpl_actual");
   if (METRIC_COLUMN_IDS.has(fieldId) || isCustomColumnKey(fieldId)) return enabledColumns.has(fieldId);
   return true;
 }

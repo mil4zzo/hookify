@@ -10,7 +10,7 @@ export interface MetricValueContext {
   actionType?: string;
   mqlLeadscoreMin?: number | null;
   /**
-   * Economia do lead de cada pack selecionado (D27). Teto de CPL e Margem se
+   * Economia do lead de cada pack selecionado (D27). CPL Max e Margem se
    * resolvem POR LINHA, pelos `pack_ids` dela — por isso o mapa, e não um cadastro
    * só. Ausente = o chamador não tem a economia; a métrica lê o valor pré-calculado
    * da linha, se houver (as filhas do Manager pré-calculam), senão fica sem dado.
@@ -290,6 +290,8 @@ export function getMetricNumericValueOrNull(source: MetricValueSource, metricKey
       return mqlCount / leadscoreValues.length;
     }
     case "cpl_ceiling":
+    case "cpl_actual":
+    case "leads_scored":
     case "lead_margin": {
       // Nunca um campo com o mesmo nome vindo da RPC: ela não conhece a economia. Com o
       // mapa, a conta é da linha; sem ele, só o valor que o próprio app pré-calculou.
@@ -297,7 +299,9 @@ export function getMetricNumericValueOrNull(source: MetricValueSource, metricKey
       if (!context.leadEconomicsByPack) return source[canonicalKey] == null ? null : toFiniteNumber(source[canonicalKey]);
       const outcome = getRowLeadEconomics(source, context.leadEconomicsByPack);
       if (!outcome.result) return null;
-      return canonicalKey === "cpl_ceiling" ? outcome.result.cplCeiling : outcome.result.margin;
+      if (canonicalKey === "cpl_ceiling") return outcome.result.cplCeiling;
+      if (canonicalKey === "cpl_actual") return outcome.result.cplActual;
+      return canonicalKey === "leads_scored" ? outcome.result.leadsScored : outcome.result.margin;
     }
     default:
       return null;

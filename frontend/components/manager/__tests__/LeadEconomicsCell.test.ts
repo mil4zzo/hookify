@@ -7,7 +7,7 @@ import { LEAD_ECONOMICS_UNAVAILABLE_TEXT, LeadEconomicsCell, describeLeadEconomi
 import { computeLeadEconomics, type LeadEconomics, type LeadEconomicsByPack } from "@/lib/utils/leadEconomics";
 
 /**
- * Célula de Teto de CPL e Margem: o que o olho e o mouse leem — a cor da Margem nos
+ * Célula de CPL Max e Margem: o que o olho e o mouse leem — a cor da Margem nos
  * três estados (pelo limiar, não pela média), o esmaecido + triângulo de alerta de amostra pequena e o
  * motivo do vazio (ícone quando é do cadastro, travessão quando é do período). A conta é testada em lib/utils/__tests__/leadEconomicsRows.test.ts.
  */
@@ -104,5 +104,35 @@ test("tooltip com valor: custo real, teto, meta e quantos leads", () => {
   const result = computeLeadEconomics({ spend: 800, leadscoreRaw: { "70": 20 }, config: A });
   assert.ok(result);
   const text = describeLeadEconomicsValue(result, brl);
-  assert.match(text, /^R\$ 40\.00 por lead com nota · teto R\$ 30\.00 · meta .+ · 20 leads com nota$/);
+  assert.match(text, /^CPL Real R\$ 40\.00 · CPL Max R\$ 30\.00 · meta .+ · 20 leads com nota$/);
+});
+
+test("CPL Real: gasto ÷ leads com nota, e não o CPR; sem gasto vira travessão com o motivo", () => {
+  // 800 de gasto, 20 leads com nota: 40. Resultados da Meta (10) NÃO entram na conta.
+  const withResults = { ...row(800), results: 10 };
+  assert.deepEqual(
+    { text: (view("cpl_actual", withResults) as { text: string }).text, kind: view("cpl_actual", withResults).kind },
+    { text: "R$ 40.00", kind: "value" },
+  );
+  assert.deepEqual(view("cpl_actual", row(null)), { kind: "dash", tooltip: "Sem gasto no período: não há custo por lead para mostrar." });
+  // Sem cadastro: ícone estrutural, como as outras duas colunas.
+  assert.equal(view("cpl_actual", { pack_ids: ["sem"], spend: 10, leadscore_histogram: { "70": 3 } }).kind, "structural");
+});
+
+test("CPL Real: na comparação com a média, menor é melhor (o contrário do CPL Max)", () => {
+  const cheap = render("cpl_actual", row(20 * 5), { colorMetricValue: true, average: 40 });
+  const dear = render("cpl_actual", row(20 * 80), { colorMetricValue: true, average: 40 });
+  assert.match(cheap, /text-primary/, "CPL 5 contra média 40: o melhor tom");
+  assert.match(dear, /text-destructive/, "CPL 80 contra média 40: o pior tom");
+  assert.doesNotMatch(render("cpl_actual", row(20 * 5), { colorMetricValue: false, average: 40 }), /text-(primary|success|warning|destructive)/);
+});
+
+test("Leads com nota: mostra a contagem sem cor, sem esmaecer e sem triângulo, mesmo com amostra pequena", () => {
+  const small = render("leads_scored", row(100, 7), { colorMetricValue: true, average: 3 });
+  assert.match(small, />7</);
+  assert.doesNotMatch(small, /opacity-50|Número instável|text-(primary|success|warning|destructive)/);
+  const noLeads = { pack_ids: ["a"], spend: 10, leadscore_histogram: {} };
+  assert.deepEqual(view("leads_scored", noLeads), { kind: "dash", tooltip: LEAD_ECONOMICS_UNAVAILABLE_TEXT["no-scored-leads"] });
+  // Com leads e sem gasto o número existe (a margem é que não).
+  assert.match(render("leads_scored", row(null)), />20</);
 });

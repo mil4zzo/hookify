@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { availableShareHighlightOptions, buildShareAverages, buildShareMetricsFromRow } from "../buildShareItem";
-import { METRIC_LABELS, SHARE_METRIC_SECTIONS, formatShareMetric } from "../metricsDisplay";
+import { METRIC_LABELS, SHARE_METRIC_SECTIONS, formatShareMetric, isLowerBetter } from "../metricsDisplay";
 import { SHARE_METRIC_KEYS } from "../types";
 import { computeManagerAverages } from "@/lib/metrics";
 import type { LeadEconomics, LeadEconomicsByPack } from "@/lib/utils/leadEconomics";
@@ -47,10 +47,14 @@ test("snapshot, backend e página pública com a MESMA lista de métricas", () =
 test("teto e margem de cada criativo com o cadastro do pack dele; sem cadastro, ausentes (nunca 0)", () => {
   const metrics = buildShareMetricsFromRow(rowA, CONTEXT);
   assert.equal(metrics.cpl_ceiling, 30);
+  assert.equal(metrics.cpl_actual, 40, "CPL Real: gasto 800 / 20 leads com nota");
+  assert.equal(metrics.leads_scored, 20, "o divisor do CPL Real, para conferir a conta");
   assert.ok(Math.abs((metrics.lead_margin ?? NaN) - 0.1) < 1e-12);
 
   const noEconomics = buildShareMetricsFromRow({ ...rowA, pack_ids: ["sem"] }, CONTEXT);
   assert.equal(noEconomics.cpl_ceiling, null);
+  assert.equal(noEconomics.cpl_actual, null);
+  assert.equal(noEconomics.leads_scored, null);
   assert.equal(noEconomics.lead_margin, null);
   const mixed = buildShareMetricsFromRow({ ...rowA, pack_ids: ["a", "b"] }, CONTEXT);
   assert.equal(mixed.cpl_ceiling, null, "packs com cadastros diferentes: sem teto (D27)");
@@ -65,6 +69,8 @@ test("médias do link: as do cabeçalho, ponderadas pelos leads", () => {
   assert.equal(shared.cpl_ceiling, averages.cpl_ceiling);
   assert.equal(shared.lead_margin, averages.lead_margin);
   assert.equal(shared.cpl_ceiling, 45, "teto 30 e 60, 20 leads cada");
+  assert.equal(shared.cpl_actual, averages.cpl_actual);
+  assert.equal(shared.cpl_actual, 30, "gasto 800 + 400 sobre 40 leads com nota");
 });
 
 test("destaques: Teto e Margem oferecidos só quando algum criativo do link tem o valor", () => {
@@ -85,6 +91,9 @@ test("destaques: Teto e Margem oferecidos só quando algum criativo do link tem 
 
 test("página pública: teto em dinheiro, margem em porcentagem", () => {
   assert.equal(formatShareMetric("cpl_ceiling", 30, "BRL"), "R$ 30,00");
+  assert.equal(formatShareMetric("cpl_actual", 12.5, "BRL").replace(/\s/g, " "), "R$ 12,50");
+  assert.equal(isLowerBetter("cpl_actual"), true, "CPL Real: menor e melhor");
+  assert.equal(isLowerBetter("cpl_ceiling"), false);
   assert.equal(formatShareMetric("lead_margin", 0.1, "BRL"), "10.00%");
   assert.equal(formatShareMetric("lead_margin", -0.25, "BRL"), "-25.00%");
 });

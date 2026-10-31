@@ -372,7 +372,7 @@ export interface LeadEconomicsResult {
   revenuePerLead: number;
   /** K = Σ fatia × conversão × ticket × sobra. */
   contributionPerLead: number;
-  /** Teto de CPL = Σ fatia × conversão × ticket × (sobra − margem desejada). */
+  /** CPL Max = Σ fatia × conversão × ticket × (sobra − margem desejada). */
   cplCeiling: number;
   /** Gasto ÷ leads com nota; null quando o gasto não é um número finito. */
   cplActual: number | null;
@@ -527,7 +527,7 @@ const _leadEconomicsCache = new WeakMap<
 >();
 
 /**
- * Teto de CPL e margem de uma linha (anúncio, conjunto, campanha): a conta da
+ * CPL Max e margem de uma linha (anúncio, conjunto, campanha): a conta da
  * seção 5 do plano sobre a mistura de notas da linha. `null` sem cadastro ou sem
  * lead com nota — indisponível, nunca zero.
  */

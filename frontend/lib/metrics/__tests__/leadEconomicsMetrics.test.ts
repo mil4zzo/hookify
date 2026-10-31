@@ -8,7 +8,7 @@ import { getVisibleManagerColumns, isManagerColumnAvailable, isManagerMetricColu
 import type { LeadEconomics, LeadEconomicsByPack } from "@/lib/utils/leadEconomics";
 
 /**
- * Teto de CPL e Margem ligados ao resto do Manager: a porta única de leitura
+ * CPL Max e Margem ligados ao resto do Manager: a porta única de leitura
  * (`getMetricNumericValueOrNull`), as médias do cabeçalho, a disponibilidade das
  * colunas e o motor de regras. A conta em si é testada em leadEconomicsRows.test.ts.
  */
@@ -45,6 +45,42 @@ test("leitura: sem o mapa, vale o campo pré-calculado — e ausente/null contin
   assert.equal(getMetricNumericValueOrNull({}, "lead_margin"), null);
   // Um campo com o mesmo nome NÃO passa por cima da conta quando há mapa.
   assert.equal(getMetricNumericValueOrNull({ ...ROW_A, cpl_ceiling: 999 }, "cpl_ceiling", { leadEconomicsByPack: BY_PACK }), 30);
+});
+
+test("CPL Real: gasto ÷ leads com nota, na linha e na média; sem gasto é null, nunca 0", () => {
+  const context = { leadEconomicsByPack: BY_PACK };
+  assert.equal(getMetricNumericValueOrNull(ROW_A, "cpl_actual", context), 40);
+  assert.equal(getMetricNumericValueOrNull(ROW_MIXED, "cpl_actual", context), null, "linha mista: sem número");
+  assert.equal(getMetricNumericValueOrNull({ ...ROW_A, spend: null }, "cpl_actual", context), null);
+  // Média = gasto das linhas que entraram ÷ leads delas: (400 + 400) / 20. A mista fica de fora.
+  const averages = computeManagerAverages([ROW_A, ROW_B, ROW_MIXED], { hasSheetIntegration: true, leadEconomicsByPack: BY_PACK });
+  assert.equal(averages.cpl_actual, 40);
+  assert.equal(computeManagerAverages([ROW_A], { hasSheetIntegration: true }).cpl_actual, null);
+  const brl = (n: number) => `R$ ${n.toFixed(2)}`;
+  assert.equal(formatManagerChildMetricValue("cpl_actual", { cpl_actual: null }, { currencyFormatter: brl }), "—");
+  assert.equal(formatManagerChildMetricValue("cpl_actual", { cpl_actual: 40 }, { currencyFormatter: brl }), "R$ 40.00");
+  assert.equal(isManagerColumnAvailable("cpl_actual", { hasSheetIntegration: true, hasLeadEconomics: false }), false);
+  assert.equal(isManagerColumnAvailable("cpl_actual", { hasSheetIntegration: true, hasLeadEconomics: true }), true);
+  // Mesma regra do invariante: CPL Real ≤ CPL Max ⇔ margem ≥ meta (A: 40 > 30 e margem 10% < 20%).
+  assert.ok((getMetricNumericValueOrNull(ROW_A, "cpl_actual", context) ?? 0) > (getMetricNumericValueOrNull(ROW_A, "cpl_ceiling", context) ?? Infinity));
+});
+
+test("Leads com nota: o divisor da conta, na linha e como SOMA no cabeçalho; sem lead é null", () => {
+  const context = { leadEconomicsByPack: BY_PACK };
+  assert.equal(getMetricNumericValueOrNull(ROW_A, "leads_scored", context), 10);
+  assert.equal(getMetricNumericValueOrNull(ROW_MIXED, "leads_scored", context), null);
+  assert.equal(getMetricNumericValueOrNull({ ...ROW_A, leadscore_histogram: {} }, "leads_scored", context), null, "sem lead com nota: null, nunca 0");
+  // Soma (10 + 10), não média; a linha mista fica de fora, como na média do teto.
+  const averages = computeManagerAverages([ROW_A, ROW_B, ROW_MIXED], { hasSheetIntegration: true, leadEconomicsByPack: BY_PACK });
+  assert.equal(averages.leads_scored, 20);
+  assert.equal(computeManagerAverages([ROW_A], { hasSheetIntegration: true }).leads_scored, null);
+  // Conferência: gasto ÷ leads com nota = CPL Real.
+  assert.equal((averages.sumSpend - 100) / (averages.leads_scored ?? NaN), averages.cpl_actual);
+  assert.equal(isManagerColumnAvailable("leads_scored", { hasSheetIntegration: true, hasLeadEconomics: false }), false);
+  assert.equal(isManagerColumnAvailable("leads_scored", { hasSheetIntegration: true, hasLeadEconomics: true }), true);
+  const brl = (n: number) => `R$ ${n.toFixed(2)}`;
+  assert.equal(formatManagerChildMetricValue("leads_scored", { leads_scored: null }, { currencyFormatter: brl }), "—");
+  assert.equal(formatManagerChildMetricValue("leads_scored", { leads_scored: 1234 }, { currencyFormatter: brl }).replace(/\D/g, ""), "1234");
 });
 
 test("filhas: formatação mostra '—' sem valor, nunca 'R$ 0,00'", () => {

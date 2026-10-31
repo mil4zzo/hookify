@@ -310,7 +310,7 @@ Duas regras valem desde 2026-10-14:
 - Armazena metadados dos packs (nome, período, filtros, stats agregadas)
 - Vinculado a `ad_sheet_integrations` via `sheet_integration_id`
 - Critérios de julgamento do pack: `mql_leadscore_min`, `target_cpr` e `lead_economics`
-  (economia do lead — produtos e faixas de nota; ver "Teto de CPL e Margem")
+  (economia do lead — produtos e faixas de nota; ver "CPL Max e Margem")
 
 ### Tabela `ads`
 
@@ -538,7 +538,7 @@ participam da decisão.
 - **MQL Count**: Contagem de Marketing Qualified Leads
 - **CPMQL**: Custo por MQL
 
-### Teto de CPL e Margem (economia do lead)
+### CPL Max e Margem (economia do lead)
 
 Respondem "quanto eu posso pagar por um lead deste anúncio?" a partir de **quem** o
 anúncio traz: um anúncio que traz leads de nota alta pode pagar mais caro por lead que
@@ -569,15 +569,19 @@ leitor só vê o resultado.
 
 **A conta, por anúncio** (com a fatia de leads com nota em cada faixa):
 
-- **Teto de CPL** = soma, faixa a faixa, de fatia × conversão × ticket × (quanto sobra −
+- **CPL Max** = soma, faixa a faixa, de fatia × conversão × ticket × (quanto sobra −
   margem desejada). É o CPL que deixa o anúncio exatamente na margem desejada.
-- **Margem** = (contribuição esperada por lead − CPL real) ÷ faturamento esperado por
-  lead, com CPL real = gasto ÷ leads com nota. Sempre vale: **margem na meta ⇔ CPL no
+- **CPL Real** = gasto ÷ leads com nota da planilha. É ele que se compara com o CPL Max
+  — **não** com o CPR, que divide o gasto pelos resultados que a Meta contou.
+- **Leads com nota** = quantos leads da planilha casaram com o anúncio e têm nota: o divisor
+  do CPL Real. Serve para conferir a conta e comparar com a sua planilha.
+- **Margem** = (contribuição esperada por lead − CPL Real) ÷ faturamento esperado por
+  lead. Sempre vale: **margem na meta ⇔ CPL no
   teto ou abaixo**.
 
 **Onde aparece:**
 
-- **Manager** — colunas opcionais "Teto de CPL" e "Margem" (desligadas por padrão; só
+- **Manager** — colunas opcionais "CPL Max", "CPL Real", "Leads com nota" e "Margem" (desligadas por padrão; só
   existem com planilha e cadastro). A Margem tem três cores: verde (na meta ou acima),
   amarelo (lucrando, abaixo da meta), vermelho (prejuízo). Menos de 20 leads com nota:
   número esmaecido com um triângulo de alerta. Célula sem número mostra o motivo: ícone

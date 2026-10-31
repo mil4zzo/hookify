@@ -345,7 +345,7 @@ function buildMetricField(key: ManagerMetricKey): RuleField {
     isRatioPercent: definition?.formatKind === "ratioPercent",
     requiresSheetIntegration: definition?.requiresSheetIntegration,
     requiresActionType: definition?.requiresActionType,
-    // Teto de CPL e Margem: a conta precisa da economia de cada pack da linha, que só o
+    // CPL Max e Margem: a conta precisa da economia de cada pack da linha, que só o
     // Manager passa ao avaliador. Oferecidas no Boards, no Critério ou no /insights,
     // seriam campo que não responde — toda condição sobre elas zeraria a tela sem erro.
     ...(definition?.requiresLeadEconomics

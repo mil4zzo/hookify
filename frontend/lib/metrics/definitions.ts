@@ -31,6 +31,8 @@ export type MetricKey =
   | "leadscore_avg"
   | "mql_rate"
   | "cpl_ceiling"
+  | "cpl_actual"
+  | "leads_scored"
   | "lead_margin";
 
 export interface MetricDefinition {
@@ -46,7 +48,7 @@ export interface MetricDefinition {
   requiresSheetIntegration?: boolean;
   /**
    * Só existe com a economia do lead cadastrada em algum pack selecionado
-   * (Teto de CPL e Margem). Vale junto com `requiresSheetIntegration`: sem
+   * (CPL Max e Margem). Vale junto com `requiresSheetIntegration`: sem
    * planilha não há nota, e sem nota não há conta.
    */
   requiresLeadEconomics?: boolean;
@@ -301,12 +303,34 @@ export const METRIC_DEFINITIONS: Record<MetricKey, MetricDefinition> = {
   // imutáveis depois de publicadas: regras salvas e preferências de coluna as citam.
   cpl_ceiling: {
     key: "cpl_ceiling",
-    label: "Teto de CPL",
+    label: "CPL Max",
     didacticDescription: "Quanto você pode pagar por um lead deste anúncio sem descer abaixo da margem desejada, dado quem ele traz.",
     technicalDescription:
       "Σ fatia de leads na faixa × conversão × ticket × (sobra − margem desejada), com a economia do pack. Conta só os leads com nota.",
     polarity: "higher",
     formatKind: "currency",
+    requiresSheetIntegration: true,
+    requiresLeadEconomics: true,
+  },
+  cpl_actual: {
+    key: "cpl_actual",
+    label: "CPL Real",
+    didacticDescription:
+      "Quanto cada lead com nota custou de verdade. É este o custo que se compara com o CPL Max, não o CPR (que divide pelos resultados da Meta).",
+    technicalDescription: "Gasto ÷ leads com nota da planilha. Mesmo denominador do CPL Max e da Margem.",
+    polarity: "lower",
+    formatKind: "currency",
+    requiresSheetIntegration: true,
+    requiresLeadEconomics: true,
+  },
+  leads_scored: {
+    key: "leads_scored",
+    label: "Leads com nota",
+    didacticDescription:
+      "Quantos leads da planilha casaram com este anúncio e têm nota. É o divisor do CPL Real e da Margem: serve para conferir a conta.",
+    technicalDescription: "Contagem de leads com leadscore vindos da planilha. Denominador do CPL Real, do CPL Max e da Margem.",
+    polarity: "higher",
+    formatKind: "integer",
     requiresSheetIntegration: true,
     requiresLeadEconomics: true,
   },

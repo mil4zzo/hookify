@@ -51,7 +51,7 @@ export interface SharedTableContentProps {
   hasSheetIntegration?: boolean;
   mqlLeadscoreMin?: number | null;
   /** Economia do lead por pack (D27). Não é lida aqui — é o sinal para o React.memo: `table` é
-   *  instância estável, e sem a prop mudar o cadastro não redesenharia Teto de CPL e Margem. */
+   *  instância estável, e sem a prop mudar o cadastro não redesenharia CPL Max e Margem. */
   leadEconomicsByPack?: LeadEconomicsByPack;
   // Adicionado para comparação confiável no React.memo
   sorting: { id: string; desc: boolean }[];

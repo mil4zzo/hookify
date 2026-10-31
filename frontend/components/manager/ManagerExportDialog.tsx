@@ -42,7 +42,7 @@ interface ManagerExportDialogProps {
   packIds?: string[];
   /** 140: colunas vinculadas da planilha nos packs selecionados (exportáveis). */
   customColumns?: ReadonlyArray<CustomColumnDef>;
-  /** Algum pack selecionado tem a economia do lead (Teto de CPL e Margem). */
+  /** Algum pack selecionado tem a economia do lead (CPL Max e Margem). */
   hasLeadEconomics?: boolean;
 }
 

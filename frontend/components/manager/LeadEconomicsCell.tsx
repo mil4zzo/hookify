@@ -15,7 +15,7 @@ import {
   type LeadEconomicsUnavailableReason,
 } from "@/lib/utils/leadEconomics";
 
-export type LeadEconomicsMetric = "cpl_ceiling" | "lead_margin";
+export type LeadEconomicsMetric = "cpl_ceiling" | "cpl_actual" | "leads_scored" | "lead_margin";
 
 /** Por que a célula está vazia — no tooltip (e, com ícone, no rótulo dele). */
 export const LEAD_ECONOMICS_UNAVAILABLE_TEXT: Record<LeadEconomicsUnavailableReason, string> = {
@@ -44,8 +44,8 @@ const LOW_SAMPLE_PREFIX = "Número instável";
  */
 export function describeLeadEconomicsValue(result: LeadEconomicsResult, formatCurrency: (n: number) => string): string {
   const parts: string[] = [];
-  parts.push(result.cplActual === null ? "sem gasto no período" : `${formatCurrency(result.cplActual)} por lead com nota`);
-  parts.push(`teto ${formatCurrency(result.cplCeiling)}`);
+  parts.push(result.cplActual === null ? "sem gasto no período" : `CPL Real ${formatCurrency(result.cplActual)}`);
+  parts.push(`CPL Max ${formatCurrency(result.cplCeiling)}`);
   if (result.targetMargin !== null) parts.push(`meta ${formatMetricValue("lead_margin", result.targetMargin)}`);
   parts.push(`${result.leadsScored} ${result.leadsScored === 1 ? "lead" : "leads"} com nota`);
   const text = parts.join(" · ");
@@ -80,22 +80,27 @@ export function leadEconomicsCellView(params: {
   }
 
   const result = outcome.result;
-  const value = metric === "cpl_ceiling" ? result.cplCeiling : result.margin;
-  if (value === null) return { kind: "dash", tooltip: describeMissingMargin(result) };
+  const value =
+    metric === "cpl_ceiling" ? result.cplCeiling : metric === "cpl_actual" ? result.cplActual : metric === "leads_scored" ? result.leadsScored : result.margin;
+  if (value === null) {
+    return { kind: "dash", tooltip: metric === "cpl_actual" ? "Sem gasto no período: não há custo por lead para mostrar." : describeMissingMargin(result) };
+  }
 
   let toneClass = "";
   if (metric === "lead_margin") {
     const tone = leadMarginTone(value, result.targetMargin);
     if (tone) toneClass = getMetricValueTextClass(tone);
-  } else if (colorMetricValue && average != null && Number.isFinite(average)) {
-    toneClass = getMetricValueTextClass(getMetricQualityToneByAverage(value, average, false));
+  } else if (metric !== "leads_scored" && colorMetricValue && average != null && Number.isFinite(average)) {
+    // CPL Max: maior é melhor. CPL Real: menor é melhor.
+    toneClass = getMetricValueTextClass(getMetricQualityToneByAverage(value, average, metric === "cpl_actual"));
   }
   return {
     kind: "value",
     text: formatMetricValue(metric, value, { currencyFormatter: formatCurrency }),
     tooltip: describeLeadEconomicsValue(result, formatCurrency),
     toneClass,
-    lowSample: result.lowSample,
+    // A contagem É a amostra: esmaecê-la e avisar de amostra pequena em cima dela seria redundante.
+    lowSample: metric === "leads_scored" ? false : result.lowSample,
   };
 }
 
@@ -126,7 +131,7 @@ function WithTooltip({ text, children }: { text: string; children: React.ReactEl
 }
 
 /**
- * Célula de Teto de CPL e Margem.
+ * Célula de CPL Max e Margem.
  *
  * Não é o `MetricCell`: ele é construído em volta do sparkline, e estas métricas
  * não têm série (v0). A Margem tem cor pelo LIMIAR, não pela média (D14): na meta

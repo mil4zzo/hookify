@@ -47,6 +47,8 @@ export type ManagerColumnType =
   | "mql_rate"
   // Economia do lead (plano-economia-do-lead.md): só com planilha E cadastro.
   | "cpl_ceiling"
+  | "cpl_actual"
+  | "leads_scored"
   | "lead_margin";
 
 interface ManagerColumnFilterProps {
@@ -84,7 +86,7 @@ export function ManagerColumnFilter({ activeColumns, columnOrder, onToggleColumn
         id: columnId,
         label: columnLabel(columnId),
         disabled: isColumnDisabled?.(columnId) ?? false,
-        // Teto de CPL e Margem: o que falta costuma ser o cadastro (a economia só se
+        // CPL Max e Margem: o que falta costuma ser o cadastro (a economia só se
         // configura em pack com planilha, então "economia" já implica planilha).
         disabledHint: METRIC_DEFINITIONS[columnId as MetricKey]?.requiresLeadEconomics ? " (requer economia do lead no pack)" : " (requer planilha)",
       })),

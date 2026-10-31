@@ -299,6 +299,8 @@ test("derives manager presentation metadata from metric semantics", () => {
     sumResults: 5,
     sumMqls: 2,
     cpl_ceiling: null,
+    cpl_actual: null,
+    leads_scored: null,
     lead_margin: null,
     lead_margin_target: null,
     lead_economics_rows: null,
