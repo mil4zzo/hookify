@@ -142,6 +142,33 @@ function isPausedStatus(status?: string | null): boolean {
 }
 
 /**
+ * Toast de "ativou mas não entrega". O status do Meta nunca aparece cru para o usuário:
+ * cada um vira a explicação do que acontece com a veiculação (vocabulário do Gerenciador).
+ * Em análise/pré-aprovado é o caminho normal de um anúncio novo — informa, não alerta.
+ */
+function activatedWithoutDeliveryMessage(status: string, entityType: AdEntityType): { tone: "info" | "warning"; message: string } {
+  const noun = BULK_ENTITY_NOUN[entityType].singular;
+  // campanha é feminino: "a campanha … reprovada"; anúncio/conjunto, masculino.
+  const f = entityType === "campaign";
+  const art = f ? "a" : "o";
+  const ativ = f ? "Ativada" : "Ativado";
+  switch (String(status).toUpperCase()) {
+    case "PENDING_REVIEW":
+      return { tone: "info", message: `${ativ}. ${art.toUpperCase()} ${noun} está em análise no Meta e começa a veicular depois da aprovação.` };
+    case "PREAPPROVED":
+      return { tone: "info", message: `${ativ}. ${art.toUpperCase()} ${noun} foi pré-aprovad${art} e começa a veicular em instantes.` };
+    case "WITH_ISSUES":
+      return { tone: "warning", message: `${ativ}, mas o Meta aponta um erro de veiculação. Confira ${art} ${noun} no Gerenciador de Anúncios para ver o que corrigir.` };
+    case "DISAPPROVED":
+      return { tone: "warning", message: `${ativ}, mas ${art} ${noun} foi reprovad${art} pelo Meta e não vai veicular. Veja o motivo no Gerenciador de Anúncios.` };
+    case "PENDING_BILLING_INFO":
+      return { tone: "warning", message: `${ativ}, mas a conta tem uma pendência de pagamento no Meta. ${art.toUpperCase()} ${noun} volta a veicular quando ela for resolvida.` };
+    default:
+      return { tone: "warning", message: `${ativ}, mas ${art} ${noun} ainda não está veiculando no Meta.` };
+  }
+}
+
+/**
  * Detecta pela mensagem (não pelo código aninhado, que é frágil) se o erro do Meta é de
  * limite de requisições. Cobre os códigos comuns de rate limit da Graph/Marketing API
  * design-system-exception: raw-color - códigos de erro da Meta abaixo, não são cores
@@ -333,7 +360,8 @@ export function useAdStatusControl(options: UseAdStatusControlOptions): UseAdSta
       if (data.status === "ACTIVE" && String(realStatus).toUpperCase() !== "ACTIVE") {
         // Ligou, mas não entrega (ex.: erro de veiculação): o toggle segue desligado e o
         // toast explica o porquê, em vez de um "sucesso" que a tela contradiz.
-        toast.warning(`Ativado no Meta, mas sem entrega: o Meta reporta ${realStatus}.`, { id: toastId, duration: 7000 });
+        const { tone, message } = activatedWithoutDeliveryMessage(realStatus, entityType);
+        toast[tone](message, { id: toastId, duration: 7000 });
       } else {
         toast.success(data.status === "PAUSED" ? "Pausado com sucesso." : "Ativado com sucesso.", { id: toastId });
       }
