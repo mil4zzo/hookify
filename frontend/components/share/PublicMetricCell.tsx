@@ -2,6 +2,7 @@
 
 import { getMetricCardSurfaceClass, getMetricQualityToneByAverage, getMetricValueTextClass } from "@/lib/utils/metricQuality";
 import { cn } from "@/lib/utils/cn";
+import { isColorlessMetricKey } from "@/lib/metrics/definitions";
 import { METRIC_LABELS, formatShareDelta, formatShareMetric, isLowerBetter } from "@/lib/share/metricsDisplay";
 import type { ShareMetricKey } from "@/lib/share/types";
 
@@ -23,7 +24,7 @@ interface PublicMetricCellProps {
  * exatamente o comportamento do modal.
  */
 export function PublicMetricCell({ metricKey, value, average, subtitle, currency, className }: PublicMetricCellProps) {
-  const canCompare = average != null && Number.isFinite(average) && average !== 0;
+  const canCompare = !isColorlessMetricKey(metricKey) && average != null && Number.isFinite(average) && average !== 0;
   const tone = canCompare ? getMetricQualityToneByAverage(value, average as number, isLowerBetter(metricKey)) : null;
   const delta = canCompare ? formatShareDelta(value, average) : null;
 

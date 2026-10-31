@@ -3,6 +3,7 @@
 import type { ReactNode } from "react";
 import { SparklineBars } from "@/components/common/SparklineBars";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { isColorlessMetricKey } from "@/lib/metrics/definitions";
 import { getMetricCardSurfaceClass, getMetricQualityToneByAverage, getMetricSeriesTrendPct, getMetricTrendTone, getMetricValueTextClass } from "@/lib/utils/metricQuality";
 
 interface VideoMetricCellProps {
@@ -23,6 +24,8 @@ interface VideoMetricCellProps {
   packAverage?: number | null;
   colorMode?: "series" | "per-bar";
   disableSeriesFallback?: boolean;
+  /** Quando informada e a métrica é `colorless`, o cartão não ganha cor de qualidade. */
+  metricKey?: string;
 }
 
 function getMetricValueTone({ valueRaw, avgRaw, better, series, inverse, disableSeriesFallback = false }: Pick<VideoMetricCellProps, "valueRaw" | "avgRaw" | "better" | "series" | "inverse" | "disableSeriesFallback">) {
@@ -37,9 +40,10 @@ function getMetricValueTone({ valueRaw, avgRaw, better, series, inverse, disable
   return null;
 }
 
-export function VideoMetricCell({ label, value, valueClassName, deltaDisplay, subtitle, subtitleInLabelRow = false, averageDisplay, averageTooltip, series, inverse, formatFn, valueRaw, avgRaw, better, packAverage, colorMode, disableSeriesFallback = false }: VideoMetricCellProps) {
+export function VideoMetricCell({ label, value, valueClassName, deltaDisplay, subtitle, subtitleInLabelRow = false, averageDisplay, averageTooltip, series, inverse, formatFn, valueRaw, avgRaw, better, packAverage, colorMode, disableSeriesFallback = false, metricKey }: VideoMetricCellProps) {
+  const colorless = metricKey != null && isColorlessMetricKey(metricKey);
   const hasSeries = Boolean(series && series.length > 0 && series.some((item) => item != null && !Number.isNaN(item as number)));
-  const tone = getMetricValueTone({ valueRaw, avgRaw, better, series, inverse, disableSeriesFallback });
+  const tone = colorless ? null : getMetricValueTone({ valueRaw, avgRaw, better, series, inverse, disableSeriesFallback });
   const qualitySurfaceClass = getMetricCardSurfaceClass(tone ?? "muted-foreground");
   const qualityValueClass = tone ? getMetricValueTextClass(tone) : "";
   const hasHeaderMeta = Boolean(subtitleInLabelRow && subtitle);
@@ -76,7 +80,7 @@ export function VideoMetricCell({ label, value, valueClassName, deltaDisplay, su
 
       {hasSeries ? (
         <div className="mt-2 w-full px-2">
-          <SparklineBars series={series ?? []} size="small" className="h-5 w-full" valueFormatter={formatFn} inverseColors={inverse} packAverage={packAverage} colorMode={colorMode} />
+          <SparklineBars series={series ?? []} size="small" className="h-5 w-full" valueFormatter={formatFn} inverseColors={inverse} packAverage={colorless ? null : packAverage} colorMode={colorMode} dynamicColor={!colorless} />
         </div>
       ) : null}
     </div>

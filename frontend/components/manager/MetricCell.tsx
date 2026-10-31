@@ -243,6 +243,7 @@ export const MetricCell = React.memo(function MetricCell({ row, value, metric, g
         valueFormatter={valueFormatter}
         inverseColors={trendPresentation.inverseColors}
         packAverage={trendPresentation.packAverage}
+        dynamicColor={!trendPresentation.colorless}
         colorMode={trendPresentation.useTrendMode ? "series" : undefined}
         dataAvailability={dataAvailability}
         zeroValueLabel={zeroValueLabel}

@@ -310,13 +310,22 @@ test("derives manager presentation metadata from metric semantics", () => {
     useTrendMode: true,
     packAverage: null,
     inverseColors: false,
+    colorless: false,
   });
 
   assert.deepEqual(getManagerMetricTrendPresentation("cpr", averages), {
     useTrendMode: false,
     packAverage: 20,
     inverseColors: true,
+    colorless: false,
   });
+
+  // Volumes e frequência não medem qualidade: sem média de comparação, nem cor.
+  for (const volume of ["impressions", "clicks", "reach", "lpv", "plays", "thruplays", "results", "mqls", "frequency"] as const) {
+    const presentation = getManagerMetricTrendPresentation(volume, { ...averages, [volume]: 50 });
+    assert.equal(presentation.colorless, true, volume);
+    assert.equal(presentation.packAverage, null, `${volume}: sem média de comparação`);
+  }
 
   assert.equal(
     getManagerMetricCurrentValue({ spend: 80, mqls: 3 }, "mqls", { hasSheetIntegration: false }),
@@ -414,4 +423,24 @@ test("compares manager child rows with centralized sort rules", () => {
     ),
     -50,
   );
+});
+
+test("métricas sem qualidade (volume, frequência) têm UMA regra, lida por todas as telas", async () => {
+  const { isColorlessMetricKey, METRIC_DEFINITIONS } = await import("../definitions");
+  const { isManagerSummaryMetric } = await import("../manager");
+  const { buildShareAverages } = await import("@/lib/share/buildShareItem");
+
+  const expected = ["frequency", "mqls", "results", "impressions", "clicks", "lpv", "plays", "thruplays", "reach", "leads_scored"];
+  for (const key of expected) assert.equal(isColorlessMetricKey(key), true, key);
+  for (const key of ["spend", "cpr", "cpm", "ctr", "hook", "cpl_actual", "cpl_ceiling", "lead_margin"]) assert.equal(isColorlessMetricKey(key), false, key);
+
+  // Toda soma do cabeçalho (menos o gasto, que tem modo de tendência) é colorless: as duas
+  // listas não podem andar separadas.
+  for (const key of Object.keys(METRIC_DEFINITIONS)) {
+    if (key !== "spend" && isManagerSummaryMetric(key)) assert.equal(isColorlessMetricKey(key), true, `${key}: soma sem a flag colorless`);
+  }
+
+  // O link público nunca carrega média de métrica sem qualidade.
+  const shared = buildShareAverages({ ...({} as any), ...Object.fromEntries(Object.keys(METRIC_DEFINITIONS).map((key) => [key, 10])) });
+  for (const key of Object.keys(shared)) assert.equal(isColorlessMetricKey(key), false, `${key}: média no link público`);
 });

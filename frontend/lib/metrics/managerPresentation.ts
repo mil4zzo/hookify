@@ -1,8 +1,8 @@
 import type { MetricQualityTone } from "@/lib/utils/metricQuality";
 import { getMetricNumericValueOrNull, type MetricValueContext, type MetricValueSource } from "./calculations";
-import { getCustomTopValue, isCustomColumnKey } from "./customColumns";
+import { getCustomTopValue, isCustomColumnKey, parseCustomColumnKey } from "./customColumns";
 import { getActiveCustomColumn } from "./customColumnsRegistry";
-import { METRIC_DEFINITIONS, type MetricFormatKind } from "./definitions";
+import { isColorlessMetricKey, METRIC_DEFINITIONS, type MetricFormatKind } from "./definitions";
 import { formatMetricValueByKind } from "./formatMetricValueCore";
 import type { ManagerAverages, ManagerMetricKey } from "./manager";
 
@@ -10,6 +10,8 @@ export interface ManagerMetricTrendPresentation {
   useTrendMode: boolean;
   packAverage: number | null;
   inverseColors: boolean;
+  /** Sem comparação com a média: nem número nem barras ganham cor de qualidade. */
+  colorless: boolean;
 }
 
 export interface ManagerMetricDeltaPresentation {
@@ -101,18 +103,32 @@ function averageOf(averages: ManagerAverages, metric: ManagerMetricKey | string)
   return averages[metric as ManagerMetricKey] as number | null | undefined;
 }
 
+/**
+ * Métricas que não medem qualidade: o volume (impressões, resultados, MQLs...) só reflete
+ * quanto de verba o anúncio recebeu, e a frequência alta é fadiga, não acerto. Comparar
+ * com a média pintaria de verde o anúncio que apenas gastou mais. O gasto fica de fora
+ * porque tem modo próprio (tendência da série). A regra mora em `colorless` nas definições.
+ */
+export function isColorlessManagerMetric(metric: ManagerMetricKey | string): boolean {
+  // 140: a faceta MQLs de uma coluna vinculada é soma, como `mqls`.
+  if (isCustomColumnKey(metric)) return parseCustomColumnKey(metric)?.facet === "mqls";
+  return isColorlessMetricKey(metric);
+}
+
 export function getManagerMetricTrendPresentation(
   metric: ManagerMetricKey,
   averages: ManagerAverages,
 ): ManagerMetricTrendPresentation {
   const useTrendMode = metric === "spend";
   const rawAverage = averageOf(averages, metric);
-  const packAverage = useTrendMode || rawAverage == null || !Number.isFinite(rawAverage) ? null : rawAverage;
+  const colorless = isColorlessManagerMetric(metric);
+  const packAverage = useTrendMode || colorless || rawAverage == null || !Number.isFinite(rawAverage) ? null : rawAverage;
 
   return {
     useTrendMode,
     packAverage,
     inverseColors: isInverseManagerMetric(metric),
+    colorless,
   };
 }
 

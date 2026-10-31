@@ -73,7 +73,7 @@ export function LeadEconomicsBreakdown({ outcome, formatCurrency, defaultExpande
           subtitle={result.targetMargin === null ? undefined : `meta ${pct(result.targetMargin)}`}
           subtitleInLabelRow
         />
-        <VideoMetricCell label="Leads com nota" value={count(result.leadsScored)} />
+        <VideoMetricCell metricKey="leads_scored" label="Leads com nota" value={count(result.leadsScored)} />
       </div>
 
       {result.lowSample && (

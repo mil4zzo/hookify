@@ -896,9 +896,9 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
                   {/* Absolutas (sem sparklines) */}
                   <MetricSection title="Visibilidade">
                     <VideoMetricCell label="Spend" value={formatCurrency(resolvedSpend)} series={resolvedSeries?.spend} formatFn={(n: number) => formatCurrency(n)} colorMode="series" disableSeriesFallback />
-                    <VideoMetricCell label="Frequency" value={resolvedFrequency != null ? resolvedFrequency.toFixed(2) : "—"} />
-                    <VideoMetricCell label="Impressions" value={resolvedImpressions.toLocaleString("pt-BR")} />
-                    <VideoMetricCell label="Reach" value={resolvedReach != null ? resolvedReach.toLocaleString("pt-BR") : "—"} />
+                    <VideoMetricCell metricKey="frequency" label="Frequency" value={resolvedFrequency != null ? resolvedFrequency.toFixed(2) : "—"} />
+                    <VideoMetricCell metricKey="impressions" label="Impressions" value={resolvedImpressions.toLocaleString("pt-BR")} />
+                    <VideoMetricCell metricKey="reach" label="Reach" value={resolvedReach != null ? resolvedReach.toLocaleString("pt-BR") : "—"} />
                   </MetricSection>
                 </div>
               )}

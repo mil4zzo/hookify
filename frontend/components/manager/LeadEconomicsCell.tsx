@@ -6,6 +6,7 @@ import type { RankingsItem } from "@/lib/api/schemas";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils/cn";
 import { formatMetricValue } from "@/lib/metrics";
+import { isColorlessMetricKey } from "@/lib/metrics/definitions";
 import { getMetricQualityToneByAverage, getMetricValueTextClass } from "@/lib/utils/metricQuality";
 import {
   getRowLeadEconomics,
@@ -90,7 +91,7 @@ export function leadEconomicsCellView(params: {
   if (metric === "lead_margin") {
     const tone = leadMarginTone(value, result.targetMargin);
     if (tone) toneClass = getMetricValueTextClass(tone);
-  } else if (metric !== "leads_scored" && colorMetricValue && average != null && Number.isFinite(average)) {
+  } else if (!isColorlessMetricKey(metric) && colorMetricValue && average != null && Number.isFinite(average)) {
     // CPL Max: maior é melhor. CPL Real: menor é melhor.
     toneClass = getMetricValueTextClass(getMetricQualityToneByAverage(value, average, metric === "cpl_actual"));
   }

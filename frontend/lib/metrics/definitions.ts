@@ -59,6 +59,13 @@ export interface MetricDefinition {
    * Ver documentation/plano-filtros-unificados.md.
    */
   requiresVideo?: boolean;
+  /**
+   * Não mede qualidade, então NUNCA ganha cor de "melhor/pior que a média" em lugar
+   * nenhum (célula, barras, cartão do modal, link público). Volume só reflete quanto de
+   * verba o anúncio recebeu; frequência alta é fadiga, não acerto. É a ÚNICA fonte desta
+   * regra: telas perguntam a `isColorlessMetricKey`, não mantêm lista própria.
+   */
+  colorless?: boolean;
 }
 
 export const METRIC_DEFINITIONS: Record<MetricKey, MetricDefinition> = {
@@ -92,6 +99,7 @@ export const METRIC_DEFINITIONS: Record<MetricKey, MetricDefinition> = {
     didacticDescription: "Mostra quantas vezes, em média, cada pessoa viu o anúncio.",
     technicalDescription: "Relação entre impressões totais e alcance.",
     polarity: "neutral",
+    colorless: true,
     formatKind: "decimal",
   },
   scroll_stop: {
@@ -216,6 +224,7 @@ export const METRIC_DEFINITIONS: Record<MetricKey, MetricDefinition> = {
     didacticDescription: "Mostra o volume de leads qualificados gerados no período.",
     technicalDescription: "Contagem total de marketing qualified leads.",
     polarity: "higher",
+    colorless: true,
     formatKind: "integer",
     requiresSheetIntegration: true,
   },
@@ -225,6 +234,7 @@ export const METRIC_DEFINITIONS: Record<MetricKey, MetricDefinition> = {
     didacticDescription: "Mostra o total da conversão atualmente selecionada.",
     technicalDescription: "Soma das conversões do action type escolhido.",
     polarity: "higher",
+    colorless: true,
     formatKind: "integer",
     requiresActionType: true,
   },
@@ -234,6 +244,7 @@ export const METRIC_DEFINITIONS: Record<MetricKey, MetricDefinition> = {
     didacticDescription: "Mostra o total de vezes que o anúncio foi exibido.",
     technicalDescription: "Contagem bruta de entregas do anúncio.",
     polarity: "higher",
+    colorless: true,
     formatKind: "integer",
   },
   clicks: {
@@ -242,6 +253,7 @@ export const METRIC_DEFINITIONS: Record<MetricKey, MetricDefinition> = {
     didacticDescription: "Mostra o total de cliques recebidos pelo anúncio.",
     technicalDescription: "Inclui todos os cliques contabilizados na entrega.",
     polarity: "higher",
+    colorless: true,
     formatKind: "integer",
   },
   lpv: {
@@ -250,6 +262,7 @@ export const METRIC_DEFINITIONS: Record<MetricKey, MetricDefinition> = {
     didacticDescription: "Mostra quantas visualizações reais a página de destino recebeu.",
     technicalDescription: "Landing page views após o clique no anúncio.",
     polarity: "higher",
+    colorless: true,
     formatKind: "integer",
   },
   plays: {
@@ -258,6 +271,7 @@ export const METRIC_DEFINITIONS: Record<MetricKey, MetricDefinition> = {
     didacticDescription: "Mostra quantas reproduções de vídeo foram registradas.",
     technicalDescription: "Total de execuções iniciadas do criativo em vídeo.",
     polarity: "higher",
+    colorless: true,
     formatKind: "integer",
     requiresVideo: true,
   },
@@ -268,6 +282,7 @@ export const METRIC_DEFINITIONS: Record<MetricKey, MetricDefinition> = {
     didacticDescription: "Mostra quantas pessoas assistiram ao vídeo até o fim (ou 15s).",
     technicalDescription: "Total de reproduções completas ou de pelo menos 15 segundos (video_thruplay_watched_actions).",
     polarity: "higher",
+    colorless: true,
     formatKind: "integer",
     requiresVideo: true,
   },
@@ -277,6 +292,7 @@ export const METRIC_DEFINITIONS: Record<MetricKey, MetricDefinition> = {
     didacticDescription: "Mostra quantas pessoas únicas receberam o anúncio.",
     technicalDescription: "Contagem estimada de usuários únicos impactados.",
     polarity: "higher",
+    colorless: true,
     formatKind: "integer",
   },
   leadscore_avg: {
@@ -330,6 +346,7 @@ export const METRIC_DEFINITIONS: Record<MetricKey, MetricDefinition> = {
       "Quantos leads da planilha casaram com este anúncio e têm nota. É o divisor do CPL Real e da Margem: serve para conferir a conta.",
     technicalDescription: "Contagem de leads com leadscore vindos da planilha. Denominador do CPL Real, do CPL Max e da Margem.",
     polarity: "higher",
+    colorless: true,
     formatKind: "integer",
     requiresSheetIntegration: true,
     requiresLeadEconomics: true,
@@ -348,3 +365,7 @@ export const METRIC_DEFINITIONS: Record<MetricKey, MetricDefinition> = {
 };
 
 export const METRIC_DEFINITION_LIST = Object.values(METRIC_DEFINITIONS);
+
+export function isColorlessMetricKey(key: string): boolean {
+  return (METRIC_DEFINITIONS as Record<string, MetricDefinition | undefined>)[key]?.colorless === true;
+}
