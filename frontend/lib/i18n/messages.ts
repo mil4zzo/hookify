@@ -1,5 +1,15 @@
 import ptBR from "../../messages/pt-BR.json";
 import enUS from "../../messages/en-US.json";
+import manager_morePt from "../../messages/manager-more.pt-BR.json";
+import manager_moreEn from "../../messages/manager-more.en-US.json";
+import packsPt from "../../messages/packs.pt-BR.json";
+import packsEn from "../../messages/packs.en-US.json";
+import adsPt from "../../messages/ads.pt-BR.json";
+import adsEn from "../../messages/ads.en-US.json";
+import metricsPt from "../../messages/metrics.pt-BR.json";
+import metricsEn from "../../messages/metrics.en-US.json";
+import commonPt from "../../messages/common.pt-BR.json";
+import commonEn from "../../messages/common.en-US.json";
 import type { AppLocale } from "./config";
 
 /**
@@ -7,9 +17,22 @@ import type { AppLocale } from "./config";
  * em português, nunca como chave crua ("onboarding.title") nem em branco. Espanhol
  * entra quando houver tradução; até lá o app em espanhol mostra português.
  */
+/**
+ * O catálogo é dividido por área (um arquivo por área e idioma) para que frentes
+ * diferentes editem textos sem se pisar. `messages/pt-BR.json` e `en-US.json` são o
+ * núcleo; os demais entram aqui. Chaves de áreas diferentes se fundem (mesmo
+ * namespace pode ser dividido), então o nome do arquivo não vira prefixo.
+ */
+const PT_FILES: Record<string, unknown>[] = [ptBR, manager_morePt, packsPt, adsPt, metricsPt, commonPt];
+const EN_FILES: Record<string, unknown>[] = [enUS, manager_moreEn, packsEn, adsEn, metricsEn, commonEn];
+
+function mergeAll(files: Record<string, unknown>[]): Record<string, unknown> {
+  return files.reduce<Record<string, unknown>>((acc, file) => mergeMessages(acc, file), {});
+}
+
 const CATALOGS: Record<AppLocale, Record<string, unknown>> = {
-  "pt-BR": ptBR,
-  "en-US": enUS,
+  "pt-BR": mergeAll(PT_FILES),
+  "en-US": mergeAll(EN_FILES),
   "es-ES": {},
 };
 

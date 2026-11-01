@@ -1,0 +1,317 @@
+{
+  "rules": {
+    "builder": {
+      "removeTag": "Remover {name}",
+      "tag": "Tag",
+      "noTags": "Nenhuma tag disponível.",
+      "select": "Selecionar...",
+      "selectedCount": "{count} selecionados",
+      "nothingInScope": "Nada disponível no recorte atual.",
+      "pickDate": "Escolher data",
+      "textPlaceholder": "Texto...",
+      "field": "Campo",
+      "operator": "Operador",
+      "removeCondition": "Remover condição",
+      "group": {
+        "tags": "Tags",
+        "creative": "Criativo",
+        "origin": "Procedência",
+        "metrics": "Métricas",
+        "spreadsheet": "Planilha"
+      },
+      "logicAnd": "E",
+      "logicOr": "OU",
+      "logicConnector": "Conector lógico",
+      "subgroup": "Subgrupo",
+      "condition": "Condição",
+      "removeSubgroup": "Remover subgrupo",
+      "emptySubgroup": "Subgrupo vazio não restringe nada.",
+      "noConditionsTitle": "Sem condições",
+      "noConditionsCriteria": "Sem critério, todo anúncio é considerado maduro — inclusive os que mal começaram a rodar. Adicione ao menos uma condição.",
+      "noConditionsGroup": "Um grupo sem condição mostra todos os criativos do recorte. Adicione ao menos uma para o grupo significar algo."
+    },
+    "criteria": {
+      "saveFailed": "Não foi possível salvar o critério. Tente novamente.",
+      "saveErrorTitle": "Erro ao salvar",
+      "saving": "Salvando...",
+      "save": "Salvar critério",
+      "saved": "Salvo"
+    },
+    "op": {
+      "gt": "Maior que",
+      "lt": "Menor que",
+      "gte": "Maior ou igual",
+      "lte": "Menor ou igual",
+      "eq": "Igual a",
+      "neq": "Diferente de",
+      "emptyNotApplicable": "Está vazio (não se aplica)",
+      "hasValue": "Tem valor",
+      "contains": "Contém",
+      "notContains": "Não contém",
+      "startsWith": "Começa com",
+      "endsWith": "Termina com",
+      "equals": "É igual a",
+      "notEquals": "É diferente de",
+      "matchesRegex": "Casa com a expressão",
+      "empty": "Está vazio",
+      "onOrAfter": "Em ou depois de",
+      "onOrBefore": "Em ou antes de",
+      "exactlyOn": "Exatamente em",
+      "after": "Depois de",
+      "before": "Antes de",
+      "isAnyOf": "É algum de",
+      "isNoneOf": "Não é nenhum de",
+      "notApplicable": "Não se aplica",
+      "blank": "Vazio",
+      "filled": "Preenchido",
+      "presence": "Está"
+    },
+    "fields": {
+      "tags": "Tags",
+      "adName": "Nome do criativo",
+      "status": "Status",
+      "activeCount": "Anúncios ativos",
+      "createdAt": "Criado em",
+      "adId": "ID do anúncio",
+      "pack": "Pack",
+      "account": "Conta",
+      "campaign": "Campanha",
+      "adset": "Conjunto",
+      "campaignName": "Nome da campanha",
+      "adsetName": "Nome do conjunto",
+      "marginVsTarget": "Margem vs meta",
+      "customMajority": "{label} (maioria)"
+    },
+    "status": {
+      "ACTIVE": "Ativo",
+      "PAUSED": "Pausado",
+      "ADSET_PAUSED": "Pausado (Conjunto)",
+      "CAMPAIGN_PAUSED": "Pausado (Campanha)"
+    },
+    "marginStatus": {
+      "on_target": "Na meta ou acima",
+      "below_target": "Abaixo da meta, com lucro",
+      "loss": "Prejuízo"
+    }
+  },
+  "metrics": {
+    "chart": {
+      "notEnoughData": "Sem dados suficientes",
+      "yesterday": "ontem",
+      "today": "hoje",
+      "value": "Valor",
+      "others": "Outros",
+      "insufficientChart": "Dados insuficientes para o gráfico.",
+      "dayBudget": "Verba do dia",
+      "budgetShare": "Verba (share)",
+      "indexBase": "Índice (base=100)",
+      "worsened": "piorou",
+      "gainedBudget": "ganhou verba",
+      "budget": "verba",
+      "impact": "impacto",
+      "whichAds": "{driver} — quais ads causaram?",
+      "coverage": "{shown} de {total} ads • {pct}% do efeito",
+      "noSignificantAds": "Nenhum anúncio com impacto significativo.",
+      "otherAds": "+{count} outros ads",
+      "remainderSummary": "{share} da verba · {impact} impacto",
+      "attributionNote": "Impacto estimado por anúncio. Comparação: último dia vs. anterior — conversões têm janela de atribuição (dias recentes podem subnotificar).",
+      "before": "Antes",
+      "now": "Agora",
+      "noWaterfallData": "Sem dados para o waterfall.",
+      "whatCaused": "O que causou a mudança?",
+      "clickToSeeAds": "(clique para ver os anúncios)",
+      "sections": {
+        "metrics": "Métricas",
+        "retention": "Retenção",
+        "funnel": "Funil",
+        "results": "Resultados",
+        "other": "Outras"
+      },
+      "metricsLabel": "Métricas:",
+      "remove": "Remover {label}",
+      "normalize": "Normalizar",
+      "normalizeHint": "Ative para encontrar correlações facilmente.",
+      "needsActionType": "CPR, Page Conv e Results requerem tipo de conversão selecionado.",
+      "noData": "Sem dados disponíveis.",
+      "time": "Tempo: {value}",
+      "retention": "Retenção: {value}"
+    },
+    "defs": {
+      "score": {
+        "d": "Mostra a nota composta final do criativo na leitura do Explorer.",
+        "t": "Score sintético em escala de 0 a 10 calculado a partir dos sinais do criativo."
+      },
+      "spend": {
+        "l": "Gasto",
+        "d": "Mostra quanto foi investido no anúncio no período selecionado.",
+        "t": "Soma dos gastos atribuídos ao conjunto de datas filtrado."
+      },
+      "cpm": {
+        "d": "Mostra o custo para gerar mil impressões do anúncio.",
+        "t": "Custo por mil impressões entregues."
+      },
+      "frequency": {
+        "l": "Frequência",
+        "d": "Mostra quantas vezes, em média, cada pessoa viu o anúncio.",
+        "t": "Relação entre impressões totais e alcance."
+      },
+      "scroll_stop": {
+        "d": "Mede a capacidade do anúncio de interromper o scroll logo no início.",
+        "t": "Percentual que parou no primeiro segundo do vídeo."
+      },
+      "hook": {
+        "d": "Mostra quão forte é a abertura do anúncio para capturar atenção.",
+        "t": "Taxa de retenção inicial nos primeiros 3 segundos."
+      },
+      "hold_rate": {
+        "d": "Coerência entre o Hook e a continuação do anúncio.",
+        "t": "Taxa de retenção entre o Hook (3s) e Trueplay (15s)."
+      },
+      "video_watched_p50": {
+        "d": "Mostra quantas pessoas chegaram até a metade do vídeo.",
+        "t": "Percentual de visualizações que atingiram 50% da duração."
+      },
+      "video_watched_p75": {
+        "d": "Mostra quantas pessoas chegaram a 75% do vídeo.",
+        "t": "Percentual de visualizações que atingiram 75% da duração."
+      },
+      "ctr": {
+        "d": "Mostra a taxa de cliques gerados pelo anúncio sobre as impressões.",
+        "t": "Cliques divididos por impressões."
+      },
+      "website_ctr": {
+        "l": "CTR do link",
+        "s": "CTR do link",
+        "d": "Mostra a taxa de cliques especificamente no link do anúncio.",
+        "t": "Inline link clicks dividido por impressions."
+      },
+      "connect_rate": {
+        "d": "Mostra quantos cliques viraram visitas reais à página.",
+        "t": "LPV dividido por inline link clicks."
+      },
+      "page_conv": {
+        "l": "Conv. da página",
+        "s": "Página",
+        "d": "Mostra a eficiência da página em converter visitas em resultado.",
+        "t": "Resultados divididos por LPV."
+      },
+      "cpmql": {
+        "d": "Mostra o custo para gerar um lead qualificado de marketing.",
+        "t": "Gasto dividido por MQLs."
+      },
+      "cpr": {
+        "d": "Mostra quanto custa gerar um resultado da conversão selecionada.",
+        "t": "Gasto dividido por resultados."
+      },
+      "cpc": {
+        "d": "Mostra quanto custa cada clique recebido pelo anúncio.",
+        "t": "Gasto dividido por cliques."
+      },
+      "cplc": {
+        "d": "Mostra quanto custa cada clique no link do anúncio.",
+        "t": "Gasto dividido por cliques no link."
+      },
+      "mqls": {
+        "d": "Mostra o volume de leads qualificados gerados no período.",
+        "t": "Contagem total de marketing qualified leads."
+      },
+      "results": {
+        "l": "Resultados",
+        "d": "Mostra o total da conversão atualmente selecionada.",
+        "t": "Soma das conversões do action type escolhido."
+      },
+      "impressions": {
+        "l": "Impressões",
+        "d": "Mostra o total de vezes que o anúncio foi exibido.",
+        "t": "Contagem bruta de entregas do anúncio."
+      },
+      "clicks": {
+        "l": "Cliques",
+        "d": "Mostra o total de cliques recebidos pelo anúncio.",
+        "t": "Inclui todos os cliques contabilizados na entrega."
+      },
+      "lpv": {
+        "d": "Mostra quantas visualizações reais a página de destino recebeu.",
+        "t": "Landing page views após o clique no anúncio."
+      },
+      "plays": {
+        "d": "Mostra quantas reproduções de vídeo foram registradas.",
+        "t": "Total de execuções iniciadas do criativo em vídeo."
+      },
+      "thruplays": {
+        "d": "Mostra quantas pessoas assistiram ao vídeo até o fim (ou 15s).",
+        "t": "Total de reproduções completas ou de pelo menos 15 segundos (video_thruplay_watched_actions)."
+      },
+      "reach": {
+        "l": "Alcance",
+        "d": "Mostra quantas pessoas únicas receberam o anúncio.",
+        "t": "Contagem estimada de usuários únicos impactados."
+      },
+      "leadscore_avg": {
+        "l": "Leadscore Médio",
+        "s": "Leadscore",
+        "d": "Mostra a qualidade média dos leads gerados pelo anúncio.",
+        "t": "Média dos leadscore_values recebidos via planilha, ponderada pelo número de leads."
+      },
+      "mql_rate": {
+        "l": "% de MQLs",
+        "s": "% MQLs",
+        "d": "Mostra que fatia dos leads do anúncio chegou qualificada.",
+        "t": "MQLs dividido pelo TOTAL de leads (não pelos não-MQLs). Escala 0-1."
+      },
+      "cpl_ceiling": {
+        "d": "Quanto você pode pagar por um lead deste anúncio sem descer abaixo da margem desejada, dado quem ele traz.",
+        "t": "Σ fatia de leads na faixa × conversão × ticket × (sobra − margem desejada), com a economia do pack. Conta só os leads com nota."
+      },
+      "cpl_actual": {
+        "d": "Quanto cada lead com nota custou de verdade. É este o custo que se compara com o CPL Max, não o CPR (que divide pelos resultados da Meta).",
+        "t": "Gasto ÷ leads com nota da planilha. Mesmo denominador do CPL Max e da Margem."
+      },
+      "leads_scored": {
+        "l": "Leads com nota",
+        "d": "Quantos leads da planilha casaram com este anúncio e têm nota. É o divisor do CPL Real e da Margem: serve para conferir a conta.",
+        "t": "Contagem de leads com leadscore vindos da planilha. Denominador do CPL Real, do CPL Max e da Margem."
+      },
+      "lead_margin": {
+        "l": "Margem",
+        "d": "Quanto sobra do faturamento esperado depois de produto, custos e do que o lead custou. Compare com a margem desejada.",
+        "t": "(contribuição esperada por lead − gasto ÷ leads com nota) ÷ faturamento esperado por lead. Sobre o faturamento (D15). Escala 0-1."
+      }
+    },
+    "diagnostic": {
+      "lowVolume": "Volume baixo nos últimos dias — sem conclusão confiável.",
+      "insufficient": "Dados insuficientes para análise.",
+      "stableFunnelShifted": "{target} estável ({value}), mas o funil mudou: {worsened} piorou e {improved} compensou.",
+      "stable": "Estável: {target} praticamente sem mudança ({value}).",
+      "unidentifiedCause": "{target} {direction, select, up {subiu} other {caiu}} {value} ({pct}) — causa não identificável.",
+      "changed": "{target} {direction, select, up {subiu} other {caiu}} {value} ({pct}).",
+      "adShare": "; \"{label}\" respondeu por ~{pct}% dessa variação",
+      "adMain": "; \"{label}\" foi o principal ad envolvido",
+      "drivenBy": "{target} {direction, select, up {subiu} other {caiu}} {value} ({pct}), puxado pelo(a) {driver}{driverPct}{adPart}."
+    },
+    "driverLabels": {
+      "page_conv": "Conv. de Página",
+      "mql_rate": "Taxa MQL"
+    },
+    "custom": {
+      "column": "Coluna",
+      "avg": "{label} médio",
+      "mqls": "MQLs ({label})",
+      "mqlRate": "% MQL ({label})",
+      "cpmql": "CPMQL ({label})",
+      "avgOf": "Média de {label}",
+      "deleted": "Coluna excluída (planilha)",
+      "linkedColumn": "Coluna \"{label}\" da planilha vinculada."
+    },
+    "averageTooltip": "{label} medio",
+    "zero": {
+      "noHook": "Sem hook",
+      "noClicks": "Sem cliques",
+      "noConnections": "Sem conexões",
+      "noLeads": "Sem leads",
+      "noLinkClicks": "Sem link clicks",
+      "noMqls": "Sem MQLs",
+      "noPlays": "Sem plays"
+    }
+  }
+}

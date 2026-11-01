@@ -1,0 +1,552 @@
+{
+  "commonUi": {
+    "cancel": "Cancel",
+    "confirm": "Confirm",
+    "close": "Close",
+    "loading": "Loading...",
+    "processing": "Processing...",
+    "accentCard": {
+      "describeMetric": "See metric description"
+    },
+    "actionType": {
+      "label": "Conversion Event",
+      "search": "Search conversion event...",
+      "empty": "No events found.",
+      "tooltip": "Conversion event"
+    },
+    "adPlay": {
+      "play": "Play video"
+    },
+    "adStatus": {
+      "activate": "Activate {kind, select, ad {ad} adset {ad set} other {campaign}}",
+      "pause": "Pause {kind, select, ad {ad} adset {ad set} other {campaign}}",
+      "activateTitle": "Confirm activation",
+      "activateMessage": "Are you sure you want to activate this {kind, select, ad {ad} adset {ad set} other {campaign}}? This will resume traffic delivery immediately and may affect your budget.",
+      "activateConfirm": "Activate",
+      "pauseTitle": "Confirm pause",
+      "pauseMessage": "Are you sure you want to pause this {kind, select, ad {ad} adset {ad set} other {campaign}}? This may affect your traffic delivery immediately.",
+      "pauseConfirm": "Pause"
+    },
+    "autoRefresh": {
+      "title": "Update Pack data",
+      "single": "We found 1 pack set up for automatic updates. Do you want to update it now?",
+      "no": "No",
+      "yes": "Yes",
+      "pick": "Select which ones to update:",
+      "selectedCount": "{selected} of {total} {total, plural, =1 {pack} other {packs}} selected",
+      "selectAll": "Select all",
+      "deselectAll": "Deselect all",
+      "updateN": "Update {count, plural, =1 {# pack} other {# packs}}",
+      "updatePacks": "Update packs"
+    },
+    "bulkReview": {
+      "title": "Apply the same to {count} {count, plural, =1 {pack} other {packs}}?",
+      "message": "Nothing is adapted per pack: what you configured applies exactly the same to all of them, including where it replaces what the pack already had.",
+      "back": "Go back and review",
+      "confirm": "Apply to {count} {count, plural, =1 {pack} other {packs}}"
+    },
+    "dateRange": {
+      "label": "Period",
+      "placeholder": "Select a period"
+    },
+    "errorCard": {
+      "failed": "Failed",
+      "error": "Error"
+    },
+    "filterList": {
+      "search": "Search...",
+      "empty": "No results found.",
+      "reorder": "Reorder {label}",
+      "selectAll": "Select all",
+      "clear": "Clear"
+    },
+    "gems": {
+      "none": "Metrics (0)",
+      "all": "Metrics ({total})",
+      "some": "Metrics ({selected} of {total})"
+    },
+    "managerColumns": {
+      "none": "Columns (0)",
+      "all": "Columns ({total})",
+      "some": "Columns ({selected} of {total})",
+      "search": "Search column...",
+      "empty": "No columns found.",
+      "requiresEconomics": " (requires lead economics on the pack)",
+      "requiresSheet": " (requires a spreadsheet)"
+    },
+    "genericCard": {
+      "unnamed": "Unnamed",
+      "results": "Results",
+      "resultsWithConversions": "Results: {count} conversions",
+      "funnel": "Funnel",
+      "pageConversion": "Page Conversion:",
+      "avgLeadscore": "Avg. leadscore:",
+      "frequency": "Frequency:",
+      "impressions": "Impressions:",
+      "reach": "Reach:",
+      "clickHint": "Click to see full details and history"
+    },
+    "column": {
+      "empty": "No items found",
+      "search": "Search"
+    },
+    "metricNotApplicable": {
+      "title": "Image ad — it has no video metrics",
+      "aria": "Not applicable: image ad"
+    },
+    "conflictGuard": {
+      "unknownTitle": "Couldn't check for conflicts between packs",
+      "conflictTitle": "Conflicting packs in the selection",
+      "unknownBody": "The check for packs that share ads failed. With more than one pack being added up, there's no way to guarantee the totals are exact — so we prefer not to show them. Keep one pack selected, or reload the page to try again.",
+      "conflictBody": "The packs below contain the same ads on the same days. Analyzing them together would duplicate (or drop) data — the totals would no longer be exact. Deselect one pack from each pair to continue, or create a pack that joins both slices.",
+      "unselect": "Deselect \"{name}\"",
+      "first": "first",
+      "second": "second",
+      "serverOverlap": "The server detected {count} conflicting {count, plural, =1 {row} other {rows}} in the current selection. Review the packs selected in the filter above."
+    },
+    "packFilter": {
+      "sharedMeta": "({count, plural, =1 {# ad} other {# ads}} · shared)",
+      "meta": "({count, plural, =1 {# ad} other {# ads}})",
+      "conflictHint": "Conflicts with \"{name}\": both have the same ads on the same days. Deselect one to use the other.",
+      "selectedPackFallback": "a selected pack",
+      "unknownHint": "Couldn't check for conflicts between packs right now. Until then, only one pack at a time — adding up packs that share ads would give wrong totals.",
+      "label": "Packs",
+      "noneLoaded": "No packs loaded",
+      "tooltip": "Selected pack",
+      "pickOne": "Select a pack",
+      "noneSelected": "No pack selected",
+      "selectedPack": "Selected pack",
+      "all": "All packs ({total})",
+      "oneSelected": "1 pack selected",
+      "someSelected": "{selected} of {total} packs selected",
+      "search": "Search pack...",
+      "empty": "No packs found.",
+      "groupBy": "Group by packs"
+    },
+    "toastCard": {
+      "updating": "Updating {name} — {stage}",
+      "stepOf": "{name} — step {current}/{total}",
+      "step": "Step {current}/{total}",
+      "processing": "Processing",
+      "confirmCancelAria": "Confirm cancellation",
+      "confirmCancel": "Cancel this operation? Progress will be lost.",
+      "continue": "Continue",
+      "yesCancel": "Yes, cancel",
+      "pausedTitle": "Sync paused",
+      "pausedWaiting": "Waiting for Google to be reconnected to continue the import.",
+      "pausedOwner": "The spreadsheet belongs to the owner. Ask {owner} to reconnect Google.",
+      "ownerFallback": "the pack owner",
+      "reconnectGoogle": "Reconnect Google"
+    },
+    "refreshQueue": {
+      "queued": "{count} queued",
+      "done": "{count} ok",
+      "failed": "{count} failed",
+      "cancel": "Cancel queue"
+    },
+    "search": {
+      "placeholder": "Search...",
+      "clear": "Clear search"
+    },
+    "sparkline": {
+      "noData": "No data"
+    },
+    "kanban": {
+      "adDetails": "Ad details"
+    }
+  },
+  "hooks": {
+    "authSuccess": "Authentication successful!",
+    "facebook": {
+      "noCode": "Authorization code not received from Facebook.",
+      "reconnected": "Facebook reconnected successfully!",
+      "connected": "Facebook connected successfully!"
+    },
+    "serverReconnected": "Server reconnected! Data updated.",
+    "preferences": {
+      "loadError": "Error loading settings",
+      "saveError": "Error saving settings"
+    }
+  },
+  "layout": {
+    "server": {
+      "reconnected": "Server reconnected!",
+      "checking": "Checking connection to the server...",
+      "offline": "Server offline",
+      "lastOnline": "(last connected {when})",
+      "verifying": "Checking...",
+      "retry": "Try again"
+    },
+    "filters": {
+      "conflictUnknown": "Couldn't check for conflicts between packs right now. Select one pack at a time — adding up packs that share ads would give wrong totals.",
+      "skipped": "{count, plural, one {\"{name}\" was not selected: it conflicts} other {# packs were not selected: they conflict}} with selected packs (same ads in accounts of different owners).",
+      "onePack": "1 pack"
+    }
+  },
+  "share": {
+    "unavailable": {
+      "title": "This link took a nap — and didn't come back",
+      "body": "Shared links expire on purpose: frozen metrics age badly. Ask whoever sent it to you for a brand-new link ;)",
+      "cta": "Meet Hookify"
+    },
+    "viewer": {
+      "videoExpired": "This video expired 😴",
+      "videoExpiredHint": "Meta's CDN retired the link. Ask for an updated link in Hookify ;)",
+      "metricsBelow": "The metrics are still right below 👇",
+      "resume": "Resume",
+      "pause": "Pause",
+      "unmute": "Turn sound on",
+      "mute": "Mute",
+      "closeMetrics": "Close metrics",
+      "snapshot": "{start}–{end} · snapshot taken when the link was created",
+      "noMetrics": "No metrics available for this creative.",
+      "madeWith": "Made with <b>Hookify</b>",
+      "seeAll": "See all metrics"
+    }
+  },
+  "facebook": {
+    "connectionCard": {
+      "fallbackName": "Facebook account",
+      "testing": "Checking...",
+      "connected": "Connected",
+      "expired": "Expired",
+      "invalid": "Invalid",
+      "incomplete": "Incomplete permissions ({count})",
+      "primary": "Primary",
+      "reconnect": "Reconnect",
+      "deleteTitle": "Delete connection",
+      "reconnectTitle": "Reconnect to renew the token or request new permissions",
+      "retestTitle": "Check again",
+      "verify": "Check",
+      "impactTitle": "What this connection can no longer do:",
+      "updatePermissions": "Update permissions"
+    }
+  },
+  "metaUsage": {
+    "filters": {
+      "route": "Route",
+      "allFeminine": "All",
+      "service": "Service",
+      "allMasculine": "All",
+      "adAccount": "Ad account",
+      "from": "From",
+      "to": "To",
+      "minCpu": "Min. CPU %",
+      "clear": "Clear filters"
+    },
+    "table": {
+      "when": "When",
+      "page": "Page",
+      "backendRoute": "Backend route",
+      "service": "Service",
+      "metaEndpoint": "Meta endpoint",
+      "account": "Account",
+      "latency": "Latency",
+      "block": "Block",
+      "loading": "Loading...",
+      "empty": "No calls recorded for the period/filters.",
+      "showing": "Showing {from}–{to} of {total}",
+      "itemCount": "{count} items",
+      "previous": "Previous",
+      "pageOf": "Page {page}",
+      "next": "Next"
+    },
+    "quota": {
+      "rateLimitTitle": "Rate limit reached",
+      "rateLimitBody": "One or more ad accounts are temporarily blocked by Meta. Estimated access in <b>{minutes} min</b>.",
+      "calls24h": "Calls (24h)",
+      "calls7d": "Calls (7d)",
+      "lastUpdate": "Last update",
+      "topRoutes": "Most expensive routes (24h) — sum of CPU time %",
+      "route": "Route",
+      "calls": "Calls",
+      "cpuSum": "CPU % sum",
+      "buc": "Breakdown by Business Use Case (last call)",
+      "accountLabel": "Account {account}"
+    }
+  },
+  "auth": {
+    "login": {
+      "loading": "Loading...",
+      "title": "Sign in",
+      "expired": "Your session expired or was ended on another device. Sign in again to continue.",
+      "accountCreated": "Account created successfully! Welcome!",
+      "signUpDone": "Sign-up complete! Check your email to confirm.",
+      "createAccount": "Create account",
+      "signUpSubtitle": "Create your account to get started",
+      "signInSubtitle": "Welcome to Hookify! Sign in to the platform:",
+      "name": "Name",
+      "namePlaceholder": "Your full name",
+      "email": "Email",
+      "password": "Password",
+      "hidePassword": "Hide password",
+      "showPassword": "Show password",
+      "processing": "Processing...",
+      "signIn": "Sign in",
+      "or": "or",
+      "googleSignUp": "Sign up with Google",
+      "googleSignIn": "Sign in with Google",
+      "haveAccount": "Already have an account?",
+      "signInNow": "Sign in now"
+    },
+    "callback": {
+      "title": "Facebook login",
+      "failed": "Failed to authenticate",
+      "failedState": "Authentication failed.",
+      "finishing": "Finishing authentication...",
+      "loading": "Loading..."
+    }
+  },
+  "support": {
+    "eyebrow": "Support",
+    "title": "How can we help?",
+    "intro": "Have a question, found a problem or want to send a suggestion? Pick the channel you prefer — we reply as fast as we can.",
+    "whatsappIntro": "Direct and fast service. Click the button below to start a conversation.",
+    "whatsappButton": "Chat on WhatsApp",
+    "emailTitle": "Email",
+    "emailIntro": "Prefer email? Send your message to our main address:",
+    "secondary": "Secondary address:",
+    "back": "Back to home"
+  },
+  "plans": {
+    "standardFeatures": {
+      "packs": "Packs — import and manage your ads",
+      "manager": "Manager — performance analysis with groupings",
+      "insights": "Insights — opportunities and gems from your creatives"
+    },
+    "insiderFeatures": {
+      "all": "Everything in Standard",
+      "explorer": "Explorer — deep creative analysis",
+      "gold": "G.O.L.D. — rankings of the best ads",
+      "upload": "Upload — bulk ad creation",
+      "metaUsage": "Meta Usage — API monitoring"
+    },
+    "paymentConfirmed": "Payment confirmed! Activating your Insider account...",
+    "checkoutCanceled": "Subscription canceled. You can try again whenever you want.",
+    "activated": "Insider account activated!",
+    "activationSlow": "Activation is taking a bit longer than usual. Refresh the page in a moment.",
+    "alreadySubscribed": "You already have an active subscription. Opening the portal...",
+    "checkoutError": "Couldn't start checkout. Please try again.",
+    "portalError": "Couldn't open the portal. Please try again.",
+    "title": "Plans",
+    "blocked": "You need the Insider plan to access {page}.",
+    "choose": "Choose the ideal plan for your business.",
+    "actionRequired": "Action required — payment authentication",
+    "actionRequiredBody": "Your last payment requires 3DS authentication. Complete it before the due date to keep Insider access.",
+    "authenticate": "Authenticate payment",
+    "canceledNotice": "Your Insider plan was canceled and stays active until <b>{date}</b>. Reactivate it in the portal to continue.",
+    "current": "Your current plan",
+    "free": "Free",
+    "recommended": "Recommended",
+    "manage": "Manage subscription",
+    "monthly": "Monthly",
+    "annual": "Annual",
+    "perMonth": "/mo",
+    "perYear": "/yr",
+    "equivalent": "Equivalent to R$65.83/month · installments available",
+    "subscribe": "Subscribe to Insider",
+    "payPix": "Pay annual with Pix",
+    "pixNote": "Pix: 12 months of access, no automatic renewal."
+  },
+  "topbar": {
+    "userFallback": "User",
+    "profileAria": "User profile",
+    "notifications": "Notifications",
+    "lightMode": "Light mode",
+    "darkMode": "Dark mode",
+    "settings": "Settings",
+    "logout": "Log out",
+    "updating": "Updating data",
+    "updateData": "Update data",
+    "updatePack": "Update pack:",
+    "packNotFound": "Pack not found",
+    "packCount": "{count, plural, =1 {# pack} other {# packs}}",
+    "adCount": "{count, plural, =1 {# ad} other {# ads}}",
+    "connecting": "Connecting...",
+    "connectFacebook": "Connect Facebook",
+    "loading": "Loading...",
+    "saving": "Saving...",
+    "deleteWord": "DELETE",
+    "deleteWordWarning": "Type exactly \"{word}\" to confirm.",
+    "deleteWordInline": "Type exactly \"{word}\" to confirm",
+    "deleteWordPlaceholder": "Type \"{word}\" to confirm",
+    "dataDeleted": "Your data was deleted successfully. Your account was kept.",
+    "tabs": {
+      "general": "Preferences",
+      "accounts": "Accounts",
+      "validation": "Validation criteria",
+      "validationShort": "Validation",
+      "leadscore": "Leadscore"
+    },
+    "general": {
+      "title": "Preferences",
+      "language": "Language",
+      "languageSaved": "Language updated successfully",
+      "languageError": "Error saving language",
+      "languagePlaceholder": "Select a language",
+      "spanish": "Spanish",
+      "languageHint": "The language will be applied across all app pages",
+      "currency": "Currency",
+      "multipleCurrencies": "Multiple currencies",
+      "currencyMixed": "Your connected Meta accounts use different currencies — values are shown in each account's currency, with no conversion.",
+      "currencyDetected": "Detected automatically from your connected Meta account. Values already come in this currency, so it can't be changed manually.",
+      "currencyDetecting": "Detecting your connected Meta account's currency...",
+      "niche": "Niche",
+      "nichePlaceholder": "E.g. E-commerce, SaaS, etc.",
+      "nicheSaved": "Niche updated successfully",
+      "nicheError": "Error saving niche",
+      "nicheHint": "Enter your business niche (e.g. E-commerce, SaaS, etc.)"
+    },
+    "accounts": {
+      "title": "Accounts",
+      "disconnected": "Account disconnected successfully!",
+      "emptyTitle": "No Facebook account connected",
+      "dangerZone": "Danger zone",
+      "deleteDataTitle": "Delete my data",
+      "deleteDataHint": "Removes all data (packs, metrics, ads, connections and settings). Your Hookify account will be kept.",
+      "deleteDataButton": "Delete data",
+      "deleteAccountTitle": "Delete my account",
+      "deleteAccountHint": "Permanently removes your account and all associated data. This action is irreversible.",
+      "deleteAccountButton": "Delete account"
+    },
+    "validation": {
+      "title": "Validation criteria",
+      "description": "Define when an ad has enough data to be judged. Ads that don't meet it stay in the testing phase and are left out of G.O.L.D., the action plan and the opportunities. It's the same builder used by the Manager filters and the Boards groups."
+    },
+    "leadscore": {
+      "title": "Leadscore settings",
+      "description": "The minimum leadscore to consider a lead an MQL is defined in each pack, together with the spreadsheet that produces the leadscore — it sets the scale of the number. There's no account-wide default anymore: the criterion follows the pack, including when it's shared.",
+      "current": "In effect for the current selection",
+      "divergent": "The selected packs use different cutoffs, so MQL and CPMQL are unavailable. Select one pack at a time or align the cutoff in Packs → settings.",
+      "missing": "No cutoff defined for the selected packs — MQL and CPMQL are unavailable. Set it in Packs → settings.",
+      "applied": "Leads with leadscore >= {value} count as MQL. To change it, use Packs → settings."
+    },
+    "dialogs": {
+      "settingsTitle": "Settings",
+      "confirmUpdateTitle": "Confirm update",
+      "confirmUpdateMessage": "Do you want to update the pack <b>\"{name}\"</b>?",
+      "unknownPack": "unknown",
+      "confirmUpdateNote": "The update will fetch new data from the last update until today.",
+      "confirmUpdateButton": "Confirm update",
+      "deleteDataMessage": "Are you sure you want to delete <b>all your data</b>? This includes packs, metrics, ads, connections and settings.",
+      "deleteDataNote": "Your Hookify account will be kept and you can use it again in the future.",
+      "deleteDataConfirm": "Yes, delete my data",
+      "deleteDataLoading": "Deleting data...",
+      "deleteAccountMessage": "This action is <b>irreversible</b>. Your account and all associated data will be permanently removed.",
+      "deleteAccountNote": "To confirm, type <b>{word}</b> below:",
+      "deleteAccountConfirm": "Permanently delete my account",
+      "deleteAccountLoading": "Deleting account..."
+    }
+  },
+  "utils": {
+    "relativeTime": {
+      "never": "Never updated",
+      "fullDate": "Updated on {date} at {time}",
+      "now": "Updated just now",
+      "minutes": "Updated {count} {count, plural, =1 {min} other {mins}} ago",
+      "yesterday": "Updated yesterday at {time}",
+      "hours": "Updated {hours}h ago",
+      "hoursMinutes": "Updated {hours}h {minutes} {minutes, plural, =1 {min} other {mins}} ago",
+      "days": "Updated {count} {count, plural, =1 {day} other {days}} ago",
+      "months": "Updated {count} {count, plural, =1 {month} other {months}} ago",
+      "years": "Updated {count} {count, plural, =1 {year} other {years}} ago",
+      "invalid": "Invalid date"
+    },
+    "toast": {
+      "cancelledTranscription": "Transcription canceled.",
+      "cancelled": "Update canceled.",
+      "transcription": "Transcription",
+      "transcribing": "Transcribing",
+      "metaStage1": "Preparing update",
+      "metaStage2": "Collecting ads",
+      "metaStage3": "Fetching details",
+      "metaStage4": "Processing data",
+      "metaStage5": "Saving",
+      "pageWithTotal": "Page {page} ({total} records)",
+      "page": "Page {page}",
+      "working": "Working on it...",
+      "adsOf": "{done} of {total} ads",
+      "block": "Batch {done} of {total}",
+      "fetchingDetails": "Fetching details...",
+      "optimizing": "Optimizing...",
+      "saving": "Saving...",
+      "requestingMeta": "Requesting data from Meta...",
+      "wait": "Please wait...",
+      "step": "Step {step} of {total}",
+      "stageSavingAds": "Saving ads",
+      "stageSavingMetrics": "Saving metrics",
+      "stageCalculating": "Calculating statistics",
+      "stageFinishing": "Finishing",
+      "stageConcluding": "Wrapping up",
+      "stageSaving": "Saving",
+      "readingSheet": "Reading spreadsheet",
+      "processingData": "Processing data",
+      "savingData": "Saving data",
+      "processing": "Processing",
+      "preparing": "Preparing update",
+      "done": "Done",
+      "failedUpdate": "Error updating",
+      "cancelledShort": "Canceled",
+      "rowsUpdated": "{count} records updated",
+      "importDone": "Import complete",
+      "rowsRead": "{count} rows read",
+      "connectingSheet": "Connecting to the spreadsheet...",
+      "rowsProcessed": "{count} rows processed",
+      "validating": "Validating data...",
+      "applyingLeadscore": "Applying leadscore to the ads...",
+      "preparingImport": "Preparing import...",
+      "sheetLabel": "Spreadsheet: {title}",
+      "importFallback": "Import",
+      "transcriptionStage1": "Starting transcription",
+      "transcriptionStage2": "Transcribing ads",
+      "transcribedCount": "{count, plural, =0 {0 ads transcribed} =1 {1 ad transcribed} other {# ads transcribed}}",
+      "adsProgress": "{done} of {total} {total, plural, =1 {ad} other {ads}}",
+      "preparingAds": "Preparing ads..."
+    },
+    "errors": {
+      "validation": "Validation error: {errors}",
+      "field": "field",
+      "connectionFailed": "Failed to connect to the server",
+      "refused": "The server refused the connection. Check that the backend is running.",
+      "notFound": "Server not found. Check the backend URL.",
+      "timeoutSearch": "Request timeout: the ad search took more than 20 minutes. Try again or reduce the search period.",
+      "timeoutConnection": "Connection timeout. Check your internet connection.",
+      "network": "Network error: {message}",
+      "authUnreachable": "Couldn't connect to the authentication server. It may be temporarily unavailable — wait a few moments and try again.",
+      "invalidCredentials": "Incorrect email or password.",
+      "emailNotConfirmed": "Email not confirmed yet. Check your inbox.",
+      "alreadyRegistered": "An account with this email already exists.",
+      "auth": "Authentication error. Please try again.",
+      "unknown": "Unknown error"
+    },
+    "authPopup": {
+      "clientOnly": "The authentication popup can only be used on the client.",
+      "blocked": "Couldn't open the authentication window. Check your pop-up blocker.",
+      "failed": "Authentication failed.",
+      "timeout": "Authentication timed out.",
+      "closed": "Authentication canceled by the user (popup closed)."
+    },
+    "scopes": {
+      "ads_read": {
+        "label": "Read ad data",
+        "impact": "Without this permission the connection is useless — no ad account can be read. Reconnect and authorize all permissions."
+      },
+      "ads_management": {
+        "label": "Manage ads",
+        "impact": "You'll be able to view your ads, but you won't be able to create, edit or pause ads through Hookify."
+      },
+      "business_management": {
+        "label": "Manage Business Manager",
+        "impact": "Ad accounts linked to a Business Manager won't show up or update — only personal accounts."
+      },
+      "pages_show_list": {
+        "label": "List Pages",
+        "impact": "Without this permission Hookify can't get the Page Access Token, which is needed to read media for many ads. Thumbnails, videos and previews may break, and you won't be able to create new ads (the Page selector stays empty)."
+      },
+      "pages_read_engagement": {
+        "label": "Read Page engagement",
+        "impact": "Some advanced Page reads may fail (organic post insights, specific reads)."
+      }
+    }
+  }
+}

@@ -1,0 +1,317 @@
+{
+  "rules": {
+    "builder": {
+      "removeTag": "Remove {name}",
+      "tag": "Tag",
+      "noTags": "No tags available.",
+      "select": "Select...",
+      "selectedCount": "{count} selected",
+      "nothingInScope": "Nothing available in the current scope.",
+      "pickDate": "Pick a date",
+      "textPlaceholder": "Text...",
+      "field": "Field",
+      "operator": "Operator",
+      "removeCondition": "Remove condition",
+      "group": {
+        "tags": "Tags",
+        "creative": "Creative",
+        "origin": "Origin",
+        "metrics": "Metrics",
+        "spreadsheet": "Spreadsheet"
+      },
+      "logicAnd": "AND",
+      "logicOr": "OR",
+      "logicConnector": "Logical connector",
+      "subgroup": "Subgroup",
+      "condition": "Condition",
+      "removeSubgroup": "Remove subgroup",
+      "emptySubgroup": "An empty subgroup restricts nothing.",
+      "noConditionsTitle": "No conditions",
+      "noConditionsCriteria": "Without criteria, every ad is considered mature — even the ones that barely started running. Add at least one condition.",
+      "noConditionsGroup": "A group with no conditions shows every creative in the scope. Add at least one for the group to mean something."
+    },
+    "criteria": {
+      "saveFailed": "Could not save the criteria. Please try again.",
+      "saveErrorTitle": "Error saving",
+      "saving": "Saving...",
+      "save": "Save criteria",
+      "saved": "Saved"
+    },
+    "op": {
+      "gt": "Greater than",
+      "lt": "Less than",
+      "gte": "Greater than or equal",
+      "lte": "Less than or equal",
+      "eq": "Equal to",
+      "neq": "Not equal to",
+      "emptyNotApplicable": "Is empty (not applicable)",
+      "hasValue": "Has value",
+      "contains": "Contains",
+      "notContains": "Does not contain",
+      "startsWith": "Starts with",
+      "endsWith": "Ends with",
+      "equals": "Is equal to",
+      "notEquals": "Is not equal to",
+      "matchesRegex": "Matches expression",
+      "empty": "Is empty",
+      "onOrAfter": "On or after",
+      "onOrBefore": "On or before",
+      "exactlyOn": "Exactly on",
+      "after": "After",
+      "before": "Before",
+      "isAnyOf": "Is any of",
+      "isNoneOf": "Is none of",
+      "notApplicable": "Not applicable",
+      "blank": "Empty",
+      "filled": "Filled",
+      "presence": "Is"
+    },
+    "fields": {
+      "tags": "Tags",
+      "adName": "Creative name",
+      "status": "Status",
+      "activeCount": "Active ads",
+      "createdAt": "Created on",
+      "adId": "Ad ID",
+      "pack": "Pack",
+      "account": "Account",
+      "campaign": "Campaign",
+      "adset": "Ad set",
+      "campaignName": "Campaign name",
+      "adsetName": "Ad set name",
+      "marginVsTarget": "Margin vs target",
+      "customMajority": "{label} (majority)"
+    },
+    "status": {
+      "ACTIVE": "Active",
+      "PAUSED": "Paused",
+      "ADSET_PAUSED": "Paused (Ad set)",
+      "CAMPAIGN_PAUSED": "Paused (Campaign)"
+    },
+    "marginStatus": {
+      "on_target": "On or above target",
+      "below_target": "Below target, profitable",
+      "loss": "Loss"
+    }
+  },
+  "metrics": {
+    "chart": {
+      "notEnoughData": "Not enough data",
+      "yesterday": "yesterday",
+      "today": "today",
+      "value": "Value",
+      "others": "Others",
+      "insufficientChart": "Not enough data for the chart.",
+      "dayBudget": "Day's budget",
+      "budgetShare": "Budget (share)",
+      "indexBase": "Index (base=100)",
+      "worsened": "got worse",
+      "gainedBudget": "gained budget",
+      "budget": "budget",
+      "impact": "impact",
+      "whichAds": "{driver} — which ads caused it?",
+      "coverage": "{shown} of {total} ads • {pct}% of the effect",
+      "noSignificantAds": "No ads with significant impact.",
+      "otherAds": "+{count} other ads",
+      "remainderSummary": "{share} of the budget · {impact} impact",
+      "attributionNote": "Estimated impact per ad. Comparison: last day vs. previous — conversions have an attribution window (recent days may be under-reported).",
+      "before": "Before",
+      "now": "Now",
+      "noWaterfallData": "No data for the waterfall.",
+      "whatCaused": "What caused the change?",
+      "clickToSeeAds": "(click to see the ads)",
+      "sections": {
+        "metrics": "Metrics",
+        "retention": "Retention",
+        "funnel": "Funnel",
+        "results": "Results",
+        "other": "Other"
+      },
+      "metricsLabel": "Metrics:",
+      "remove": "Remove {label}",
+      "normalize": "Normalize",
+      "normalizeHint": "Turn on to find correlations easily.",
+      "needsActionType": "CPR, Page Conv and Results require a selected conversion type.",
+      "noData": "No data available.",
+      "time": "Time: {value}",
+      "retention": "Retention: {value}"
+    },
+    "defs": {
+      "score": {
+        "d": "Shows the creative's final composite score as read in the Explorer.",
+        "t": "Synthetic score on a 0 to 10 scale, calculated from the creative's signals."
+      },
+      "spend": {
+        "l": "Spend",
+        "d": "Shows how much was invested in the ad in the selected period.",
+        "t": "Sum of the spend attributed to the filtered set of dates."
+      },
+      "cpm": {
+        "d": "Shows the cost to generate a thousand impressions of the ad.",
+        "t": "Cost per thousand impressions delivered."
+      },
+      "frequency": {
+        "l": "Frequency",
+        "d": "Shows how many times, on average, each person saw the ad.",
+        "t": "Ratio between total impressions and reach."
+      },
+      "scroll_stop": {
+        "d": "Measures the ad's ability to stop the scroll right at the start.",
+        "t": "Percentage that stopped in the first second of the video."
+      },
+      "hook": {
+        "d": "Shows how strong the ad's opening is at capturing attention.",
+        "t": "Initial retention rate in the first 3 seconds."
+      },
+      "hold_rate": {
+        "d": "Coherence between the Hook and the rest of the ad.",
+        "t": "Retention rate between the Hook (3s) and Trueplay (15s)."
+      },
+      "video_watched_p50": {
+        "d": "Shows how many people reached the halfway point of the video.",
+        "t": "Percentage of views that reached 50% of the duration."
+      },
+      "video_watched_p75": {
+        "d": "Shows how many people reached 75% of the video.",
+        "t": "Percentage of views that reached 75% of the duration."
+      },
+      "ctr": {
+        "d": "Shows the click-through rate generated by the ad over impressions.",
+        "t": "Clicks divided by impressions."
+      },
+      "website_ctr": {
+        "l": "Link CTR",
+        "s": "Link CTR",
+        "d": "Shows the click-through rate specifically on the ad's link.",
+        "t": "Inline link clicks divided by impressions."
+      },
+      "connect_rate": {
+        "d": "Shows how many clicks turned into real visits to the page.",
+        "t": "LPV divided by inline link clicks."
+      },
+      "page_conv": {
+        "l": "Page conv.",
+        "s": "Page",
+        "d": "Shows how efficient the page is at converting visits into results.",
+        "t": "Results divided by LPV."
+      },
+      "cpmql": {
+        "d": "Shows the cost to generate a marketing qualified lead.",
+        "t": "Spend divided by MQLs."
+      },
+      "cpr": {
+        "d": "Shows how much it costs to generate one result of the selected conversion.",
+        "t": "Spend divided by results."
+      },
+      "cpc": {
+        "d": "Shows how much each click received by the ad costs.",
+        "t": "Spend divided by clicks."
+      },
+      "cplc": {
+        "d": "Shows how much each click on the ad's link costs.",
+        "t": "Spend divided by link clicks."
+      },
+      "mqls": {
+        "d": "Shows the volume of qualified leads generated in the period.",
+        "t": "Total count of marketing qualified leads."
+      },
+      "results": {
+        "l": "Results",
+        "d": "Shows the total of the currently selected conversion.",
+        "t": "Sum of the conversions of the chosen action type."
+      },
+      "impressions": {
+        "l": "Impressions",
+        "d": "Shows the total number of times the ad was displayed.",
+        "t": "Raw count of ad deliveries."
+      },
+      "clicks": {
+        "l": "Clicks",
+        "d": "Shows the total clicks received by the ad.",
+        "t": "Includes all clicks counted in delivery."
+      },
+      "lpv": {
+        "d": "Shows how many real views the landing page received.",
+        "t": "Landing page views after the ad click."
+      },
+      "plays": {
+        "d": "Shows how many video plays were recorded.",
+        "t": "Total started plays of the video creative."
+      },
+      "thruplays": {
+        "d": "Shows how many people watched the video to the end (or 15s).",
+        "t": "Total complete plays, or plays of at least 15 seconds (video_thruplay_watched_actions)."
+      },
+      "reach": {
+        "l": "Reach",
+        "d": "Shows how many unique people received the ad.",
+        "t": "Estimated count of unique users reached."
+      },
+      "leadscore_avg": {
+        "l": "Average Leadscore",
+        "s": "Leadscore",
+        "d": "Shows the average quality of the leads generated by the ad.",
+        "t": "Average of the leadscore_values received via spreadsheet, weighted by the number of leads."
+      },
+      "mql_rate": {
+        "l": "MQL %",
+        "s": "MQL %",
+        "d": "Shows what share of the ad's leads arrived qualified.",
+        "t": "MQLs divided by the TOTAL leads (not by the non-MQLs). Scale 0-1."
+      },
+      "cpl_ceiling": {
+        "d": "How much you can pay for a lead from this ad without dropping below the desired margin, given who it brings in.",
+        "t": "Σ share of leads in the band × conversion × ticket × (what is left − desired margin), using the pack's economics. Counts only scored leads."
+      },
+      "cpl_actual": {
+        "d": "How much each scored lead really cost. This is the cost to compare with CPL Max, not CPR (which divides by Meta's results).",
+        "t": "Spend ÷ scored leads from the spreadsheet. Same denominator as CPL Max and Margin."
+      },
+      "leads_scored": {
+        "l": "Scored leads",
+        "d": "How many leads from the spreadsheet matched this ad and have a score. It is the divisor of CPL Real and Margin: use it to check the math.",
+        "t": "Count of leads with a leadscore coming from the spreadsheet. Denominator of CPL Real, CPL Max and Margin."
+      },
+      "lead_margin": {
+        "l": "Margin",
+        "d": "How much is left of the expected revenue after product, costs and what the lead cost. Compare with the desired margin.",
+        "t": "(expected contribution per lead − spend ÷ scored leads) ÷ expected revenue per lead. Over revenue (D15). Scale 0-1."
+      }
+    },
+    "diagnostic": {
+      "lowVolume": "Low volume in the last few days — no reliable conclusion.",
+      "insufficient": "Not enough data for analysis.",
+      "stableFunnelShifted": "{target} stable ({value}), but the funnel shifted: {worsened} got worse and {improved} offset it.",
+      "stable": "Stable: {target} practically unchanged ({value}).",
+      "unidentifiedCause": "{target} {direction, select, up {rose} other {fell}} {value} ({pct}) — cause could not be identified.",
+      "changed": "{target} {direction, select, up {rose} other {fell}} {value} ({pct}).",
+      "adShare": "; \"{label}\" accounted for ~{pct}% of that change",
+      "adMain": "; \"{label}\" was the main ad involved",
+      "drivenBy": "{target} {direction, select, up {rose} other {fell}} {value} ({pct}), driven by {driver}{driverPct}{adPart}."
+    },
+    "driverLabels": {
+      "page_conv": "Page Conv.",
+      "mql_rate": "MQL Rate"
+    },
+    "custom": {
+      "column": "Column",
+      "avg": "Average {label}",
+      "mqls": "MQLs ({label})",
+      "mqlRate": "MQL % ({label})",
+      "cpmql": "CPMQL ({label})",
+      "avgOf": "Average of {label}",
+      "deleted": "Deleted column (spreadsheet)",
+      "linkedColumn": "Column \"{label}\" from the linked spreadsheet."
+    },
+    "averageTooltip": "Average {label}",
+    "zero": {
+      "noHook": "No hook",
+      "noClicks": "No clicks",
+      "noConnections": "No connections",
+      "noLeads": "No leads",
+      "noLinkClicks": "No link clicks",
+      "noMqls": "No MQLs",
+      "noPlays": "No plays"
+    }
+  }
+}

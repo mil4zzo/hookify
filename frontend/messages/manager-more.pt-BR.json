@@ -1,0 +1,235 @@
+{
+  "manager": {
+    "budget": {
+      "perDay": "{amount}/dia",
+      "lifetimeAmount": "{amount} total",
+      "labelDaily": "Diário",
+      "labelTotal": "Total",
+      "totalsBase": "{kind, select, campaign {Soma dos orçamentos de {count, plural, =1 {# campanha} other {# campanhas}}} other {Soma dos orçamentos de {count, plural, =1 {# conjunto} other {# conjuntos}}}}",
+      "totalsSelection": "Soma dos orçamentos de {withBudget} dos {count} selecionados",
+      "totalsFiltered": "{kind, select, campaign {Soma dos orçamentos de {count, plural, =1 {# campanha} other {# campanhas}} filtrados} other {Soma dos orçamentos de {count, plural, =1 {# conjunto} other {# conjuntos}} filtrados}}",
+      "withoutBudget": "{count, plural, =1 {# linha com orçamento} other {# linhas com orçamento}} {where, select, adsets {definido nos conjuntos} other {definido na campanha}} não entram na soma.",
+      "editAria": "Editar orçamento {kind, select, daily {diário} other {total}}",
+      "popoverDaily": "Orçamento diário",
+      "popoverLifetime": "Orçamento total (lifetime)",
+      "inputAria": "Novo valor do orçamento",
+      "bigChange": "Mudanças acima de 25% podem devolver a entrega à fase de aprendizado do Meta.",
+      "cancel": "Cancelar",
+      "saving": "Salvando...",
+      "save": "Salvar",
+      "hintShared": "Orçamento do conjunto com compartilhamento ativo: a Meta pode mover até 20% entre conjuntos da campanha. Clique para editar.",
+      "hintDaily": "Orçamento diário — clique para editar",
+      "hintLifetime": "Orçamento total (lifetime) — clique para editar",
+      "onCampaign": "na campanha",
+      "onCampaignTitle": "Orçamento definido na campanha (Advantage Campaign Budget / CBO)",
+      "onAdsets": "nos conjuntos",
+      "onAdsetsShared": "Orçamento definido nos conjuntos, com compartilhamento de até 20% entre eles",
+      "onAdsetsTitle": "Orçamento definido nos conjuntos (ABO)",
+      "toast": {
+        "noop": "O orçamento já estava nesse valor.",
+        "sentUnverified": "Orçamento enviado ao Meta. O valor atualizado aparece em instantes.",
+        "updated": "Orçamento atualizado com sucesso.",
+        "failed": "Falha ao atualizar o orçamento."
+      }
+    },
+    "bulkBudget": {
+      "count": "{kind, select, campaign {{count, plural, =1 {# campanha} other {# campanhas}}} other {{count, plural, =1 {# conjunto} other {# conjuntos}}}}",
+      "title": "Orçamento de {items}",
+      "minimize": "Minimizar",
+      "mode": {
+        "percent": "Variar em %",
+        "delta": "Variar em {symbol}",
+        "fixed": "Mesmo valor para {kind, select, campaign {todas} other {todos}}"
+      },
+      "reason": {
+        "noOwnBudget": "Tem {kind, select, campaign {o orçamento nos conjuntos (ABO)} other {o orçamento na campanha (CBO)}}.",
+        "notSynced": "Orçamento ainda não sincronizado — atualize o pack.",
+        "nonPositive": "O valor ficaria zero ou negativo.",
+        "typeMismatch": "O tipo de orçamento mudou na Meta (diário ↔ total) depois que a tela carregou.",
+        "default": "A Meta recusou a alteração."
+      },
+      "example": {
+        "fixed": "{kind, select, campaign {Todas passam a ter o mesmo orçamento, não importa quanto cada campanha tem hoje.} other {Todos passam a ter o mesmo orçamento, não importa quanto cada conjunto tem hoje.}}",
+        "base": "Cada {kind, select, campaign {campanha} other {conjunto}} muda a partir do próprio orçamento.",
+        "withSample": "Cada {kind, select, campaign {campanha} other {conjunto}} muda a partir do próprio orçamento. Ex.: {current} {step} → {result}.",
+        "invalid": "inválido"
+      },
+      "empty": {
+        "title": "{kind, select, campaign {Nenhuma campanha com orçamento próprio} other {Nenhum conjunto com orçamento próprio}}",
+        "elsewhere": "{kind, select, campaign {As campanhas selecionadas têm o orçamento nos conjuntos (ABO). Edite pelo outro nível.} other {Os conjuntos selecionados têm o orçamento na campanha (CBO). Edite pelo outro nível.}}",
+        "notSynced": "O orçamento ainda não foi sincronizado. Atualize o pack e tente de novo."
+      },
+      "confirm": {
+        "title": "Confira antes de confirmar",
+        "body": "Depois de começar não dá para interromper: o pedido vai direto para a Meta e termina mesmo se você fechar a janela. O que for aplicado não volta sozinho — para desfazer, é preciso um novo ajuste.",
+        "dimmedRows": "As linhas apagadas não mudam: já estão nesse valor ou ficariam zeradas.",
+        "back": "Voltar",
+        "apply": "Confirmar e aplicar em {items}"
+      },
+      "moneyBlocked": {
+        "mixedKind": "Os modos em dinheiro estão indisponíveis porque a seleção mistura orçamento diário e total: 50 por dia e 50 no total são coisas diferentes. O percentual vale para os dois.",
+        "mixedCurrency": "Os modos em dinheiro estão indisponíveis porque a seleção mistura moedas diferentes. O percentual vale para todas."
+      },
+      "field": {
+        "percent": "Variação sobre o orçamento atual de cada um",
+        "delta": "Valor a somar ao orçamento {kind, select, daily {diário} other {total}} de cada um",
+        "fixed": "Novo orçamento {kind, select, daily {diário} other {total}} para todos",
+        "placeholderPercent": "Ex.: 15 ou -20",
+        "placeholderDelta": "Ex.: 50 ou -30",
+        "placeholderFixed": "Ex.: 150",
+        "negativeHint": "Use valor negativo para reduzir."
+      },
+      "notice": {
+        "elsewhere": "{count, plural, =1 {{kind, select, campaign {{count} campanha tem o orçamento nos conjuntos (ABO) e será pulada.} other {{count} conjunto tem o orçamento na campanha (CBO) e será pulado.}}} other {{kind, select, campaign {{count} campanhas têm o orçamento nos conjuntos (ABO) e serão puladas.} other {{count} conjuntos têm o orçamento na campanha (CBO) e serão pulados.}}}}",
+        "unknown": "{count, plural, =1 {{kind, select, campaign {{count} campanha ainda sem orçamento sincronizado será pulada.} other {{count} conjunto ainda sem orçamento sincronizado será pulado.}}} other {{kind, select, campaign {{count} campanhas ainda sem orçamento sincronizado serão puladas.} other {{count} conjuntos ainda sem orçamento sincronizado serão pulados.}}}}",
+        "invalid": "{count, plural, =1 {{kind, select, campaign {{count} campanha ficaria com orçamento zero ou negativo e não será alterada.} other {{count} conjunto ficaria com orçamento zero ou negativo e não será alterado.}}} other {{kind, select, campaign {{count} campanhas ficariam com orçamento zero ou negativo e não serão alteradas.} other {{count} conjuntos ficariam com orçamento zero ou negativo e não serão alterados.}}}}",
+        "big": "{count, plural, =1 {{kind, select, campaign {{count} campanha vai} other {{count} conjunto vai}}} other {{kind, select, campaign {{count} campanhas vão} other {{count} conjuntos vão}}}} mudar mais de 25%. Mudanças grandes podem devolver a entrega à fase de aprendizado do Meta.",
+        "tooMany": "Dá para ajustar até {max} de uma vez e {count} mudariam. Selecione menos e aplique em partes."
+      },
+      "actions": {
+        "cancel": "Cancelar",
+        "review": "Revisar e aplicar",
+        "retry": "Tentar de novo",
+        "retryAll": "Tentar todas de novo",
+        "conclude": "Concluir"
+      },
+      "preview": {
+        "name": "Nome",
+        "current": "Atual",
+        "new": "Novo",
+        "change": "Variação",
+        "perDay": "/dia",
+        "total": "total",
+        "same": "igual"
+      },
+      "job": {
+        "applying": "Aplicando em {items}…",
+        "applyingHint": "Leva alguns segundos. Pode minimizar e seguir usando o app: o andamento fica no canto da tela e o resultado abre por lá.",
+        "errorTitle": "Não foi possível confirmar o resultado",
+        "updatedSummary": "{count, plural, =1 {{kind, select, campaign {{count} campanha atualizada.} other {{count} conjunto atualizado.}}} other {{kind, select, campaign {{count} campanhas atualizadas.} other {{count} conjuntos atualizados.}}}}",
+        "nothingChanged": "Nada foi alterado.",
+        "failedSummary": "{count, plural, =1 {# não mudou} other {# não mudaram}} — o motivo está em cada linha.{keep, select, yes { As que deram certo continuam aplicadas.} other {}}",
+        "groupFailed": "Com erro ({count})",
+        "groupUpdated": "{kind, select, campaign {Atualizadas} other {Atualizados}} ({count})",
+        "groupSkipped": "{kind, select, campaign {Puladas} other {Pulados}} ({count})",
+        "groupUnchanged": "Já estavam nesse valor ({count})",
+        "sentUnverified": "enviado — o valor confirmado aparece em instantes",
+        "describeFailure": {
+          "maybeApplied": "A resposta não chegou (a conexão caiu ou demorou demais). As alterações podem ter sido aplicadas: confira os valores na tabela ou no histórico do pack antes de repetir.",
+          "default": "Falha ao aplicar o orçamento."
+        }
+      },
+      "mini": {
+        "applying": "Aplicando orçamento em {items}…",
+        "retrying": "Tentando de novo em {items}…",
+        "error": "Orçamento: não foi possível confirmar o resultado.",
+        "partial": "Orçamento: {updated} de {total} mudaram, {failed} com erro.",
+        "none": "Orçamento: nada foi alterado.",
+        "done": "Orçamento de {items} atualizado.",
+        "expand": "Expandir",
+        "viewResult": "Ver resultado",
+        "dismiss": "Dispensar"
+      }
+    },
+    "export": {
+      "title": "Exportar CSV",
+      "review": {
+        "summary": "{resolved} de {total} URLs de mídia resolvidas — {failed} falharam.",
+        "reasonsTitle": "Motivos das falhas",
+        "note": "Ao exportar assim mesmo, os anúncios com falha saem com \"ERRO: motivo\" na coluna de URL.",
+        "back": "Voltar",
+        "exportAnyway": "Exportar assim mesmo",
+        "retry": "Tentar novamente ({count})"
+      },
+      "description": "Escolha as colunas e as opções do arquivo. Nome e Status entram sempre.",
+      "composition": {
+        "total": "{count, plural, =1 {# {kind, select, ads {anúncio} other {criativo}}} other {# {kind, select, ads {anúncios} other {criativos}}}} no recorte",
+        "videos": "{count} de vídeo",
+        "images": "{count} de imagem",
+        "unknown": "{count} sem mídia identificada"
+      },
+      "columns": {
+        "included": "Colunas incluídas ({count})",
+        "deselectAll": "Desmarcar todas",
+        "selectAll": "Marcar todas",
+        "none": "Nenhuma coluna selecionada — adicione abaixo.",
+        "removeAria": "Remover {name} do export",
+        "available": "Disponíveis ({count})",
+        "addAria": "Adicionar {name} ao export"
+      },
+      "transcriptions": {
+        "label": "Incluir transcrições",
+        "noVideos": "Nenhum criativo de vídeo neste recorte",
+        "allDone": "{count, plural, =1 {O vídeo está transcrito} other {Todos os # vídeos estão transcritos}}",
+        "partial": "{done} de {total} vídeos transcritos",
+        "noAudio": "{count} sem áudio detectável",
+        "hint": "Transcreva sem sair daqui — a contagem acima sobe sozinha quando terminar.",
+        "unreachable": "{count, plural, =1 {# vídeo está} other {# vídeos estão}} em pack compartilhado só para leitura — só o dono pode transcrever.",
+        "transcribe": "Transcrever {count}"
+      },
+      "mediaUrls": {
+        "label": "Incluir URLs das mídias",
+        "description": "Link direto de cada vídeo e imagem, com a validade na coluna ao lado"
+      },
+      "cancel": "Cancelar",
+      "export": "Exportar"
+    },
+    "bulkTags": {
+      "inAll": "em todos",
+      "inSome": "em {count} de {total}",
+      "title": "Tags de {count, plural, =1 {# criativo} other {# criativos}}",
+      "modeAdd": "Adicionar tag",
+      "modeRemove": "Remover tag",
+      "nothingToRemove": "Nenhum dos criativos selecionados tem tag para remover.",
+      "placeholderAdd": "Escolher ou criar tag...",
+      "placeholderRemove": "Escolher tag para remover...",
+      "cancel": "Cancelar",
+      "add": "Adicionar",
+      "remove": "Remover"
+    },
+    "tags": {
+      "removeTagAria": "Remover tag {name}",
+      "editTagsAria": "Editar tags de {name}",
+      "mark": "Marcar",
+      "addPlaceholder": "Adicionar tag...",
+      "searchPlaceholder": "Buscar ou criar tag...",
+      "create": "Criar \"{name}\"",
+      "creating": "Criando \"{name}\"",
+      "loading": "Carregando tags...",
+      "notFound": "Nenhuma tag encontrada.",
+      "noneAvailable": "Nenhuma tag disponível.",
+      "operators": {
+        "has_any": "Contém alguma",
+        "has_all": "Contém todas",
+        "has_none": "Não contém nenhuma",
+        "has_exact": "Contém exatamente",
+        "is_empty": "Sem tag",
+        "is_not_empty": "Tem alguma tag"
+      }
+    },
+    "shareDialog": {
+      "title": "Compartilhar criativos",
+      "maxItems": "Máximo de {max} criativos por link — mantivemos os {max} primeiros.",
+      "copied": "Link copiado!",
+      "copiedHint": "É só colar no WhatsApp da equipe.",
+      "copyFailed": "Não foi possível copiar automaticamente",
+      "copyFailedHint": "Selecione o link e copie manualmente.",
+      "createFailed": "Não foi possível gerar o link",
+      "intro": "Link público em formato stories com {count, plural, =1 {# criativo} other {# criativos}} e as métricas do período <b>{start} – {end}</b>.",
+      "removeAria": "Remover {name}",
+      "empty": "Nenhum criativo na lista.",
+      "highlights": "Métricas em destaque",
+      "highlightsHint": "{count}/{max} · aparecem sem precisar expandir",
+      "linkReady": "Link gerado — válido até {date}",
+      "copy": "Copiar",
+      "cdnNote": "Vídeos usam a CDN da Meta e podem expirar antes do link — as métricas continuam visíveis.",
+      "cancel": "Cancelar",
+      "generating": "Gerando link…",
+      "generate": "Gerar link"
+    },
+    "summaryBar": {
+      "showing": "{kind, select, ads {Exibindo {filtered} de {total} anúncios} adsets {Exibindo {filtered} de {total} conjuntos} other {Exibindo {filtered} de {total} campanhas}}",
+      "reset": "Resetar filtros"
+    }
+  }
+}

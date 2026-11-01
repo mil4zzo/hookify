@@ -1,0 +1,235 @@
+{
+  "manager": {
+    "budget": {
+      "perDay": "{amount}/day",
+      "lifetimeAmount": "{amount} total",
+      "labelDaily": "Daily",
+      "labelTotal": "Total",
+      "totalsBase": "{kind, select, campaign {Sum of the budgets of {count, plural, =1 {# campaign} other {# campaigns}}} other {Sum of the budgets of {count, plural, =1 {# ad set} other {# ad sets}}}}",
+      "totalsSelection": "Sum of the budgets of {withBudget} of the {count} selected",
+      "totalsFiltered": "{kind, select, campaign {Sum of the budgets of {count, plural, =1 {# filtered campaign} other {# filtered campaigns}}} other {Sum of the budgets of {count, plural, =1 {# filtered ad set} other {# filtered ad sets}}}}",
+      "withoutBudget": "{count, plural, =1 {# row whose budget is} other {# rows whose budget is}} {where, select, adsets {set on the ad sets} other {set on the campaign}} {count, plural, =1 {is} other {are}} not included in the sum.",
+      "editAria": "Edit {kind, select, daily {daily} other {total}} budget",
+      "popoverDaily": "Daily budget",
+      "popoverLifetime": "Total (lifetime) budget",
+      "inputAria": "New budget value",
+      "bigChange": "Changes above 25% can send delivery back to Meta's learning phase.",
+      "cancel": "Cancel",
+      "saving": "Saving...",
+      "save": "Save",
+      "hintShared": "Ad set budget with sharing on: Meta can move up to 20% between the campaign's ad sets. Click to edit.",
+      "hintDaily": "Daily budget — click to edit",
+      "hintLifetime": "Total (lifetime) budget — click to edit",
+      "onCampaign": "on the campaign",
+      "onCampaignTitle": "Budget set on the campaign (Advantage Campaign Budget / CBO)",
+      "onAdsets": "on the ad sets",
+      "onAdsetsShared": "Budget set on the ad sets, with sharing of up to 20% between them",
+      "onAdsetsTitle": "Budget set on the ad sets (ABO)",
+      "toast": {
+        "noop": "The budget was already at this value.",
+        "sentUnverified": "Budget sent to Meta. The updated value will show up shortly.",
+        "updated": "Budget updated successfully.",
+        "failed": "Failed to update the budget."
+      }
+    },
+    "bulkBudget": {
+      "count": "{kind, select, campaign {{count, plural, =1 {# campaign} other {# campaigns}}} other {{count, plural, =1 {# ad set} other {# ad sets}}}}",
+      "title": "Budget of {items}",
+      "minimize": "Minimize",
+      "mode": {
+        "percent": "Change by %",
+        "delta": "Change by {symbol}",
+        "fixed": "Same value for all"
+      },
+      "reason": {
+        "noOwnBudget": "Its budget is on {kind, select, campaign {the ad sets (ABO)} other {the campaign (CBO)}}.",
+        "notSynced": "Budget not synced yet — refresh the pack.",
+        "nonPositive": "The value would end up zero or negative.",
+        "typeMismatch": "The budget type changed on Meta (daily ↔ total) after the screen loaded.",
+        "default": "Meta rejected the change."
+      },
+      "example": {
+        "fixed": "{kind, select, campaign {All campaigns get the same budget, no matter how much each campaign has today.} other {All ad sets get the same budget, no matter how much each ad set has today.}}",
+        "base": "Each {kind, select, campaign {campaign} other {ad set}} changes from its own budget.",
+        "withSample": "Each {kind, select, campaign {campaign} other {ad set}} changes from its own budget. E.g.: {current} {step} → {result}.",
+        "invalid": "invalid"
+      },
+      "empty": {
+        "title": "{kind, select, campaign {No campaign with its own budget} other {No ad set with its own budget}}",
+        "elsewhere": "{kind, select, campaign {The selected campaigns have their budget on the ad sets (ABO). Edit at the other level.} other {The selected ad sets have their budget on the campaign (CBO). Edit at the other level.}}",
+        "notSynced": "The budget hasn't been synced yet. Refresh the pack and try again."
+      },
+      "confirm": {
+        "title": "Review before confirming",
+        "body": "Once it starts it can't be interrupted: the request goes straight to Meta and finishes even if you close the window. What gets applied doesn't revert on its own — to undo it, you need a new adjustment.",
+        "dimmedRows": "Dimmed rows don't change: they're already at that value or would end up at zero.",
+        "back": "Back",
+        "apply": "Confirm and apply to {items}"
+      },
+      "moneyBlocked": {
+        "mixedKind": "Money modes are unavailable because the selection mixes daily and total budgets: 50 per day and 50 in total are different things. The percentage works for both.",
+        "mixedCurrency": "Money modes are unavailable because the selection mixes different currencies. The percentage works for all of them."
+      },
+      "field": {
+        "percent": "Change over each one's current budget",
+        "delta": "Amount to add to each one's {kind, select, daily {daily} other {total}} budget",
+        "fixed": "New {kind, select, daily {daily} other {total}} budget for all",
+        "placeholderPercent": "E.g. 15 or -20",
+        "placeholderDelta": "E.g. 50 or -30",
+        "placeholderFixed": "E.g. 150",
+        "negativeHint": "Use a negative value to reduce."
+      },
+      "notice": {
+        "elsewhere": "{count, plural, =1 {{kind, select, campaign {{count} campaign has its budget on the ad sets (ABO) and will be skipped.} other {{count} ad set has its budget on the campaign (CBO) and will be skipped.}}} other {{kind, select, campaign {{count} campaigns have their budget on the ad sets (ABO) and will be skipped.} other {{count} ad sets have their budget on the campaign (CBO) and will be skipped.}}}}",
+        "unknown": "{count, plural, =1 {{kind, select, campaign {{count} campaign with no synced budget yet will be skipped.} other {{count} ad set with no synced budget yet will be skipped.}}} other {{kind, select, campaign {{count} campaigns with no synced budget yet will be skipped.} other {{count} ad sets with no synced budget yet will be skipped.}}}}",
+        "invalid": "{count, plural, =1 {{kind, select, campaign {{count} campaign would end up with a zero or negative budget and won't be changed.} other {{count} ad set would end up with a zero or negative budget and won't be changed.}}} other {{kind, select, campaign {{count} campaigns would end up with a zero or negative budget and won't be changed.} other {{count} ad sets would end up with a zero or negative budget and won't be changed.}}}}",
+        "big": "{count, plural, =1 {{kind, select, campaign {{count} campaign is} other {{count} ad set is}}} other {{kind, select, campaign {{count} campaigns are} other {{count} ad sets are}}}} going to change by more than 25%. Big changes can send delivery back to Meta's learning phase.",
+        "tooMany": "You can adjust up to {max} at a time and {count} would change. Select fewer and apply in batches."
+      },
+      "actions": {
+        "cancel": "Cancel",
+        "review": "Review and apply",
+        "retry": "Try again",
+        "retryAll": "Try all again",
+        "conclude": "Done"
+      },
+      "preview": {
+        "name": "Name",
+        "current": "Current",
+        "new": "New",
+        "change": "Change",
+        "perDay": "/day",
+        "total": "total",
+        "same": "same"
+      },
+      "job": {
+        "applying": "Applying to {items}…",
+        "applyingHint": "Takes a few seconds. You can minimize and keep using the app: progress stays in the corner of the screen and the result opens from there.",
+        "errorTitle": "Couldn't confirm the result",
+        "updatedSummary": "{count, plural, =1 {{kind, select, campaign {{count} campaign updated.} other {{count} ad set updated.}}} other {{kind, select, campaign {{count} campaigns updated.} other {{count} ad sets updated.}}}}",
+        "nothingChanged": "Nothing was changed.",
+        "failedSummary": "{count} didn't change — the reason is on each row.{keep, select, yes { The ones that worked remain applied.} other {}}",
+        "groupFailed": "Failed ({count})",
+        "groupUpdated": "Updated ({count})",
+        "groupSkipped": "Skipped ({count})",
+        "groupUnchanged": "Already at this value ({count})",
+        "sentUnverified": "sent — the confirmed value shows up shortly",
+        "describeFailure": {
+          "maybeApplied": "The response didn't arrive (the connection dropped or took too long). The changes may have been applied: check the values in the table or in the pack history before repeating.",
+          "default": "Failed to apply the budget."
+        }
+      },
+      "mini": {
+        "applying": "Applying budget to {items}…",
+        "retrying": "Trying again on {items}…",
+        "error": "Budget: couldn't confirm the result.",
+        "partial": "Budget: {updated} of {total} changed, {failed} failed.",
+        "none": "Budget: nothing was changed.",
+        "done": "Budget of {items} updated.",
+        "expand": "Expand",
+        "viewResult": "View result",
+        "dismiss": "Dismiss"
+      }
+    },
+    "export": {
+      "title": "Export CSV",
+      "review": {
+        "summary": "{resolved} of {total} media URLs resolved — {failed} failed.",
+        "reasonsTitle": "Failure reasons",
+        "note": "If you export anyway, ads that failed come out with \"ERRO: motivo\" in the URL column.",
+        "back": "Back",
+        "exportAnyway": "Export anyway",
+        "retry": "Try again ({count})"
+      },
+      "description": "Choose the columns and file options. Name and Status are always included.",
+      "composition": {
+        "total": "{count, plural, =1 {# {kind, select, ads {ad} other {creative}}} other {# {kind, select, ads {ads} other {creatives}}}} in this view",
+        "videos": "{count} video",
+        "images": "{count} image",
+        "unknown": "{count} with no identified media"
+      },
+      "columns": {
+        "included": "Included columns ({count})",
+        "deselectAll": "Deselect all",
+        "selectAll": "Select all",
+        "none": "No columns selected — add some below.",
+        "removeAria": "Remove {name} from the export",
+        "available": "Available ({count})",
+        "addAria": "Add {name} to the export"
+      },
+      "transcriptions": {
+        "label": "Include transcriptions",
+        "noVideos": "No video creatives in this view",
+        "allDone": "{count, plural, =1 {The video is transcribed} other {All # videos are transcribed}}",
+        "partial": "{done} of {total} videos transcribed",
+        "noAudio": "{count} with no detectable audio",
+        "hint": "Transcribe without leaving here — the count above goes up on its own when it finishes.",
+        "unreachable": "{count, plural, =1 {# video is} other {# videos are}} in a read-only shared pack — only the owner can transcribe.",
+        "transcribe": "Transcribe {count}"
+      },
+      "mediaUrls": {
+        "label": "Include media URLs",
+        "description": "Direct link to each video and image, with the expiry in the next column"
+      },
+      "cancel": "Cancel",
+      "export": "Export"
+    },
+    "bulkTags": {
+      "inAll": "in all",
+      "inSome": "in {count} of {total}",
+      "title": "Tags for {count, plural, =1 {# creative} other {# creatives}}",
+      "modeAdd": "Add tag",
+      "modeRemove": "Remove tag",
+      "nothingToRemove": "None of the selected creatives has a tag to remove.",
+      "placeholderAdd": "Choose or create a tag...",
+      "placeholderRemove": "Choose a tag to remove...",
+      "cancel": "Cancel",
+      "add": "Add",
+      "remove": "Remove"
+    },
+    "tags": {
+      "removeTagAria": "Remove tag {name}",
+      "editTagsAria": "Edit tags of {name}",
+      "mark": "Tag",
+      "addPlaceholder": "Add tag...",
+      "searchPlaceholder": "Search or create a tag...",
+      "create": "Create \"{name}\"",
+      "creating": "Creating \"{name}\"",
+      "loading": "Loading tags...",
+      "notFound": "No tags found.",
+      "noneAvailable": "No tags available.",
+      "operators": {
+        "has_any": "Contains any",
+        "has_all": "Contains all",
+        "has_none": "Contains none",
+        "has_exact": "Contains exactly",
+        "is_empty": "No tag",
+        "is_not_empty": "Has any tag"
+      }
+    },
+    "shareDialog": {
+      "title": "Share creatives",
+      "maxItems": "Maximum of {max} creatives per link — we kept the first {max}.",
+      "copied": "Link copied!",
+      "copiedHint": "Just paste it in the team's WhatsApp.",
+      "copyFailed": "Couldn't copy automatically",
+      "copyFailedHint": "Select the link and copy it manually.",
+      "createFailed": "Couldn't generate the link",
+      "intro": "Public link in stories format with {count, plural, =1 {# creative} other {# creatives}} and the metrics for the period <b>{start} – {end}</b>.",
+      "removeAria": "Remove {name}",
+      "empty": "No creatives in the list.",
+      "highlights": "Highlighted metrics",
+      "highlightsHint": "{count}/{max} · shown without needing to expand",
+      "linkReady": "Link generated — valid until {date}",
+      "copy": "Copy",
+      "cdnNote": "Videos use Meta's CDN and may expire before the link does — the metrics stay visible.",
+      "cancel": "Cancel",
+      "generating": "Generating link…",
+      "generate": "Generate link"
+    },
+    "summaryBar": {
+      "showing": "{kind, select, ads {Showing {filtered} of {total} ads} adsets {Showing {filtered} of {total} ad sets} other {Showing {filtered} of {total} campaigns}}",
+      "reset": "Reset filters"
+    }
+  }
+}

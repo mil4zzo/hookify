@@ -1,0 +1,552 @@
+{
+  "commonUi": {
+    "cancel": "Cancelar",
+    "confirm": "Confirmar",
+    "close": "Fechar",
+    "loading": "Carregando...",
+    "processing": "Processando...",
+    "accentCard": {
+      "describeMetric": "Ver descrição da métrica"
+    },
+    "actionType": {
+      "label": "Evento de Conversão",
+      "search": "Buscar evento de conversão...",
+      "empty": "Nenhum evento encontrado.",
+      "tooltip": "Evento de conversão"
+    },
+    "adPlay": {
+      "play": "Reproduzir vídeo"
+    },
+    "adStatus": {
+      "activate": "Ativar {kind, select, ad {anúncio} adset {conjunto} other {campanha}}",
+      "pause": "Pausar {kind, select, ad {anúncio} adset {conjunto} other {campanha}}",
+      "activateTitle": "Confirmar ativação",
+      "activateMessage": "Tem certeza que deseja ativar {kind, select, ad {este anúncio} adset {este conjunto} other {esta campanha}}? Isso retomará a entrega do tráfego imediatamente e pode impactar seu orçamento.",
+      "activateConfirm": "Ativar",
+      "pauseTitle": "Confirmar pausa",
+      "pauseMessage": "Tem certeza que deseja pausar {kind, select, ad {este anúncio} adset {este conjunto} other {esta campanha}}? Isso pode impactar a entrega do seu tráfego imediatamente.",
+      "pauseConfirm": "Pausar"
+    },
+    "autoRefresh": {
+      "title": "Atualizar dados de Packs",
+      "single": "Encontramos 1 pack configurado para atualização automática. Deseja atualizá-lo agora?",
+      "no": "Não",
+      "yes": "Sim",
+      "pick": "Selecione quais deseja atualizar:",
+      "selectedCount": "{selected} de {total} {total, plural, =1 {pack} other {packs}} {selected, plural, =0 {selecionado} =1 {selecionado} other {selecionados}}",
+      "selectAll": "Marcar todos",
+      "deselectAll": "Desmarcar todos",
+      "updateN": "Atualizar {count, plural, =1 {# pack} other {# packs}}",
+      "updatePacks": "Atualizar packs"
+    },
+    "bulkReview": {
+      "title": "Aplicar igual aos {count} {count, plural, =1 {pack} other {packs}}?",
+      "message": "Nada é adaptado por pack: o que você configurou vale exatamente igual em todos, inclusive onde substitui o que o pack já tinha.",
+      "back": "Voltar e revisar",
+      "confirm": "Aplicar aos {count} {count, plural, =1 {pack} other {packs}}"
+    },
+    "dateRange": {
+      "label": "Período",
+      "placeholder": "Selecione um período"
+    },
+    "errorCard": {
+      "failed": "Falhou",
+      "error": "Erro"
+    },
+    "filterList": {
+      "search": "Buscar...",
+      "empty": "Nenhum resultado encontrado.",
+      "reorder": "Reordenar {label}",
+      "selectAll": "Selecionar todos",
+      "clear": "Limpar"
+    },
+    "gems": {
+      "none": "Métricas (0)",
+      "all": "Métricas ({total})",
+      "some": "Métricas ({selected} de {total})"
+    },
+    "managerColumns": {
+      "none": "Colunas (0)",
+      "all": "Colunas ({total})",
+      "some": "Colunas ({selected} de {total})",
+      "search": "Buscar coluna...",
+      "empty": "Nenhuma coluna encontrada.",
+      "requiresEconomics": " (requer economia do lead no pack)",
+      "requiresSheet": " (requer planilha)"
+    },
+    "genericCard": {
+      "unnamed": "Sem nome",
+      "results": "Resultados",
+      "resultsWithConversions": "Resultados: {count} conversões",
+      "funnel": "Funil",
+      "pageConversion": "Conversão Página:",
+      "avgLeadscore": "Leadscore médio:",
+      "frequency": "Frequência:",
+      "impressions": "Impressões:",
+      "reach": "Alcance:",
+      "clickHint": "Clique para ver detalhes completos e histórico"
+    },
+    "column": {
+      "empty": "Nenhum item encontrado",
+      "search": "Pesquisar"
+    },
+    "metricNotApplicable": {
+      "title": "Anúncio de imagem — não tem métricas de vídeo",
+      "aria": "Não se aplica: anúncio de imagem"
+    },
+    "conflictGuard": {
+      "unknownTitle": "Não foi possível verificar conflito entre packs",
+      "conflictTitle": "Packs em conflito na seleção",
+      "unknownBody": "A verificação de packs que compartilham anúncios falhou. Com mais de um pack somando, não há como garantir que os totais estejam exatos — então preferimos não mostrá-los. Deixe um pack selecionado, ou recarregue a página para tentar de novo.",
+      "conflictBody": "Os packs abaixo contêm os mesmos anúncios nos mesmos dias. Analisá-los juntos duplicaria (ou descartaria) dados — os totais deixariam de ser exatos. Desmarque um pack de cada par para continuar, ou crie um pack que junte os dois recortes.",
+      "unselect": "Desmarcar «{name}»",
+      "first": "primeiro",
+      "second": "segundo",
+      "serverOverlap": "O servidor detectou {count} {count, plural, =1 {linha} other {linhas}} em conflito na seleção atual. Revise os packs selecionados no filtro acima."
+    },
+    "packFilter": {
+      "sharedMeta": "({count, plural, =1 {# anúncio} other {# anúncios}} · compartilhado)",
+      "meta": "({count, plural, =1 {# anúncio} other {# anúncios}})",
+      "conflictHint": "Conflita com «{name}»: os dois têm os mesmos anúncios nos mesmos dias. Desmarque um para usar o outro.",
+      "selectedPackFallback": "um pack selecionado",
+      "unknownHint": "Não foi possível verificar conflito entre packs agora. Enquanto isso, só um pack por vez — somar packs que compartilham anúncios daria totais errados.",
+      "label": "Packs",
+      "noneLoaded": "Nenhum pack carregado",
+      "tooltip": "Pack selecionado",
+      "pickOne": "Selecione um pack",
+      "noneSelected": "Nenhum pack selecionado",
+      "selectedPack": "Pack selecionado",
+      "all": "Todos os packs ({total})",
+      "oneSelected": "1 pack selecionado",
+      "someSelected": "{selected} de {total} packs selecionados",
+      "search": "Buscar pack...",
+      "empty": "Nenhum pack encontrado.",
+      "groupBy": "Agrupar por packs"
+    },
+    "toastCard": {
+      "updating": "Atualizando {name} — {stage}",
+      "stepOf": "{name} — etapa {current}/{total}",
+      "step": "Etapa {current}/{total}",
+      "processing": "Processando",
+      "confirmCancelAria": "Confirmar cancelamento",
+      "confirmCancel": "Cancelar esta operação? O progresso será perdido.",
+      "continue": "Continuar",
+      "yesCancel": "Sim, cancelar",
+      "pausedTitle": "Sincronização pausada",
+      "pausedWaiting": "Aguardando reconexão do Google para continuar a importação.",
+      "pausedOwner": "A planilha é do dono. Peça a {owner} para reconectar o Google.",
+      "ownerFallback": "o dono do pack",
+      "reconnectGoogle": "Reconectar Google"
+    },
+    "refreshQueue": {
+      "queued": "{count} na fila",
+      "done": "{count} ok",
+      "failed": "{count, plural, =1 {# falhou} other {# falharam}}",
+      "cancel": "Cancelar fila"
+    },
+    "search": {
+      "placeholder": "Buscar...",
+      "clear": "Limpar busca"
+    },
+    "sparkline": {
+      "noData": "Sem dados"
+    },
+    "kanban": {
+      "adDetails": "Detalhes do anúncio"
+    }
+  },
+  "hooks": {
+    "authSuccess": "Autenticação realizada com sucesso!",
+    "facebook": {
+      "noCode": "Código de autorização não recebido do Facebook.",
+      "reconnected": "Facebook reconectado com sucesso!",
+      "connected": "Facebook conectado com sucesso!"
+    },
+    "serverReconnected": "Servidor reconectado! Dados atualizados.",
+    "preferences": {
+      "loadError": "Erro ao carregar configuração",
+      "saveError": "Erro ao salvar configuração"
+    }
+  },
+  "layout": {
+    "server": {
+      "reconnected": "Servidor reconectado!",
+      "checking": "Verificando conexão com o servidor...",
+      "offline": "Servidor offline",
+      "lastOnline": "(última conexão {when})",
+      "verifying": "Verificando...",
+      "retry": "Tentar novamente"
+    },
+    "filters": {
+      "conflictUnknown": "Não foi possível verificar conflito entre packs agora. Selecione um pack por vez — somar packs que compartilham anúncios daria totais errados.",
+      "skipped": "{count, plural, one {«{name}» não foi marcado: conflita} other {# packs não foram marcados: conflitam}} com packs selecionados (mesmos anúncios em contas de donos diferentes).",
+      "onePack": "1 pack"
+    }
+  },
+  "share": {
+    "unavailable": {
+      "title": "Esse link tirou uma soneca — e não voltou",
+      "body": "Links compartilhados expiram de propósito: métricas congeladas envelhecem mal. Peça um link novinho para quem te enviou ;)",
+      "cta": "Conhecer o Hookify"
+    },
+    "viewer": {
+      "videoExpired": "Esse vídeo expirou 😴",
+      "videoExpiredHint": "A CDN da Meta aposentou o link. Peça um link atualizado no Hookify ;)",
+      "metricsBelow": "As métricas continuam logo abaixo 👇",
+      "resume": "Retomar",
+      "pause": "Pausar",
+      "unmute": "Ativar som",
+      "mute": "Silenciar",
+      "closeMetrics": "Fechar métricas",
+      "snapshot": "{start}–{end} · snapshot na criação do link",
+      "noMetrics": "Sem métricas disponíveis para este criativo.",
+      "madeWith": "Feito com <b>Hookify</b>",
+      "seeAll": "Ver todas as métricas"
+    }
+  },
+  "facebook": {
+    "connectionCard": {
+      "fallbackName": "Conta do Facebook",
+      "testing": "Verificando...",
+      "connected": "Conectada",
+      "expired": "Expirada",
+      "invalid": "Inválida",
+      "incomplete": "Permissões incompletas ({count})",
+      "primary": "Primária",
+      "reconnect": "Reconectar",
+      "deleteTitle": "Excluir conexão",
+      "reconnectTitle": "Reconectar para renovar token ou solicitar novas permissões",
+      "retestTitle": "Verificar novamente",
+      "verify": "Verificar",
+      "impactTitle": "O que essa conexão deixa de fazer:",
+      "updatePermissions": "Atualizar permissões"
+    }
+  },
+  "metaUsage": {
+    "filters": {
+      "route": "Rota",
+      "allFeminine": "Todas",
+      "service": "Serviço",
+      "allMasculine": "Todos",
+      "adAccount": "Ad account",
+      "from": "De",
+      "to": "Até",
+      "minCpu": "CPU mín. %",
+      "clear": "Limpar filtros"
+    },
+    "table": {
+      "when": "Quando",
+      "page": "Página",
+      "backendRoute": "Rota backend",
+      "service": "Serviço",
+      "metaEndpoint": "Meta endpoint",
+      "account": "Account",
+      "latency": "Latência",
+      "block": "Bloqueio",
+      "loading": "Carregando...",
+      "empty": "Nenhuma chamada registrada no período/filtros.",
+      "showing": "Mostrando {from}–{to} de {total}",
+      "itemCount": "{count} itens",
+      "previous": "Anterior",
+      "pageOf": "Página {page}",
+      "next": "Próxima"
+    },
+    "quota": {
+      "rateLimitTitle": "Rate limit atingido",
+      "rateLimitBody": "Uma ou mais contas de anúncios está temporariamente bloqueada pela Meta. Acesso estimado em <b>{minutes} min</b>.",
+      "calls24h": "Chamadas (24h)",
+      "calls7d": "Chamadas (7d)",
+      "lastUpdate": "Última atualização",
+      "topRoutes": "Rotas mais caras (24h) — somatório de CPU time %",
+      "route": "Rota",
+      "calls": "Chamadas",
+      "cpuSum": "Soma CPU %",
+      "buc": "Breakdown por Business Use Case (última chamada)",
+      "accountLabel": "Account {account}"
+    }
+  },
+  "auth": {
+    "login": {
+      "loading": "Carregando...",
+      "title": "Entrar",
+      "expired": "Sua sessão expirou ou foi encerrada em outro dispositivo. Entre novamente para continuar.",
+      "accountCreated": "Conta criada com sucesso! Bem-vindo!",
+      "signUpDone": "Cadastro realizado! Verifique seu email para confirmar.",
+      "createAccount": "Criar conta",
+      "signUpSubtitle": "Crie sua conta para começar",
+      "signInSubtitle": "Seja bem-vindo ao Hookify! Entre na plataforma:",
+      "name": "Nome",
+      "namePlaceholder": "Seu nome completo",
+      "email": "Email",
+      "password": "Senha",
+      "hidePassword": "Ocultar senha",
+      "showPassword": "Mostrar senha",
+      "processing": "Processando...",
+      "signIn": "Entrar",
+      "or": "ou",
+      "googleSignUp": "Cadastrar com Google",
+      "googleSignIn": "Entrar com Google",
+      "haveAccount": "Já tem uma conta?",
+      "signInNow": "Entrar agora"
+    },
+    "callback": {
+      "title": "Login com Facebook",
+      "failed": "Falha ao autenticar",
+      "failedState": "Falha na autenticação.",
+      "finishing": "Finalizando autenticação...",
+      "loading": "Carregando..."
+    }
+  },
+  "support": {
+    "eyebrow": "Suporte",
+    "title": "Como podemos ajudar?",
+    "intro": "Tem alguma dúvida, encontrou um problema ou quer enviar uma sugestão? Escolha o canal que preferir — respondemos o mais rápido possível.",
+    "whatsappIntro": "Atendimento direto e rápido. Clique no botão abaixo para iniciar uma conversa.",
+    "whatsappButton": "Falar no WhatsApp",
+    "emailTitle": "E-mail",
+    "emailIntro": "Prefere e-mail? Envie sua mensagem para o nosso endereço principal:",
+    "secondary": "Endereço secundário:",
+    "back": "Voltar para o início"
+  },
+  "plans": {
+    "standardFeatures": {
+      "packs": "Packs — importe e gerencie seus anúncios",
+      "manager": "Manager — análise de performance com agrupamentos",
+      "insights": "Insights — oportunidades e gems dos seus criativos"
+    },
+    "insiderFeatures": {
+      "all": "Tudo do Standard",
+      "explorer": "Explorer — análise profunda de criativos",
+      "gold": "G.O.L.D. — rankings dos melhores anúncios",
+      "upload": "Upload — criação de anúncios em massa",
+      "metaUsage": "Meta Usage — monitoramento da API"
+    },
+    "paymentConfirmed": "Pagamento confirmado! Ativando sua conta Insider...",
+    "checkoutCanceled": "Assinatura cancelada. Você pode tentar novamente quando quiser.",
+    "activated": "Conta Insider ativada!",
+    "activationSlow": "A ativação está demorando um pouco mais que o normal. Atualize a página em instantes.",
+    "alreadySubscribed": "Você já tem uma assinatura ativa. Abrindo o portal...",
+    "checkoutError": "Não foi possível iniciar o checkout. Tente novamente.",
+    "portalError": "Não foi possível abrir o portal. Tente novamente.",
+    "title": "Planos",
+    "blocked": "Você precisa do plano Insider para acessar {page}.",
+    "choose": "Escolha o plano ideal para o seu negócio.",
+    "actionRequired": "Ação necessária — autenticação de pagamento",
+    "actionRequiredBody": "Seu último pagamento exige autenticação 3DS. Complete-o antes do vencimento para manter o acesso Insider.",
+    "authenticate": "Autenticar pagamento",
+    "canceledNotice": "Seu plano Insider foi cancelado e permanece ativo até <b>{date}</b>. Reative no portal para continuar.",
+    "current": "Seu plano atual",
+    "free": "Grátis",
+    "recommended": "Recomendado",
+    "manage": "Gerenciar assinatura",
+    "monthly": "Mensal",
+    "annual": "Anual",
+    "perMonth": "/mês",
+    "perYear": "/ano",
+    "equivalent": "Equivale a R$65,83/mês · parcelamento disponível",
+    "subscribe": "Assinar Insider",
+    "payPix": "Pagar anual com Pix",
+    "pixNote": "Pix: 12 meses de acesso, sem renovação automática."
+  },
+  "topbar": {
+    "userFallback": "Usuário",
+    "profileAria": "Perfil do usuário",
+    "notifications": "Notificações",
+    "lightMode": "Modo Claro",
+    "darkMode": "Modo Escuro",
+    "settings": "Configurações",
+    "logout": "Sair",
+    "updating": "Atualizando dados",
+    "updateData": "Atualizar dados",
+    "updatePack": "Atualizar pack:",
+    "packNotFound": "Pack não encontrado",
+    "packCount": "{count, plural, =1 {# pack} other {# packs}}",
+    "adCount": "{count, plural, =1 {# anúncio} other {# anúncios}}",
+    "connecting": "Conectando...",
+    "connectFacebook": "Conectar Facebook",
+    "loading": "Carregando...",
+    "saving": "Salvando...",
+    "deleteWord": "EXCLUIR",
+    "deleteWordWarning": "Digite exatamente \"{word}\" para confirmar.",
+    "deleteWordInline": "Digite exatamente \"{word}\" para confirmar",
+    "deleteWordPlaceholder": "Digite \"{word}\" para confirmar",
+    "dataDeleted": "Seus dados foram excluídos com sucesso. Sua conta foi mantida.",
+    "tabs": {
+      "general": "Preferências",
+      "accounts": "Contas",
+      "validation": "Critério de validação",
+      "validationShort": "Validação",
+      "leadscore": "Leadscore"
+    },
+    "general": {
+      "title": "Preferências",
+      "language": "Idioma",
+      "languageSaved": "Idioma atualizado com sucesso",
+      "languageError": "Erro ao salvar idioma",
+      "languagePlaceholder": "Selecione um idioma",
+      "spanish": "Espanhol",
+      "languageHint": "O idioma será aplicado em todas as páginas do app",
+      "currency": "Moeda",
+      "multipleCurrencies": "Múltiplas moedas",
+      "currencyMixed": "Suas contas Meta conectadas usam moedas diferentes — os valores são exibidos na moeda de cada conta, sem conversão.",
+      "currencyDetected": "Detectada automaticamente na sua conta Meta conectada. Os valores já vêm nessa moeda, então não é possível trocar manualmente.",
+      "currencyDetecting": "Detectando a moeda da sua conta Meta conectada...",
+      "niche": "Nicho",
+      "nichePlaceholder": "Ex: E-commerce, SaaS, etc.",
+      "nicheSaved": "Nicho atualizado com sucesso",
+      "nicheError": "Erro ao salvar nicho",
+      "nicheHint": "Digite o nicho do seu negócio (ex: E-commerce, SaaS, etc.)"
+    },
+    "accounts": {
+      "title": "Contas",
+      "disconnected": "Conta desconectada com sucesso!",
+      "emptyTitle": "Nenhuma conta do Facebook conectada",
+      "dangerZone": "Zona de perigo",
+      "deleteDataTitle": "Excluir meus dados",
+      "deleteDataHint": "Remove todos os dados (packs, métricas, anúncios, conexões e configurações). Sua conta Hookify será mantida.",
+      "deleteDataButton": "Excluir dados",
+      "deleteAccountTitle": "Excluir minha conta",
+      "deleteAccountHint": "Remove permanentemente sua conta e todos os dados associados. Esta ação é irreversível.",
+      "deleteAccountButton": "Excluir conta"
+    },
+    "validation": {
+      "title": "Critério de validação",
+      "description": "Defina a partir de quando um anúncio já tem dados suficientes para ser julgado. Quem não atende continua em fase de teste e fica fora do G.O.L.D., do plano de ação e das oportunidades. É o mesmo construtor dos filtros do Manager e dos grupos do Boards."
+    },
+    "leadscore": {
+      "title": "Configuração de Leadscore",
+      "description": "O leadscore mínimo para considerar um lead como MQL é definido em cada pack, junto da planilha que produz o leadscore — é ela que dá a escala do número. Não existe mais um padrão de conta: o critério acompanha o pack, inclusive quando ele é compartilhado.",
+      "current": "Em vigor na seleção atual",
+      "divergent": "Os packs selecionados usam cortes diferentes entre si, então MQL e CPMQL ficam indisponíveis. Selecione um pack por vez ou alinhe o corte em Packs → configuração.",
+      "missing": "Nenhum corte definido para os packs selecionados — MQL e CPMQL ficam indisponíveis. Defina em Packs → configuração.",
+      "applied": "Leads com leadscore >= {value} contam como MQL. Para alterar, use Packs → configuração."
+    },
+    "dialogs": {
+      "settingsTitle": "Configurações",
+      "confirmUpdateTitle": "Confirmar atualização",
+      "confirmUpdateMessage": "Deseja atualizar o pack <b>\"{name}\"</b>?",
+      "unknownPack": "desconhecido",
+      "confirmUpdateNote": "A atualização buscará novos dados desde a última atualização até hoje.",
+      "confirmUpdateButton": "Confirmar atualização",
+      "deleteDataMessage": "Tem certeza que deseja excluir <b>todos os seus dados</b>? Isso inclui packs, métricas, anúncios, conexões e configurações.",
+      "deleteDataNote": "Sua conta Hookify será mantida e você poderá usá-la novamente no futuro.",
+      "deleteDataConfirm": "Sim, excluir meus dados",
+      "deleteDataLoading": "Excluindo dados...",
+      "deleteAccountMessage": "Esta ação é <b>irreversível</b>. Sua conta e todos os dados associados serão permanentemente removidos.",
+      "deleteAccountNote": "Para confirmar, digite <b>{word}</b> abaixo:",
+      "deleteAccountConfirm": "Excluir minha conta permanentemente",
+      "deleteAccountLoading": "Excluindo conta..."
+    }
+  },
+  "utils": {
+    "relativeTime": {
+      "never": "Nunca atualizado",
+      "fullDate": "Atualizado em {date} às {time}",
+      "now": "Atualizado agora",
+      "minutes": "Atualizado há {count} {count, plural, =1 {min} other {mins}}",
+      "yesterday": "Atualizado ontem às {time}",
+      "hours": "Atualizado há {hours}h",
+      "hoursMinutes": "Atualizado há {hours}h e {minutes} {minutes, plural, =1 {min} other {mins}}",
+      "days": "Atualizado há {count} {count, plural, =1 {dia} other {dias}}",
+      "months": "Atualizado há {count} {count, plural, =1 {mês} other {meses}}",
+      "years": "Atualizado há {count} {count, plural, =1 {ano} other {anos}}",
+      "invalid": "Data inválida"
+    },
+    "toast": {
+      "cancelledTranscription": "Transcrição cancelada.",
+      "cancelled": "Atualização cancelada.",
+      "transcription": "Transcrição",
+      "transcribing": "Transcrevendo",
+      "metaStage1": "Preparando atualização",
+      "metaStage2": "Coletando anúncios",
+      "metaStage3": "Buscando detalhes",
+      "metaStage4": "Processando dados",
+      "metaStage5": "Salvando",
+      "pageWithTotal": "Página {page} ({total} registros)",
+      "page": "Página {page}",
+      "working": "Trabalhando nisso...",
+      "adsOf": "{done} de {total} anúncios",
+      "block": "Bloco {done} de {total}",
+      "fetchingDetails": "Buscando detalhes...",
+      "optimizing": "Otimizando...",
+      "saving": "Salvando...",
+      "requestingMeta": "Solicitando dados ao Meta...",
+      "wait": "Aguarde...",
+      "step": "Etapa {step} de {total}",
+      "stageSavingAds": "Salvando anúncios",
+      "stageSavingMetrics": "Salvando métricas",
+      "stageCalculating": "Calculando estatísticas",
+      "stageFinishing": "Finalizando",
+      "stageConcluding": "Concluindo",
+      "stageSaving": "Salvando",
+      "readingSheet": "Lendo planilha",
+      "processingData": "Processando dados",
+      "savingData": "Salvando dados",
+      "processing": "Processando",
+      "preparing": "Preparando atualização",
+      "done": "Concluído",
+      "failedUpdate": "Erro ao atualizar",
+      "cancelledShort": "Cancelado",
+      "rowsUpdated": "{count} registros atualizados",
+      "importDone": "Importação concluída",
+      "rowsRead": "{count} linhas lidas",
+      "connectingSheet": "Conectando à planilha...",
+      "rowsProcessed": "{count} linhas processadas",
+      "validating": "Validando dados...",
+      "applyingLeadscore": "Aplicando leadscore aos anúncios...",
+      "preparingImport": "Preparando importação...",
+      "sheetLabel": "Planilha: {title}",
+      "importFallback": "Importação",
+      "transcriptionStage1": "Iniciando transcrição",
+      "transcriptionStage2": "Transcrevendo anúncios",
+      "transcribedCount": "{count, plural, =0 {0 anúncios transcritos} =1 {1 anúncio transcrito} other {# anúncios transcritos}}",
+      "adsProgress": "{done} de {total} {total, plural, =1 {anúncio} other {anúncios}}",
+      "preparingAds": "Preparando anúncios..."
+    },
+    "errors": {
+      "validation": "Erro de validação: {errors}",
+      "field": "campo",
+      "connectionFailed": "Falha de conexão com o servidor",
+      "refused": "Servidor recusou a conexão. Verifique se o backend está rodando.",
+      "notFound": "Servidor não encontrado. Verifique a URL do backend.",
+      "timeoutSearch": "Timeout na requisição: A busca de anúncios demorou mais que 20 minutos. Tente novamente ou reduza o período de busca.",
+      "timeoutConnection": "Timeout de conexão. Verifique sua conexão com a internet.",
+      "network": "Erro de rede: {message}",
+      "authUnreachable": "Não foi possível conectar ao servidor de autenticação. Ele pode estar temporariamente indisponível — aguarde alguns instantes e tente novamente.",
+      "invalidCredentials": "E-mail ou senha incorretos.",
+      "emailNotConfirmed": "E-mail ainda não confirmado. Verifique sua caixa de entrada.",
+      "alreadyRegistered": "Já existe uma conta com este e-mail.",
+      "auth": "Erro de autenticação. Tente novamente.",
+      "unknown": "Erro desconhecido"
+    },
+    "authPopup": {
+      "clientOnly": "Popup de autenticação só pode ser usado no cliente.",
+      "blocked": "Não foi possível abrir a janela de autenticação. Verifique o bloqueador de pop-ups.",
+      "failed": "Falha na autenticação.",
+      "timeout": "Tempo limite para autenticação atingido.",
+      "closed": "Autenticação cancelada pelo usuário (popup fechado)."
+    },
+    "scopes": {
+      "ads_read": {
+        "label": "Ler dados de anúncios",
+        "impact": "Sem essa permissão a conexão é inútil — nenhuma conta de anúncios pode ser lida. Reconecte autorizando todas as permissões."
+      },
+      "ads_management": {
+        "label": "Gerenciar anúncios",
+        "impact": "Você poderá visualizar seus anúncios, mas não poderá criar, editar ou pausar anúncios pela Hookify."
+      },
+      "business_management": {
+        "label": "Gerenciar Business Manager",
+        "impact": "Contas de anúncios ligadas a um Business Manager não vão aparecer nem atualizar — só contas pessoais."
+      },
+      "pages_show_list": {
+        "label": "Listar Páginas",
+        "impact": "Sem essa permissão a Hookify não consegue obter o Page Access Token, necessário pra ler mídias de muitos anúncios. Thumbnails, vídeos e prévias podem ficar quebrados, e você não conseguirá criar anúncios novos (o seletor de Página fica vazio)."
+      },
+      "pages_read_engagement": {
+        "label": "Ler engajamento de Páginas",
+        "impact": "Algumas leituras avançadas de Página podem falhar (insights de posts orgânicos, leitura específica)."
+      }
+    }
+  }
+}
