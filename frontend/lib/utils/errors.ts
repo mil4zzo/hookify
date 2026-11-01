@@ -1,4 +1,5 @@
 import { translate } from "@/lib/i18n/translate"
+import { translateBackendMessage } from "@/lib/i18n/backendMessages"
 export type AppError = {
   status?: number
   code?: string
@@ -33,7 +34,7 @@ export function parseError(err: unknown): AppError {
     } else if (data?.detail) {
       // Se detail é objeto estruturado (com code/message), extrair message
       if (typeof data.detail === 'object' && data.detail !== null && 'message' in data.detail) {
-        message = data.detail.message
+        message = translateBackendMessage(String(data.detail.message))
         // Preservar code se disponível
         if (data.detail.code) {
           return {
@@ -44,7 +45,7 @@ export function parseError(err: unknown): AppError {
           }
         }
       } else if (typeof data.detail === 'string') {
-        message = data.detail
+        message = translateBackendMessage(data.detail)
       } else {
         message = JSON.stringify(data.detail)
       }
