@@ -1,5 +1,3 @@
-import type { TriStateToggleOption } from "@/components/common/TriStateToggle";
-
 /**
  * O que cada célula de métrica mostra ACIMA do número, no toggle de 3 posições da
  * tabela do Manager (menu "Exibição"):
@@ -17,12 +15,8 @@ export const MANAGER_CELL_MODE_STORAGE_KEY = "hookify-manager-cell-mode";
 /** Chave do toggle booleano anterior (Tendências on/off), lida só para migrar a preferência. */
 const LEGACY_SHOW_TRENDS_STORAGE_KEY = "hookify-manager-show-trends";
 
-/** Ordem = posições do trilho, da esquerda para a direita. */
-export const MANAGER_CELL_MODE_OPTIONS: readonly [TriStateToggleOption<ManagerCellMode>, TriStateToggleOption<ManagerCellMode>, TriStateToggleOption<ManagerCellMode>] = [
-  { value: "value", label: "Só o valor", hint: "Apenas o número da métrica" },
-  { value: "delta", label: "Variação", hint: "% contra a média do pack" },
-  { value: "trend", label: "Tendência", hint: "Barras dos últimos 5 dias" },
-];
+/** Ordem = posições do trilho, da esquerda para a direita. O texto de cada posição vem do idioma (manager.cellMode). */
+export const MANAGER_CELL_MODES: readonly ManagerCellMode[] = ["value", "delta", "trend"];
 
 function isManagerCellMode(value: unknown): value is ManagerCellMode {
   return value === "value" || value === "delta" || value === "trend";

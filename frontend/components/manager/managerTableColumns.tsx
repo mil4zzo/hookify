@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import { getAppLocale } from "@/lib/i18n/locale";
 import React from "react";
 import type { ColumnDef, ColumnHelper, Row, Table as TableInstance } from "@tanstack/react-table";
@@ -36,12 +37,14 @@ export type ViewMode = "detailed" | "minimal";
 const NAME_FUNNEL_FIELDS = ["ad_name", "adset_name", "campaign_name", "ad_id"];
 
 // Mesmo visual do ColumnFilter readonly usado nas colunas de métrica — um só vocabulário de "coluna filtrada".
-const ActiveFilterIcon = ({ onReveal, field }: { onReveal: (fieldId: string) => void; field: string }) => (
+const ActiveFilterIcon = ({ onReveal, field }: { onReveal: (fieldId: string) => void; field: string }) => {
+  const t = useTranslations("manager.columns");
+  return (
   <button
     type="button"
     className="flex h-6 w-6 items-center justify-center rounded-sm text-primary hover:bg-primary-10 focus-inset focus-visible:outline-none"
-    title="Ver onde esta coluna está sendo filtrada"
-    aria-label="Ver o filtro desta coluna"
+    title={t("revealFilter")}
+    aria-label={t("revealFilterAria")}
     onClick={(e) => {
       // O header também ordena: sem parar a propagação, revelar o filtro
       // reordenaria a tabela no mesmo clique.
@@ -51,9 +54,12 @@ const ActiveFilterIcon = ({ onReveal, field }: { onReveal: (fieldId: string) => 
   >
     <IconFilter className="h-3.5 w-3.5 fill-current" />
   </button>
-);
+  );
+};
 
 export type CreateManagerTableColumnsParams = {
+  /** Tradutor do namespace `manager` (as colunas são montadas fora de componente). */
+  t: (key: string, values?: Record<string, string | number>) => string;
   columnHelper: ColumnHelper<RankingsItem>;
   activeColumns: Set<ManagerColumnType>;
   groupByAdNameEffective: boolean;
@@ -193,7 +199,7 @@ function applySelectionClick(
 }
 
 export function createManagerTableColumns(params: CreateManagerTableColumnsParams): ColumnDef<RankingsItem, any>[] {
-  const { columnHelper, currentTab, onOpenDrill, groupByAdNameEffective, viewMode, selectionAnchorRef, activeColumns, provenanceIndex, selectedPackIds, filteredFieldIdsRef, onRevealField } = params;
+  const { t, columnHelper, currentTab, onOpenDrill, groupByAdNameEffective, viewMode, selectionAnchorRef, activeColumns, provenanceIndex, selectedPackIds, filteredFieldIdsRef, onRevealField } = params;
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const cols: ColumnDef<RankingsItem, any>[] = [];
@@ -296,7 +302,7 @@ export function createManagerTableColumns(params: CreateManagerTableColumnsParam
   }
 
   // AD name (sempre visível)
-  const nameColumnLabel = currentTab === "por-conjunto" ? "Conjunto" : currentTab === "por-campanha" ? "Campanha" : "Anúncio";
+  const nameColumnLabel = currentTab === "por-conjunto" ? t("columns.nameAdset") : currentTab === "por-campanha" ? t("columns.nameCampaign") : t("columns.nameAd");
   cols.push(
     columnHelper.accessor("ad_name", {
       sortDescFirst: false, // primeiro clique = A-Z, exibimos como seta baixo (invertDirection)
@@ -365,8 +371,8 @@ export function createManagerTableColumns(params: CreateManagerTableColumnsParam
     // `fieldId` é o campo que a REGRA cita (array de ids da linha); `id` é a coluna,
     // que mostra os nomes resolvidos. São diferentes de propósito: a regra pergunta
     // "está em algum destes packs?", a coluna exibe "Black Friday, Sempre On".
-    { id: "pack" as const, fieldId: "pack_ids", label: "Pack", resolve: (row: RankingsItem) => getRowPackNames(row, provenanceIndex) },
-    { id: "account" as const, fieldId: "account_ids", label: "Conta", resolve: (row: RankingsItem) => getRowAccountNames(row, provenanceIndex) },
+    { id: "pack" as const, fieldId: "pack_ids", label: t("columns.pack"), resolve: (row: RankingsItem) => getRowPackNames(row, provenanceIndex) },
+    { id: "account" as const, fieldId: "account_ids", label: t("columns.account"), resolve: (row: RankingsItem) => getRowAccountNames(row, provenanceIndex) },
   ];
 
   for (const dimension of provenanceDimensions) {
@@ -405,7 +411,7 @@ export function createManagerTableColumns(params: CreateManagerTableColumnsParam
         header: ({ column }) => (
           <div className="flex items-center gap-1">
             <SortIcon column={column} />
-            <span>Criado em</span>
+            <span>{t("columns.createdAt")}</span>
             {filteredFieldIdsRef.current.has("meta_created_time") && <ActiveFilterIcon onReveal={onRevealField} field="meta_created_time" />}
           </div>
         ),
@@ -427,7 +433,7 @@ export function createManagerTableColumns(params: CreateManagerTableColumnsParam
           const isoDate = info.getValue() as string | null;
           if (!isoDate) {
             return (
-              <span className="text-muted-foreground" title="Anúncio ainda não ressincronizado desde que passamos a guardar a data de criação">
+              <span className="text-muted-foreground" title={t("columns.createdMissing")}>
                 —
               </span>
             );
@@ -450,7 +456,7 @@ export function createManagerTableColumns(params: CreateManagerTableColumnsParam
           <div className={`flex w-full flex-col items-center ${isMinimalView ? "gap-1" : "gap-0.5"}`}>
             <div className="flex items-center justify-center gap-1">
               <SortIcon column={column} />
-              <span className={isMinimalView ? "text-xs" : ""}>Orçamento</span>
+              <span className={isMinimalView ? "text-xs" : ""}>{t("columns.budget")}</span>
             </div>
             <BudgetHeaderTotals totals={params.budgetTotalsRef.current} currentTab={budgetTab} minimal={isMinimalView} />
           </div>

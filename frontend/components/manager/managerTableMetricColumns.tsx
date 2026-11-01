@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import React from "react";
 import type { ColumnDef, Column } from "@tanstack/react-table";
 import { IconAlertTriangle, IconArrowNarrowDown, IconArrowNarrowUp, IconSquareCheck } from "@tabler/icons-react";
@@ -31,12 +32,14 @@ export const SortIcon = ({
 
 
 /** Funil do header: alguma condição da regra cita este campo. */
-const ActiveFilterIcon = ({ onReveal, field }: { onReveal: (fieldId: string) => void; field: string }) => (
+const ActiveFilterIcon = ({ onReveal, field }: { onReveal: (fieldId: string) => void; field: string }) => {
+  const t = useTranslations("manager.columns");
+  return (
   <button
     type="button"
     className="shrink-0 rounded-sm text-primary hover:bg-primary-10 focus-inset focus-visible:outline-none"
-    title="Ver onde esta coluna está sendo filtrada"
-    aria-label="Ver o filtro desta coluna"
+    title={t("revealFilter")}
+    aria-label={t("revealFilterAria")}
     onClick={(e) => {
       // O header ordena no clique: sem parar a propagação, revelar reordenaria junto.
       e.stopPropagation();
@@ -45,10 +48,11 @@ const ActiveFilterIcon = ({ onReveal, field }: { onReveal: (fieldId: string) => 
   >
     <IconFilter className="h-3.5 w-3.5 fill-current" />
   </button>
-);
+  );
+};
 
 export function buildMetricColumns(params: CreateManagerTableColumnsParams): ColumnDef<RankingsItem, unknown>[] {
-  const { columnHelper, activeColumns, byKey, endDate, cellMode, averagesRef, formatAverageRef, filteredAveragesRef, formatFilteredAverageRef, selectionAveragesRef, formatSelectionAverageRef, formatCurrencyRef, formatPct, globalFilterRef, filteredFieldIdsRef, onRevealField, viewMode, colorMetricValue, hasSheetIntegration, mqlLeadscoreMin, leadEconomicsByPack, hasLeadEconomics, actionTypeRef, getRowKey, openSettings, customColumns } = params;
+  const { t, columnHelper, activeColumns, byKey, endDate, cellMode, averagesRef, formatAverageRef, filteredAveragesRef, formatFilteredAverageRef, selectionAveragesRef, formatSelectionAverageRef, formatCurrencyRef, formatPct, globalFilterRef, filteredFieldIdsRef, onRevealField, viewMode, colorMetricValue, hasSheetIntegration, mqlLeadscoreMin, leadEconomicsByPack, hasLeadEconomics, actionTypeRef, getRowKey, openSettings, customColumns } = params;
 
   const customColumnIds = new Set<string>((customColumns ?? []).map((def) => def.key));
   const shouldShow = (id: ManagerColumnType) => isManagerMetricColumnVisible(id, { activeColumns, hasSheetIntegration, hasLeadEconomics, customColumnIds });
@@ -81,7 +85,7 @@ export function buildMetricColumns(params: CreateManagerTableColumnsParams): Col
     const value = kind === "selection" ? formatSelectionAverageRef.current(metricId) : formatFilteredAverageRef.current(metricId);
     if (!value) return null;
 
-    const tooltip = kind === "selection" ? `${isSum ? "Soma" : "Média"} dos ${selectionCount} selecionados` : isSum ? "Soma total dos filtrados" : "Média dos anúncios filtrados";
+    const tooltip = kind === "selection" ? t(isSum ? "averages.selectionSum" : "averages.selectionAvg", { count: selectionCount }) : isSum ? t("averages.filteredSum") : t("averages.filteredAvg");
     const textSize = isMinimal ? "text-2xs" : "text-xs";
     const avgLeading = isMinimal ? "leading-none" : "";
 
@@ -126,7 +130,7 @@ export function buildMetricColumns(params: CreateManagerTableColumnsParams): Col
                 <span className={`${textSize} text-muted-foreground font-normal cursor-help ${avgLeading}`}>{formatAverageRef.current(metricId)}</span>
               </TooltipTrigger>
               <TooltipContent side="bottom">
-                <p className="text-xs">{isSum ? "Soma total do pack" : "Média dos anúncios validáveis do pack"}</p>
+                <p className="text-xs">{isSum ? t("averages.packSum") : t("averages.packAvg")}</p>
               </TooltipContent>
             </Tooltip>
           </TooltipProvider>
@@ -379,7 +383,7 @@ export function buildMetricColumns(params: CreateManagerTableColumnsParams): Col
                         <span className={`${textSize} text-muted-foreground font-normal cursor-help ${avgLeading}`}>{formatAverageRef.current("cpmql")}</span>
                       </TooltipTrigger>
                       <TooltipContent side="bottom">
-                        <p className="text-xs">Média dos anúncios validáveis do pack</p>
+                        <p className="text-xs">{t("averages.packAvg")}</p>
                       </TooltipContent>
                     </Tooltip>
                   </TooltipProvider>
@@ -407,9 +411,9 @@ export function buildMetricColumns(params: CreateManagerTableColumnsParams): Col
   const describeExcludedRows = (excludedMixed: number, excludedNoEconomics: number): string => {
     const total = excludedMixed + excludedNoEconomics;
     const parts: string[] = [];
-    if (excludedMixed > 0) parts.push(`${excludedMixed} ${excludedMixed === 1 ? "junta" : "juntam"} packs com economias do lead diferentes`);
-    if (excludedNoEconomics > 0) parts.push(`${excludedNoEconomics} ${excludedNoEconomics === 1 ? "é de pack" : "são de packs"} sem economia cadastrada`);
-    return `A média não inclui ${total} ${total === 1 ? "anúncio" : "anúncios"}: ${parts.join("; ")}.`;
+    if (excludedMixed > 0) parts.push(t("averages.excludedMixed", { count: excludedMixed }));
+    if (excludedNoEconomics > 0) parts.push(t("averages.excludedNoEconomics", { count: excludedNoEconomics }));
+    return t("averages.excluded", { total, details: parts.join("; ") });
   };
 
   const renderLeadEconomicsHeader = (metricId: LeadEconomicsMetric, column: Column<RankingsItem, unknown>) => {
@@ -423,9 +427,9 @@ export function buildMetricColumns(params: CreateManagerTableColumnsParams): Col
         : null;
     const average = formatAverageRef.current(metricId);
     const averageTooltip = [
-      metricId === "leads_scored" ? "Soma dos leads com nota dos anúncios incluídos" : "Média ponderada pelos leads com nota de cada anúncio",
-      metricId === "lead_margin" && averages?.lead_margin_target != null ? `meta ${formatMetricValue("lead_margin", averages.lead_margin_target)}` : null,
-      rowsSummary?.lowSample ? `número instável: só ${rowsSummary.leadsScored} leads com nota` : null,
+      metricId === "leads_scored" ? t("averages.scoredSum") : t("averages.scoredAvg"),
+      metricId === "lead_margin" && averages?.lead_margin_target != null ? t("averages.target", { value: formatMetricValue("lead_margin", averages.lead_margin_target) }) : null,
+      rowsSummary?.lowSample ? t("averages.unstable", { count: rowsSummary.leadsScored }) : null,
     ]
       .filter(Boolean)
       .join(" · ");
@@ -464,7 +468,7 @@ export function buildMetricColumns(params: CreateManagerTableColumnsParams): Col
                 <span className={`${textSize} text-muted-foreground font-normal cursor-help inline-flex items-center gap-0.5 ${avgLeading}`}>
                   <span className={rowsSummary?.lowSample ? "opacity-50" : ""}>{average}</span>
                   {/* Mesmo sinal da célula: esmaecido + triângulo de alerta = número instável (poucos leads com nota). */}
-                  {rowsSummary?.lowSample && <IconAlertTriangle className="h-3 w-3 shrink-0" aria-label="Número instável" role="img" />}
+                  {rowsSummary?.lowSample && <IconAlertTriangle className="h-3 w-3 shrink-0" aria-label={t("averages.unstableLabel")} role="img" />}
                 </span>
               </TooltipTrigger>
               <TooltipContent side="bottom">

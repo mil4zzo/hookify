@@ -14,8 +14,8 @@ import type { ColumnDef } from "@tanstack/react-table";
 import { IconDeviceTablet, IconBorderAll, IconFolder, IconPlayCardA, IconLoader2, IconDownload, IconMaximize, IconMinimize, IconAdjustmentsHorizontal, IconChevronDown, IconShare2 } from "@tabler/icons-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
 import { ToggleSwitch } from "@/components/common/ToggleSwitch";
-import { TriStateToggle } from "@/components/common/TriStateToggle";
-import { MANAGER_CELL_MODE_OPTIONS, type ManagerCellMode } from "@/components/manager/managerCellMode";
+import { TriStateToggle, type TriStateToggleOption } from "@/components/common/TriStateToggle";
+import { MANAGER_CELL_MODES, type ManagerCellMode } from "@/components/manager/managerCellMode";
 import { ManagerExportDialog } from "@/components/manager/ManagerExportDialog";
 import { ShareCreateDialog } from "@/components/manager/ShareCreateDialog";
 import { toast } from "sonner";
@@ -173,7 +173,12 @@ const MANAGER_TABS = [
 // ExpandedChildrenRow / CampaignChildrenRow são reusados como conteúdo do ManagerDrillModal.
 
 export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange, adsIndividual, isLoadingIndividual, adsAdset, isLoadingAdset, adsCampaign, isLoadingCampaign, actionType = "", selectedPackIds = [], endDate, dateStart, dateStop, availableConversionTypes = [], cellMode = "trend", onCellModeChange, averagesOverride, hasSheetIntegration = false, customColumns = EMPTY_CUSTOM_COLUMNS, names, isLoading = false, isError = false, initialFilters, onVisibleGroupKeysChange, serverTotal }: ManagerTableProps) {
+  const t = useTranslations("manager");
   const tTabs = useTranslations("manager.tabs");
+  const cellModeOptions = useMemo(
+    () => MANAGER_CELL_MODES.map((value) => ({ value, label: t(`cellMode.${value}.label`), hint: t(`cellMode.${value}.hint`) })) as unknown as readonly [TriStateToggleOption<ManagerCellMode>, TriStateToggleOption<ManagerCellMode>, TriStateToggleOption<ManagerCellMode>],
+    [t],
+  );
   const managerTabs: TabItem[] = useMemo(
     () => MANAGER_TABS.map((tab) => ({ value: tab.value, label: tTabs(tab.labelKey), icon: tab.icon })),
     [tTabs],
@@ -419,8 +424,8 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
         <div className="flex items-center gap-3">
           <IconLoader2 className="h-5 w-5 animate-spin flex-shrink-0 text-muted-foreground" />
           <div className="flex flex-col gap-0.5 min-w-0 flex-1">
-            <span className="text-xs text-muted-foreground">Uau, muitos dados!</span>
-            <span className="text-sm text-foreground">O carregamento pode demorar alguns minutos devido ao alto volume. Isso é ótimo, continue escalando!</span>
+            <span className="text-xs text-muted-foreground">{t("slowLoading.title")}</span>
+            <span className="text-sm text-foreground">{t("slowLoading.body")}</span>
           </div>
         </div>,
         { id: SLOW_LOADING_TOAST_ID, duration: Infinity },
@@ -429,7 +434,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
       toast.dismiss(SLOW_LOADING_TOAST_ID);
     }
     return () => { toast.dismiss(SLOW_LOADING_TOAST_ID); };
-  }, [showSlowLoadingHint]);
+  }, [showSlowLoadingHint, t]);
 
   const [selectedAd, setSelectedAd] = useState<Ad | null>(null);
   const [selectedAdset, setSelectedAdset] = useState<{ adsetId: string; adsetName?: string | null } | null>(null);
@@ -868,6 +873,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
 
   const columns = useMemo<ColumnDef<Ad, any>[]>(() => {
     return createManagerTableColumns({
+      t,
       columnHelper: columnHelper as any,
       activeColumns,
       groupByAdNameEffective,
@@ -903,7 +909,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
       globalFilterRef,
       ruleContext: { actionType, mqlLeadscoreMin, leadEconomicsByPack, names },
     });
-  }, [activeColumns, groupByAdNameEffective, byKey, endDate, cellMode, formatPct, viewMode, colorMetricValue, provenanceIndex, hasSheetIntegration, mqlLeadscoreMin, leadEconomicsByPack, hasLeadEconomics, customColumns, getRowKey, handleRevealField, currentTab, openSettings, actionType, handleOpenDrill, packCtxIds, names]);
+  }, [t, activeColumns, groupByAdNameEffective, byKey, endDate, cellMode, formatPct, viewMode, colorMetricValue, provenanceIndex, hasSheetIntegration, mqlLeadscoreMin, leadEconomicsByPack, hasLeadEconomics, customColumns, getRowKey, handleRevealField, currentTab, openSettings, actionType, handleOpenDrill, packCtxIds, names]);
 
   // Handler que garante que sempre haja pelo menos uma ordenação
   const handleSortingChange = useCallback((updater: SortingState | ((old: SortingState) => SortingState)) => {
@@ -1114,10 +1120,10 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
   const searchBar = useMemo(() => {
     const placeholder =
       currentTab === "por-conjunto"
-        ? "Buscar por nome do conjunto..."
+        ? t("search.adset")
         : currentTab === "por-campanha"
-          ? "Buscar por nome da campanha..."
-          : "Buscar por nome do anúncio...";
+          ? t("search.campaign")
+          : t("search.ad");
     return (
       <SearchInputWithClear
         value={globalFilter}
@@ -1127,7 +1133,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
         inputClassName="bg-background rounded-none border-b border-r-0 border-l-0 border-t-0 border-border w-full focus-visible:border-b-primary focus-visible:ring-0 focus-visible:ring-offset-0"
       />
     );
-  }, [currentTab, globalFilter]);
+  }, [currentTab, globalFilter, t]);
 
   const filterBarItemKind: ManagerItemKind = currentTab === "por-conjunto" ? "adsets" : currentTab === "por-campanha" ? "campaigns" : "ads";
   const filterBarFilteredCount = table.getFilteredRowModel().rows.length;
@@ -1161,20 +1167,20 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
                 aria-pressed={belowTargetFilterOn}
                 onClick={toggleBelowTargetFilter}
               >
-                {belowTargetCount} de {withMarginCount} abaixo da meta de margem
+                {t("belowTarget.chip", { below: belowTargetCount, withMargin: withMarginCount })}
               </button>
             </TooltipTrigger>
             <TooltipContent side="bottom">
               <p className="text-xs">
                 {belowTargetFilterOn
-                  ? "Mostrando só os anúncios abaixo da meta de margem. Clique para mostrar todos."
-                  : "Anúncios com margem abaixo da margem desejada do próprio produto. Clique para ver só eles."}
+                  ? t("belowTarget.on")
+                  : t("belowTarget.off")}
               </p>
             </TooltipContent>
           </Tooltip>
         </TooltipProvider>
       ) : null,
-    [showsLeadEconomicsColumn, belowTargetCount, withMarginCount, belowTargetFilterOn, toggleBelowTargetFilter],
+    [showsLeadEconomicsColumn, belowTargetCount, withMarginCount, belowTargetFilterOn, toggleBelowTargetFilter, t],
   );
 
   const controls = useMemo(
@@ -1189,9 +1195,9 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
           {/* Exibição: agrupa toggles de exibição e exportação (ações esporádicas) */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="picker" className="gap-2" aria-label="Opções de exibição">
+              <Button variant="picker" className="gap-2" aria-label={t("display.menuAria")}>
                 <IconAdjustmentsHorizontal className="h-4 w-4" />
-                <span className="hidden text-sm sm:inline">Exibição</span>
+                <span className="hidden text-sm sm:inline">{t("display.menu")}</span>
                 <IconChevronDown className="h-4 w-4 opacity-60" />
               </Button>
             </DropdownMenuTrigger>
@@ -1202,7 +1208,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
                   id="menu-compact"
                   checked={viewMode === "minimal"}
                   onCheckedChange={(v) => handleViewModeChange(v ? "minimal" : "detailed")}
-                  label="Compacta"
+                  label={t("display.compact")}
                   variant="minimal"
                   size="sm"
                   className="w-full justify-start"
@@ -1215,9 +1221,9 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
                 <TriStateToggle
                   id="menu-cell-mode"
                   value={cellMode}
-                  options={MANAGER_CELL_MODE_OPTIONS}
+                  options={cellModeOptions}
                   onValueChange={(mode) => onCellModeChange?.(mode)}
-                  ariaLabel="Conteúdo das células"
+                  ariaLabel={t("display.cellContent")}
                   className="w-full"
                 />
               </div>
@@ -1226,7 +1232,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
                   id="menu-color-metrics"
                   checked={colorMetricValue}
                   onCheckedChange={handleColorMetricValueChange}
-                  label="Comparar com a média"
+                  label={t("display.compareAverage")}
                   variant="minimal"
                   size="sm"
                   className="w-full justify-start"
@@ -1235,7 +1241,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
 
               <DropdownMenuSeparator />
               <DropdownMenuItem icon={<IconDownload />} onClick={() => setIsExportOpen(true)}>
-                Exportar…
+                {t("display.export")}
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
@@ -1244,19 +1250,19 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
           <TooltipProvider>
             <Tooltip>
               <TooltipTrigger asChild>
-                <Button variant="outline" size="icon" onClick={() => setIsFullscreen((prev) => !prev)} aria-label={isFullscreen ? "Sair da tela cheia" : "Tela cheia"} aria-pressed={isFullscreen}>
+                <Button variant="outline" size="icon" onClick={() => setIsFullscreen((prev) => !prev)} aria-label={isFullscreen ? t("display.exitFullscreen") : t("display.fullscreen")} aria-pressed={isFullscreen}>
                   {isFullscreen ? <IconMinimize className="h-4 w-4" /> : <IconMaximize className="h-4 w-4" />}
                 </Button>
               </TooltipTrigger>
               <TooltipContent>
-                <p className="text-xs">{isFullscreen ? "Sair da tela cheia (Esc)" : "Tela cheia"}</p>
+                <p className="text-xs">{isFullscreen ? t("display.exitFullscreenEsc") : t("display.fullscreen")}</p>
               </TooltipContent>
             </Tooltip>
           </TooltipProvider>
         </div>
       </>
     ),
-    [viewMode, handleViewModeChange, cellMode, onCellModeChange, colorMetricValue, handleColorMetricValueChange, activeColumns, columnOrder, handleToggleColumn, handleReorderColumns, handleSelectAllColumns, handleDeselectAllColumns, hasSheetIntegration, isFullscreen],
+    [t, cellModeOptions, viewMode, handleViewModeChange, cellMode, onCellModeChange, colorMetricValue, handleColorMetricValueChange, activeColumns, columnOrder, handleToggleColumn, handleReorderColumns, handleSelectAllColumns, handleDeselectAllColumns, hasSheetIntegration, isFullscreen],
   );
 
   // ── Compartilhamento (aba Criativos): seleção/preset → dialog → link público /s/{token} ──
@@ -1281,12 +1287,12 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
         .sort((a, b) => Number((b as any)[metric] ?? 0) - Number((a as any)[metric] ?? 0))
         .slice(0, 5);
       if (top.length === 0) {
-        toast.info("Nenhum criativo visível para compartilhar.");
+        toast.info(t("share.none"));
         return;
       }
       setShareRows(top);
     },
-    [table],
+    [table, t],
   );
 
   // Memoizado por referência — o FilterBar (React.memo) compara trailingSlot por ===.
@@ -1297,20 +1303,20 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
         <DropdownMenuTrigger asChild>
           <Button variant="outline" size="sm" className="gap-1.5 whitespace-nowrap">
             <IconShare2 className="h-4 w-4" />
-            Compartilhar
+            {t("share.button")}
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
           <DropdownMenuItem disabled={selectedCount === 0} onSelect={openShareFromSelection}>
-            Seleção atual ({selectedCount})
+            {t("share.selection", { count: selectedCount })}
           </DropdownMenuItem>
           <DropdownMenuSeparator />
-          <DropdownMenuItem onSelect={() => openShareFromPreset("spend")}>Top 5 por gasto</DropdownMenuItem>
-          <DropdownMenuItem onSelect={() => openShareFromPreset("ctr")}>Top 5 por CTR</DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => openShareFromPreset("spend")}>{t("share.topSpend")}</DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => openShareFromPreset("ctr")}>{t("share.topCtr")}</DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
     );
-  }, [currentTab, selectedCount, openShareFromSelection, openShareFromPreset]);
+  }, [currentTab, selectedCount, openShareFromSelection, openShareFromPreset, t]);
 
   const tableContentProps = useMemo(
     () => ({
@@ -1526,12 +1532,12 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
       />
 
       {/* Details Dialog */}
-      <AppDialog isOpen={!!selectedAd} onClose={() => setSelectedAd(null)} title="Detalhes do anúncio" size="5xl" padding="md" className="flex h-[90dvh] min-h-0 flex-col overflow-hidden" bodyClassName="flex min-h-0 flex-1 flex-col">
+      <AppDialog isOpen={!!selectedAd} onClose={() => setSelectedAd(null)} title={t("dialogs.adDetails")} size="5xl" padding="md" className="flex h-[90dvh] min-h-0 flex-col overflow-hidden" bodyClassName="flex min-h-0 flex-1 flex-col">
         {selectedAd && <AdDetailsDialog ad={selectedAd} groupByAdName={groupByAdNameEffective} dateStart={dateStart} dateStop={dateStop} actionType={actionType} packIds={selectedPackIds} availableConversionTypes={availableConversionTypes} averages={averages} />}
       </AppDialog>
 
       {/* Adset Details Dialog */}
-      <AppDialog isOpen={!!selectedAdset} onClose={() => setSelectedAdset(null)} title="Detalhes do conjunto" size="4xl" padding="md">
+      <AppDialog isOpen={!!selectedAdset} onClose={() => setSelectedAdset(null)} title={t("dialogs.adsetDetails")} size="4xl" padding="md">
         {selectedAdset && <AdsetDetailsDialog adsetId={selectedAdset.adsetId} adsetName={selectedAdset.adsetName} dateStart={dateStart} dateStop={dateStop} actionType={actionType} packIds={selectedPackIds} />}
       </AppDialog>
 
