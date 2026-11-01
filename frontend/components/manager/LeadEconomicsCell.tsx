@@ -1,5 +1,6 @@
 "use client";
 
+import { translate } from "@/lib/i18n/translate";
 import React from "react";
 import { IconAlertTriangle, IconArrowsSplit, IconCalculatorOff, type Icon } from "@tabler/icons-react";
 import type { RankingsItem } from "@/lib/api/schemas";
@@ -20,9 +21,16 @@ export type LeadEconomicsMetric = "cpl_ceiling" | "cpl_actual" | "leads_scored" 
 
 /** Por que a célula está vazia — no tooltip (e, com ícone, no rótulo dele). */
 export const LEAD_ECONOMICS_UNAVAILABLE_TEXT: Record<LeadEconomicsUnavailableReason, string> = {
-  "no-economics": "Sem economia do lead cadastrada no pack deste anúncio.",
-  "mixed-economics": "Os packs deste anúncio têm economias do lead diferentes: não há um teto só para ele.",
-  "no-scored-leads": "Nenhum lead com nota no período.",
+  // Getters: o idioma é lido a cada leitura, não congelado na carga do módulo.
+  get "no-economics"() {
+    return translate("manager.leadEconomics.noEconomics");
+  },
+  get "mixed-economics"() {
+    return translate("manager.leadEconomics.mixedEconomics");
+  },
+  get "no-scored-leads"() {
+    return translate("manager.leadEconomics.noScoredLeads");
+  },
 };
 
 /**
@@ -37,26 +45,24 @@ const STRUCTURAL_ICON: Partial<Record<LeadEconomicsUnavailableReason, Icon>> = {
   "mixed-economics": IconArrowsSplit,
 };
 
-const LOW_SAMPLE_PREFIX = "Número instável";
-
 /**
  * Texto do tooltip de uma célula com valor. Exportado para o teste prender o que o
  * usuário lê ao passar o mouse.
  */
 export function describeLeadEconomicsValue(result: LeadEconomicsResult, formatCurrency: (n: number) => string): string {
   const parts: string[] = [];
-  parts.push(result.cplActual === null ? "sem gasto no período" : `CPL Real ${formatCurrency(result.cplActual)}`);
-  parts.push(`CPL Max ${formatCurrency(result.cplCeiling)}`);
-  if (result.targetMargin !== null) parts.push(`meta ${formatMetricValue("lead_margin", result.targetMargin)}`);
-  parts.push(`${result.leadsScored} ${result.leadsScored === 1 ? "lead" : "leads"} com nota`);
+  parts.push(result.cplActual === null ? translate("manager.leadEconomics.noSpend") : translate("manager.leadEconomics.cplActual", { value: formatCurrency(result.cplActual) }));
+  parts.push(translate("manager.leadEconomics.cplCeiling", { value: formatCurrency(result.cplCeiling) }));
+  if (result.targetMargin !== null) parts.push(translate("manager.leadEconomics.target", { value: formatMetricValue("lead_margin", result.targetMargin) }));
+  parts.push(translate("manager.leadEconomics.scored", { count: result.leadsScored }));
   const text = parts.join(" · ");
-  return result.lowSample ? `${LOW_SAMPLE_PREFIX}: poucos leads com nota — ${text}` : text;
+  return result.lowSample ? translate("manager.leadEconomics.lowSample", { prefix: translate("manager.leadEconomics.unstablePrefix"), text }) : text;
 }
 
 /** Margem sem número apesar de haver conta: nenhum faturamento esperado, ou nenhum gasto. */
 function describeMissingMargin(result: LeadEconomicsResult): string {
-  if (result.revenuePerLead <= 0) return "Nenhum lead deste anúncio está numa faixa que compra: não há faturamento para dividir.";
-  return "Sem gasto no período: não há custo por lead para comparar.";
+  if (result.revenuePerLead <= 0) return translate("manager.leadEconomics.noRevenue");
+  return translate("manager.leadEconomics.noSpendCompare");
 }
 
 /** O que a célula mostra — pura, para o teste ler o tooltip que o HTML fechado não traz. */
@@ -84,7 +90,7 @@ export function leadEconomicsCellView(params: {
   const value =
     metric === "cpl_ceiling" ? result.cplCeiling : metric === "cpl_actual" ? result.cplActual : metric === "leads_scored" ? result.leadsScored : result.margin;
   if (value === null) {
-    return { kind: "dash", tooltip: metric === "cpl_actual" ? "Sem gasto no período: não há custo por lead para mostrar." : describeMissingMargin(result) };
+    return { kind: "dash", tooltip: metric === "cpl_actual" ? translate("manager.leadEconomics.noSpendShow") : describeMissingMargin(result) };
   }
 
   let toneClass = "";
@@ -183,7 +189,7 @@ export const LeadEconomicsCell = React.memo(function LeadEconomicsCell({
           <span className={cn(view.toneClass, view.lowSample && "opacity-50")}>{view.text}</span>
           {view.lowSample && (
             // Cinza, não amarelo: a Margem já usa o amarelo para "abaixo da meta".
-            <IconAlertTriangle className={cn("shrink-0 text-muted-foreground", minimal ? "h-3 w-3" : "h-3.5 w-3.5")} aria-label={LOW_SAMPLE_PREFIX} role="img" />
+            <IconAlertTriangle className={cn("shrink-0 text-muted-foreground", minimal ? "h-3 w-3" : "h-3.5 w-3.5")} aria-label={translate("manager.leadEconomics.unstablePrefix")} role="img" />
           )}
         </span>
       </WithTooltip>

@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import type { ManagerItemKind } from "./managerItemKind";
 import { useEffect, useMemo, useState } from "react";
 import { IconArrowsSort, IconFilter } from "@tabler/icons-react";
@@ -37,9 +38,7 @@ export type ChildrenEntity = "ads" | "variations" | "adsets";
 const NOOP_SET_RULES: React.Dispatch<React.SetStateAction<RuleTree>> = () => {};
 
 type EntityConfig = {
-  plural: string;
   itemKind: ManagerItemKind;
-  nameHeader: string;
   nameSortKey: string;
   statusTab: "individual" | "por-conjunto";
   /** Entidade-alvo do pausar/ativar em massa (ads/variations=ad, adsets=adset). */
@@ -52,20 +51,17 @@ type EntityConfig = {
   richNameCell: boolean;
   /** Injeta ad_count: 1 nas linhas (não para adsets, que têm ad_count real) */
   addAdCount: boolean;
-  textColumns: { id: string; label: string; isText: true }[];
+  /** Colunas de texto (ids) cujo filtro acende o funil do cabeçalho de nome. */
+  textColumns: { id: string }[];
   rowKey: (child: any) => string;
-  nameTitle: (child: any) => string;
+  /** Nome exibido da linha; `unnamed` é o texto traduzido para quando o dado vem sem nome. */
+  nameTitle: (child: any, unnamed: string) => string;
   colspanExtra: number;
-  emptyForSearch: (term: string) => string;
-  emptyForSearchAndFilters: (term: string) => string;
-  emptyForFilters: string;
 };
 
 const ENTITY_CONFIG: Record<ChildrenEntity, EntityConfig> = {
   ads: {
-    plural: "anúncios",
     itemKind: "ads",
-    nameHeader: "Anúncios",
     nameSortKey: "ad_id",
     statusTab: "individual",
     bulkEntityType: "ad",
@@ -74,20 +70,15 @@ const ENTITY_CONFIG: Record<ChildrenEntity, EntityConfig> = {
     richNameCell: true,
     addAdCount: true,
     textColumns: [
-      { id: "ad_name", label: "Anúncio", isText: true },
-      { id: "campaign_name_filter", label: "Campanha", isText: true },
+      { id: "ad_name" },
+      { id: "campaign_name_filter" },
     ],
     rowKey: (child) => String(child.ad_id),
-    nameTitle: (child) => child.ad_name || "Sem nome",
+    nameTitle: (child, unnamed) => child.ad_name || unnamed,
     colspanExtra: 2,
-    emptyForSearch: (term) => `Nenhum anúncio encontrado para "${term}".`,
-    emptyForSearchAndFilters: (term) => `Nenhum anúncio encontrado para "${term}" com os filtros aplicados.`,
-    emptyForFilters: "Nenhum anúncio corresponde aos filtros aplicados.",
   },
   variations: {
-    plural: "variações",
     itemKind: "variations",
-    nameHeader: "Variações",
     nameSortKey: "ad_id",
     statusTab: "individual",
     bulkEntityType: "ad",
@@ -96,20 +87,15 @@ const ENTITY_CONFIG: Record<ChildrenEntity, EntityConfig> = {
     richNameCell: true,
     addAdCount: true,
     textColumns: [
-      { id: "adset_name_filter", label: "Conjunto", isText: true },
-      { id: "campaign_name_filter", label: "Campanha", isText: true },
+      { id: "adset_name_filter" },
+      { id: "campaign_name_filter" },
     ],
     rowKey: (child) => String(child.ad_id),
-    nameTitle: (child) => child.adset_name || "Sem nome",
+    nameTitle: (child, unnamed) => child.adset_name || unnamed,
     colspanExtra: 1,
-    emptyForSearch: (term) => `Nenhuma variação encontrada para "${term}".`,
-    emptyForSearchAndFilters: (term) => `Nenhuma variação encontrada para "${term}" com os filtros aplicados.`,
-    emptyForFilters: "Nenhuma variação corresponde aos filtros aplicados.",
   },
   adsets: {
-    plural: "conjuntos",
     itemKind: "adsets",
-    nameHeader: "Conjuntos",
     nameSortKey: "adset_name",
     statusTab: "por-conjunto",
     bulkEntityType: "adset",
@@ -117,13 +103,10 @@ const ENTITY_CONFIG: Record<ChildrenEntity, EntityConfig> = {
     searchFields: (child) => [String(child.adset_name || ""), String(child.adset_id || "")],
     richNameCell: false,
     addAdCount: false,
-    textColumns: [{ id: "adset_name_filter", label: "Conjunto", isText: true }],
+    textColumns: [{ id: "adset_name_filter" }],
     rowKey: (child) => String(child.adset_id || "") || String(child.adset_name || "") || String(child.ad_name || ""),
-    nameTitle: (child) => child.adset_name || child.ad_name || "Sem nome",
+    nameTitle: (child, unnamed) => child.adset_name || child.ad_name || unnamed,
     colspanExtra: 2,
-    emptyForSearch: (term) => `Nenhum conjunto encontrado para "${term}".`,
-    emptyForSearchAndFilters: (term) => `Nenhum conjunto encontrado para "${term}" com os filtros aplicados.`,
-    emptyForFilters: "Nenhum conjunto corresponde aos filtros aplicados.",
   },
 };
 
@@ -213,7 +196,10 @@ export function ManagerChildrenTable({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- customColumnsVersion é o gatilho do registro
     [activeColumns, columnOrder, hasSheetIntegration, hasLeadEconomics, customColumnsVersion],
   );
-  const childrenLabel = config.plural;
+  const t = useTranslations("manager.children");
+  const tItems = useTranslations("manager.items");
+  const childrenLabel = tItems(config.itemKind);
+  const entityKey = resolvedEntity;
 
   const ruleContext = useMemo(() => ({ actionType, mqlLeadscoreMin, leadEconomicsByPack }), [actionType, mqlLeadscoreMin, leadEconomicsByPack]);
 
@@ -359,15 +345,15 @@ export function ManagerChildrenTable({
   const metricColumnClass = "min-w-[6rem] cursor-pointer select-none whitespace-nowrap px-4 py-3 text-center hover:text-primary";
 
   const loadingContent = (
-    <StatePanel kind="loading" message={`Carregando ${childrenLabel}...`} density="compact" layout="inline" />
+    <StatePanel kind="loading" message={t("loading", { items: childrenLabel })} density="compact" layout="inline" />
   );
 
   const errorContent = (
-    <StatePanel kind="error" message={`Erro ao carregar ${childrenLabel}.`} density="compact" layout="inline" />
+    <StatePanel kind="error" message={t("error", { items: childrenLabel })} density="compact" layout="inline" />
   );
 
   const emptyContent = (
-    <StatePanel kind="empty" message={`Sem ${childrenLabel} no período.`} density="compact" layout="inline" />
+    <StatePanel kind="empty" message={t("empty", { items: childrenLabel })} density="compact" layout="inline" />
   );
 
   if (isLoading) {
@@ -410,7 +396,7 @@ export function ManagerChildrenTable({
     <div className={asContent ? "relative flex h-full min-h-0 flex-1 flex-col overflow-hidden" : "relative"}>
       {/* Dentro do modal (asContent) o wrapper nao leva padding lateral nem superior: a busca/filtros alinham
           com a tabela e o resto do modal, e o conteudo comeca na mesma altura das outras abas (so o gap do TabbedContent). */}
-      <div className={asContent ? "flex-shrink-0 pb-3" : "flex-shrink-0 px-4 py-3"} role="region" aria-label="Busca e filtros da tabela expandida">
+      <div className={asContent ? "flex-shrink-0 pb-3" : "flex-shrink-0 px-4 py-3"} role="region" aria-label={t("filtersRegion")}>
         {/* Mesmo layout de duas linhas da tabela principal: busca + contagem + Add filter + ações na
             1ª linha; chips de filtro em largura total na 2ª (renderizada pelo próprio FilterBar). */}
         <FilterBar
@@ -427,7 +413,7 @@ export function ManagerChildrenTable({
             <SearchInputWithClear
               value={searchTerm}
               onChange={setSearchTerm}
-              placeholder="Buscar por nome ou ID..."
+              placeholder={t("search")}
               wrapperClassName="flex-shrink-0 w-72 max-w-[min(18rem,100%)]"
               size="sm"
               inputClassName="w-full text-xs"
@@ -443,9 +429,9 @@ export function ManagerChildrenTable({
             message={
               searchTerm.trim()
                 ? !isEmptyRuleTree(rules)
-                  ? config.emptyForSearchAndFilters(searchTerm)
-                  : config.emptyForSearch(searchTerm)
-                : config.emptyForFilters
+                  ? t(`${entityKey}.emptySearchFilters`, { term: searchTerm })
+                  : t(`${entityKey}.emptySearch`, { term: searchTerm })
+                : t(`${entityKey}.emptyFilters`)
             }
             density="compact"
           />
@@ -493,7 +479,7 @@ export function ManagerChildrenTable({
                 </th>
                 <th className={cn("cursor-pointer select-none px-3 py-3 text-left text-2xs font-medium uppercase tracking-wide hover:text-primary", PINNED_CELL, PINNED_NAME_LEFT, PINNED_NAME_WIDTH, "bg-card", sortConfig.column === config.nameSortKey && "text-primary")} onClick={() => handleSort(config.nameSortKey)}>
                   <div className="flex items-center gap-1">
-                    {config.nameHeader}
+                    {t(`${entityKey}.header`)}
                     {isNameColumnFiltered && filterIndicator}
                     <IconArrowsSort className="h-3 w-3" />
                   </div>
@@ -537,7 +523,7 @@ export function ManagerChildrenTable({
                       <div className="flex items-center gap-2">
                         <ThumbnailImage src={getAdThumbnail(child)} alt="thumb" size="sm" />
                         <div className="min-w-0 flex-1">
-                          <div className="truncate text-xs font-medium">{config.nameTitle(child)}</div>
+                          <div className="truncate text-xs font-medium">{config.nameTitle(child, t("unnamed"))}</div>
                           <div className="flex items-center gap-2 truncate">
                             <span className="truncate text-xs text-muted-foreground">{child.campaign_name}</span>
                           </div>
@@ -545,7 +531,7 @@ export function ManagerChildrenTable({
                       </div>
                     ) : (
                       <div className="min-w-0 flex-1">
-                        <div className="truncate text-xs font-medium">{config.nameTitle(child)}</div>
+                        <div className="truncate text-xs font-medium">{config.nameTitle(child, t("unnamed"))}</div>
                       </div>
                     )}
                   </td>

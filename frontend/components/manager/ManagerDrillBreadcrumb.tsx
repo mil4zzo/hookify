@@ -1,14 +1,9 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import React from "react";
 import { IconChevronRight, IconFolder, IconBorderAll, IconPlayCardA } from "@tabler/icons-react";
 import type { DrillKind } from "@/lib/manager/useDrillState";
-
-export const KIND_LABEL: Record<DrillKind, string> = {
-  campaign: "Campanha",
-  adset: "Conjunto",
-  adname: "Anúncio",
-};
 
 const KIND_ICON: Record<DrillKind, React.ElementType> = {
   campaign: IconFolder,
@@ -34,6 +29,7 @@ interface ManagerDrillBreadcrumbProps {
 }
 
 export function ManagerDrillBreadcrumb({ crumbs, onNavigate }: ManagerDrillBreadcrumbProps) {
+  const t = useTranslations("manager.drill.kind");
   if (crumbs.length === 0) return null;
   return (
     <nav aria-label="Breadcrumb" className="flex flex-wrap items-center gap-1 text-sm">
@@ -45,7 +41,7 @@ export function ManagerDrillBreadcrumb({ crumbs, onNavigate }: ManagerDrillBread
         const kindRow = (
           <span className="flex items-center gap-1 text-xs uppercase tracking-wide">
             <Icon className="h-3 w-3" aria-hidden />
-            {KIND_LABEL[crumb.kind]}
+            {t(crumb.kind)}
           </span>
         );
         return (

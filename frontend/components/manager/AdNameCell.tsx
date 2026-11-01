@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import React from "react";
 import { Button } from "@/components/ui/button";
 import { RankingsItem } from "@/lib/api/schemas";
@@ -29,6 +30,7 @@ function arePropsEqual(prev: AdNameCellProps, next: AdNameCellProps): boolean {
 }
 
 export const AdNameCell = React.memo(function AdNameCell({ original, value, groupByAdNameEffective, currentTab, minimal = false, onOpenDrill }: AdNameCellProps) {
+  const t = useTranslations("manager.nameCell");
   const showThumbnail = currentTab !== "por-conjunto" && currentTab !== "por-campanha";
   const thumbnail = getAdThumbnail(original);
   const name = String(value || "—");
@@ -44,13 +46,12 @@ export const AdNameCell = React.memo(function AdNameCell({ original, value, grou
     const isPorCampanha = currentTab === "por-campanha";
     if (isPorCampanha) {
       const total = adCount;
-      secondLine = total === 1 ? "1 conjunto" : `${total} conjuntos`;
+      secondLine = t("adsets", { count: total });
     } else {
       const total = adCount;
       const x = typeof activeCount === "number" ? activeCount : total;
       activeCountForDisplay = x;
-      const countLabel = total === 1 ? "anúncio" : "anúncios";
-      secondLine = `${x} / ${total} ${countLabel}`;
+      secondLine = t("ads", { active: x, total });
     }
   }
   const dotActive = activeCountForDisplay !== undefined && activeCountForDisplay > 0;
@@ -59,9 +60,8 @@ export const AdNameCell = React.memo(function AdNameCell({ original, value, grou
     const adsetName = (original as any)?.adset_name;
     secondLine = adsetName ? String(adsetName) : `ID: ${id || "-"}`;
   } else if (!(groupByAdNameEffective || currentTab === "por-conjunto" || currentTab === "por-campanha")) {
-    const countLabel = "dias";
     const count = Math.max(adCount, 1);
-    secondLine = count === 1 ? `ID: ${id || "-"}` : `ID: ${id || "-"} (${count} ${countLabel})`;
+    secondLine = count === 1 ? `ID: ${id || "-"}` : t("days", { id: id || "-", count });
   }
 
   const handleOpenDrill = (e?: React.MouseEvent) => {

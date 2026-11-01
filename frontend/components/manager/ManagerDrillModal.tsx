@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import { EMPTY_RULE_TREE, type RuleTree } from "@/lib/rules/types";
 
 import React, { useEffect, useMemo, useState } from "react";
@@ -10,7 +11,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils/cn";
 import { ExpandedChildrenRow } from "@/components/manager/ExpandedChildrenRow";
 import { CampaignChildrenRow } from "@/components/manager/CampaignChildrenRow";
-import { ManagerDrillBreadcrumb, KIND_LABEL, type DrillCrumb } from "@/components/manager/ManagerDrillBreadcrumb";
+import { ManagerDrillBreadcrumb, type DrillCrumb } from "@/components/manager/ManagerDrillBreadcrumb";
 import { useDrillState } from "@/lib/manager/useDrillState";
 import { useAdVariations, useAdsetChildren } from "@/lib/api/hooks";
 import type { ManagerColumnType } from "@/components/common/ManagerColumnFilter";
@@ -32,12 +33,6 @@ interface ManagerDrillModalProps {
   onSelectAd: (ad: RankingsItem) => void;
 }
 
-const KIND_TITLE: Record<"campaign" | "adset" | "adname", string> = {
-  campaign: "Conjuntos da campanha",
-  adset: "Anúncios do conjunto",
-  adname: "Variações do anúncio",
-};
-
 export function ManagerDrillModal({
   dateStart,
   dateStop,
@@ -51,6 +46,7 @@ export function ManagerDrillModal({
   mqlLeadscoreMin = null,
   onSelectAd,
 }: ManagerDrillModalProps) {
+  const t = useTranslations("manager.drill");
   const { stack, isOpen, current, push, popTo, close: closeDrill } = useDrillState();
   const queryClient = useQueryClient();
 
@@ -77,9 +73,9 @@ export function ManagerDrillModal({
   }, [currentKey]);
 
   const title = useMemo(() => {
-    if (!current) return "Drill";
-    return KIND_TITLE[current.kind];
-  }, [current]);
+    if (!current) return t("fallbackTitle");
+    return t(`title.${current.kind}`);
+  }, [current, t]);
 
   // Nomes dos ancestrais vêm das linhas-filhas já carregadas pelo corpo do modal (mesma
   // queryKey → cache do TanStack, sem request extra). É a única fonte que sabe se o nível
@@ -103,8 +99,6 @@ export function ManagerDrillModal({
     return { campaign: [...campaigns], adset: [...adsets] };
   }, [childrenRows]);
 
-  const currentNoun = current ? KIND_LABEL[current.kind].toLowerCase() : "item";
-
   const crumbs = useMemo<DrillCrumb[]>(
     () =>
       stack.map((step, index) => {
@@ -113,19 +107,18 @@ export function ManagerDrillModal({
         // descrevem o próprio nível, não o pai.
         const observed = !isLast && step.kind !== "adname" ? parentNames?.[step.kind] : undefined;
         if (observed && observed.length > 1) {
-          const noun = step.kind === "campaign" ? "campanhas" : "conjuntos";
           return {
             kind: step.kind,
-            label: `Vários (${observed.length})`,
+            label: t("many", { count: observed.length }),
             interactive: false,
-            hint: `Este ${currentNoun} existe em ${observed.length} ${noun}`,
+            hint: t("manyHint", { current: current?.kind ?? "adname", count: observed.length, parent: step.kind }),
           };
         }
         const cached = step.name?.trim() || "";
-        const label = cached || (observed?.length === 1 ? observed[0] : "") || `${KIND_LABEL[step.kind]} #${step.id}`;
+        const label = cached || (observed?.length === 1 ? observed[0] : "") || `${t(`kind.${step.kind}`)} #${step.id}`;
         return { kind: step.kind, label };
       }),
-    [stack, parentNames, currentNoun],
+    [stack, parentNames, current, t],
   );
 
   if (!isOpen || !current) return null;
