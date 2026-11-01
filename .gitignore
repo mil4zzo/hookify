@@ -420,6 +420,7 @@ AUX
 *.json
 !package.json
 !package-lock.json
+!frontend/messages/*.json
 !tsconfig.json
 !next.config.ts
 !tailwind.config.ts

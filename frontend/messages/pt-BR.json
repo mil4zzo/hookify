@@ -1,0 +1,252 @@
+{
+  "common": {
+    "back": "Voltar",
+    "continue": "Continuar",
+    "next": "Próximo",
+    "saving": "Salvando..."
+  },
+  "nav": {
+    "menu": "Menu",
+    "actionPlan": "Plano de Ação",
+    "docs": "Docs",
+    "terms": "Termos de Uso",
+    "privacy": "Política de Privacidade",
+    "dataDeletion": "Exclusão de Dados"
+  },
+  "onboarding": {
+    "title": "Configuração inicial",
+    "description": "Vamos deixar tudo pronto para o Hookify analisar seus anúncios.",
+    "steps": {
+      "preferences": "Preferências",
+      "facebook": "Conectar Facebook",
+      "validation": "Critério de validação",
+      "pack": "Carregar Pack"
+    },
+    "settings": {
+      "title": "Preferências",
+      "description": "Essas configurações podem ser alteradas depois em <b>Configurações > Preferências</b>.",
+      "language": "Idioma",
+      "languagePlaceholder": "Selecione um idioma",
+      "languageHint": "O idioma será aplicado em todas as páginas do app",
+      "currency": "Moeda",
+      "currencyPlaceholder": "Selecione uma moeda",
+      "currencyHint": "A moeda será aplicada em todas as páginas do app",
+      "niche": "Nicho",
+      "nichePlaceholder": "Ex: E-commerce, SaaS, etc.",
+      "nicheHint": "Digite o nicho do seu negócio (opcional)",
+      "requiredFields": "Por favor, preencha todos os campos obrigatórios",
+      "saved": "Configurações salvas com sucesso!"
+    },
+    "currencies": {
+      "USD": "USD - Dólar Americano ($)",
+      "EUR": "EUR - Euro (€)",
+      "GBP": "GBP - Libra Esterlina (£)",
+      "BRL": "BRL - Real Brasileiro (R$)",
+      "MXN": "MXN - Peso Mexicano ($)",
+      "CAD": "CAD - Dólar Canadense ($)",
+      "AUD": "AUD - Dólar Australiano ($)",
+      "JPY": "JPY - Iene Japonês (¥)",
+      "CNY": "CNY - Yuan Chinês (¥)"
+    },
+    "facebook": {
+      "title": "Conta de anúncios do Facebook",
+      "description": "Conecte sua conta do Facebook (com acesso à conta de anúncios) para carregar seus anúncios automaticamente.",
+      "connected": "Facebook conectado com sucesso!",
+      "reconnected": "Facebook reconectado com sucesso!",
+      "confirmDisconnect": "Tem certeza que deseja desconectar esta conta do Facebook?",
+      "disconnected": "Conta desconectada com sucesso!",
+      "loading": "Carregando conexões...",
+      "existing": "Conexões existentes",
+      "none": "Nenhuma conta do Facebook conectada ainda.",
+      "addAnother": "Adicionar outra conta",
+      "connecting": "Conectando...",
+      "connect": "Conectar Facebook",
+      "skipHint": "Não anuncia por esta conta? Você pode pular: dá para receber packs compartilhados por outras contas e conectar o Facebook depois, em Configurações.",
+      "skip": "Pular por enquanto"
+    },
+    "validation": {
+      "loadingTitle": "Configurando critério de validação",
+      "title": "Critério de Validação",
+      "description": "Defina a partir de <b>quando um anúncio tem dados suficientes para ser analisado</b>. Anúncios que não atendem esses critérios são considerados em fase de testes.",
+      "needOneCondition": "Preencha ao menos uma condição para concluir.",
+      "done": "Configuração concluída!"
+    },
+    "success": {
+      "title": "Pronto para carregar seus anúncios",
+      "description": "Seu ambiente inicial está configurado. Agora você pode carregar um Pack de Anúncios para começar a análise.",
+      "cta": "Carregue seu primeiro Pack de Anúncios"
+    }
+  },
+  "manager": {
+    "title": "Otimize",
+    "subtitle": "Dados de performance dos seus anúncios",
+    "loadError": "Erro ao carregar dados. Tente reduzir o período ou selecionar menos packs.",
+    "tabs": {
+      "creatives": "Criativos",
+      "byCampaign": "Por campanha",
+      "byAdset": "Por conjunto",
+      "byAd": "Por anúncio"
+    },
+    "items": {
+      "ads": "anúncios",
+      "adsets": "conjuntos",
+      "campaigns": "campanhas",
+      "variations": "variações"
+    },
+    "filterBar": {
+      "showing": "Exibindo {filtered} de {total} {items}",
+      "truncatedHint": "O período tem {total} {items}, mas só {loaded} foram carregados (os de maior investimento). Filtros e seleção em massa atuam apenas sobre esses.",
+      "truncatedChip": "{total} no total",
+      "filters": "Filtros",
+      "clearAll": "Limpar todos"
+    },
+    "table": {
+      "noResults": "Nenhum resultado com esses filtros.",
+      "adColumn": "Anúncio"
+    },
+    "status": {
+      "toggle": "{action, select, activate {Ativar} other {Pausar}} {kind, select, ad {anúncio} adset {conjunto} other {campanha}}",
+      "deleted": "Excluído",
+      "archived": "Arquivado"
+    },
+    "slowLoading": {
+      "title": "Uau, muitos dados!",
+      "body": "O carregamento pode demorar alguns minutos devido ao alto volume. Isso é ótimo, continue escalando!"
+    },
+    "search": {
+      "adset": "Buscar por nome do conjunto...",
+      "campaign": "Buscar por nome da campanha...",
+      "ad": "Buscar por nome do anúncio..."
+    },
+    "belowTarget": {
+      "chip": "{below} de {withMargin} abaixo da meta de margem",
+      "on": "Mostrando só os anúncios abaixo da meta de margem. Clique para mostrar todos.",
+      "off": "Anúncios com margem abaixo da margem desejada do próprio produto. Clique para ver só eles."
+    },
+    "display": {
+      "menu": "Exibição",
+      "menuAria": "Opções de exibição",
+      "compact": "Compacta",
+      "cellContent": "Conteúdo das células",
+      "compareAverage": "Comparar com a média",
+      "export": "Exportar…",
+      "fullscreen": "Tela cheia",
+      "exitFullscreen": "Sair da tela cheia",
+      "exitFullscreenEsc": "Sair da tela cheia (Esc)"
+    },
+    "cellMode": {
+      "value": {
+        "label": "Só o valor",
+        "hint": "Apenas o número da métrica"
+      },
+      "delta": {
+        "label": "Variação",
+        "hint": "% contra a média do pack"
+      },
+      "trend": {
+        "label": "Tendência",
+        "hint": "Barras dos últimos 5 dias"
+      }
+    },
+    "share": {
+      "button": "Compartilhar",
+      "selection": "Seleção atual ({count})",
+      "topSpend": "Top 5 por gasto",
+      "topCtr": "Top 5 por CTR",
+      "none": "Nenhum criativo visível para compartilhar."
+    },
+    "dialogs": {
+      "adDetails": "Detalhes do anúncio",
+      "adsetDetails": "Detalhes do conjunto"
+    },
+    "columns": {
+      "revealFilter": "Ver onde esta coluna está sendo filtrada",
+      "revealFilterAria": "Ver o filtro desta coluna",
+      "nameAd": "Anúncio",
+      "nameAdset": "Conjunto",
+      "nameCampaign": "Campanha",
+      "pack": "Pack",
+      "account": "Conta",
+      "createdAt": "Criado em",
+      "createdMissing": "Anúncio ainda não ressincronizado desde que passamos a guardar a data de criação",
+      "budget": "Orçamento"
+    },
+    "averages": {
+      "selectionSum": "Soma dos {count} selecionados",
+      "selectionAvg": "Média dos {count} selecionados",
+      "filteredSum": "Soma total dos filtrados",
+      "filteredAvg": "Média dos anúncios filtrados",
+      "packSum": "Soma total do pack",
+      "packAvg": "Média dos anúncios validáveis do pack",
+      "scoredSum": "Soma dos leads com nota dos anúncios incluídos",
+      "scoredAvg": "Média ponderada pelos leads com nota de cada anúncio",
+      "target": "meta {value}",
+      "unstable": "número instável: só {count} leads com nota",
+      "unstableLabel": "Número instável",
+      "excluded": "A média não inclui {total, plural, one {# anúncio} other {# anúncios}}: {details}.",
+      "excludedMixed": "{count, plural, one {# junta} other {# juntam}} packs com economias do lead diferentes",
+      "excludedNoEconomics": "{count, plural, one {# é de pack} other {# são de packs}} sem economia cadastrada"
+    },
+    "children": {
+      "ads": {
+        "header": "Anúncios",
+        "emptySearch": "Nenhum anúncio encontrado para \"{term}\".",
+        "emptySearchFilters": "Nenhum anúncio encontrado para \"{term}\" com os filtros aplicados.",
+        "emptyFilters": "Nenhum anúncio corresponde aos filtros aplicados."
+      },
+      "variations": {
+        "header": "Variações",
+        "emptySearch": "Nenhuma variação encontrada para \"{term}\".",
+        "emptySearchFilters": "Nenhuma variação encontrada para \"{term}\" com os filtros aplicados.",
+        "emptyFilters": "Nenhuma variação corresponde aos filtros aplicados."
+      },
+      "adsets": {
+        "header": "Conjuntos",
+        "emptySearch": "Nenhum conjunto encontrado para \"{term}\".",
+        "emptySearchFilters": "Nenhum conjunto encontrado para \"{term}\" com os filtros aplicados.",
+        "emptyFilters": "Nenhum conjunto corresponde aos filtros aplicados."
+      },
+      "unnamed": "Sem nome",
+      "loading": "Carregando {items}...",
+      "error": "Erro ao carregar {items}.",
+      "empty": "Sem {items} no período.",
+      "filtersRegion": "Busca e filtros da tabela expandida",
+      "search": "Buscar por nome ou ID..."
+    },
+    "drill": {
+      "fallbackTitle": "Drill",
+      "title": {
+        "campaign": "Conjuntos da campanha",
+        "adset": "Anúncios do conjunto",
+        "adname": "Variações do anúncio"
+      },
+      "kind": {
+        "campaign": "Campanha",
+        "adset": "Conjunto",
+        "adname": "Anúncio"
+      },
+      "many": "Vários ({count})",
+      "manyHint": "{current, select, adset {Este conjunto} other {Este anúncio}} existe em {count} {parent, select, campaign {campanhas} other {conjuntos}}"
+    },
+    "nameCell": {
+      "adsets": "{count, plural, one {# conjunto} other {# conjuntos}}",
+      "ads": "{active} / {total, plural, one {# anúncio} other {# anúncios}}",
+      "days": "ID: {id} ({count} dias)"
+    },
+    "leadEconomics": {
+      "noEconomics": "Sem economia do lead cadastrada no pack deste anúncio.",
+      "mixedEconomics": "Os packs deste anúncio têm economias do lead diferentes: não há um teto só para ele.",
+      "noScoredLeads": "Nenhum lead com nota no período.",
+      "unstablePrefix": "Número instável",
+      "noSpend": "sem gasto no período",
+      "cplActual": "CPL Real {value}",
+      "cplCeiling": "CPL Max {value}",
+      "target": "meta {value}",
+      "scored": "{count, plural, one {# lead} other {# leads}} com nota",
+      "lowSample": "{prefix}: poucos leads com nota — {text}",
+      "noRevenue": "Nenhum lead deste anúncio está numa faixa que compra: não há faturamento para dividir.",
+      "noSpendCompare": "Sem gasto no período: não há custo por lead para comparar.",
+      "noSpendShow": "Sem gasto no período: não há custo por lead para mostrar."
+    }
+  }
+}

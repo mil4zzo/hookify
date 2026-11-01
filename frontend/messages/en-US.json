@@ -1,0 +1,252 @@
+{
+  "common": {
+    "back": "Back",
+    "continue": "Continue",
+    "next": "Next",
+    "saving": "Saving..."
+  },
+  "nav": {
+    "menu": "Menu",
+    "actionPlan": "Action Plan",
+    "docs": "Docs",
+    "terms": "Terms of Use",
+    "privacy": "Privacy Policy",
+    "dataDeletion": "Data Deletion"
+  },
+  "onboarding": {
+    "title": "Initial setup",
+    "description": "Let's get everything ready for Hookify to analyze your ads.",
+    "steps": {
+      "preferences": "Preferences",
+      "facebook": "Connect Facebook",
+      "validation": "Validation criteria",
+      "pack": "Load Pack"
+    },
+    "settings": {
+      "title": "Preferences",
+      "description": "You can change these settings later in <b>Settings > Preferences</b>.",
+      "language": "Language",
+      "languagePlaceholder": "Select a language",
+      "languageHint": "The language will be applied across the whole app",
+      "currency": "Currency",
+      "currencyPlaceholder": "Select a currency",
+      "currencyHint": "The currency will be applied across the whole app",
+      "niche": "Niche",
+      "nichePlaceholder": "E.g. E-commerce, SaaS, etc.",
+      "nicheHint": "Enter your business niche (optional)",
+      "requiredFields": "Please fill in all required fields",
+      "saved": "Settings saved successfully!"
+    },
+    "currencies": {
+      "USD": "USD - US Dollar ($)",
+      "EUR": "EUR - Euro (€)",
+      "GBP": "GBP - British Pound (£)",
+      "BRL": "BRL - Brazilian Real (R$)",
+      "MXN": "MXN - Mexican Peso ($)",
+      "CAD": "CAD - Canadian Dollar ($)",
+      "AUD": "AUD - Australian Dollar ($)",
+      "JPY": "JPY - Japanese Yen (¥)",
+      "CNY": "CNY - Chinese Yuan (¥)"
+    },
+    "facebook": {
+      "title": "Facebook ad account",
+      "description": "Connect your Facebook account (with access to the ad account) to load your ads automatically.",
+      "connected": "Facebook connected successfully!",
+      "reconnected": "Facebook reconnected successfully!",
+      "confirmDisconnect": "Are you sure you want to disconnect this Facebook account?",
+      "disconnected": "Account disconnected successfully!",
+      "loading": "Loading connections...",
+      "existing": "Existing connections",
+      "none": "No Facebook account connected yet.",
+      "addAnother": "Add another account",
+      "connecting": "Connecting...",
+      "connect": "Connect Facebook",
+      "skipHint": "Don't advertise through this account? You can skip: you can receive packs shared by other accounts and connect Facebook later, in Settings.",
+      "skip": "Skip for now"
+    },
+    "validation": {
+      "loadingTitle": "Setting up validation criteria",
+      "title": "Validation Criteria",
+      "description": "Define <b>when an ad has enough data to be analyzed</b>. Ads that don't meet these criteria are considered to be in the testing phase.",
+      "needOneCondition": "Fill in at least one condition to finish.",
+      "done": "Setup complete!"
+    },
+    "success": {
+      "title": "Ready to load your ads",
+      "description": "Your initial environment is set up. You can now load an Ad Pack to start the analysis.",
+      "cta": "Load your first Ad Pack"
+    }
+  },
+  "manager": {
+    "title": "Optimize",
+    "subtitle": "Performance data for your ads",
+    "loadError": "Error loading data. Try reducing the date range or selecting fewer packs.",
+    "tabs": {
+      "creatives": "Creatives",
+      "byCampaign": "By campaign",
+      "byAdset": "By ad set",
+      "byAd": "By ad"
+    },
+    "items": {
+      "ads": "ads",
+      "adsets": "ad sets",
+      "campaigns": "campaigns",
+      "variations": "variations"
+    },
+    "filterBar": {
+      "showing": "Showing {filtered} of {total} {items}",
+      "truncatedHint": "The period has {total} {items}, but only {loaded} were loaded (the highest spend). Filters and bulk selection only apply to these.",
+      "truncatedChip": "{total} in total",
+      "filters": "Filters",
+      "clearAll": "Clear all"
+    },
+    "table": {
+      "noResults": "No results match these filters.",
+      "adColumn": "Ad"
+    },
+    "status": {
+      "toggle": "{action, select, activate {Activate} other {Pause}} {kind, select, ad {ad} adset {ad set} other {campaign}}",
+      "deleted": "Deleted",
+      "archived": "Archived"
+    },
+    "slowLoading": {
+      "title": "Wow, that's a lot of data!",
+      "body": "Loading may take a few minutes because of the high volume. That's great, keep scaling!"
+    },
+    "search": {
+      "adset": "Search by ad set name...",
+      "campaign": "Search by campaign name...",
+      "ad": "Search by ad name..."
+    },
+    "belowTarget": {
+      "chip": "{below} of {withMargin} below the margin target",
+      "on": "Showing only ads below the margin target. Click to show all.",
+      "off": "Ads with a margin below their own product's desired margin. Click to see only those."
+    },
+    "display": {
+      "menu": "Display",
+      "menuAria": "Display options",
+      "compact": "Compact",
+      "cellContent": "Cell content",
+      "compareAverage": "Compare to average",
+      "export": "Export…",
+      "fullscreen": "Full screen",
+      "exitFullscreen": "Exit full screen",
+      "exitFullscreenEsc": "Exit full screen (Esc)"
+    },
+    "cellMode": {
+      "value": {
+        "label": "Value only",
+        "hint": "Just the metric number"
+      },
+      "delta": {
+        "label": "Change",
+        "hint": "% vs. the pack average"
+      },
+      "trend": {
+        "label": "Trend",
+        "hint": "Bars for the last 5 days"
+      }
+    },
+    "share": {
+      "button": "Share",
+      "selection": "Current selection ({count})",
+      "topSpend": "Top 5 by spend",
+      "topCtr": "Top 5 by CTR",
+      "none": "No visible creatives to share."
+    },
+    "dialogs": {
+      "adDetails": "Ad details",
+      "adsetDetails": "Ad set details"
+    },
+    "columns": {
+      "revealFilter": "See where this column is being filtered",
+      "revealFilterAria": "See this column's filter",
+      "nameAd": "Ad",
+      "nameAdset": "Ad set",
+      "nameCampaign": "Campaign",
+      "pack": "Pack",
+      "account": "Account",
+      "createdAt": "Created",
+      "createdMissing": "Ad not re-synced yet since we started storing the creation date",
+      "budget": "Budget"
+    },
+    "averages": {
+      "selectionSum": "Sum of the {count} selected",
+      "selectionAvg": "Average of the {count} selected",
+      "filteredSum": "Total sum of the filtered",
+      "filteredAvg": "Average of the filtered ads",
+      "packSum": "Total sum for the pack",
+      "packAvg": "Average of the pack's validatable ads",
+      "scoredSum": "Sum of scored leads for the included ads",
+      "scoredAvg": "Average weighted by each ad's scored leads",
+      "target": "target {value}",
+      "unstable": "unstable number: only {count} scored leads",
+      "unstableLabel": "Unstable number",
+      "excluded": "The average excludes {total, plural, one {# ad} other {# ads}}: {details}.",
+      "excludedMixed": "{count, plural, one {# combines} other {# combine}} packs with different lead economics",
+      "excludedNoEconomics": "{count, plural, one {# belongs to a pack} other {# belong to packs}} without lead economics set up"
+    },
+    "children": {
+      "ads": {
+        "header": "Ads",
+        "emptySearch": "No ads found for \"{term}\".",
+        "emptySearchFilters": "No ads found for \"{term}\" with the applied filters.",
+        "emptyFilters": "No ads match the applied filters."
+      },
+      "variations": {
+        "header": "Variations",
+        "emptySearch": "No variations found for \"{term}\".",
+        "emptySearchFilters": "No variations found for \"{term}\" with the applied filters.",
+        "emptyFilters": "No variations match the applied filters."
+      },
+      "adsets": {
+        "header": "Ad sets",
+        "emptySearch": "No ad sets found for \"{term}\".",
+        "emptySearchFilters": "No ad sets found for \"{term}\" with the applied filters.",
+        "emptyFilters": "No ad sets match the applied filters."
+      },
+      "unnamed": "Unnamed",
+      "loading": "Loading {items}...",
+      "error": "Error loading {items}.",
+      "empty": "No {items} in the period.",
+      "filtersRegion": "Expanded table search and filters",
+      "search": "Search by name or ID..."
+    },
+    "drill": {
+      "fallbackTitle": "Drill",
+      "title": {
+        "campaign": "Ad sets in the campaign",
+        "adset": "Ads in the ad set",
+        "adname": "Ad variations"
+      },
+      "kind": {
+        "campaign": "Campaign",
+        "adset": "Ad set",
+        "adname": "Ad"
+      },
+      "many": "Multiple ({count})",
+      "manyHint": "{current, select, adset {This ad set} other {This ad}} exists in {count} {parent, select, campaign {campaigns} other {ad sets}}"
+    },
+    "nameCell": {
+      "adsets": "{count, plural, one {# ad set} other {# ad sets}}",
+      "ads": "{active} / {total, plural, one {# ad} other {# ads}}",
+      "days": "ID: {id} ({count} days)"
+    },
+    "leadEconomics": {
+      "noEconomics": "No lead economics set up on this ad's pack.",
+      "mixedEconomics": "This ad's packs have different lead economics: there is no single ceiling for it.",
+      "noScoredLeads": "No scored leads in the period.",
+      "unstablePrefix": "Unstable number",
+      "noSpend": "no spend in the period",
+      "cplActual": "CPL Real {value}",
+      "cplCeiling": "CPL Max {value}",
+      "target": "target {value}",
+      "scored": "{count, plural, one {# scored lead} other {# scored leads}}",
+      "lowSample": "{prefix}: few scored leads — {text}",
+      "noRevenue": "None of this ad's leads fall in a band that buys: there is no revenue to divide.",
+      "noSpendCompare": "No spend in the period: there is no cost per lead to compare.",
+      "noSpendShow": "No spend in the period: there is no cost per lead to show."
+    }
+  }
+}
