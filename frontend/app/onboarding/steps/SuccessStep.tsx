@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useTranslations } from "next-intl";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { IconChevronRight, IconChevronLeft, IconLoader2 } from "@tabler/icons-react";
@@ -11,6 +12,8 @@ import { patchOnboardingStatusCache } from "@/lib/hooks/useOnboardingStatus";
 import { showError } from "@/lib/utils/toast";
 
 export function SuccessStep(props: { onBack: () => void }) {
+  const t = useTranslations("onboarding.success");
+  const tc = useTranslations("common");
   const router = useRouter();
   const queryClient = useQueryClient();
   const [isFinishing, setIsFinishing] = useState(false);
@@ -33,16 +36,16 @@ export function SuccessStep(props: { onBack: () => void }) {
   };
 
   return (
-    <FormPageSection title="Pronto para carregar seus anúncios" description="Seu ambiente inicial está configurado. Agora você pode carregar um Pack de Anúncios para começar a análise.">
+    <FormPageSection title={t("title")} description={t("description")}>
         <Button className="w-full flex items-center gap-2" size="lg" onClick={handleFinish} disabled={isFinishing}>
           {isFinishing ? <IconLoader2 className="w-4 h-4 animate-spin" /> : null}
-          Carregue seu primeiro Pack de Anúncios
+          {t("cta")}
           {isFinishing ? null : <IconChevronRight className="w-4 h-4" />}
         </Button>
         <div className="flex justify-start">
           <Button variant="outline" onClick={props.onBack}>
             <IconChevronLeft className="w-4 h-4 mr-1" />
-            Voltar
+            {tc("back")}
           </Button>
         </div>
     </FormPageSection>

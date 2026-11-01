@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import { useTranslations } from "next-intl";
 import { Button } from "@/components/ui/button";
 import { IconBrandFacebook, IconChevronRight, IconChevronLeft, IconLoader2 } from "@tabler/icons-react";
 import { useFacebookAccountConnection } from "@/lib/hooks/useFacebookAccountConnection";
@@ -13,6 +14,8 @@ import { useQueryClient } from "@tanstack/react-query";
 import { patchOnboardingStatusCache } from "@/lib/hooks/useOnboardingStatus";
 
 export function FacebookStep(props: { onContinue: () => void; onBack: () => void }) {
+  const t = useTranslations("onboarding.facebook");
+  const tc = useTranslations("common");
   const { connections, connect, hasActiveConnection, disconnect, refreshPicture } = useFacebookAccountConnection();
   const { verifyConnections } = useFacebookConnectionVerification();
   const queryClient = useQueryClient();
@@ -29,7 +32,7 @@ export function FacebookStep(props: { onContinue: () => void; onBack: () => void
       const ok = await connect.mutateAsync({});
       if (ok) {
         patchOnboardingStatusCache(queryClient, { facebook_connected: true });
-        showSuccess("Facebook conectado com sucesso!");
+        showSuccess(t("connected"));
         props.onContinue();
       }
     } catch (e: any) {
@@ -43,7 +46,7 @@ export function FacebookStep(props: { onContinue: () => void; onBack: () => void
     try {
       const ok = await connect.mutateAsync({ reauth: true });
       if (ok) {
-        showSuccess("Facebook reconectado com sucesso!");
+        showSuccess(t("reconnected"));
       }
     } catch (e: any) {
       const authError = e as AuthPopupError;
@@ -53,26 +56,26 @@ export function FacebookStep(props: { onContinue: () => void; onBack: () => void
   };
 
   const handleDelete = async (connectionId: string) => {
-    if (!confirm("Tem certeza que deseja desconectar esta conta do Facebook?")) {
+    if (!confirm(t("confirmDisconnect"))) {
       return;
     }
     try {
       await disconnect.mutateAsync(connectionId);
-      showSuccess("Conta desconectada com sucesso!");
+      showSuccess(t("disconnected"));
     } catch (e: any) {
       showError(e);
     }
   };
 
   return (
-    <FormPageSection title="Conta de anúncios do Facebook" description="Conecte sua conta do Facebook (com acesso à conta de anúncios) para carregar seus anúncios automaticamente.">
+    <FormPageSection title={t("title")} description={t("description")}>
         {connections.isLoading ? (
           <div className="flex items-center justify-center py-8">
-            <p className="text-sm text-muted-foreground">Carregando conexões...</p>
+            <p className="text-sm text-muted-foreground">{t("loading")}</p>
           </div>
         ) : connections.data && connections.data.length > 0 ? (
           <div className="space-y-2">
-            <label className="text-sm font-medium">Conexões existentes</label>
+            <label className="text-sm font-medium">{t("existing")}</label>
             <div className="space-y-2">
               {connections.data.map((connection: any) => (
                 <FacebookConnectionCard
@@ -99,7 +102,7 @@ export function FacebookStep(props: { onContinue: () => void; onBack: () => void
               <IconBrandFacebook className="w-5 h-5 text-primary-foreground" />
             </div>
             <div className="flex-1">
-              <p className="text-sm text-muted-foreground">Nenhuma conta do Facebook conectada ainda.</p>
+              <p className="text-sm text-muted-foreground">{t("none")}</p>
             </div>
           </div>
         )}
@@ -107,7 +110,7 @@ export function FacebookStep(props: { onContinue: () => void; onBack: () => void
         <div className="flex gap-3">
           <Button className="flex-1 flex items-center gap-2" variant={hasActiveConnection ? "outline" : "default"} onClick={handleConnect} disabled={connect.isPending}>
             {connect.isPending ? <IconLoader2 className="w-4 h-4 animate-spin" /> : <IconBrandFacebook className="w-4 h-4" />}
-            {hasActiveConnection ? "Adicionar outra conta" : connect.isPending ? "Conectando..." : "Conectar Facebook"}
+            {hasActiveConnection ? t("addAnother") : connect.isPending ? t("connecting") : t("connect")}
           </Button>
         </div>
 
@@ -117,26 +120,22 @@ export function FacebookStep(props: { onContinue: () => void; onBack: () => void
             sem saída para ele: sem conexão não havia botão de continuar, e o
             gate de onboarding devolvia o usuário para cá em loop. */}
         {!hasActiveConnection && (
-          <p className="text-xs text-muted-foreground">
-            Não anuncia por esta conta? Você pode pular: dá para receber packs
-            compartilhados por outras contas e conectar o Facebook depois, em
-            Configurações.
-          </p>
+          <p className="text-xs text-muted-foreground">{t("skipHint")}</p>
         )}
 
         <div className="flex justify-between">
           <Button variant="outline" onClick={props.onBack}>
             <IconChevronLeft className="w-4 h-4 mr-1" />
-            Voltar
+            {tc("back")}
           </Button>
           {hasActiveConnection ? (
             <Button variant="default" className="flex items-center gap-1" onClick={props.onContinue}>
-              <span>Continuar</span>
+              <span>{tc("continue")}</span>
               <IconChevronRight className="w-4 h-4" />
             </Button>
           ) : (
             <Button variant="ghost" className="flex items-center gap-1 text-muted-foreground" onClick={props.onContinue}>
-              <span>Pular por enquanto</span>
+              <span>{t("skip")}</span>
               <IconChevronRight className="w-4 h-4" />
             </Button>
           )}

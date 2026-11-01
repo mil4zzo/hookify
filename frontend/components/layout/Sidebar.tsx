@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
+import { useTranslations } from "next-intl";
 import { useUserTier } from "@/lib/hooks/useUserTier";
 import { IconBook2, IconChevronLeft, IconChevronRight, IconFileText, IconShieldLock, IconTrash } from "@tabler/icons-react";
 import { cn } from "@/lib/utils/cn";
@@ -19,6 +20,8 @@ export default function Sidebar() {
   const { isCollapsed, toggleCollapse } = useSidebar();
   const [showLabels, setShowLabels] = useState(!isCollapsed);
   const { data: userTier = "standard" } = useUserTier();
+  const t = useTranslations("nav");
+  const itemLabel = (item: { label: string; labelKey?: string }) => (item.labelKey ? t(item.labelKey) : item.label);
 
   useEffect(() => {
     if (isCollapsed) {
@@ -48,7 +51,7 @@ export default function Sidebar() {
 
       {/* Menu Label */}
       <div className={cn("px-6 mb-2 transition-all duration-300 overflow-hidden", showLabels ? "opacity-100 max-h-10 ease-out" : "opacity-0 max-h-0 mb-0 ease-in")}>
-        <h2 className="text-sm font-medium text-sidebar-foreground/70">Menu</h2>
+        <h2 className="text-sm font-medium text-sidebar-foreground/70">{t("menu")}</h2>
       </div>
 
       {/* Menu Items */}
@@ -60,9 +63,9 @@ export default function Sidebar() {
 
             return (
               <li key={item.path}>
-                <Link href={item.path as any} className={cn("flex items-center rounded-md text-sm font-normal text-foreground transition-all duration-300", isCollapsed ? "justify-center px-2 py-2 ease-in" : "gap-3 px-3 py-2 ease-out", isActive ? "state-pressed text-white" : "text-foreground hover:bg-accent hover:text-foreground")} title={isCollapsed ? item.label : undefined}>
+                <Link href={item.path as any} className={cn("flex items-center rounded-md text-sm font-normal text-foreground transition-all duration-300", isCollapsed ? "justify-center px-2 py-2 ease-in" : "gap-3 px-3 py-2 ease-out", isActive ? "state-pressed text-white" : "text-foreground hover:bg-accent hover:text-foreground")} title={isCollapsed ? itemLabel(item) : undefined}>
                   <Icon className={cn("h-5 w-5 flex-shrink-0 transition-colors duration-300", isActive ? "text-foreground" : "text-muted-foreground")} />
-                  <span className={cn("transition-all duration-300 whitespace-nowrap", showLabels ? "opacity-100 max-w-full ease-out" : "opacity-0 max-w-0 overflow-hidden ease-in")}>{item.label}</span>
+                  <span className={cn("transition-all duration-300 whitespace-nowrap", showLabels ? "opacity-100 max-w-full ease-out" : "opacity-0 max-w-0 overflow-hidden ease-in")}>{itemLabel(item)}</span>
                 </Link>
               </li>
             );
@@ -87,9 +90,9 @@ export default function Sidebar() {
 
                 return (
                   <li key={item.path}>
-                    <Link href={item.path as any} className={cn("flex items-center rounded-sm text-sm font-normal text-foreground transition-all duration-300", isCollapsed ? "justify-center px-2 py-2 ease-in" : "gap-3 px-3 py-2 ease-out", isActive ? "state-pressed text-white" : "text-foreground hover:bg-accent hover:text-foreground")} title={isCollapsed ? item.label : undefined}>
+                    <Link href={item.path as any} className={cn("flex items-center rounded-sm text-sm font-normal text-foreground transition-all duration-300", isCollapsed ? "justify-center px-2 py-2 ease-in" : "gap-3 px-3 py-2 ease-out", isActive ? "state-pressed text-white" : "text-foreground hover:bg-accent hover:text-foreground")} title={isCollapsed ? itemLabel(item) : undefined}>
                       <Icon className={cn("h-5 w-5 flex-shrink-0 text-foreground transition-colors duration-300")} />
-                      <span className={cn("transition-all duration-300 whitespace-nowrap", showLabels ? "opacity-100 max-w-full ease-out" : "opacity-0 max-w-0 overflow-hidden ease-in")}>{item.label}</span>
+                      <span className={cn("transition-all duration-300 whitespace-nowrap", showLabels ? "opacity-100 max-w-full ease-out" : "opacity-0 max-w-0 overflow-hidden ease-in")}>{itemLabel(item)}</span>
                     </Link>
                   </li>
                 );
@@ -102,25 +105,25 @@ export default function Sidebar() {
       {/* Footer Links */}
       <div className="mt-auto border-t border-border">
         <div className={cn("px-3 py-4 space-y-1 transition-all duration-300", isCollapsed ? "px-2 ease-in" : "ease-out")}>
-          <Link href="/docs" className={cn("flex items-center rounded-md text-xs font-normal text-foreground transition-all duration-300", isCollapsed ? "justify-center px-2 py-2 ease-in" : "gap-2 px-3 py-2 ease-out", pathname === "/docs" ? "state-pressed text-white" : "text-foreground hover:bg-accent hover:text-foreground")} title={isCollapsed ? "Docs" : undefined}>
+          <Link href="/docs" className={cn("flex items-center rounded-md text-xs font-normal text-foreground transition-all duration-300", isCollapsed ? "justify-center px-2 py-2 ease-in" : "gap-2 px-3 py-2 ease-out", pathname === "/docs" ? "state-pressed text-white" : "text-foreground hover:bg-accent hover:text-foreground")} title={isCollapsed ? t("docs") : undefined}>
             <IconBook2 className={cn("h-4 w-4 flex-shrink-0 transition-colors duration-300", pathname === "/docs" ? "text-foreground" : "text-muted-foreground")} />
-            <span className={cn("transition-all duration-300 whitespace-nowrap", showLabels ? "opacity-100 max-w-full ease-out" : "opacity-0 max-w-0 overflow-hidden ease-in")}>Docs</span>
+            <span className={cn("transition-all duration-300 whitespace-nowrap", showLabels ? "opacity-100 max-w-full ease-out" : "opacity-0 max-w-0 overflow-hidden ease-in")}>{t("docs")}</span>
           </Link>
           {/* prefetch={false} nos links juridicos: o padrao do Next pre-baixa o esqueleto
               de TODA rota linkada visivel, em toda pagina. Medido no DevTools do Manager:
               3 requisicoes ?_rsc de 300-700 ms para paginas que ninguem navega, disputando
               conexao com o /rankings. Nao tocam no banco -- e custo de frontend/rede. */}
-          <Link href="/termos-de-uso" prefetch={false} className={cn("flex items-center rounded-md text-xs font-normal text-foreground transition-all duration-300", isCollapsed ? "justify-center px-2 py-2 ease-in" : "gap-2 px-3 py-2 ease-out", pathname === "/termos-de-uso" ? "state-pressed text-white" : "text-foreground hover:bg-accent hover:text-foreground")} title={isCollapsed ? "Termos de Uso" : undefined}>
+          <Link href="/termos-de-uso" prefetch={false} className={cn("flex items-center rounded-md text-xs font-normal text-foreground transition-all duration-300", isCollapsed ? "justify-center px-2 py-2 ease-in" : "gap-2 px-3 py-2 ease-out", pathname === "/termos-de-uso" ? "state-pressed text-white" : "text-foreground hover:bg-accent hover:text-foreground")} title={isCollapsed ? t("terms") : undefined}>
             <IconFileText className={cn("h-4 w-4 flex-shrink-0 transition-colors duration-300", pathname === "/termos-de-uso" ? "text-foreground" : "text-muted-foreground")} />
-            <span className={cn("transition-all duration-300 whitespace-nowrap", showLabels ? "opacity-100 max-w-full ease-out" : "opacity-0 max-w-0 overflow-hidden ease-in")}>Termos de Uso</span>
+            <span className={cn("transition-all duration-300 whitespace-nowrap", showLabels ? "opacity-100 max-w-full ease-out" : "opacity-0 max-w-0 overflow-hidden ease-in")}>{t("terms")}</span>
           </Link>
-          <Link href="/politica-de-privacidade" prefetch={false} className={cn("flex items-center rounded-md text-xs font-normal text-foreground transition-all duration-300", isCollapsed ? "justify-center px-2 py-2 ease-in" : "gap-2 px-3 py-2 ease-out", pathname === "/politica-de-privacidade" ? "state-pressed text-white" : "text-foreground hover:bg-accent hover:text-foreground")} title={isCollapsed ? "Política de Privacidade" : undefined}>
+          <Link href="/politica-de-privacidade" prefetch={false} className={cn("flex items-center rounded-md text-xs font-normal text-foreground transition-all duration-300", isCollapsed ? "justify-center px-2 py-2 ease-in" : "gap-2 px-3 py-2 ease-out", pathname === "/politica-de-privacidade" ? "state-pressed text-white" : "text-foreground hover:bg-accent hover:text-foreground")} title={isCollapsed ? t("privacy") : undefined}>
             <IconShieldLock className={cn("h-4 w-4 flex-shrink-0 transition-colors duration-300", pathname === "/politica-de-privacidade" ? "text-foreground" : "text-muted-foreground")} />
-            <span className={cn("transition-all duration-300 whitespace-nowrap", showLabels ? "opacity-100 max-w-full ease-out" : "opacity-0 max-w-0 overflow-hidden ease-in")}>Política de Privacidade</span>
+            <span className={cn("transition-all duration-300 whitespace-nowrap", showLabels ? "opacity-100 max-w-full ease-out" : "opacity-0 max-w-0 overflow-hidden ease-in")}>{t("privacy")}</span>
           </Link>
-          <Link href="/exclusao-de-dados" prefetch={false} className={cn("flex items-center rounded-md text-xs font-normal text-foreground transition-all duration-300", isCollapsed ? "justify-center px-2 py-2 ease-in" : "gap-2 px-3 py-2 ease-out", pathname === "/exclusao-de-dados" ? "state-pressed text-white" : "text-foreground hover:bg-accent hover:text-foreground")} title={isCollapsed ? "Exclusão de Dados" : undefined}>
+          <Link href="/exclusao-de-dados" prefetch={false} className={cn("flex items-center rounded-md text-xs font-normal text-foreground transition-all duration-300", isCollapsed ? "justify-center px-2 py-2 ease-in" : "gap-2 px-3 py-2 ease-out", pathname === "/exclusao-de-dados" ? "state-pressed text-white" : "text-foreground hover:bg-accent hover:text-foreground")} title={isCollapsed ? t("dataDeletion") : undefined}>
             <IconTrash className={cn("h-4 w-4 flex-shrink-0 transition-colors duration-300", pathname === "/exclusao-de-dados" ? "text-foreground" : "text-muted-foreground")} />
-            <span className={cn("transition-all duration-300 whitespace-nowrap", showLabels ? "opacity-100 max-w-full ease-out" : "opacity-0 max-w-0 overflow-hidden ease-in")}>Exclusão de Dados</span>
+            <span className={cn("transition-all duration-300 whitespace-nowrap", showLabels ? "opacity-100 max-w-full ease-out" : "opacity-0 max-w-0 overflow-hidden ease-in")}>{t("dataDeletion")}</span>
           </Link>
         </div>
       </div>

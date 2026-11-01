@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import { useTranslations } from "next-intl";
 import { Button } from "@/components/ui/button";
 import { IconChevronRight, IconChevronLeft, IconLoader2 } from "@tabler/icons-react";
 import { useValidationCriteria } from "@/lib/hooks/useValidationCriteria";
@@ -17,6 +18,8 @@ import { showError, showSuccess } from "@/lib/utils/toast";
 const RECOMMENDED_IMPRESSIONS = 3000;
 
 export function ValidationStep(props: { onContinue: () => void; onBack: () => void }) {
+  const t = useTranslations("onboarding.validation");
+  const tc = useTranslations("common");
   const { criteria, isLoading, isSaving, saveCriteria, updateCriteria } = useValidationCriteria();
   const queryClient = useQueryClient();
   const defaultsApplied = useRef(false);
@@ -48,13 +51,13 @@ export function ValidationStep(props: { onContinue: () => void; onBack: () => vo
       validation_criteria_configured: true,
       has_completed_onboarding: true,
     });
-    showSuccess("Configuração concluída!");
+    showSuccess(t("done"));
     props.onContinue();
   };
 
   if (isLoading) {
     return (
-      <FormPageSection title="Configurando critério de validação">
+      <FormPageSection title={t("loadingTitle")}>
         <StateSkeleton variant="widget" rows={3} />
       </FormPageSection>
     );
@@ -64,7 +67,7 @@ export function ValidationStep(props: { onContinue: () => void; onBack: () => vo
     // Condição em branco não conta: um critério com "impressões >" sem número
     // deixa todo anúncio passar por maduro, que é o oposto do que esta tela pede.
     if (countRestrictiveConditions(criteria) === 0) {
-      showError("Preencha ao menos uma condição para concluir.");
+      showError(t("needOneCondition"));
       return;
     }
     try {
@@ -76,12 +79,8 @@ export function ValidationStep(props: { onContinue: () => void; onBack: () => vo
 
   return (
     <FormPageSection
-      title="Critério de Validação"
-      description={
-        <>
-          Defina a partir de <strong>quando um anúncio tem dados suficientes para ser analisado</strong>. Anúncios que não atendem esses critérios são considerados em fase de testes.
-        </>
-      }
+      title={t("title")}
+      description={t.rich("description", { b: (chunks) => <strong>{chunks}</strong> })}
       density="spacious"
     >
       <ValidationCriteriaEditor value={criteria} onChange={updateCriteria} onSave={handleSave} isSaving={isSaving} hideSaveButton={true} />
@@ -89,17 +88,17 @@ export function ValidationStep(props: { onContinue: () => void; onBack: () => vo
       <div className="flex justify-between">
         <Button variant="outline" onClick={props.onBack} disabled={isSaving}>
           <IconChevronLeft className="w-4 h-4 mr-1" />
-          Voltar
+          {tc("back")}
         </Button>
         <Button variant="default" onClick={handleNext} disabled={isSaving || countRestrictiveConditions(criteria) === 0}>
           {isSaving ? (
             <>
               <IconLoader2 className="w-4 h-4 mr-1 animate-spin" />
-              Salvando...
+              {tc("saving")}
             </>
           ) : (
             <>
-              Próximo
+              {tc("next")}
               <IconChevronRight className="w-4 h-4 ml-1" />
             </>
           )}

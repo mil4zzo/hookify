@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useTranslations } from "next-intl";
 import { useOnboardingGate } from "@/lib/hooks/useOnboardingGate";
 import { MultiStepBreadcrumb } from "@/components/common/MultiStepBreadcrumb";
 import { StateSkeleton } from "@/components/common/States";
@@ -17,11 +18,12 @@ type Step = 1 | 2 | 3 | 4;
 const ONBOARDING_SHELL_CLASS = "mx-auto w-full max-w-3xl";
 
 function OnboardingSkeleton() {
+  const t = useTranslations("onboarding");
   return (
     <PageContainer
       variant="standard"
-      title="Configuração inicial"
-      description="Vamos deixar tudo pronto para o Hookify analisar seus anúncios."
+      title={t("title")}
+      description={t("description")}
       className={ONBOARDING_SHELL_CLASS}
     >
       <PageBodyStack density="spacious">
@@ -53,6 +55,7 @@ function computeInitialStep(data: { has_completed_onboarding?: boolean } | undef
 }
 
 export default function OnboardingPage() {
+  const t = useTranslations("onboarding");
   const { authStatus, onboardingStatus, isClient, data } = useOnboardingGate("onboarding");
   const [step, setStep] = useState<Step>(1);
   const [initialized, setInitialized] = useState(false);
@@ -88,16 +91,16 @@ export default function OnboardingPage() {
   return (
     <PageContainer
       variant="standard"
-      title="Configuração inicial"
-      description="Vamos deixar tudo pronto para o Hookify analisar seus anúncios."
+      title={t("title")}
+      description={t("description")}
       className={ONBOARDING_SHELL_CLASS}
     >
       <MultiStepBreadcrumb
         steps={[
-          { id: 1, label: "Preferências" },
-          { id: 2, label: "Conectar Facebook" },
-          { id: 3, label: "Critério de validação" },
-          { id: 4, label: "Carregar Pack" },
+          { id: 1, label: t("steps.preferences") },
+          { id: 2, label: t("steps.facebook") },
+          { id: 3, label: t("steps.validation") },
+          { id: 4, label: t("steps.pack") },
         ]}
         currentStepId={step}
         variant="visual"

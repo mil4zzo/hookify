@@ -3,6 +3,7 @@
 import { StatePanel } from "@/components/common/States";
 import { useState, useEffect, useMemo } from "react";
 import Link from "next/link";
+import { useTranslations } from "next-intl";
 import Image from "next/image";
 import { useRouter, usePathname } from "next/navigation";
 import { TopbarFilters } from "@/components/layout/TopbarFilters";
@@ -67,6 +68,7 @@ export default function Topbar() {
   } = useMqlLeadscore();
   const { currency: userCurrency, isSaving: isSavingCurrency, saveCurrency } = useCurrency();
   const { currency: detectedCurrency, isMixed: isMixedCurrency, isLoading: isDetectingCurrency } = useDetectedAccountCurrency();
+  const tNav = useTranslations("nav");
   const { language: userLanguage, isLoading: isLoadingLanguage, isSaving: isSavingLanguage, saveLanguage } = useLanguage();
   const { niche: userNiche, isLoading: isLoadingNiche, isSaving: isSavingNiche, updateNiche, saveNiche } = useNiche();
   const { packs } = useClientPacks();
@@ -219,7 +221,8 @@ export default function Topbar() {
 
   // Obter título e ícone da página atual
   const pageInfo = pageTitles[pathname] || { title: "Hookify" };
-  const { title, icon: Icon } = pageInfo;
+  const { icon: Icon } = pageInfo;
+  const title = pageInfo.labelKey ? tNav(pageInfo.labelKey) : pageInfo.title;
 
   const handleLogoutClick = async () => {
     await handleLogout();
@@ -537,9 +540,7 @@ export default function Topbar() {
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="pt-BR">Português</SelectItem>
-              <SelectItem value="en-US" disabled>
-                Inglês
-              </SelectItem>
+              <SelectItem value="en-US">English</SelectItem>
               <SelectItem value="es-ES" disabled>
                 Espanhol
               </SelectItem>

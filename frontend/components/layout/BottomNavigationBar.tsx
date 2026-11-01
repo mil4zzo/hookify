@@ -1,6 +1,7 @@
 "use client";
 
 import { usePathname } from "next/navigation";
+import { useTranslations } from "next-intl";
 import { useClientAuth } from "@/lib/hooks/useClientSession";
 import { useUserTier } from "@/lib/hooks/useUserTier";
 import { getMenuItems } from "@/lib/config/pageConfig";
@@ -10,6 +11,7 @@ export default function BottomNavigationBar() {
   const pathname = usePathname();
   const { isAuthenticated, isClient } = useClientAuth();
   const { data: userTier = "standard" } = useUserTier();
+  const t = useTranslations("nav");
 
   // Não mostrar em rotas de autenticação
   const isAuthRoute = pathname?.startsWith("/login") || pathname?.startsWith("/callback");
@@ -22,7 +24,7 @@ export default function BottomNavigationBar() {
 
   // Converter PageConfig[] para NavItem[]
   const navItems = menuItems.map((item) => ({
-    name: item.label,
+    name: item.labelKey ? t(item.labelKey) : item.label,
     url: item.path,
     icon: item.icon,
   }));

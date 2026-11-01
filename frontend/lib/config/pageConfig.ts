@@ -20,6 +20,8 @@ export interface PageConfig {
   path: string;
   title: string;
   label: string;
+  /** Chave em `nav` (messages/*.json) quando o nome é frase traduzível; produto (Manager, Packs) fica só em `label`. */
+  labelKey?: string;
   icon: ComponentType<{ className?: string }>;
   description?: string;
   isDevelopment?: boolean;
@@ -82,6 +84,7 @@ export const pageConfigs: PageConfig[] = [
     path: "/plano",
     title: "Plano de Ação",
     label: "Plano de Ação",
+    labelKey: "actionPlan",
     icon: IconTarget,
     description: "To-do list prescritivo: o que escalar, otimizar, aprender e pausar",
     showInMenu: true,
@@ -159,8 +162,8 @@ export function getDevelopmentItems(): PageConfig[] {
 
 export const pageTitles: Record<
   string,
-  { title: string; icon?: ComponentType<{ className?: string }> }
+  { title: string; labelKey?: string; icon?: ComponentType<{ className?: string }> }
 > = pageConfigs.reduce((acc, config) => {
-  acc[config.path] = { title: config.title, icon: config.icon };
+  acc[config.path] = { title: config.title, labelKey: config.labelKey, icon: config.icon };
   return acc;
-}, {} as Record<string, { title: string; icon?: ComponentType<{ className?: string }> }>);
+}, {} as Record<string, { title: string; labelKey?: string; icon?: ComponentType<{ className?: string }> }>);

@@ -6,6 +6,7 @@ import { AppToaster } from "../components/layout/AppToaster";
 import AppLayout from "../components/layout/AppLayout";
 import { SentryUserIdentifier } from "../components/providers/SentryUserIdentifier";
 import { AuthSessionExpiredHandler } from "../components/providers/AuthSessionExpiredHandler";
+import { I18nProvider } from "../components/providers/I18nProvider";
 
 const geist = Geist({
   subsets: ["latin"],
@@ -26,14 +27,16 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="pt-BR" data-theme="dark" className={`${geist.variable} ${geistMono.variable}`}>
       <body className={`${geist.className} bg-background text-foreground antialiased`}>
-        <ReactQueryProvider>
-          <SidebarProvider>
-            <SentryUserIdentifier />
-            <AuthSessionExpiredHandler />
-            <AppLayout>{children}</AppLayout>
-            <AppToaster />
-          </SidebarProvider>
-        </ReactQueryProvider>
+        <I18nProvider>
+          <ReactQueryProvider>
+            <SidebarProvider>
+              <SentryUserIdentifier />
+              <AuthSessionExpiredHandler />
+              <AppLayout>{children}</AppLayout>
+              <AppToaster />
+            </SidebarProvider>
+          </ReactQueryProvider>
+        </I18nProvider>
       </body>
     </html>
   );
