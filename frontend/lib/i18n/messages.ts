@@ -1,6 +1,6 @@
 import ptBR from "../../messages/pt-BR.json";
 import enUS from "../../messages/en-US.json";
-import type { AppLocale } from "./locale";
+import type { AppLocale } from "./config";
 
 /**
  * Textos por idioma. O português é a base: o que um idioma ainda não traduziu aparece

@@ -1,4 +1,5 @@
 import { useSettingsStore } from "@/lib/store/settings";
+import { resolveLocale, type AppLocale } from "./config";
 
 /**
  * Idioma do app: a ÚNICA fonte do locale usado em número, data e lista.
@@ -12,18 +13,11 @@ import { useSettingsStore } from "@/lib/store/settings";
  * link compartilhado (o idioma é de quem lê, não de quem criou) e campo que
  * interpreta o que o usuário digita (vírgula decimal) — esses seguem fixos.
  */
-export const SUPPORTED_LOCALES = ["pt-BR", "en-US", "es-ES"] as const;
-export type AppLocale = (typeof SUPPORTED_LOCALES)[number];
-export const DEFAULT_LOCALE: AppLocale = "pt-BR";
-
-export function isSupportedLocale(value: unknown): value is AppLocale {
-  return typeof value === "string" && (SUPPORTED_LOCALES as readonly string[]).includes(value);
-}
+export { SUPPORTED_LOCALES, DEFAULT_LOCALE, LOCALE_COOKIE, isSupportedLocale, resolveLocale, type AppLocale } from "./config";
 
 /** Código desconhecido (ou vazio) cai no padrão: nunca um locale que o `Intl` recusa. */
 export function getAppLocale(): AppLocale {
-  const language = useSettingsStore.getState().settings.language;
-  return isSupportedLocale(language) ? language : DEFAULT_LOCALE;
+  return resolveLocale(useSettingsStore.getState().settings.language);
 }
 
 /** Número com separador de milhar do idioma (1.234 em pt-BR, 1,234 em en-US). */

@@ -3,28 +3,13 @@ import { useSettingsStore, useSettings } from '@/lib/store/settings'
 import { useMemo } from 'react'
 
 /**
- * Mapear moedas para seus locales apropriados
+ * Locale usado em Intl para números e moeda: o IDIOMA do app decide separador de milhar,
+ * decimal e posição do símbolo; a MOEDA da conta só decide qual símbolo (R$, $, US$).
+ * Quem usa o app em inglês com conta em reais vê "R$1,234.56"; em português com conta
+ * em dólar, "US$ 1.234,56".
  */
-const currencyLocaleMap: Record<string, string> = {
-  'USD': 'en-US',
-  'EUR': 'de-DE',
-  'GBP': 'en-GB',
-  'BRL': 'pt-BR',
-  'MXN': 'es-MX',
-  'CAD': 'en-CA',
-  'AUD': 'en-AU',
-  'JPY': 'ja-JP',
-  'CNY': 'zh-CN',
-}
-
-/**
- * Locale usado em Intl para números e moeda: prioriza o locale típico do código de moeda,
- * senão cai no idioma das configurações (separadores de milhar/decimais corretos por região).
- */
-export function getLocaleForFormatting(currencyCode?: string): string {
-  const settings = useSettingsStore.getState().settings
-  const code = currencyCode ?? settings.currency
-  return currencyLocaleMap[code] || settings.language
+export function getLocaleForFormatting(): string {
+  return getAppLocale()
 }
 
 /**
@@ -74,7 +59,7 @@ export function formatLocaleRawPercent(value: number): string {
 export function formatCurrency(value: number, currency?: string): string {
   const settings = useSettingsStore.getState().settings
   const currencyCode = currency || settings.currency
-  const locale = getLocaleForFormatting(currencyCode)
+  const locale = getLocaleForFormatting()
 
   return new Intl.NumberFormat(locale, {
     style: 'currency',
@@ -92,7 +77,7 @@ export function useFormatCurrency() {
   const formatCurrencyReactive = useMemo(() => {
     return (value: number, currency?: string) => {
       const currencyCode = currency || settings.currency
-      const locale = getLocaleForFormatting(currencyCode)
+      const locale = getLocaleForFormatting()
 
       return new Intl.NumberFormat(locale, {
         style: 'currency',
