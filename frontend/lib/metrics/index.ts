@@ -1,4 +1,5 @@
 import { METRIC_DEFINITION_LIST, METRIC_DEFINITIONS, type MetricDefinition, type MetricFormatKind, type MetricKey } from "./definitions";
+import { translate } from "@/lib/i18n/translate";
 import { formatMetricValueByKind as formatMetricValueByKindCore, type FormatMetricValueOptions } from "./formatMetricValueCore";
 import { isCustomColumnKey } from "./customColumns";
 import { getActiveCustomColumn } from "./customColumnsRegistry";
@@ -75,7 +76,7 @@ export function getMetricDefinition(metricKey: string): MetricDefinition | undef
       // `top` (categoria) é texto e não passa por formatador numérico; o decimal aqui
       // é só um valor de preenchimento para o tipo — a célula dela tem render próprio.
       formatKind: custom.formatKind === "text" ? "decimal" : custom.formatKind,
-      technicalDescription: `Coluna "${custom.mapping.label}" da planilha vinculada.`,
+      technicalDescription: translate("metrics.custom.linkedColumn", { label: custom.mapping.label }),
     };
   }
   const canonicalKey = resolveMetricKey(metricKey);
@@ -105,7 +106,7 @@ export function getMetricTooltipContent(metricKey: string): MetricTooltipContent
 }
 
 export function getMetricAverageTooltip(metricKey: string): string {
-  return `${getMetricDisplayLabel(metricKey)} medio`;
+  return translate("metrics.averageTooltip", { label: getMetricDisplayLabel(metricKey) });
 }
 
 export function getMetricFormatKind(metricKey: string): MetricFormatKind | undefined {

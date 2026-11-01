@@ -1,3 +1,5 @@
+import { translate } from "@/lib/i18n/translate";
+
 export type MetricPolarity = "higher" | "lower" | "neutral";
 
 export type MetricFormatKind = "currency" | "ratioPercent" | "rawPercent" | "integer" | "decimal";
@@ -72,32 +74,52 @@ export const METRIC_DEFINITIONS: Record<MetricKey, MetricDefinition> = {
   score: {
     key: "score",
     label: "Score",
-    didacticDescription: "Mostra a nota composta final do criativo na leitura do Explorer.",
-    technicalDescription: "Score sintético em escala de 0 a 10 calculado a partir dos sinais do criativo.",
+    get didacticDescription() {
+      return translate("metrics.defs.score.d");
+    },
+    get technicalDescription() {
+      return translate("metrics.defs.score.t");
+    },
     polarity: "higher",
     formatKind: "decimal",
   },
   spend: {
     key: "spend",
-    label: "Gasto",
-    didacticDescription: "Mostra quanto foi investido no anúncio no período selecionado.",
-    technicalDescription: "Soma dos gastos atribuídos ao conjunto de datas filtrado.",
+    get label() {
+      return translate("metrics.defs.spend.l");
+    },
+    get didacticDescription() {
+      return translate("metrics.defs.spend.d");
+    },
+    get technicalDescription() {
+      return translate("metrics.defs.spend.t");
+    },
     polarity: "neutral",
     formatKind: "currency",
   },
   cpm: {
     key: "cpm",
     label: "CPM",
-    didacticDescription: "Mostra o custo para gerar mil impressões do anúncio.",
-    technicalDescription: "Custo por mil impressões entregues.",
+    get didacticDescription() {
+      return translate("metrics.defs.cpm.d");
+    },
+    get technicalDescription() {
+      return translate("metrics.defs.cpm.t");
+    },
     polarity: "lower",
     formatKind: "currency",
   },
   frequency: {
     key: "frequency",
-    label: "Frequência",
-    didacticDescription: "Mostra quantas vezes, em média, cada pessoa viu o anúncio.",
-    technicalDescription: "Relação entre impressões totais e alcance.",
+    get label() {
+      return translate("metrics.defs.frequency.l");
+    },
+    get didacticDescription() {
+      return translate("metrics.defs.frequency.d");
+    },
+    get technicalDescription() {
+      return translate("metrics.defs.frequency.t");
+    },
     polarity: "neutral",
     colorless: true,
     formatKind: "decimal",
@@ -105,8 +127,12 @@ export const METRIC_DEFINITIONS: Record<MetricKey, MetricDefinition> = {
   scroll_stop: {
     key: "scroll_stop",
     label: "Scroll Stop",
-    didacticDescription: "Mede a capacidade do anúncio de interromper o scroll logo no início.",
-    technicalDescription: "Percentual que parou no primeiro segundo do vídeo.",
+    get didacticDescription() {
+      return translate("metrics.defs.scroll_stop.d");
+    },
+    get technicalDescription() {
+      return translate("metrics.defs.scroll_stop.t");
+    },
     polarity: "higher",
     formatKind: "ratioPercent",
     requiresVideo: true,
@@ -114,8 +140,12 @@ export const METRIC_DEFINITIONS: Record<MetricKey, MetricDefinition> = {
   hook: {
     key: "hook",
     label: "Hook",
-    didacticDescription: "Mostra quão forte é a abertura do anúncio para capturar atenção.",
-    technicalDescription: "Taxa de retenção inicial nos primeiros 3 segundos.",
+    get didacticDescription() {
+      return translate("metrics.defs.hook.d");
+    },
+    get technicalDescription() {
+      return translate("metrics.defs.hook.t");
+    },
     polarity: "higher",
     formatKind: "ratioPercent",
     requiresVideo: true,
@@ -123,8 +153,12 @@ export const METRIC_DEFINITIONS: Record<MetricKey, MetricDefinition> = {
   hold_rate: {
     key: "hold_rate",
     label: "Hold Rate",
-    didacticDescription: "Coerência entre o Hook e a continuação do anúncio.",
-    technicalDescription: "Taxa de retenção entre o Hook (3s) e Trueplay (15s).",
+    get didacticDescription() {
+      return translate("metrics.defs.hold_rate.d");
+    },
+    get technicalDescription() {
+      return translate("metrics.defs.hold_rate.t");
+    },
     polarity: "higher",
     formatKind: "ratioPercent",
     requiresVideo: true,
@@ -132,8 +166,12 @@ export const METRIC_DEFINITIONS: Record<MetricKey, MetricDefinition> = {
   video_watched_p50: {
     key: "video_watched_p50",
     label: "50% View",
-    didacticDescription: "Mostra quantas pessoas chegaram até a metade do vídeo.",
-    technicalDescription: "Percentual de visualizações que atingiram 50% da duração.",
+    get didacticDescription() {
+      return translate("metrics.defs.video_watched_p50.d");
+    },
+    get technicalDescription() {
+      return translate("metrics.defs.video_watched_p50.t");
+    },
     polarity: "higher",
     formatKind: "rawPercent",
     requiresVideo: true,
@@ -141,8 +179,12 @@ export const METRIC_DEFINITIONS: Record<MetricKey, MetricDefinition> = {
   video_watched_p75: {
     key: "video_watched_p75",
     label: "75% View",
-    didacticDescription: "Mostra quantas pessoas chegaram a 75% do vídeo.",
-    technicalDescription: "Percentual de visualizações que atingiram 75% da duração.",
+    get didacticDescription() {
+      return translate("metrics.defs.video_watched_p75.d");
+    },
+    get technicalDescription() {
+      return translate("metrics.defs.video_watched_p75.t");
+    },
     polarity: "higher",
     formatKind: "rawPercent",
     requiresVideo: true,
@@ -150,18 +192,30 @@ export const METRIC_DEFINITIONS: Record<MetricKey, MetricDefinition> = {
   ctr: {
     key: "ctr",
     label: "CTR",
-    didacticDescription: "Mostra a taxa de cliques gerados pelo anúncio sobre as impressões.",
-    technicalDescription: "Cliques divididos por impressões.",
+    get didacticDescription() {
+      return translate("metrics.defs.ctr.d");
+    },
+    get technicalDescription() {
+      return translate("metrics.defs.ctr.t");
+    },
     polarity: "higher",
     formatKind: "ratioPercent",
   },
   website_ctr: {
     key: "website_ctr",
     aliases: ["link_ctr"],
-    label: "CTR do link",
-    shortLabel: "CTR do link",
-    didacticDescription: "Mostra a taxa de cliques especificamente no link do anúncio.",
-    technicalDescription: "Inline link clicks dividido por impressions.",
+    get label() {
+      return translate("metrics.defs.website_ctr.l");
+    },
+    get shortLabel() {
+      return translate("metrics.defs.website_ctr.s");
+    },
+    get didacticDescription() {
+      return translate("metrics.defs.website_ctr.d");
+    },
+    get technicalDescription() {
+      return translate("metrics.defs.website_ctr.t");
+    },
     polarity: "higher",
     formatKind: "ratioPercent",
   },
@@ -169,17 +223,29 @@ export const METRIC_DEFINITIONS: Record<MetricKey, MetricDefinition> = {
     key: "connect_rate",
     label: "Connect Rate",
     shortLabel: "Connect",
-    didacticDescription: "Mostra quantos cliques viraram visitas reais à página.",
-    technicalDescription: "LPV dividido por inline link clicks.",
+    get didacticDescription() {
+      return translate("metrics.defs.connect_rate.d");
+    },
+    get technicalDescription() {
+      return translate("metrics.defs.connect_rate.t");
+    },
     polarity: "higher",
     formatKind: "ratioPercent",
   },
   page_conv: {
     key: "page_conv",
-    label: "Conv. da página",
-    shortLabel: "Página",
-    didacticDescription: "Mostra a eficiência da página em converter visitas em resultado.",
-    technicalDescription: "Resultados divididos por LPV.",
+    get label() {
+      return translate("metrics.defs.page_conv.l");
+    },
+    get shortLabel() {
+      return translate("metrics.defs.page_conv.s");
+    },
+    get didacticDescription() {
+      return translate("metrics.defs.page_conv.d");
+    },
+    get technicalDescription() {
+      return translate("metrics.defs.page_conv.t");
+    },
     polarity: "higher",
     formatKind: "ratioPercent",
     requiresActionType: true,
@@ -187,8 +253,12 @@ export const METRIC_DEFINITIONS: Record<MetricKey, MetricDefinition> = {
   cpmql: {
     key: "cpmql",
     label: "CPMQL",
-    didacticDescription: "Mostra o custo para gerar um lead qualificado de marketing.",
-    technicalDescription: "Gasto dividido por MQLs.",
+    get didacticDescription() {
+      return translate("metrics.defs.cpmql.d");
+    },
+    get technicalDescription() {
+      return translate("metrics.defs.cpmql.t");
+    },
     polarity: "lower",
     formatKind: "currency",
     requiresSheetIntegration: true,
@@ -196,8 +266,12 @@ export const METRIC_DEFINITIONS: Record<MetricKey, MetricDefinition> = {
   cpr: {
     key: "cpr",
     label: "CPR",
-    didacticDescription: "Mostra quanto custa gerar um resultado da conversão selecionada.",
-    technicalDescription: "Gasto dividido por resultados.",
+    get didacticDescription() {
+      return translate("metrics.defs.cpr.d");
+    },
+    get technicalDescription() {
+      return translate("metrics.defs.cpr.t");
+    },
     polarity: "lower",
     formatKind: "currency",
     requiresActionType: true,
@@ -205,24 +279,36 @@ export const METRIC_DEFINITIONS: Record<MetricKey, MetricDefinition> = {
   cpc: {
     key: "cpc",
     label: "CPC",
-    didacticDescription: "Mostra quanto custa cada clique recebido pelo anúncio.",
-    technicalDescription: "Gasto dividido por cliques.",
+    get didacticDescription() {
+      return translate("metrics.defs.cpc.d");
+    },
+    get technicalDescription() {
+      return translate("metrics.defs.cpc.t");
+    },
     polarity: "lower",
     formatKind: "currency",
   },
   cplc: {
     key: "cplc",
     label: "CPLC",
-    didacticDescription: "Mostra quanto custa cada clique no link do anúncio.",
-    technicalDescription: "Gasto dividido por cliques no link.",
+    get didacticDescription() {
+      return translate("metrics.defs.cplc.d");
+    },
+    get technicalDescription() {
+      return translate("metrics.defs.cplc.t");
+    },
     polarity: "lower",
     formatKind: "currency",
   },
   mqls: {
     key: "mqls",
     label: "MQLs",
-    didacticDescription: "Mostra o volume de leads qualificados gerados no período.",
-    technicalDescription: "Contagem total de marketing qualified leads.",
+    get didacticDescription() {
+      return translate("metrics.defs.mqls.d");
+    },
+    get technicalDescription() {
+      return translate("metrics.defs.mqls.t");
+    },
     polarity: "higher",
     colorless: true,
     formatKind: "integer",
@@ -230,9 +316,15 @@ export const METRIC_DEFINITIONS: Record<MetricKey, MetricDefinition> = {
   },
   results: {
     key: "results",
-    label: "Resultados",
-    didacticDescription: "Mostra o total da conversão atualmente selecionada.",
-    technicalDescription: "Soma das conversões do action type escolhido.",
+    get label() {
+      return translate("metrics.defs.results.l");
+    },
+    get didacticDescription() {
+      return translate("metrics.defs.results.d");
+    },
+    get technicalDescription() {
+      return translate("metrics.defs.results.t");
+    },
     polarity: "higher",
     colorless: true,
     formatKind: "integer",
@@ -240,18 +332,30 @@ export const METRIC_DEFINITIONS: Record<MetricKey, MetricDefinition> = {
   },
   impressions: {
     key: "impressions",
-    label: "Impressões",
-    didacticDescription: "Mostra o total de vezes que o anúncio foi exibido.",
-    technicalDescription: "Contagem bruta de entregas do anúncio.",
+    get label() {
+      return translate("metrics.defs.impressions.l");
+    },
+    get didacticDescription() {
+      return translate("metrics.defs.impressions.d");
+    },
+    get technicalDescription() {
+      return translate("metrics.defs.impressions.t");
+    },
     polarity: "higher",
     colorless: true,
     formatKind: "integer",
   },
   clicks: {
     key: "clicks",
-    label: "Cliques",
-    didacticDescription: "Mostra o total de cliques recebidos pelo anúncio.",
-    technicalDescription: "Inclui todos os cliques contabilizados na entrega.",
+    get label() {
+      return translate("metrics.defs.clicks.l");
+    },
+    get didacticDescription() {
+      return translate("metrics.defs.clicks.d");
+    },
+    get technicalDescription() {
+      return translate("metrics.defs.clicks.t");
+    },
     polarity: "higher",
     colorless: true,
     formatKind: "integer",
@@ -259,8 +363,12 @@ export const METRIC_DEFINITIONS: Record<MetricKey, MetricDefinition> = {
   lpv: {
     key: "lpv",
     label: "LPV",
-    didacticDescription: "Mostra quantas visualizações reais a página de destino recebeu.",
-    technicalDescription: "Landing page views após o clique no anúncio.",
+    get didacticDescription() {
+      return translate("metrics.defs.lpv.d");
+    },
+    get technicalDescription() {
+      return translate("metrics.defs.lpv.t");
+    },
     polarity: "higher",
     colorless: true,
     formatKind: "integer",
@@ -268,8 +376,12 @@ export const METRIC_DEFINITIONS: Record<MetricKey, MetricDefinition> = {
   plays: {
     key: "plays",
     label: "Plays",
-    didacticDescription: "Mostra quantas reproduções de vídeo foram registradas.",
-    technicalDescription: "Total de execuções iniciadas do criativo em vídeo.",
+    get didacticDescription() {
+      return translate("metrics.defs.plays.d");
+    },
+    get technicalDescription() {
+      return translate("metrics.defs.plays.t");
+    },
     polarity: "higher",
     colorless: true,
     formatKind: "integer",
@@ -279,8 +391,12 @@ export const METRIC_DEFINITIONS: Record<MetricKey, MetricDefinition> = {
     key: "thruplays",
     aliases: ["video_total_thruplays"],
     label: "ThruPlays",
-    didacticDescription: "Mostra quantas pessoas assistiram ao vídeo até o fim (ou 15s).",
-    technicalDescription: "Total de reproduções completas ou de pelo menos 15 segundos (video_thruplay_watched_actions).",
+    get didacticDescription() {
+      return translate("metrics.defs.thruplays.d");
+    },
+    get technicalDescription() {
+      return translate("metrics.defs.thruplays.t");
+    },
     polarity: "higher",
     colorless: true,
     formatKind: "integer",
@@ -288,29 +404,51 @@ export const METRIC_DEFINITIONS: Record<MetricKey, MetricDefinition> = {
   },
   reach: {
     key: "reach",
-    label: "Alcance",
-    didacticDescription: "Mostra quantas pessoas únicas receberam o anúncio.",
-    technicalDescription: "Contagem estimada de usuários únicos impactados.",
+    get label() {
+      return translate("metrics.defs.reach.l");
+    },
+    get didacticDescription() {
+      return translate("metrics.defs.reach.d");
+    },
+    get technicalDescription() {
+      return translate("metrics.defs.reach.t");
+    },
     polarity: "higher",
     colorless: true,
     formatKind: "integer",
   },
   leadscore_avg: {
     key: "leadscore_avg",
-    label: "Leadscore Médio",
-    shortLabel: "Leadscore",
-    didacticDescription: "Mostra a qualidade média dos leads gerados pelo anúncio.",
-    technicalDescription: "Média dos leadscore_values recebidos via planilha, ponderada pelo número de leads.",
+    get label() {
+      return translate("metrics.defs.leadscore_avg.l");
+    },
+    get shortLabel() {
+      return translate("metrics.defs.leadscore_avg.s");
+    },
+    get didacticDescription() {
+      return translate("metrics.defs.leadscore_avg.d");
+    },
+    get technicalDescription() {
+      return translate("metrics.defs.leadscore_avg.t");
+    },
     polarity: "higher",
     formatKind: "decimal",
     requiresSheetIntegration: true,
   },
   mql_rate: {
     key: "mql_rate",
-    label: "% de MQLs",
-    shortLabel: "% MQLs",
-    didacticDescription: "Mostra que fatia dos leads do anúncio chegou qualificada.",
-    technicalDescription: "MQLs dividido pelo TOTAL de leads (não pelos não-MQLs). Escala 0-1.",
+    get label() {
+      return translate("metrics.defs.mql_rate.l");
+    },
+    get shortLabel() {
+      return translate("metrics.defs.mql_rate.s");
+    },
+    get didacticDescription() {
+      return translate("metrics.defs.mql_rate.d");
+    },
+    get technicalDescription() {
+      return translate("metrics.defs.mql_rate.t");
+    },
     polarity: "higher",
     formatKind: "ratioPercent",
     requiresSheetIntegration: true,
@@ -320,9 +458,12 @@ export const METRIC_DEFINITIONS: Record<MetricKey, MetricDefinition> = {
   cpl_ceiling: {
     key: "cpl_ceiling",
     label: "CPL Max",
-    didacticDescription: "Quanto você pode pagar por um lead deste anúncio sem descer abaixo da margem desejada, dado quem ele traz.",
-    technicalDescription:
-      "Σ fatia de leads na faixa × conversão × ticket × (sobra − margem desejada), com a economia do pack. Conta só os leads com nota.",
+    get didacticDescription() {
+      return translate("metrics.defs.cpl_ceiling.d");
+    },
+    get technicalDescription() {
+      return translate("metrics.defs.cpl_ceiling.t");
+    },
     polarity: "higher",
     formatKind: "currency",
     requiresSheetIntegration: true,
@@ -331,9 +472,12 @@ export const METRIC_DEFINITIONS: Record<MetricKey, MetricDefinition> = {
   cpl_actual: {
     key: "cpl_actual",
     label: "CPL Real",
-    didacticDescription:
-      "Quanto cada lead com nota custou de verdade. É este o custo que se compara com o CPL Max, não o CPR (que divide pelos resultados da Meta).",
-    technicalDescription: "Gasto ÷ leads com nota da planilha. Mesmo denominador do CPL Max e da Margem.",
+    get didacticDescription() {
+      return translate("metrics.defs.cpl_actual.d");
+    },
+    get technicalDescription() {
+      return translate("metrics.defs.cpl_actual.t");
+    },
     polarity: "lower",
     formatKind: "currency",
     requiresSheetIntegration: true,
@@ -341,10 +485,15 @@ export const METRIC_DEFINITIONS: Record<MetricKey, MetricDefinition> = {
   },
   leads_scored: {
     key: "leads_scored",
-    label: "Leads com nota",
-    didacticDescription:
-      "Quantos leads da planilha casaram com este anúncio e têm nota. É o divisor do CPL Real e da Margem: serve para conferir a conta.",
-    technicalDescription: "Contagem de leads com leadscore vindos da planilha. Denominador do CPL Real, do CPL Max e da Margem.",
+    get label() {
+      return translate("metrics.defs.leads_scored.l");
+    },
+    get didacticDescription() {
+      return translate("metrics.defs.leads_scored.d");
+    },
+    get technicalDescription() {
+      return translate("metrics.defs.leads_scored.t");
+    },
     polarity: "higher",
     colorless: true,
     formatKind: "integer",
@@ -353,10 +502,15 @@ export const METRIC_DEFINITIONS: Record<MetricKey, MetricDefinition> = {
   },
   lead_margin: {
     key: "lead_margin",
-    label: "Margem",
-    didacticDescription: "Quanto sobra do faturamento esperado depois de produto, custos e do que o lead custou. Compare com a margem desejada.",
-    technicalDescription:
-      "(contribuição esperada por lead − gasto ÷ leads com nota) ÷ faturamento esperado por lead. Sobre o faturamento (D15). Escala 0-1.",
+    get label() {
+      return translate("metrics.defs.lead_margin.l");
+    },
+    get didacticDescription() {
+      return translate("metrics.defs.lead_margin.d");
+    },
+    get technicalDescription() {
+      return translate("metrics.defs.lead_margin.t");
+    },
     polarity: "higher",
     formatKind: "ratioPercent",
     requiresSheetIntegration: true,

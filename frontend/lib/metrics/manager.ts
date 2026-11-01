@@ -1,4 +1,5 @@
 import { METRIC_DEFINITIONS, type MetricKey } from "./definitions";
+import { translate } from "@/lib/i18n/translate";
 import { formatMetricValueByKind } from "./formatMetricValueCore";
 import { getMetricNumericValueOrNull, getResultsForActionType, type MetricValueContext, type MetricValueSource } from "./calculations";
 import { computeMqlMetricsFromLeadscore, getLeadscoreRaw } from "@/lib/utils/mqlMetrics";
@@ -246,7 +247,7 @@ export function getManagerMetricLabel(metricKey: string): string {
   if (isCustomColumnKey(metricKey)) {
     // Vínculo fora da seleção atual (ou excluído): a coluna nem é construída, mas um
     // rótulo honesto evita um cabeçalho com a chave crua onde a preferência ainda a cita.
-    return getActiveCustomColumn(metricKey)?.label ?? "Coluna excluída (planilha)";
+    return getActiveCustomColumn(metricKey)?.label ?? translate("metrics.custom.deleted");
   }
   return getMetricDisplayLabelLocal(metricKey, { preferShortLabel: true });
 }

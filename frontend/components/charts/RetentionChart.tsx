@@ -2,6 +2,7 @@
 
 import { useMemo, useState, useEffect } from "react";
 import { IconEye } from "@tabler/icons-react";
+import { useTranslations } from "next-intl";
 import { scaleLinear } from "@visx/scale";
 import { AreaClosed, LinePath } from "@visx/shape";
 import { curveMonotoneX } from "@visx/curve";
@@ -65,6 +66,7 @@ const ANNOTATION_CONFIG = {
 };
 
 function RetentionChartInner({ videoPlayCurve, averagesHook, averagesScrollStop, hookValue, onPointClick }: RetentionChartProps) {
+  const t = useTranslations("metrics.chart");
   // Helper para calcular variação percentual
   const getDelta = (value: number, avg: number | null | undefined): { diff: number; text: string; color: string } | null => {
     if (avg == null || Number.isNaN(avg) || !isFinite(avg) || avg === 0) {
@@ -383,8 +385,8 @@ function RetentionChartInner({ videoPlayCurve, averagesHook, averagesScrollStop,
             {/* Tooltip */}
             {tooltipData && (
               <ChartTooltip
-                title={`Tempo: ${tooltipData.point.label}`}
-                value={`Retenção: ${Math.round(tooltipData.point.y)}%`}
+                title={t("time", { value: tooltipData.point.label })}
+                value={t("retention", { value: `${Math.round(tooltipData.point.y)}%` })}
                 style={{
                   left: `${tooltipData.x}px`,
                   top: `${tooltipData.y - 40}px`,

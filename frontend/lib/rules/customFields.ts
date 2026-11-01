@@ -13,6 +13,7 @@
  *   silêncio é o pior dos mundos; aqui ele está nomeado na regra).
  */
 import type { RuleContext, RuleField } from "./fields";
+import { translate } from "@/lib/i18n/translate";
 import { isCustomColumnKey, parseCustomColumnKey, type CustomColumnDef } from "@/lib/metrics/customColumns";
 import { getActiveCustomColumn, getActiveCustomColumns } from "@/lib/metrics/customColumnsRegistry";
 
@@ -26,7 +27,7 @@ export function buildCustomRuleField(def: CustomColumnDef): RuleField {
   if (def.kind === "category") {
     return {
       id: def.key,
-      label: `${def.mapping.label} (maioria)`,
+      label: translate("rules.fields.customMajority", { label: def.mapping.label }),
       kind: "multiselect",
       group: "Planilha",
       availableIn: CUSTOM_FIELD_CONTEXTS,
@@ -61,7 +62,7 @@ export function resolveCustomRuleField(fieldId: string): RuleField | undefined {
   if (!parsed) return undefined;
   return {
     id: fieldId,
-    label: "Coluna excluída (planilha)",
+    label: translate("metrics.custom.deleted"),
     kind: parsed.facet === "top" ? "multiselect" : "metric",
     group: "Planilha",
     isRatioPercent: parsed.facet === "mql_rate",

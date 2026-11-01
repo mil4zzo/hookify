@@ -8,6 +8,7 @@ import { LinePath } from "@visx/shape";
 import { curveMonotoneX } from "@visx/curve";
 import { AxisLeft, AxisBottom } from "@visx/axis";
 import { GridRows } from "@visx/grid";
+import { useTranslations } from "next-intl";
 import { ParentSize } from "@visx/responsive";
 import { localPoint } from "@visx/event";
 import type { DiagnosticTarget, BudgetShareData } from "@/lib/metrics/diagnostics";
@@ -79,6 +80,7 @@ function buildTicks(lo: number, hi: number): number[] {
 }
 
 function DiagnosticTrendChartInner({ lines, budgetData, adKeyToName }: DiagnosticTrendChartProps) {
+  const t = useTranslations("metrics.chart");
   const formatCurrency = useFormatCurrency();
   const [mutedColor, setMutedColor] = useState("rgba(0,0,0,0.35)");
   const [tooltip, setTooltip] = useState<{ x: number; y: number; dayIdx: number } | null>(null);
@@ -133,16 +135,16 @@ function DiagnosticTrendChartInner({ lines, budgetData, adKeyToName }: Diagnosti
       });
       const other = otherByDay[i] ?? 0;
       if (other > 0.0001) {
-        segments.push({ key: "__other__", label: "Outros", from: cum, to: cum + other, color: mutedColor });
+        segments.push({ key: "__other__", label: t("others"), from: cum, to: cum + other, color: mutedColor });
       }
       return { date, segments };
     });
-  }, [budgetData, adKeyToName, mutedColor]);
+  }, [budgetData, adKeyToName, mutedColor, t]);
 
   const showBudget = budgetVisible && budgetByDay.length > 0;
 
   if (!hasData) {
-    return <div className="flex items-center justify-center h-full text-sm text-muted-foreground">Dados insuficientes para o gráfico.</div>;
+    return <div className="flex items-center justify-center h-full text-sm text-muted-foreground">{t("insufficientChart")}</div>;
   }
 
   const formatOriginal = (key: string, val: number): string => {
@@ -331,7 +333,7 @@ function DiagnosticTrendChartInner({ lines, budgetData, adKeyToName }: Diagnosti
                   ))}
                   {budgetSegs.length > 0 && (
                     <div className="mt-1.5 pt-1.5 border-t border-border">
-                      <div className="text-2xs text-muted-foreground mb-0.5">Verba do dia</div>
+                      <div className="text-2xs text-muted-foreground mb-0.5">{t("dayBudget")}</div>
                       {budgetSegs.map((seg) => (
                         <div key={seg.key} className="flex items-center gap-2">
                           <span className="inline-block w-2 h-2 rounded-sm flex-shrink-0" style={{ backgroundColor: seg.color }} />
@@ -375,10 +377,10 @@ function DiagnosticTrendChartInner({ lines, budgetData, adKeyToName }: Diagnosti
                     <span className="h-full w-1/3" style={{ backgroundColor: BUDGET_COLORS[1] }} />
                     <span className="h-full w-1/3" style={{ backgroundColor: BUDGET_COLORS[2] }} />
                   </span>
-                  Verba (share)
+                  {t("budgetShare")}
                 </button>
               )}
-              <span className="text-2xs text-muted-foreground ml-auto">Índice (base=100)</span>
+              <span className="text-2xs text-muted-foreground ml-auto">{t("indexBase")}</span>
             </div>
           </div>
         );

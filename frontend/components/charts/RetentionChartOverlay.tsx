@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState, useRef, useEffect } from "react";
+import { useTranslations } from "next-intl";
 import { scaleLinear } from "@visx/scale";
 import { AreaClosed, LinePath } from "@visx/shape";
 import { curveMonotoneX } from "@visx/curve";
@@ -99,6 +100,7 @@ const getRetentionAtSecond = (second: number, data: { x: number; y: number }[]):
 };
 
 export function RetentionChartOverlay({ videoPlayCurve, currentTime = 0, duration = 0, isPlaying = false, onTimeSeek, className = "", showYAxisLabels = true }: RetentionChartOverlayProps) {
+  const t = useTranslations("metrics.chart");
   const [hoverTime, setHoverTime] = useState<number | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [mutedForegroundColor, setMutedForegroundColor] = useState<string>("var(--muted-foreground)");
@@ -378,8 +380,8 @@ export function RetentionChartOverlay({ videoPlayCurve, currentTime = 0, duratio
       {/* Tooltip de retenção no hover */}
       {hoverTimeX != null && hoverTooltipY != null && hoverRetention != null && hoverTime != null && (
         <ChartTooltip
-          title={`Tempo: ${hoverTime.toFixed(1)}s`}
-          value={`Retenção: ${hoverRetention.toFixed(1)}%`}
+          title={t("time", { value: `${hoverTime.toFixed(1)}s` })}
+          value={t("retention", { value: `${hoverRetention.toFixed(1)}%` })}
           className="bg-background-80 border border-primary"
           titleClassName="text-2xs text-muted-foreground font-normal"
           valueClassName="text-sm text-white font-semibold"

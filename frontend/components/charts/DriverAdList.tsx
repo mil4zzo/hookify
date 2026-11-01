@@ -1,6 +1,7 @@
 "use client";
 
 import { StatePanel } from "@/components/common/States";
+import { useTranslations } from "next-intl";
 import { IconTrendingDown, IconArrowsShuffle, IconChevronRight } from "@tabler/icons-react";
 import type { DriverAttribution, AdAttribution, DriverKey } from "@/lib/metrics/diagnostics";
 import { getDriverLabel } from "@/lib/metrics/diagnostics";
@@ -30,6 +31,7 @@ function AdAttributionRow({
   onOpenAd: (ad: RankingsItem) => void;
   formatCurrency: (v: number) => string;
 }) {
+  const t = useTranslations("metrics.chart");
   const ad = adMap.get(attr.adKey);
   const adName = attr.adName ?? ad?.ad_name ?? attr.adKey.slice(0, 32);
   const isNegative = attr.contributionCurrency < 0;
@@ -75,8 +77,8 @@ function AdAttributionRow({
               : "bg-warning-10 text-warning border border-warning-20"
           }`}>
             {attr.tag === "rate"
-              ? <><IconTrendingDown className="h-2.5 w-2.5" /> piorou</>
-              : <><IconArrowsShuffle className="h-2.5 w-2.5" /> ganhou verba</>
+              ? <><IconTrendingDown className="h-2.5 w-2.5" /> {t("worsened")}</>
+              : <><IconArrowsShuffle className="h-2.5 w-2.5" /> {t("gainedBudget")}</>
             }
           </span>
         </div>
@@ -84,13 +86,13 @@ function AdAttributionRow({
 
       {/* Spend share badge */}
       <div className="flex flex-col items-end gap-0.5 flex-shrink-0">
-        <span className="text-2xs text-muted-foreground">verba</span>
+        <span className="text-2xs text-muted-foreground">{t("budget")}</span>
         <span className="text-xs font-semibold text-foreground">{spendPct}</span>
       </div>
 
       {/* R$ contribution */}
       <div className="flex flex-col items-end gap-0.5 flex-shrink-0 min-w-[52px]">
-        <span className="text-2xs text-muted-foreground">impacto</span>
+        <span className="text-2xs text-muted-foreground">{t("impact")}</span>
         <span className={`text-xs font-bold ${getMetricValueTextClass(tone)}`}>
           {attr.contributionCurrency > 0 ? "+" : ""}{formatCurrency(attr.contributionCurrency)}
         </span>
@@ -102,6 +104,7 @@ function AdAttributionRow({
 }
 
 export function DriverAdList({ attribution, driver, driverDirection, adMap, onOpenAd }: DriverAdListProps) {
+  const t = useTranslations("metrics.chart");
   const formatCurrency = useFormatCurrency();
   const { rankedAds, remainder, sameSignTotal } = attribution;
   const driverLabel = getDriverLabel(driver);
@@ -119,18 +122,18 @@ export function DriverAdList({ attribution, driver, driverDirection, adMap, onOp
       {/* Header */}
       <div className="flex items-center justify-between">
         <span className="text-xs font-semibold text-foreground">
-          {driverLabel} — quais ads causaram?
+          {t("whichAds", { driver: driverLabel })}
         </span>
         {coveredPct != null && (
           <span className="text-2xs text-muted-foreground">
-            {rankedAds.length} de {totalAds} ads • {(coveredPct * 100).toFixed(0)}% do efeito
+            {t("coverage", { shown: rankedAds.length, total: totalAds, pct: (coveredPct * 100).toFixed(0) })}
           </span>
         )}
       </div>
 
       {/* Ad rows */}
       {rankedAds.length === 0 && (
-        <StatePanel kind="empty" layout="inline" density="compact" message="Nenhum anúncio com impacto significativo." />
+        <StatePanel kind="empty" layout="inline" density="compact" message={t("noSignificantAds")} />
       )}
       {rankedAds.map((attr) => (
         <AdAttributionRow
@@ -147,19 +150,19 @@ export function DriverAdList({ attribution, driver, driverDirection, adMap, onOp
       {remainder && remainder.count > 0 && (
         // design-system-exception: ad-hoc-dashed-border - resumo dos ads recolhidos, lido como "os que não aparecem"
         <div className="flex items-center justify-between px-2.5 py-1.5 rounded-md border border-dashed border-border text-2xs text-muted-foreground">
-          <span>+{remainder.count} outros ads</span>
+          <span>{t("otherAds", { count: remainder.count })}</span>
           <span className="font-medium">
-            {formatLocaleRatioPercent(remainder.spendShare)} da verba
-            {" · "}
-            {remainder.contributionCurrency > 0 ? "+" : ""}{formatCurrency(remainder.contributionCurrency)} impacto
+            {t("remainderSummary", {
+              share: formatLocaleRatioPercent(remainder.spendShare),
+              impact: `${remainder.contributionCurrency > 0 ? "+" : ""}${formatCurrency(remainder.contributionCurrency)}`,
+            })}
           </span>
         </div>
       )}
 
       {/* Attribution note */}
       <div className="text-2xs text-muted-foreground mt-1 leading-relaxed">
-        Impacto estimado por anúncio. Comparação: último dia vs. anterior —
-        conversões têm janela de atribuição (dias recentes podem subnotificar).
+        {t("attributionNote")}
       </div>
     </div>
   );

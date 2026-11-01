@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { IconCalendar, IconPlus, IconTrash, IconX } from "@tabler/icons-react";
 import { format, isValid, parse } from "date-fns";
-import { ptBR } from "date-fns/locale";
+import { useTranslations } from "next-intl";
 
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
@@ -33,6 +33,8 @@ import {
 } from "@/lib/rules/fields";
 import type { RuleConditionLeaf, RuleConditionValue, RuleLogic, RuleNode, RuleTree } from "@/lib/rules/types";
 import { cn } from "@/lib/utils/cn";
+import { getDateFnsLocale } from "@/lib/utils/dateFnsLocale";
+import { formatLocaleDate } from "@/lib/i18n/locale";
 
 export interface RuleDimensionOption {
   value: string;
@@ -67,6 +69,15 @@ export interface RuleBuilderProps {
 }
 
 const FIELD_GROUP_ORDER: RuleFieldGroup[] = ["Tags", "Criativo", "Procedência", "Métricas"];
+
+/** O id do grupo é o texto antigo em português (testes e regras o citam); o rótulo vem do catálogo. */
+const FIELD_GROUP_KEY: Record<RuleFieldGroup, string> = {
+  Tags: "tags",
+  Criativo: "creative",
+  "Procedência": "origin",
+  "Métricas": "metrics",
+  Planilha: "spreadsheet",
+};
 
 /**
  * Campo em que uma condição nova nasce, por tela.
@@ -138,6 +149,7 @@ function TagValueEditor({
   //
   // Fora do Manager (Boards, Critério) não há provider montado e `packIds` vem
   // vazio: cai no silo próprio, que é o escopo correto nessas telas.
+  const t = useTranslations("rules.builder");
   const { packIds } = useTagScope();
   const { data } = useTags(packIds);
   const allTags = useMemo(() => data?.data ?? [], [data]);
@@ -155,7 +167,7 @@ function TagValueEditor({
             className="opacity-70 transition-opacity hover:opacity-100"
             onClick={() => onChange(selectedIds.filter((id) => id !== tag.id))}
             disabled={disabled}
-            aria-label={`Remover ${tag.name}`}
+            aria-label={t("removeTag", { name: tag.name })}
           >
             <IconX className="h-3 w-3" />
           </button>
@@ -165,13 +177,13 @@ function TagValueEditor({
         <PopoverTrigger asChild>
           <Button type="button" variant="picker" size="sm" disabled={disabled || available.length === 0}>
             <IconPlus className="mr-1 h-3.5 w-3.5" />
-            Tag
+            {t("tag")}
           </Button>
         </PopoverTrigger>
         <PopoverContent className="w-56 p-1" align="start">
           <div className="max-h-56 overflow-y-auto">
             {available.length === 0 ? (
-              <div className="px-2 py-3 text-xs text-muted-foreground">Nenhuma tag disponível.</div>
+              <div className="px-2 py-3 text-xs text-muted-foreground">{t("noTags")}</div>
             ) : (
               available.map((tag) => (
                 <button
@@ -203,6 +215,7 @@ function MultiSelectValueEditor({
   onChange: (value: RuleConditionValue) => void;
   disabled?: boolean;
 }) {
+  const t = useTranslations("rules.builder");
   const selectedIds = useMemo(() => (Array.isArray(value) ? value : []), [value]);
   const labelOf = useCallback(
     (id: string) => options.find((option) => option.value === id)?.label ?? id,
@@ -215,17 +228,17 @@ function MultiSelectValueEditor({
         <Button type="button" variant="picker" size="sm" className="min-w-0 max-w-full justify-start" disabled={disabled}>
           <span className="truncate">
             {selectedIds.length === 0
-              ? "Selecionar..."
+              ? t("select")
               : selectedIds.length === 1
                 ? labelOf(selectedIds[0])
-                : `${selectedIds.length} selecionados`}
+                : t("selectedCount", { count: selectedIds.length })}
           </span>
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-64 p-1" align="start">
         <div className="max-h-56 overflow-y-auto">
           {options.length === 0 ? (
-            <div className="px-2 py-3 text-xs text-muted-foreground">Nada disponível no recorte atual.</div>
+            <div className="px-2 py-3 text-xs text-muted-foreground">{t("nothingInScope")}</div>
           ) : (
             options.map((option) => {
               const checked = selectedIds.includes(option.value);
@@ -275,6 +288,7 @@ function DateValueEditor({
   onChange: (value: RuleConditionValue) => void;
   disabled?: boolean;
 }) {
+  const t = useTranslations("rules.builder");
   const [open, setOpen] = useState(false);
   // parse() em vez de new Date(string): "2026-09-08" no construtor nativo é UTC e vira
   // 07/09 à noite em UTC-3. parse() lê no fuso local, sem deslocar o dia.
@@ -294,7 +308,7 @@ function DateValueEditor({
           className={cn("w-full min-w-0 justify-between font-normal", !selected && "text-muted-foreground")}
           disabled={disabled}
         >
-          <span className="truncate">{selected ? format(selected, "dd/MM/yyyy", { locale: ptBR }) : "Escolher data"}</span>
+          <span className="truncate">{selected ? formatLocaleDate(selected, { day: "2-digit", month: "2-digit", year: "numeric" }) : t("pickDate")}</span>
           <IconCalendar className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
         </Button>
       </PopoverTrigger>
@@ -303,7 +317,7 @@ function DateValueEditor({
           mode="single"
           selected={selected}
           defaultMonth={selected}
-          locale={ptBR}
+          locale={getDateFnsLocale()}
           onSelect={(day) => {
             onChange(day ? format(day, RULE_DATE_FORMAT) : "");
             setOpen(false);
@@ -361,6 +375,7 @@ function ConditionValueEditor({
   dimensionOptions?: Partial<Record<string, RuleDimensionOption[]>>;
   disabled?: boolean;
 }) {
+  const t = useTranslations("rules.builder");
   if (isPresenceOperator(condition.operator)) {
     return <PresenceValueEditor field={field} operator={condition.operator} onChange={onOperatorChange} disabled={disabled} />;
   }
@@ -398,7 +413,7 @@ function ConditionValueEditor({
         size="sm"
         value={typeof condition.value === "string" ? condition.value : ""}
         onChange={(event) => onChange(event.target.value)}
-        placeholder="Texto..."
+        placeholder={t("textPlaceholder")}
         disabled={disabled}
       />
     );
@@ -443,6 +458,7 @@ function ConditionRow({
   disabled?: boolean;
   highlighted?: boolean;
 }) {
+  const t = useTranslations("rules.builder");
   const rowRef = useRef<HTMLDivElement>(null);
 
   // Rola até a condição destacada — numa regra com vários grupos ela pode estar
@@ -502,12 +518,12 @@ function ConditionRow({
       <div className="w-44 flex-shrink-0">
         <Select value={condition.field} onValueChange={handleFieldChange} disabled={disabled}>
           <SelectTrigger size="sm">
-            <SelectValue placeholder="Campo" />
+            <SelectValue placeholder={t("field")} />
           </SelectTrigger>
           <SelectContent>
             {grouped.map(({ group, items }) => (
               <SelectGroup key={group}>
-                <SelectLabel className="text-2xs uppercase tracking-wide text-muted-foreground">{group}</SelectLabel>
+                <SelectLabel className="text-2xs uppercase tracking-wide text-muted-foreground">{t(`group.${FIELD_GROUP_KEY[group]}`)}</SelectLabel>
                 {items.map((item) => (
                   <SelectItem key={item.id} value={item.id}>
                     {item.label}
@@ -522,7 +538,7 @@ function ConditionRow({
       <div className="w-44 flex-shrink-0">
         <Select value={operatorMenuValue} onValueChange={handleOperatorChange} disabled={disabled}>
           <SelectTrigger size="sm">
-            <SelectValue placeholder="Operador" />
+            <SelectValue placeholder={t("operator")} />
           </SelectTrigger>
           <SelectContent>
             {operatorMenu.map((operator) => (
@@ -547,7 +563,7 @@ function ConditionRow({
         )}
       </div>
 
-      <Button type="button" variant="ghost" size="sm" onClick={onRemove} disabled={disabled} aria-label="Remover condição">
+      <Button type="button" variant="ghost" size="sm" onClick={onRemove} disabled={disabled} aria-label={t("removeCondition")}>
         <IconTrash className="h-4 w-4 text-destructive" />
       </Button>
     </div>
@@ -558,7 +574,6 @@ function ConditionRow({
 // Builder
 // ─────────────────────────────────────────────────────────────────────────────
 
-const LOGIC_LABEL: Record<RuleLogic, string> = { AND: "E", OR: "OU" };
 
 /**
  * O conector E/OU tem UMA forma: a mesma pastilha em todo lugar. O primeiro de cada
@@ -581,6 +596,7 @@ function LogicChip({
   /** Dentro do subgrupo (nível 2) o eco sobe para o nível 3; em surface-2 ele sumiria. */
   nested?: boolean;
 }) {
+  const t = useTranslations("rules.builder");
   if (!onChange) {
     return (
       <span
@@ -590,18 +606,18 @@ function LogicChip({
           nested ? "bg-surface-3" : "bg-surface-2",
         )}
       >
-        {LOGIC_LABEL[value]}
+        {value === "AND" ? t("logicAnd") : t("logicOr")}
       </span>
     );
   }
   return (
     <Select value={value} onValueChange={(next) => onChange(next as RuleLogic)} disabled={disabled}>
-      <SelectTrigger size="xs" className={cn(LOGIC_CHIP_CLASSES, "w-auto min-w-12 gap-1")} aria-label="Conector lógico">
+      <SelectTrigger size="xs" className={cn(LOGIC_CHIP_CLASSES, "w-auto min-w-12 gap-1")} aria-label={t("logicConnector")}>
         <SelectValue />
       </SelectTrigger>
       <SelectContent>
-        <SelectItem value="AND">E</SelectItem>
-        <SelectItem value="OR">OU</SelectItem>
+        <SelectItem value="AND">{t("logicAnd")}</SelectItem>
+        <SelectItem value="OR">{t("logicOr")}</SelectItem>
       </SelectContent>
     </Select>
   );
@@ -617,6 +633,7 @@ export function RuleBuilder({
   highlightFieldId,
   disabled = false,
 }: RuleBuilderProps) {
+  const t = useTranslations("rules.builder");
   // Direto do store, e não por prop: a seleção de packs é global, e fora do Manager
   // os campos da economia já saem pela restrição de tela (`buildMetricField`).
   const { hasLeadEconomics } = useLeadEconomicsByPack();
@@ -657,7 +674,7 @@ export function RuleBuilder({
           <div className="overflow-hidden rounded-lg border border-border bg-surface-2">
             <div className="flex items-center justify-between gap-2 border-b border-border px-2.5 py-1.5">
               <div className="flex items-center gap-2">
-                <span className="text-2xs font-semibold uppercase tracking-wide text-muted-foreground">Subgrupo</span>
+                <span className="text-2xs font-semibold uppercase tracking-wide text-muted-foreground">{t("subgroup")}</span>
                 <LogicChip
                   value={node.logic}
                   onChange={(logic) => setNodes(replaceNode(value.conditions, node.id, { ...node, logic }))}
@@ -675,7 +692,7 @@ export function RuleBuilder({
                   disabled={disabled}
                 >
                   <IconPlus className="mr-1 h-3.5 w-3.5" />
-                  Condição
+                  {t("condition")}
                 </Button>
                 <Button
                   type="button"
@@ -683,7 +700,7 @@ export function RuleBuilder({
                   size="sm"
                   onClick={() => setNodes(removeNode(value.conditions, node.id))}
                   disabled={disabled}
-                  aria-label="Remover subgrupo"
+                  aria-label={t("removeSubgroup")}
                 >
                   <IconTrash className="h-4 w-4 text-destructive" />
                 </Button>
@@ -692,7 +709,7 @@ export function RuleBuilder({
 
             <div className="space-y-1.5 p-2">
             {children.length === 0 ? (
-              <p className="px-1 text-xs text-muted-foreground">Subgrupo vazio não restringe nada.</p>
+              <p className="px-1 text-xs text-muted-foreground">{t("emptySubgroup")}</p>
             ) : (
               children.map((child, childIndex) => (
                 <div key={child.id} className="space-y-1.5">
@@ -740,10 +757,8 @@ export function RuleBuilder({
   return (
     <div className="space-y-3">
       {value.conditions.length === 0 ? (
-        <InlineNotice tone="info" title="Sem condições">
-          {context === "criteria"
-            ? "Sem critério, todo anúncio é considerado maduro — inclusive os que mal começaram a rodar. Adicione ao menos uma condição."
-            : "Um grupo sem condição mostra todos os criativos do recorte. Adicione ao menos uma para o grupo significar algo."}
+        <InlineNotice tone="info" title={t("noConditionsTitle")}>
+          {context === "criteria" ? t("noConditionsCriteria") : t("noConditionsGroup")}
         </InlineNotice>
       ) : (
         <div className="space-y-1.5">{value.conditions.map(renderNode)}</div>
@@ -758,7 +773,7 @@ export function RuleBuilder({
           disabled={disabled}
         >
           <IconPlus className="mr-1 h-3.5 w-3.5" />
-          Condição
+          {t("condition")}
         </Button>
         <Button
           type="button"
@@ -770,7 +785,7 @@ export function RuleBuilder({
           disabled={disabled}
         >
           <IconPlus className="mr-1 h-3.5 w-3.5" />
-          Subgrupo
+          {t("subgroup")}
         </Button>
       </div>
     </div>

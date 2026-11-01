@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useMemo, useRef, useState } from "react";
+import { useTranslations } from "next-intl";
 import { IconCheck, IconLoader2 } from "@tabler/icons-react";
 
 import { Button } from "@/components/ui/button";
@@ -45,6 +46,7 @@ export function ValidationCriteriaEditor({
   isSaving = false,
   hideSaveButton = false,
 }: ValidationCriteriaEditorProps) {
+  const t = useTranslations("rules.criteria");
   const { packs } = useClientPacks();
   const { adAccounts } = useClientAdAccounts();
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -80,9 +82,9 @@ export function ValidationCriteriaEditor({
       savedSnapshotRef.current = JSON.stringify(value);
     } catch (error) {
       logger.error("Erro ao salvar critérios de validação:", error);
-      setSaveError("Não foi possível salvar o critério. Tente novamente.");
+      setSaveError(t("saveFailed"));
     }
-  }, [onSave, value]);
+  }, [onSave, value, t]);
 
   const canSave = hasChanges && conditionCount > 0 && !isSaving;
 
@@ -91,7 +93,7 @@ export function ValidationCriteriaEditor({
       <RuleBuilder value={value} onChange={onChange} context="criteria" dimensionOptions={dimensionOptions} disabled={isSaving} />
 
       {saveError && (
-        <InlineNotice tone="destructive" title="Erro ao salvar">
+        <InlineNotice tone="destructive" title={t("saveErrorTitle")}>
           {saveError}
         </InlineNotice>
       )}
@@ -108,12 +110,12 @@ export function ValidationCriteriaEditor({
             {isSaving ? (
               <>
                 <IconLoader2 className="h-4 w-4 animate-spin" />
-                Salvando...
+                {t("saving")}
               </>
             ) : (
               <>
                 <IconCheck className="h-4 w-4" />
-                {hasChanges && conditionCount > 0 ? "Salvar critério" : "Salvo"}
+                {hasChanges && conditionCount > 0 ? t("save") : t("saved")}
               </>
             )}
           </Button>

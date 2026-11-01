@@ -28,6 +28,7 @@ import { METRIC_DEFINITIONS } from "@/lib/metrics/definitions";
 import { getActiveCustomRuleFields, resolveCustomRuleField } from "./customFields";
 import { TAG_FILTER_OPERATORS } from "@/lib/tags/filter";
 import type { LeadMarginStatus } from "@/lib/utils/leadEconomics";
+import { translate } from "@/lib/i18n/translate";
 
 /**
  * `count` é uma contagem que a LINHA carrega (quantos anúncios ativos o grupo tem),
@@ -91,67 +92,75 @@ export interface RuleOperatorOption {
   hidden?: boolean;
 }
 
+/**
+ * Rótulo lido na hora (getter): `RULE_OPERATORS` é constante de módulo e o idioma pode
+ * mudar depois da carga.
+ */
+function op(value: string, name: string, extra?: { hidden?: boolean }): RuleOperatorOption {
+  return {
+    value,
+    get label() {
+      return translate(`rules.op.${name}`);
+    },
+    ...extra,
+  };
+}
+
+const COMPARISON_OPERATORS = (): RuleOperatorOption[] => [
+  op(">", "gt"),
+  op("<", "lt"),
+  op(">=", "gte"),
+  op("<=", "lte"),
+  op("=", "eq"),
+  op("!=", "neq"),
+];
+
 export const RULE_OPERATORS: Record<RuleFieldKind, RuleOperatorOption[]> = {
   metric: [
-    { value: ">", label: "Maior que" },
-    { value: "<", label: "Menor que" },
-    { value: ">=", label: "Maior ou igual" },
-    { value: "<=", label: "Menor ou igual" },
-    { value: "=", label: "Igual a" },
-    { value: "!=", label: "Diferente de" },
+    ...COMPARISON_OPERATORS(),
     // A forma INTENCIONAL de pedir as linhas em que a métrica não se aplica —
     // anúncio de imagem não tem hook, anúncio sem conversão não tem CPR. Sem estes,
     // o usuário só chegaria nelas por acidente, através de um `< x` que as incluía
     // por causa do zero fabricado.
-    { value: "is_empty", label: "Está vazio (não se aplica)" },
-    { value: "is_not_empty", label: "Tem valor" },
+    op("is_empty", "emptyNotApplicable"),
+    op("is_not_empty", "hasValue"),
   ],
   text: [
-    { value: "contains", label: "Contém" },
-    { value: "not_contains", label: "Não contém" },
-    { value: "starts_with", label: "Começa com" },
-    { value: "ends_with", label: "Termina com" },
-    { value: "equals", label: "É igual a" },
-    { value: "not_equals", label: "É diferente de" },
-    { value: "matches_regex", label: "Casa com a expressão" },
-    { value: "is_empty", label: "Está vazio" },
-    { value: "is_not_empty", label: "Tem valor" },
+    op("contains", "contains"),
+    op("not_contains", "notContains"),
+    op("starts_with", "startsWith"),
+    op("ends_with", "endsWith"),
+    op("equals", "equals"),
+    op("not_equals", "notEquals"),
+    op("matches_regex", "matchesRegex"),
+    op("is_empty", "empty"),
+    op("is_not_empty", "hasValue"),
   ],
   // Data compara POR DIA (evaluate.ts corta em 10 chars), então `>` e `>=` diferem em
-  // exatamente um dia — e o rótulo não dizia de que lado o dia escolhido caía. "Depois
-  // de 01/09" pensando "setembro em diante" perdia o dia 1º em silêncio. Sobram só os
-  // inclusivos, com o "em ou" dito em voz alta ("até" em português vale para os dois
-  // lados). `>`/`<` continuam ACEITOS pelo avaliador e reaparecem no menu só quando a
-  // regra salva já os usa — mesmo precedente de is_active/is_paused no status.
+  // exatamente um dia — e o rótulo não dizia de que lado o dia escolhido caía. Sobram só
+  // os inclusivos. `>`/`<` continuam ACEITOS pelo avaliador e reaparecem no menu só
+  // quando a regra salva já os usa — mesmo precedente de is_active/is_paused no status.
   date: [
-    { value: ">=", label: "Em ou depois de" },
-    { value: "<=", label: "Em ou antes de" },
-    { value: "=", label: "Exatamente em" },
-    { value: ">", label: "Depois de", hidden: true },
-    { value: "<", label: "Antes de", hidden: true },
-    { value: "is_empty", label: "Está vazio" },
-    { value: "is_not_empty", label: "Tem valor" },
+    op(">=", "onOrAfter"),
+    op("<=", "onOrBefore"),
+    op("=", "exactlyOn"),
+    op(">", "after", { hidden: true }),
+    op("<", "before", { hidden: true }),
+    op("is_empty", "empty"),
+    op("is_not_empty", "hasValue"),
   ],
-  tags: TAG_FILTER_OPERATORS.map((op) => ({ value: op.value as string, label: op.label })),
+  tags: TAG_FILTER_OPERATORS.map((o) => ({
+    value: o.value as string,
+    get label() {
+      return o.label;
+    },
+  })),
   // Caixas de marcar, como sempre foi: escolher mais de uma é "ou". Os operadores
   // `is_active`/`is_paused` da versão de agosto continuam sendo aceitos pelo
   // avaliador (regra salva não muda de significado), mas saíram do menu.
-  status: [
-    { value: "has_any", label: "É algum de" },
-    { value: "has_none", label: "Não é nenhum de" },
-  ],
-  count: [
-    { value: ">", label: "Maior que" },
-    { value: "<", label: "Menor que" },
-    { value: ">=", label: "Maior ou igual" },
-    { value: "<=", label: "Menor ou igual" },
-    { value: "=", label: "Igual a" },
-    { value: "!=", label: "Diferente de" },
-  ],
-  multiselect: [
-    { value: "has_any", label: "É algum de" },
-    { value: "has_none", label: "Não é nenhum de" },
-  ],
+  status: [op("has_any", "isAnyOf"), op("has_none", "isNoneOf")],
+  count: COMPARISON_OPERATORS(),
+  multiselect: [op("has_any", "isAnyOf"), op("has_none", "isNoneOf")],
 };
 
 /** Operadores que são a pergunta inteira — não têm campo de valor. */
@@ -185,15 +194,9 @@ export function isPresenceOperator(operator: string): boolean {
  */
 export function getPresenceValueOptions(kind: RuleFieldKind): RuleOperatorOption[] {
   if (kind === "metric" || kind === "count") {
-    return [
-      { value: "is_empty", label: "Não se aplica" },
-      { value: "is_not_empty", label: "Tem valor" },
-    ];
+    return [op("is_empty", "notApplicable"), op("is_not_empty", "hasValue")];
   }
-  return [
-    { value: "is_empty", label: "Vazio" },
-    { value: "is_not_empty", label: "Preenchido" },
-  ];
+  return [op("is_empty", "blank"), op("is_not_empty", "filled")];
 }
 
 /**
@@ -210,7 +213,7 @@ export function getRuleOperatorMenu(fieldId: string, currentOperator?: string): 
   for (const option of all) {
     if (isPresenceOperator(option.value)) {
       if (!presenceAdded) {
-        menu.push({ value: PRESENCE_UI_OPERATOR, label: "Está" });
+        menu.push(op(PRESENCE_UI_OPERATOR, "presence"));
         presenceAdded = true;
       }
       continue;
@@ -229,26 +232,32 @@ const DIMENSION_FIELDS: RuleField[] = [
   // de menu que devolve tabela vazia SEMPRE — parece bug do filtro, não do dado.
   {
     id: "tags",
-    label: "Tags",
+    get label() {
+      return translate("rules.fields.tags");
+    },
     kind: "tags",
     group: "Tags",
     availableIn: ["manager", "boards", "criteria"],
     availableTabs: ["individual", "por-anuncio"],
   },
-  { id: "ad_name", label: "Nome do criativo", kind: "text", group: "Criativo" },
+  { id: "ad_name", get label() {
+      return translate("rules.fields.adName");
+    }, kind: "text", group: "Criativo" },
   {
     id: "status",
-    label: "Status",
+    get label() {
+      return translate("rules.fields.status");
+    },
     kind: "status",
     group: "Criativo",
     // Os rótulos do Meta, que são os que o usuário lê no Gerenciador. "Pausado
     // (Conjunto)" e "(Campanha)" respondem a pergunta que o status sozinho não
     // responde: está parado porque EU parei, ou porque o pai está parado?
     options: [
-      { value: "ACTIVE", label: "Ativo" },
-      { value: "PAUSED", label: "Pausado" },
-      { value: "ADSET_PAUSED", label: "Pausado (Conjunto)" },
-      { value: "CAMPAIGN_PAUSED", label: "Pausado (Campanha)" },
+      { value: "ACTIVE", get label() { return translate("rules.status.ACTIVE"); } },
+      { value: "PAUSED", get label() { return translate("rules.status.PAUSED"); } },
+      { value: "ADSET_PAUSED", get label() { return translate("rules.status.ADSET_PAUSED"); } },
+      { value: "CAMPAIGN_PAUSED", get label() { return translate("rules.status.CAMPAIGN_PAUSED"); } },
     ],
   },
   // Contagem de anúncios ativos do grupo. Só onde a linha agrega anúncios E a RPC
@@ -256,7 +265,9 @@ const DIMENSION_FIELDS: RuleField[] = [
   // RPC não o devolve. `is_active` responde "≥ 1"; este campo responde "quantos".
   {
     id: "active_count",
-    label: "Anúncios ativos",
+    get label() {
+      return translate("rules.fields.activeCount");
+    },
     kind: "count",
     group: "Criativo",
     availableIn: ["manager"],
@@ -264,11 +275,15 @@ const DIMENSION_FIELDS: RuleField[] = [
   },
   // meta_created_time é ATRIBUTO do criativo ("quando estreou"), não o recorte da
   // tela — por isso é regra, enquanto o período continua vindo do seletor global.
-  { id: "meta_created_time", label: "Criado em", kind: "date", group: "Criativo" },
+  { id: "meta_created_time", get label() {
+      return translate("rules.fields.createdAt");
+    }, kind: "date", group: "Criativo" },
   // Identidade do anúncio: só faz sentido onde a linha É um anúncio.
   {
     id: "ad_id",
-    label: "ID do anúncio",
+    get label() {
+      return translate("rules.fields.adId");
+    },
     kind: "text",
     group: "Criativo",
     availableIn: ["manager", "manager-children", "criteria"],
@@ -276,7 +291,9 @@ const DIMENSION_FIELDS: RuleField[] = [
   },
   {
     id: "pack_ids",
-    label: "Pack",
+    get label() {
+      return translate("rules.fields.pack");
+    },
     kind: "multiselect",
     group: "Procedência",
     // A filha passou a receber `pack_ids` na migration 134. Rende quando há dois ou
@@ -285,7 +302,9 @@ const DIMENSION_FIELDS: RuleField[] = [
   },
   {
     id: "account_ids",
-    label: "Conta",
+    get label() {
+      return translate("rules.fields.account");
+    },
     kind: "multiselect",
     group: "Procedência",
     availableIn: ["manager", "manager-children", "criteria", "boards"],
@@ -307,14 +326,18 @@ const DIMENSION_FIELDS: RuleField[] = [
   //   e não precisa de lista.
   {
     id: "campaign_ids",
-    label: "Campanha",
+    get label() {
+      return translate("rules.fields.campaign");
+    },
     kind: "multiselect",
     group: "Procedência",
     availableIn: ["manager", "boards"],
   },
   {
     id: "adset_ids",
-    label: "Conjunto",
+    get label() {
+      return translate("rules.fields.adset");
+    },
     kind: "multiselect",
     group: "Procedência",
     availableIn: ["manager", "boards"],
@@ -323,13 +346,17 @@ const DIMENSION_FIELDS: RuleField[] = [
   // casa?" (resolvido pelo dicionário); na filha, o nome da própria linha.
   {
     id: "campaign_name",
-    label: "Nome da campanha",
+    get label() {
+      return translate("rules.fields.campaignName");
+    },
     kind: "text",
     group: "Procedência",
   },
   {
     id: "adset_name",
-    label: "Nome do conjunto",
+    get label() {
+      return translate("rules.fields.adsetName");
+    },
     kind: "text",
     group: "Procedência",
   },
@@ -367,16 +394,18 @@ export const LEAD_MARGIN_STATUS_FIELD_ID = "lead_margin_status";
 
 const LEAD_MARGIN_STATUS_FIELD: RuleField = {
   id: LEAD_MARGIN_STATUS_FIELD_ID,
-  label: "Margem vs meta",
+  get label() {
+      return translate("rules.fields.marginVsTarget");
+    },
   kind: "multiselect",
   group: "Métricas",
   requiresSheetIntegration: true,
   requiresLeadEconomics: true,
   availableIn: ["manager", "manager-children"],
   options: [
-    { value: "on_target", label: "Na meta ou acima" },
-    { value: "below_target", label: "Abaixo da meta, com lucro" },
-    { value: "loss", label: "Prejuízo" },
+    { value: "on_target", get label() { return translate("rules.marginStatus.on_target"); } },
+    { value: "below_target", get label() { return translate("rules.marginStatus.below_target"); } },
+    { value: "loss", get label() { return translate("rules.marginStatus.loss"); } },
   ] satisfies { value: LeadMarginStatus; label: string }[],
 };
 

@@ -4,6 +4,7 @@
 
 import { StatePanel } from "@/components/common/States";
 import { useMemo, useState } from "react";
+import { useTranslations } from "next-intl";
 import { ParentSize } from "@visx/responsive";
 import { scaleLinear } from "@visx/scale";
 import { AxisBottom } from "@visx/axis";
@@ -43,6 +44,7 @@ function toneToColor(tone: string): string {
 }
 
 function DriverWaterfallInner({ decomposition, selectedDriver, onSelectDriver }: DriverWaterfallProps) {
+  const t = useTranslations("metrics.chart");
   const formatCurrency = useFormatCurrency();
   const [hoveredBar, setHoveredBar] = useState<string | null>(null);
 
@@ -55,7 +57,7 @@ function DriverWaterfallInner({ decomposition, selectedDriver, onSelectDriver }:
 
     // Start bar
     result.push({
-      label: "Antes",
+      label: t("before"),
       driver: "__start__",
       from: 0,
       to: targetPrev,
@@ -93,7 +95,7 @@ function DriverWaterfallInner({ decomposition, selectedDriver, onSelectDriver }:
       const from = residualCurrency >= 0 ? running : running + residualCurrency;
       const to   = residualCurrency >= 0 ? running + residualCurrency : running;
       result.push({
-        label: "Outros",
+        label: t("others"),
         driver: "__residual__",
         from,
         to,
@@ -107,7 +109,7 @@ function DriverWaterfallInner({ decomposition, selectedDriver, onSelectDriver }:
 
     // End bar
     result.push({
-      label: "Agora",
+      label: t("now"),
       driver: "__end__",
       from: 0,
       to: targetLast,
@@ -120,10 +122,10 @@ function DriverWaterfallInner({ decomposition, selectedDriver, onSelectDriver }:
     });
 
     return result;
-  }, [decomposition]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [decomposition, t]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (bars.length === 0) {
-    return <StatePanel kind="empty" density="compact" message="Sem dados para o waterfall." className="h-full" />;
+    return <StatePanel kind="empty" density="compact" message={t("noWaterfallData")} className="h-full" />;
   }
 
   return (
@@ -280,9 +282,10 @@ function DriverWaterfallInner({ decomposition, selectedDriver, onSelectDriver }:
 }
 
 export function DriverWaterfall(props: DriverWaterfallProps) {
+  const t = useTranslations("metrics.chart");
   return (
     <div className="w-full min-w-0">
-      <div className="text-2xs font-medium text-muted-foreground mb-1">O que causou a mudança? <span className="font-normal">(clique para ver os anúncios)</span></div>
+      <div className="text-2xs font-medium text-muted-foreground mb-1">{t("whatCaused")} <span className="font-normal">{t("clickToSeeAds")}</span></div>
       <DriverWaterfallInner {...props} />
     </div>
   );

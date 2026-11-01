@@ -25,6 +25,7 @@ import type { RuleDimensionOption } from "@/components/rules/RuleBuilder";
 import { getActiveCustomColumns } from "@/lib/metrics/customColumnsRegistry";
 import { buildCustomColumnKey, getCustomHistogram } from "@/lib/metrics/customColumns";
 import type { RuleNameDictionary } from "./evaluate";
+import { getAppLocale } from "@/lib/i18n/locale";
 
 /**
  * `ad_accounts.id` guarda o prefixo `act_`; partes do backend o removem. O índice de
@@ -49,7 +50,7 @@ type RuleDimensionField = (typeof RULE_DIMENSION_FIELDS)[number];
 export type RuleDimensionOptions = Partial<Record<string, RuleDimensionOption[]>>;
 
 function ordenar(options: RuleDimensionOption[]): RuleDimensionOption[] {
-  return options.sort((a, b) => a.label.localeCompare(b.label, "pt-BR"));
+  return options.sort((a, b) => a.label.localeCompare(b.label, getAppLocale()));
 }
 
 /**

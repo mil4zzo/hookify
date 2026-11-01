@@ -10,6 +10,7 @@
  *   category  → top                              (resposta majoritária + fatia)
  */
 import type { MetricFormatKind, MetricPolarity } from "@/lib/metrics/definitions";
+import { translate } from "@/lib/i18n/translate";
 import type { SheetColumnKind, SheetColumnMapping } from "@/lib/api/schemas";
 import {
   computeLeadscoreFacets,
@@ -90,22 +91,22 @@ export function customFacetPolarity(kind: SheetColumnKind, facet: CustomFacet): 
 }
 
 export function customColumnLabel(mapping: Pick<SheetColumnMapping, "label" | "kind">, facet: CustomFacet): string {
-  const label = (mapping.label || "").trim() || "Coluna";
+  const label = (mapping.label || "").trim() || translate("metrics.custom.column");
   if (mapping.kind === "leadscore") {
     switch (facet) {
       case "avg":
-        return `${label} médio`;
+        return translate("metrics.custom.avg", { label });
       case "mqls":
-        return `MQLs (${label})`;
+        return translate("metrics.custom.mqls", { label });
       case "mql_rate":
-        return `% MQL (${label})`;
+        return translate("metrics.custom.mqlRate", { label });
       case "cpmql":
-        return `CPMQL (${label})`;
+        return translate("metrics.custom.cpmql", { label });
       default:
         return label;
     }
   }
-  if (mapping.kind === "number" && facet === "avg") return `Média de ${label}`;
+  if (mapping.kind === "number" && facet === "avg") return translate("metrics.custom.avgOf", { label });
   return label;
 }
 

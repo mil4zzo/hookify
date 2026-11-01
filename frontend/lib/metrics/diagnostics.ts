@@ -10,6 +10,7 @@
 import { getResultsForActionType } from "./calculations";
 import type { MetricQualityTone } from "@/lib/utils/metricQuality";
 import { getMetricTrendTone } from "@/lib/utils/metricQuality";
+import { translate } from "@/lib/i18n/translate";
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -714,10 +715,10 @@ export function buildDiagnosticSummary(
   formatCurrency: (v: number) => string,
 ): DiagnosticSummaryResult {
   if (!dec.minVolumeOk) {
-    return { headline: "Volume baixo nos últimos dias — sem conclusão confiável.", tone: "muted-foreground", muted: true };
+    return { headline: translate("metrics.diagnostic.lowVolume"), tone: "muted-foreground", muted: true };
   }
   if (dec.deltaCurrency == null || dec.targetPrev == null || dec.targetLast == null) {
-    return { headline: "Dados insuficientes para análise.", tone: "muted-foreground", muted: true };
+    return { headline: translate("metrics.diagnostic.insufficient"), tone: "muted-foreground", muted: true };
   }
 
   const { deltaCurrency, targetPrev, target } = dec;
@@ -743,26 +744,31 @@ export function buildDiagnosticSummary(
       Math.abs(worsened.contributionCurrency!) >= SHIFT_THRESHOLD
     ) {
       return {
-        headline: `${targetLabel} estável (${formatCurrency(dec.targetLast)}), mas o funil mudou: ${DRIVER_LABELS[worsened.driver]} piorou e ${DRIVER_LABELS[improved.driver]} compensou.`,
+        headline: translate("metrics.diagnostic.stableFunnelShifted", {
+          target: targetLabel,
+          value: formatCurrency(dec.targetLast),
+          worsened: DRIVER_LABELS[worsened.driver],
+          improved: DRIVER_LABELS[improved.driver],
+        }),
         tone: "warning",
         muted: false,
       };
     }
     return {
-      headline: `Estável: ${targetLabel} praticamente sem mudança (${formatCurrency(dec.targetLast)}).`,
+      headline: translate("metrics.diagnostic.stable", { target: targetLabel, value: formatCurrency(dec.targetLast) }),
       tone: "accent",
       muted: false,
     };
   }
 
-  const direction = deltaCurrency > 0 ? "subiu" : "caiu";
+  const direction = deltaCurrency > 0 ? "up" : "down";
   const pctStr = `${Math.abs(pct * 100).toFixed(0)}%`;
   const absDelta = Math.abs(deltaCurrency);
 
   const okDrivers = dec.drivers.filter((d) => d.status === "ok" && d.contributionCurrency != null);
   if (okDrivers.length === 0) {
     return {
-      headline: `${targetLabel} ${direction} ${formatCurrency(absDelta)} (${pctStr}) — causa não identificável.`,
+      headline: translate("metrics.diagnostic.unidentifiedCause", { target: targetLabel, direction, value: formatCurrency(absDelta), pct: pctStr }),
       tone,
       muted: false,
     };
@@ -773,7 +779,7 @@ export function buildDiagnosticSummary(
     .sort((a, b) => Math.abs(b.contributionCurrency!) - Math.abs(a.contributionCurrency!))[0];
 
   if (!dominant) {
-    return { headline: `${targetLabel} ${direction} ${formatCurrency(absDelta)} (${pctStr}).`, tone, muted: false };
+    return { headline: translate("metrics.diagnostic.changed", { target: targetLabel, direction, value: formatCurrency(absDelta), pct: pctStr }), tone, muted: false };
   }
 
   const driverLabel = DRIVER_LABELS[dominant.driver];
@@ -793,12 +799,20 @@ export function buildDiagnosticSummary(
         ? (Math.abs(topAd.contributionCurrency) / Math.abs(dominant.contributionCurrency)) * 100
         : null;
     adPart = contribPct != null
-      ? `; "${label}" respondeu por ~${contribPct.toFixed(0)}% dessa variação`
-      : `; "${label}" foi o principal ad envolvido`;
+      ? translate("metrics.diagnostic.adShare", { label, pct: contribPct.toFixed(0) })
+      : translate("metrics.diagnostic.adMain", { label });
   }
 
   return {
-    headline: `${targetLabel} ${direction} ${formatCurrency(absDelta)} (${pctStr}), puxado pelo(a) ${driverLabel}${driverPctStr}${adPart}.`,
+    headline: translate("metrics.diagnostic.drivenBy", {
+      target: targetLabel,
+      direction,
+      value: formatCurrency(absDelta),
+      pct: pctStr,
+      driver: driverLabel,
+      driverPct: driverPctStr,
+      adPart,
+    }),
     tone,
     muted: false,
   };
@@ -883,8 +897,12 @@ export const DRIVER_LABELS: Record<DriverKey, string> = {
   cpm:          "CPM",
   website_ctr:  "Link CTR",
   connect_rate: "Connect Rate",
-  page_conv:    "Conv. de Página",
-  mql_rate:     "Taxa MQL",
+  get page_conv() {
+    return translate("metrics.driverLabels.page_conv");
+  },
+  get mql_rate() {
+    return translate("metrics.driverLabels.mql_rate");
+  },
 };
 
 export function getDriverLabel(driver: DriverKey): string {

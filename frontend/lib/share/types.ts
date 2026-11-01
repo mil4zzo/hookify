@@ -53,26 +53,34 @@ export const MAX_HIGHLIGHT_METRICS = 2;
 // Rótulos vêm das definições de métrica: uma fonte só para Manager, modal e link público.
 const defLabel = (key: keyof typeof METRIC_DEFINITIONS): string => METRIC_DEFINITIONS[key].label;
 
+// Getter: o rótulo é lido na hora (o idioma pode mudar com o modal aberto).
+const opt = (key: ShareMetricKey & keyof typeof METRIC_DEFINITIONS) => ({
+  key,
+  get label() {
+    return defLabel(key);
+  },
+});
+
 export const SHARE_HIGHLIGHT_OPTIONS: Array<{ key: ShareMetricKey; label: string }> = [
-  { key: "spend", label: defLabel("spend") },
-  { key: "cpr", label: defLabel("cpr") },
-  { key: "cpmql", label: defLabel("cpmql") },
-  { key: "cpc", label: defLabel("cpc") },
-  { key: "cpm", label: defLabel("cpm") },
-  { key: "ctr", label: defLabel("ctr") },
-  { key: "website_ctr", label: defLabel("website_ctr") },
-  { key: "connect_rate", label: defLabel("connect_rate") },
-  { key: "page_conv", label: defLabel("page_conv") },
-  { key: "scroll_stop", label: defLabel("scroll_stop") },
-  { key: "hook", label: defLabel("hook") },
-  { key: "hold_rate", label: defLabel("hold_rate") },
-  { key: "video_watched_p50", label: defLabel("video_watched_p50") },
-  { key: "frequency", label: defLabel("frequency") },
-  { key: "impressions", label: defLabel("impressions") },
-  { key: "reach", label: defLabel("reach") },
-  { key: "cpl_ceiling", label: defLabel("cpl_ceiling") },
-  { key: "cpl_actual", label: defLabel("cpl_actual") },
-  { key: "lead_margin", label: defLabel("lead_margin") },
+  opt("spend"),
+  opt("cpr"),
+  opt("cpmql"),
+  opt("cpc"),
+  opt("cpm"),
+  opt("ctr"),
+  opt("website_ctr"),
+  opt("connect_rate"),
+  opt("page_conv"),
+  opt("scroll_stop"),
+  opt("hook"),
+  opt("hold_rate"),
+  opt("video_watched_p50"),
+  opt("frequency"),
+  opt("impressions"),
+  opt("reach"),
+  opt("cpl_ceiling"),
+  opt("cpl_actual"),
+  opt("lead_margin"),
 ];
 
 export interface ShareItem {

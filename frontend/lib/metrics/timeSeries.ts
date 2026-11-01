@@ -1,4 +1,5 @@
 import type { FormattedAd } from "@/lib/api/schemas";
+import { translate } from "@/lib/i18n/translate";
 import { getHookAt, normalizeCurveToDecimal } from "@/lib/utils/metricsShared";
 import { buildMetricSeriesFromSourceSeries, getResultsForActionType, type MetricValueContext } from "./calculations";
 import type { MetricKey } from "./definitions";
@@ -286,7 +287,7 @@ export function getMetricSeriesAvailability(
       const impressions = seriesData.impressions || [];
       return {
         dataAvailability: impressions.map((value) => value != null && value > 0),
-        zeroValueLabel: "Sem hook",
+        zeroValueLabel: translate("metrics.zero.noHook"),
       };
     }
     case "ctr":
@@ -295,28 +296,28 @@ export function getMetricSeriesAvailability(
       const impressions = seriesData.impressions || [];
       return {
         dataAvailability: impressions.map((value) => value != null && value > 0),
-        zeroValueLabel: metric === "cpm" ? undefined : "Sem cliques",
+        zeroValueLabel: metric === "cpm" ? undefined : translate("metrics.zero.noClicks"),
       };
     }
     case "connect_rate": {
       const impressions = seriesData.impressions || [];
       return {
         dataAvailability: impressions.map((value) => value != null && value > 0),
-        zeroValueLabel: "Sem conexões",
+        zeroValueLabel: translate("metrics.zero.noConnections"),
       };
     }
     case "page_conv": {
       const lpv = seriesData.lpv || [];
       return {
         dataAvailability: lpv.map((value) => value != null && value > 0),
-        zeroValueLabel: "Sem leads",
+        zeroValueLabel: translate("metrics.zero.noLeads"),
       };
     }
     case "cpr": {
       const spend = seriesData.spend || [];
       return {
         dataAvailability: spend.map((value) => value != null && value > 0),
-        zeroValueLabel: "Sem leads",
+        zeroValueLabel: translate("metrics.zero.noLeads"),
       };
     }
     case "cpc": {
@@ -327,7 +328,7 @@ export function getMetricSeriesAvailability(
           clicks.length > 0
             ? clicks.map((value) => value != null && value > 0)
             : spend.map((value) => value != null && value > 0),
-        zeroValueLabel: "Sem cliques",
+        zeroValueLabel: translate("metrics.zero.noClicks"),
       };
     }
     case "cplc": {
@@ -338,14 +339,14 @@ export function getMetricSeriesAvailability(
           inlineClicks.length > 0
             ? inlineClicks.map((value) => value != null && value > 0)
             : spend.map((value) => value != null && value > 0),
-        zeroValueLabel: "Sem link clicks",
+        zeroValueLabel: translate("metrics.zero.noLinkClicks"),
       };
     }
     case "cpmql": {
       const spend = seriesData.spend || [];
       return {
         dataAvailability: spend.map((value) => value != null && value > 0),
-        zeroValueLabel: "Sem MQLs",
+        zeroValueLabel: translate("metrics.zero.noMqls"),
       };
     }
     case "results": {
@@ -360,7 +361,7 @@ export function getMetricSeriesAvailability(
             : 0;
           return result > 0;
         }),
-        zeroValueLabel: "Sem leads",
+        zeroValueLabel: translate("metrics.zero.noLeads"),
       };
     }
     case "mqls": {
@@ -369,18 +370,18 @@ export function getMetricSeriesAvailability(
       if (mqls.length > 0) {
         return {
           dataAvailability: mqls.map((value) => value != null && value > 0),
-          zeroValueLabel: "Sem MQLs",
+          zeroValueLabel: translate("metrics.zero.noMqls"),
         };
       }
       if (leadscoreValues.length > 0) {
         return {
           dataAvailability: leadscoreValues.map((value) => value != null),
-          zeroValueLabel: "Sem MQLs",
+          zeroValueLabel: translate("metrics.zero.noMqls"),
         };
       }
       return {
         dataAvailability: [],
-        zeroValueLabel: "Sem MQLs",
+        zeroValueLabel: translate("metrics.zero.noMqls"),
       };
     }
     case "leadscore_avg": {
@@ -388,13 +389,13 @@ export function getMetricSeriesAvailability(
       if (leadscoreAvg.length > 0) {
         return {
           dataAvailability: leadscoreAvg.map((value) => value != null),
-          zeroValueLabel: "Sem leads",
+          zeroValueLabel: translate("metrics.zero.noLeads"),
         };
       }
       const leadscoreValues = seriesData.leadscore_values || [];
       return {
         dataAvailability: leadscoreValues.map((value) => value != null),
-        zeroValueLabel: "Sem leads",
+        zeroValueLabel: translate("metrics.zero.noLeads"),
       };
     }
     case "mql_rate": {
@@ -404,13 +405,13 @@ export function getMetricSeriesAvailability(
       if (mqlRate.length > 0) {
         return {
           dataAvailability: mqlRate.map((value) => value != null),
-          zeroValueLabel: "Sem leads",
+          zeroValueLabel: translate("metrics.zero.noLeads"),
         };
       }
       const leadscoreValues = seriesData.leadscore_values || [];
       return {
         dataAvailability: leadscoreValues.map((value) => value != null),
-        zeroValueLabel: "Sem leads",
+        zeroValueLabel: translate("metrics.zero.noLeads"),
       };
     }
     case "spend": {
@@ -434,7 +435,7 @@ export function getMetricSeriesAvailability(
       const plays = seriesData.plays || [];
       return {
         dataAvailability: plays.map((value) => value != null && value > 0),
-        zeroValueLabel: "Sem plays",
+        zeroValueLabel: translate("metrics.zero.noPlays"),
       };
     }
     // Economia do lead: sem série diária no v0 (plano, seção 10) — nenhum dia "tem dado".

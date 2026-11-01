@@ -9,6 +9,7 @@ import { curveMonotoneX } from "@visx/curve";
 import { ParentSize } from "@visx/responsive";
 import { localPoint } from "@visx/event";
 import { IconCalendar } from "@tabler/icons-react";
+import { useTranslations } from "next-intl";
 import { getMetricQualityToneByAverage, getMetricValueTextClass, type MetricQualityTone } from "@/lib/utils/metricQuality";
 import { useFormatCurrency, formatLocaleRatioPercent } from "@/lib/utils/currency";
 
@@ -54,7 +55,8 @@ function formatDay(dateStr: string): string {
   return `${d.padStart(2, "0")}/${m.padStart(2, "0")}`;
 }
 
-function Inner({ series, tone, isCurrency = true, height: heightProp, valueLabel = "Valor", shadowSeries, shadowLabel = "Spend", costTarget }: DayComparisonLineChartProps) {
+function Inner({ series, tone, isCurrency = true, height: heightProp, valueLabel, shadowSeries, shadowLabel = "Spend", costTarget }: DayComparisonLineChartProps) {
+  const t = useTranslations("metrics.chart");
   const formatCurrency = useFormatCurrency();
   const [hover, setHover] = useState<number | null>(null);
 
@@ -84,7 +86,7 @@ function Inner({ series, tone, isCurrency = true, height: heightProp, valueLabel
   if (!hasData) {
     return (
       <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
-        Sem dados suficientes
+        {t("notEnoughData")}
       </div>
     );
   }
@@ -280,8 +282,8 @@ function Inner({ series, tone, isCurrency = true, height: heightProp, valueLabel
                 {/* Highlight the two compared days. "hoje" is the last point (near the right
                     edge) so its value label renders inward (anchor "end") — otherwise it
                     overflows the widget and hides behind the adjacent list. */}
-                {renderDot(prevIdx, mutedColor, "ontem", "end")}
-                {renderDot(lastIdx, lineColor, "hoje", "end")}
+                {renderDot(prevIdx, mutedColor, t("yesterday"), "end")}
+                {renderDot(lastIdx, lineColor, t("today"), "end")}
 
                 {hover != null && pts[hover]?.value != null && (
                   <line
@@ -320,7 +322,7 @@ function Inner({ series, tone, isCurrency = true, height: heightProp, valueLabel
                     <span>{formatDay(pts[hover].date)}</span>
                   </div>
                   <div className="mt-1 flex items-center gap-1.5">
-                    <span className="text-muted-foreground">{valueLabel}</span>
+                    <span className="text-muted-foreground">{valueLabel ?? t("value")}</span>
                     <span className={`text-sm font-semibold tabular-nums ${valueColorClass}`}>{fmt(hoveredValue)}</span>
                   </div>
                   {/* The shadow has no axis — hover is the only way to read its value. */}
