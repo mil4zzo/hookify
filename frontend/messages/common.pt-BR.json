@@ -201,7 +201,25 @@
       "snapshot": "{start}–{end} · snapshot na criação do link",
       "noMetrics": "Sem métricas disponíveis para este criativo.",
       "madeWith": "Feito com <b>Hookify</b>",
-      "seeAll": "Ver todas as métricas"
+      "seeAll": "Ver todas as métricas",
+      "vsAverage": "vs. {value}",
+      "changeLanguage": "Mudar idioma",
+      "sections": {
+        "results": "Resultados",
+        "funnel": "Funil",
+        "retention": "Retenção",
+        "visibility": "Visibilidade",
+        "leadEconomics": "Economia do lead"
+      },
+      "units": {
+        "results": "resultados",
+        "clicks": "cliques"
+      }
+    },
+    "meta": {
+      "expired": "Link expirado · Hookify",
+      "title": "{count, plural, =1 {# criativo} other {# criativos}} · Hookify",
+      "description": "Métricas de {start} a {end} — compartilhado com Hookify."
     }
   },
   "facebook": {

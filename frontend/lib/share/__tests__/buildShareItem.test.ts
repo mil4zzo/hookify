@@ -97,3 +97,20 @@ test("página pública: teto em dinheiro, margem em porcentagem", () => {
   assert.equal(formatShareMetric("lead_margin", 0.1, "BRL"), "10.00%");
   assert.equal(formatShareMetric("lead_margin", -0.25, "BRL"), "-25.00%");
 });
+
+test("página pública: títulos, unidades, rótulos e números seguem o idioma de quem lê", async () => {
+  const { setLocaleOverride } = await import("@/lib/i18n/locale");
+  const first = SHARE_METRIC_SECTIONS[0];
+  try {
+    setLocaleOverride("en-US");
+    assert.equal(first.title, "Results");
+    assert.equal(first.cards[1].subtitleLabel, "results");
+    assert.equal(formatShareMetric("impressions", 1234567, "BRL"), "1,234,567");
+    assert.equal(METRIC_LABELS.hook, "Hook");
+    setLocaleOverride("pt-BR");
+    assert.equal(first.title, "Resultados");
+    assert.equal(formatShareMetric("impressions", 1234567, "BRL"), "1.234.567");
+  } finally {
+    setLocaleOverride(null);
+  }
+});

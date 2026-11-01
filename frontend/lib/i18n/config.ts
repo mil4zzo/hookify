@@ -17,3 +17,13 @@ export const LOCALE_COOKIE = "hookify-locale";
 export function resolveLocale(value: unknown): AppLocale {
   return isSupportedLocale(value) ? value : DEFAULT_LOCALE;
 }
+
+/** Idioma de quem lê, a partir das preferências do navegador (`navigator.languages`): o primeiro que o app tem completo. */
+export function pickLocale(languages: readonly string[]): AppLocale {
+  for (const tag of languages) {
+    const lang = tag.toLowerCase();
+    if (lang.startsWith("pt")) return "pt-BR";
+    if (lang.startsWith("en")) return "en-US";
+  }
+  return DEFAULT_LOCALE;
+}

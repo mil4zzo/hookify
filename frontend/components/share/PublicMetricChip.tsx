@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import { getMetricQualityToneByAverage, getMetricValueTextClass, type MetricQualityTone } from "@/lib/utils/metricQuality";
 import { cn } from "@/lib/utils/cn";
 import { isColorlessMetricKey } from "@/lib/metrics/definitions";
@@ -38,7 +39,8 @@ interface PublicMetricChipProps {
  * expandido, que segue usando o PublicMetricCell.
  */
 export function PublicMetricChip({ metricKey, value, average, currency }: PublicMetricChipProps) {
-  const canCompare = !isColorlessMetricKey(metricKey) && average != null && Number.isFinite(average) && average !== 0;
+  const t = useTranslations("share.viewer");
+  const canCompare =!isColorlessMetricKey(metricKey) && average != null && Number.isFinite(average) && average !== 0;
   const tone = canCompare ? getMetricQualityToneByAverage(value, average as number, isLowerBetter(metricKey)) : null;
   const delta = canCompare ? formatShareDelta(value, average) : null;
 
@@ -53,7 +55,7 @@ export function PublicMetricChip({ metricKey, value, average, currency }: Public
           {formatShareMetric(metricKey, value, currency)}
         </span>
         {canCompare ? (
-          <span className="truncate text-2xs text-muted-foreground">vs. {formatShareMetric(metricKey, average as number, currency)}</span>
+          <span className="truncate text-2xs text-muted-foreground">{t("vsAverage", { value: formatShareMetric(metricKey, average as number, currency) })}</span>
         ) : null}
       </div>
     </div>

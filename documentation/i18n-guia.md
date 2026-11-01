@@ -27,3 +27,19 @@ O idioma vem da preferência do usuário (`settings.language`) e de um cookie (`
 - Vocabulário en-US: conjunto = "ad set", anúncio = "ad", campanha = "campaign", criativo = "creative", gasto = "spend", Otimize = "Optimize".
 - **Não traduzir**: mensagens vindas do backend, `logger.*`/`console.*`, comentários, ids/enums/chaves de storage, classes CSS, páginas legais (termos, privacidade, exclusão de dados — texto jurídico exige revisão humana), páginas de desenvolvimento (`docs`, `design-system`, `ui-demo`, `test-ui`, `api-test`).
 - Teste existente que confere texto em português continua valendo (idioma padrão é pt-BR). Só mude teste se a API do código mudou.
+
+## Link público de compartilhamento
+
+O idioma é de quem LÊ (anônimo), não de quem criou o link. `components/share/ShareLocale.tsx`
+pega do navegador (`pickLocale(navigator.languages)`), oferece um seletor PT/EN no cabeçalho do
+viewer (escolha salva neste aparelho) e usa `setLocaleOverride` para os formatadores. A prévia
+(WhatsApp etc.) usa o `Accept-Language` de quem pede, com português como padrão.
+
+## Pendências (fora do inglês das telas de uso diário)
+
+- **Espanhol (es-ES):** catálogos vazios (caem no português) e o seletor não oferece. Traduzir os mesmos arquivos e liberar a opção.
+- **Telas legado / em mudança:** insights, boards, explorer, gold, plano, upload, duplicação de campanha (launch), admin, waitlist/pv. Traduzir quando a tela estabilizar.
+- **Páginas legais** (termos, privacidade, exclusão de dados): precisam de tradução revisada por humano; não traduzidas.
+- **Mensagens dinâmicas do backend** (f-string) e códigos de erro: hoje só 45 mensagens fixas têm tradução (`lib/i18n/backendMessages.ts`). Migrar para códigos de erro se a lista passar de ~100.
+- **Pequenos:** eixo do `MetricHistoryChart` com "R$" fixo; título/descrição do `/suporte` ainda em português; revisar o inglês de `scopeMissing` (palpite do agente); regra do filtro: grupo "Planilha" fora de `FIELD_GROUP_ORDER` (campos de planilha não aparecem no seletor — existente, não investigado).
+- **Revisão humana** do inglês na tela (onboarding, Manager, packs, modal do anúncio, Topbar).

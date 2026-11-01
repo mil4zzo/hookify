@@ -25,7 +25,6 @@ const ALLOWLIST: AllowEntry[] = [
   { pattern: /^(lib\/hooks\/useLanguage|lib\/store\/settings|lib\/store\/userPreferences|lib\/types\/index)\.ts$/, reason: "define o idioma e o padrão" },
   { pattern: /^(app\/onboarding\/steps\/InitialSettingsStep|components\/layout\/Topbar)\.tsx$/, reason: "seletor de idioma" },
   { pattern: /^app\/(layout|pv\/page|docs\/page)\.tsx$/, reason: "idioma do documento/SEO (precisa ser conhecido no servidor)" },
-  { pattern: /^(app\/s\/\[token\]\/page\.tsx|components\/share\/StoriesViewer\.tsx|lib\/share\/metricsDisplay\.ts)$/, reason: "página pública do link: idioma de quem lê, decisão própria" },
   { pattern: /^(components\/packs\/(FolderNameDialog|MoveToFolderDialog)\.tsx|app\/packs\/page\.tsx)$/, reason: "comparação de nome (duplicado/busca) tem de ser igual para todos" },
   { pattern: /^lib\/utils\/(leadEconomics|leadEconomicsDraft|leadEconomicsCsv)\.ts$|^components\/packs\/LeadEconomicsEditor\.tsx$/, reason: "campo que interpreta o que o usuário digita (vírgula decimal): migra junto com a leitura" },
   { pattern: /^lib\/(explorer\/(viewModels|flowSections)|hooks\/useFolders|manager\/provenance|rules\/dimensionOptions|utils\/folderTree|utils\/packSort)\.ts$/, reason: "ordenação (diferença mínima entre os idiomas) e tela legada" },

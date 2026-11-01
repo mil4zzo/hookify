@@ -36,3 +36,18 @@ test("idioma vazio ou desconhecido cai no padrão, nunca quebra o Intl", () => {
     setLanguage(DEFAULT_LOCALE);
   }
 });
+
+test("idioma de quem lê vem do navegador; sem idioma conhecido, o padrão", async () => {
+  const { pickLocale, setLocaleOverride } = await import("../locale");
+  assert.equal(pickLocale(["en-GB", "pt-BR"]), "en-US");
+  assert.equal(pickLocale(["fr-FR", "pt-PT"]), "pt-BR");
+  assert.equal(pickLocale(["fr-FR", "ja"]), DEFAULT_LOCALE);
+  assert.equal(pickLocale([]), DEFAULT_LOCALE);
+  try {
+    setLocaleOverride("en-US");
+    assert.equal(getAppLocale(), "en-US", "o idioma de quem lê vale mesmo com a conta em português");
+  } finally {
+    setLocaleOverride(null);
+  }
+  assert.equal(getAppLocale(), "pt-BR");
+});

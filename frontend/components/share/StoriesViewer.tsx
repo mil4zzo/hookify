@@ -20,7 +20,9 @@ import { cn } from "@/lib/utils/cn";
 import { getSiteOrigin } from "@/lib/utils/siteUrl";
 import { PublicMetricCell } from "@/components/share/PublicMetricCell";
 import { PublicMetricChip } from "@/components/share/PublicMetricChip";
-import { SHARE_METRIC_SECTIONS, hasMetric } from "@/lib/share/metricsDisplay";
+import { SHARE_METRIC_SECTIONS, hasMetric, type ShareMetricSection } from "@/lib/share/metricsDisplay";
+import { formatLocaleDate, getAppLocale } from "@/lib/i18n/locale";
+import { useShareLocale } from "@/components/share/ShareLocale";
 import type { PublicShare, ShareItem } from "@/lib/share/types";
 
 // Gramática de stories padrão (Instagram/WhatsApp): segmentos no topo, tap
@@ -36,17 +38,17 @@ const SWIPE_UP_MIN_PX = 60;
 const TAP_ZONE_PREV_MAX = 0.35;
 const TAP_ZONE_PAUSE_MAX = 0.65;
 
-const SECTION_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
-  Resultados: IconCurrencyDollar,
-  Funil: IconChartFunnel,
-  Retenção: IconBrandParsinta,
-  Visibilidade: IconWorld,
+const SECTION_ICONS: Partial<Record<ShareMetricSection["id"], React.ComponentType<{ className?: string }>>> = {
+  results: IconCurrencyDollar,
+  funnel: IconChartFunnel,
+  retention: IconBrandParsinta,
+  visibility: IconWorld,
 };
 
-function formatDatePt(iso: string): string {
+function formatShortDate(iso: string): string {
   if (!iso) return "";
   const d = new Date(`${iso.slice(0, 10)}T00:00:00`);
-  return Number.isNaN(d.getTime()) ? iso : d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
+  return Number.isNaN(d.getTime()) ? iso : formatLocaleDate(d, { day: "2-digit", month: "2-digit" });
 }
 
 function isVideoExpired(item: ShareItem): boolean {
@@ -116,6 +118,7 @@ function VideoSegmentFill({ videoRef, resetKey }: { videoRef: React.RefObject<HT
 
 export function StoriesViewer({ share }: { share: PublicShare }) {
   const t = useTranslations("share.viewer");
+  const shareLocale = useShareLocale();
   const items = share.items;
   const [index, setIndex] = useState(0);
   const [isHolding, setIsHolding] = useState(false);
@@ -309,8 +312,18 @@ export function StoriesViewer({ share }: { share: PublicShare }) {
             <Image src="/logo-hookify-alpha.png" alt="Hookify" width={80} height={21} className="h-[21px] w-[80px]" priority />
             <div className="flex items-center gap-2">
               <span className="text-2xs text-muted-foreground">
-                {index + 1}/{items.length} · {formatDatePt(share.date_start)}–{formatDatePt(share.date_stop)}
+                {index + 1}/{items.length} · {formatShortDate(share.date_start)}–{formatShortDate(share.date_stop)}
               </span>
+              {shareLocale ? (
+                <button
+                  type="button"
+                  aria-label={t("changeLanguage")}
+                  className="pointer-events-auto rounded-full bg-background-60 px-2 py-1 text-2xs font-semibold uppercase text-foreground"
+                  onClick={shareLocale.toggle}
+                >
+                  {shareLocale.locale.slice(0, 2)}
+                </button>
+              ) : null}
               <button
                 type="button"
                 aria-label={isUserPaused ? t("resume") : t("pause")}
@@ -360,7 +373,7 @@ export function StoriesViewer({ share }: { share: PublicShare }) {
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-medium">{current.ad_name}</p>
                 <p className="text-2xs text-muted-foreground">
-                  {t("snapshot", { start: formatDatePt(share.date_start), end: formatDatePt(share.date_stop) })}
+                  {t("snapshot", { start: formatShortDate(share.date_start), end: formatShortDate(share.date_stop) })}
                 </p>
               </div>
               <IconChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
@@ -368,9 +381,9 @@ export function StoriesViewer({ share }: { share: PublicShare }) {
 
             <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-3 pb-3">
               {visibleSections.map((section) => {
-                const SectionIcon = SECTION_ICONS[section.title];
+                const SectionIcon = SECTION_ICONS[section.id];
                 return (
-                  <div key={section.title} className="space-y-2">
+                  <div key={section.id} className="space-y-2">
                     <div className="flex items-center gap-1.5 text-sm font-semibold text-muted-foreground">
                       {SectionIcon ? <SectionIcon className="h-4 w-4 flex-shrink-0" /> : null}
                       <span>{section.title}</span>
@@ -387,7 +400,7 @@ export function StoriesViewer({ share }: { share: PublicShare }) {
                             currency={share.currency}
                             subtitle={
                               typeof subtitleValue === "number"
-                                ? `${Math.round(subtitleValue).toLocaleString("pt-BR")} ${card.subtitleLabel ?? ""}`.trim()
+                                ? `${Math.round(subtitleValue).toLocaleString(getAppLocale())} ${card.subtitleLabel ?? ""}`.trim()
                                 : undefined
                             }
                           />

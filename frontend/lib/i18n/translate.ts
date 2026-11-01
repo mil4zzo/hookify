@@ -13,7 +13,11 @@ type Translate = (key: string, values?: Record<string, string | number>) => stri
 const translators = new Map<AppLocale, Translate>();
 
 export function translate(key: string, values?: Record<string, string | number>): string {
-  const locale = getAppLocale();
+  return translateIn(getAppLocale(), key, values);
+}
+
+/** Como `translate`, mas num idioma dado (servidor, onde não há preferência do usuário). */
+export function translateIn(locale: AppLocale, key: string, values?: Record<string, string | number>): string {
   let translator = translators.get(locale);
   if (!translator) {
     translator = createTranslator({ locale, messages: getMessages(locale) as never, onError: () => {} }) as unknown as Translate;
