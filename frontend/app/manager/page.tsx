@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import { useMemo, useState, useEffect, useLayoutEffect, useCallback, useRef, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { ManagerTable } from "@/components/manager/ManagerTable";
@@ -32,12 +33,13 @@ const GROUP_BY_BY_TAB: Record<ManagerTab, "ad_name" | "ad_id" | "adset_id" | "ca
 };
 
 function ManagerPageFallback() {
+  const t = useTranslations("manager");
   // Mesmos title/description/variant do render real para o cabeçalho não "piscar" ao
   // sair do fallback; ManagerTableSkeleton reproduz a cromo do ManagerTable em loading.
   return (
     <PageContainer
-      title="Otimize"
-      description="Dados de performance dos seus anúncios"
+      title={t("title")}
+      description={t("subtitle")}
       variant="analytics"
       className="min-h-0"
     >
@@ -49,6 +51,7 @@ function ManagerPageFallback() {
 }
 
 function ManagerPageContent() {
+  const t = useTranslations("manager");
   const searchParams = useSearchParams();
   const [activeManagerTab, setActiveManagerTab] = useState<ManagerTab>("por-anuncio");
   const { isClient, authStatus, onboardingStatus, isAuthorized } = useAppAuthReady();
@@ -322,7 +325,7 @@ function ManagerPageContent() {
     const TOAST_ID = "manager-data-error";
     if (managerError) {
       logger.error("Erro ao buscar manager:", managerError);
-      toast.error("Erro ao carregar dados. Tente reduzir o período ou selecionar menos packs.", {
+      toast.error(t("loadError"), {
         id: TOAST_ID,
         duration: Infinity,
       });
@@ -366,8 +369,8 @@ function ManagerPageContent() {
 
   return (
     <PageContainer
-      title="Otimize"
-      description="Dados de performance dos seus anúncios"
+      title={t("title")}
+      description={t("subtitle")}
       variant="analytics"
       className="min-h-0"
     >

@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import React, { useMemo } from "react";
 import { Badge } from "@/components/ui/badge";
 import { ToggleSwitch } from "@/components/common/ToggleSwitch";
@@ -14,6 +15,7 @@ interface StatusCellProps {
 }
 
 export function StatusCell({ original, currentTab, packIds }: StatusCellProps) {
+  const t = useTranslations("manager.status");
   const effectiveStatus = (original as any)?.effective_status;
   const statusResolved = (original as any)?.status_resolved;
 
@@ -45,10 +47,7 @@ export function StatusCell({ original, currentTab, packIds }: StatusCellProps) {
   // Hooks sempre ANTES dos early returns: status_resolved muda false→true na refetch e,
   // com hook depois do return condicional, o React lança "Rendered more hooks than during
   // the previous render" (crash intermitente da célula).
-  const label = useMemo(() => {
-    const kind = entityType === "ad" ? "anúncio" : entityType === "adset" ? "conjunto" : "campanha";
-    return isPaused ? `Ativar ${kind}` : `Pausar ${kind}`;
-  }, [entityType, isPaused]);
+  const label = useMemo(() => t("toggle", { action: isPaused ? "activate" : "pause", kind: entityType }), [t, entityType, isPaused]);
 
   // Ads arquivados/deletados na Meta: o gasto histórico permanece no pack (paridade
   // com o Gerenciador), mas não há ação possível — badge no lugar do toggle.
@@ -56,7 +55,7 @@ export function StatusCell({ original, currentTab, packIds }: StatusCellProps) {
     return (
       <div className="flex items-center justify-center w-full" onClick={(e) => e.stopPropagation()}>
         <Badge variant="outline" className="rounded-sm px-1 py-0 text-2xs font-medium text-muted-foreground">
-          {String(effectiveStatus).toUpperCase() === "DELETED" ? "Excluído" : "Arquivado"}
+          {String(effectiveStatus).toUpperCase() === "DELETED" ? t("deleted") : t("archived")}
         </Badge>
       </div>
     );

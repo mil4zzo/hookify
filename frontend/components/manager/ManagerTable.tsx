@@ -1,5 +1,7 @@
 "use client";
 
+import { useTranslations } from "next-intl";
+import type { ManagerItemKind } from "./managerItemKind";
 import React, { useMemo, useState, useEffect, useCallback, useRef, startTransition, useDeferredValue } from "react";
 import { Button } from "@/components/ui/button";
 import { AppDialog } from "@/components/common/AppDialog";
@@ -159,18 +161,23 @@ const EMPTY_SERIES_MAP = new Map<string, any>();
 // Tipo para o modo de visualização
 type ViewMode = "detailed" | "minimal";
 
-const MANAGER_TABS: TabItem[] = [
-  { value: "por-anuncio", label: "Criativos", icon: IconPlayCardA },
-  { value: "por-campanha", label: "Por campanha", icon: IconFolder },
-  { value: "por-conjunto", label: "Por conjunto", icon: IconBorderAll },
-  { value: "individual", label: "Por anúncio", icon: IconDeviceTablet },
-];
+const MANAGER_TABS = [
+  { value: "por-anuncio", labelKey: "creatives", icon: IconPlayCardA },
+  { value: "por-campanha", labelKey: "byCampaign", icon: IconFolder },
+  { value: "por-conjunto", labelKey: "byAdset", icon: IconBorderAll },
+  { value: "individual", labelKey: "byAd", icon: IconDeviceTablet },
+] as const;
 
 // SortIcon foi movido para `managerTableMetricColumns.tsx` junto do factory de colunas.
 
 // ExpandedChildrenRow / CampaignChildrenRow são reusados como conteúdo do ManagerDrillModal.
 
 export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange, adsIndividual, isLoadingIndividual, adsAdset, isLoadingAdset, adsCampaign, isLoadingCampaign, actionType = "", selectedPackIds = [], endDate, dateStart, dateStop, availableConversionTypes = [], cellMode = "trend", onCellModeChange, averagesOverride, hasSheetIntegration = false, customColumns = EMPTY_CUSTOM_COLUMNS, names, isLoading = false, isError = false, initialFilters, onVisibleGroupKeysChange, serverTotal }: ManagerTableProps) {
+  const tTabs = useTranslations("manager.tabs");
+  const managerTabs: TabItem[] = useMemo(
+    () => MANAGER_TABS.map((tab) => ({ value: tab.value, label: tTabs(tab.labelKey), icon: tab.icon })),
+    [tTabs],
+  );
   type ManagerTab = "individual" | "por-anuncio" | "por-conjunto" | "por-campanha";
   const initialTab = (activeTab ?? "por-anuncio") as ManagerTab;
   const [internalTab, setInternalTab] = useState<ManagerTab>(initialTab);
@@ -1122,7 +1129,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
     );
   }, [currentTab, globalFilter]);
 
-  const filterBarItemLabel = currentTab === "por-conjunto" ? "conjuntos" : currentTab === "por-campanha" ? "campanhas" : "anúncios";
+  const filterBarItemKind: ManagerItemKind = currentTab === "por-conjunto" ? "adsets" : currentTab === "por-campanha" ? "campaigns" : "ads";
   const filterBarFilteredCount = table.getFilteredRowModel().rows.length;
 
   // "7 de 23 abaixo da meta de margem", ao lado da contagem — só com uma das colunas da
@@ -1413,7 +1420,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
       serverTotal={serverTotal}
       filteredCount={filterBarFilteredCount}
       totalCount={adsEffectiveRaw.length}
-      itemLabel={filterBarItemLabel}
+      itemKind={filterBarItemKind}
       summarySlot={leadEconomicsSummarySlot}
       leadingSlot={searchBar}
       trailingSlot={shareMenu}
@@ -1431,7 +1438,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
         value={currentTab}
         onValueChange={handleTabChange}
         variant="with-controls"
-        tabs={MANAGER_TABS}
+        tabs={managerTabs}
         controls={controls}
         tabsContainerClassName="flex-col items-stretch gap-3 md:flex-row md:items-center md:gap-4"
         tabsListClassName="w-full overflow-x-auto md:w-fit"

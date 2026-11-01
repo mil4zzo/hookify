@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import React, { useRef, useState, useEffect, useCallback, useMemo } from "react";
 import { cn } from "@/lib/utils/cn";
 import { flexRender } from "@tanstack/react-table";
@@ -178,6 +179,7 @@ const PINNED_COLUMN_IDS = new Set(["select", "status", "ad_name"]);
 const SKELETON_TEXT_COLUMN_IDS = new Set(["tags", "pack", "account", "created_date"]);
 
 export const TableContent = React.memo(function TableContent({ table, isLoadingEffective, isError, currentTab, setSelectedAd, sorting, rowSelection, pinSelectionToTop = false, onVisibleRowKeysChange, onOpenDrill, globalFilter, groupByAdNameEffective, cellMode = "trend", variant = "detailed" }: TableContentProps) {
+  const t = useTranslations("manager");
   const tableContainerRef = useRef<HTMLDivElement | null>(null);
   const resizeObserverRef = useRef<ResizeObserver | null>(null);
   const styles = VARIANT_STYLES[variant];
@@ -561,7 +563,7 @@ export const TableContent = React.memo(function TableContent({ table, isLoadingE
                 <td colSpan={table.getVisibleLeafColumns().length} className={styles.emptyTd}>
                   <StatePanel
                     kind={isError ? "error" : "empty"}
-                    message={isError ? "Erro ao carregar dados. Tente reduzir o período ou selecionar menos packs." : "Nenhum resultado com esses filtros."}
+                    message={isError ? t("loadError") : t("table.noResults")}
                     density="compact"
                   />
                 </td>

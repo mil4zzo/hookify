@@ -1,5 +1,6 @@
 "use client";
 
+import type { ManagerItemKind } from "./managerItemKind";
 import { useEffect, useMemo, useState } from "react";
 import { IconArrowsSort, IconFilter } from "@tabler/icons-react";
 import type { RankingsChildrenItem } from "@/lib/api/schemas";
@@ -37,6 +38,7 @@ const NOOP_SET_RULES: React.Dispatch<React.SetStateAction<RuleTree>> = () => {};
 
 type EntityConfig = {
   plural: string;
+  itemKind: ManagerItemKind;
   nameHeader: string;
   nameSortKey: string;
   statusTab: "individual" | "por-conjunto";
@@ -62,6 +64,7 @@ type EntityConfig = {
 const ENTITY_CONFIG: Record<ChildrenEntity, EntityConfig> = {
   ads: {
     plural: "anúncios",
+    itemKind: "ads",
     nameHeader: "Anúncios",
     nameSortKey: "ad_id",
     statusTab: "individual",
@@ -83,6 +86,7 @@ const ENTITY_CONFIG: Record<ChildrenEntity, EntityConfig> = {
   },
   variations: {
     plural: "variações",
+    itemKind: "variations",
     nameHeader: "Variações",
     nameSortKey: "ad_id",
     statusTab: "individual",
@@ -104,6 +108,7 @@ const ENTITY_CONFIG: Record<ChildrenEntity, EntityConfig> = {
   },
   adsets: {
     plural: "conjuntos",
+    itemKind: "adsets",
     nameHeader: "Conjuntos",
     nameSortKey: "adset_name",
     statusTab: "por-conjunto",
@@ -417,7 +422,7 @@ export function ManagerChildrenTable({
           hasSheetIntegration={hasSheetIntegration}
           filteredCount={sortedData.length}
           totalCount={childrenData.length || 0}
-          itemLabel={childrenLabel}
+          itemKind={config.itemKind}
           leadingSlot={
             <SearchInputWithClear
               value={searchTerm}

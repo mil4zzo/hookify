@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import React from "react";
 // design-system-exception: direct-skeleton-import - loading chrome espelha a grade densa do manager (mesma exceção do TableContent)
 import { Skeleton } from "@/components/ui/skeleton";
@@ -20,12 +21,12 @@ import { getManagerMetricLabel, type ManagerMetricKey } from "@/lib/metrics";
 
 // Espelha MANAGER_TABS de ManagerTable.tsx (mantido inline para não acoplar o skeleton
 // ao módulo pesado do ManagerTable).
-const SKELETON_TABS: TabItem[] = [
-  { value: "por-anuncio", label: "Criativos", icon: IconPlayCardA },
-  { value: "por-campanha", label: "Por campanha", icon: IconFolder },
-  { value: "por-conjunto", label: "Por conjunto", icon: IconBorderAll },
-  { value: "individual", label: "Por anúncio", icon: IconDeviceTablet },
-];
+const SKELETON_TABS = [
+  { value: "por-anuncio", labelKey: "creatives", icon: IconPlayCardA },
+  { value: "por-campanha", labelKey: "byCampaign", icon: IconFolder },
+  { value: "por-conjunto", labelKey: "byAdset", icon: IconBorderAll },
+  { value: "individual", labelKey: "byAd", icon: IconDeviceTablet },
+] as const;
 
 // Colunas visíveis por padrão sem integração de planilha (DEFAULT_MANAGER_COLUMNS menos
 // mqls/cpmql), na ordem de render de buildMetricColumns. Contas com planilha só ganham
@@ -50,6 +51,7 @@ const METRIC_COLUMN_WIDTH = 100;
 const noop = () => {};
 
 function ManagerSkeletonTable() {
+  const t = useTranslations("manager");
   const columns = SKELETON_METRIC_COLUMNS;
   const lastIndex = columns.length - 1;
 
@@ -65,7 +67,7 @@ function ManagerSkeletonTable() {
           </colgroup>
           <thead className="sticky top-0 z-10 bg-background">
             <tr className="text-foreground">
-              <th className="px-4 py-4 text-left text-base font-normal">Anúncio</th>
+              <th className="px-4 py-4 text-left text-base font-normal">{t("table.adColumn")}</th>
               {columns.map((id) => (
                 <th key={id} className="px-4 py-4 text-center text-base font-normal">
                   {getManagerMetricLabel(id)}
@@ -100,6 +102,8 @@ function ManagerSkeletonTable() {
 }
 
 export function ManagerTableSkeleton() {
+  const t = useTranslations("manager");
+  const tabs: TabItem[] = SKELETON_TABS.map((tab) => ({ value: tab.value, label: t(`tabs.${tab.labelKey}`), icon: tab.icon }));
   // Placeholders dos controles do topo (Colunas / Exibição / Tela cheia).
   const controls = (
     <div className="flex flex-wrap items-stretch justify-start gap-2 md:justify-end">
@@ -126,7 +130,7 @@ export function ManagerTableSkeleton() {
         value="por-anuncio"
         onValueChange={noop}
         variant="with-controls"
-        tabs={SKELETON_TABS}
+        tabs={tabs}
         controls={controls}
         tabsContainerClassName="flex-col items-stretch gap-3 md:flex-row md:items-center md:gap-4"
         tabsListClassName="w-full overflow-x-auto md:w-fit"

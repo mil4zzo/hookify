@@ -1,5 +1,7 @@
 "use client";
 
+import { useTranslations } from "next-intl";
+import type { ManagerItemKind } from "./managerItemKind";
 import React, { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { IconAlertTriangle, IconChevronDown, IconFilter } from "@tabler/icons-react";
@@ -41,7 +43,8 @@ interface FilterBarProps {
   highlightFieldId?: string | null;
   filteredCount?: number;
   totalCount?: number;
-  itemLabel?: string;
+  /** Que itens a tabela mostra: vira o substantivo (anúncios, conjuntos...) no idioma do app. */
+  itemKind?: ManagerItemKind;
   /** Resumo extra ao lado da contagem (ex.: anúncios abaixo da meta de margem). Memoize: entra no comparador. */
   summarySlot?: React.ReactNode;
   /** Renderizado no início da linha de controles (ex.: input de busca). */
@@ -73,7 +76,7 @@ function arePropsEqual(prev: FilterBarProps, next: FilterBarProps): boolean {
     prev.highlightFieldId === next.highlightFieldId &&
     prev.filteredCount === next.filteredCount &&
     prev.totalCount === next.totalCount &&
-    prev.itemLabel === next.itemLabel &&
+    prev.itemKind === next.itemKind &&
     prev.summarySlot === next.summarySlot &&
     prev.serverTotal === next.serverTotal &&
     prev.leadingSlot === next.leadingSlot &&
@@ -94,12 +97,14 @@ export const FilterBar = React.memo(function FilterBar({
   highlightFieldId,
   filteredCount,
   totalCount,
-  itemLabel,
+  itemKind,
   summarySlot,
   leadingSlot,
   trailingSlot,
   serverTotal,
 }: FilterBarProps) {
+  const t = useTranslations("manager.filterBar");
+  const tItems = useTranslations("manager.items");
   // Controlado quando o pai manda (clique no funil); interno no uso normal.
   const [internalOpen, setInternalOpen] = useState(false);
   const isPopoverOpen = open ?? internalOpen;
@@ -120,26 +125,26 @@ export const FilterBar = React.memo(function FilterBar({
     <div className="flex w-full flex-wrap items-center gap-2">
       <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">{leadingSlot}</div>
       <div className="flex flex-shrink-0 flex-wrap items-center gap-3">
-        {filteredCount !== undefined && totalCount !== undefined && itemLabel && (
+        {filteredCount !== undefined && totalCount !== undefined && itemKind && (
           <span className="text-xs text-muted-foreground whitespace-nowrap">
-            Exibindo {filteredCount} de {totalCount} {itemLabel}
+            {t("showing", { filtered: filteredCount, total: totalCount, items: tItems(itemKind) })}
           </span>
         )}
         {summarySlot}
         {isTruncated && (
           <span
             className={truncatedChipClass}
-            title={`O período tem ${serverTotal} ${itemLabel ?? "itens"}, mas só ${totalCount} foram carregados (os de maior investimento). Filtros e seleção em massa atuam apenas sobre esses.`}
+            title={t("truncatedHint", { total: serverTotal, items: itemKind ? tItems(itemKind) : "", loaded: totalCount })}
           >
             <IconAlertTriangle className="h-3 w-3" />
-            {serverTotal} no total
+            {t("truncatedChip", { total: serverTotal })}
           </span>
         )}
         <Popover open={isPopoverOpen} onOpenChange={setIsPopoverOpen}>
           <PopoverTrigger asChild>
             <Button variant="picker">
               <IconFilter className="h-4 w-4" />
-              <span>Filtros</span>
+              <span>{t("filters")}</span>
               {conditionCount > 0 && <span className="ml-1 rounded-full bg-primary text-primary-foreground text-xs px-2 py-0.5">{conditionCount}</span>}
               <IconChevronDown className="ml-1 h-4 w-4 shrink-0 opacity-50" />
             </Button>
@@ -147,10 +152,10 @@ export const FilterBar = React.memo(function FilterBar({
           <PopoverContent align="end" className="w-[560px] max-w-[95vw] p-4">
             <div className="space-y-3">
               <div className="flex items-center justify-between">
-                <h3 className="text-sm font-semibold">Filtros</h3>
+                <h3 className="text-sm font-semibold">{t("filters")}</h3>
                 {conditionCount > 0 && (
                   <button type="button" onClick={() => setRules(EMPTY_RULE_TREE)} className="text-xs text-primary hover:underline">
-                    Limpar todos
+                    {t("clearAll")}
                   </button>
                 )}
               </div>
