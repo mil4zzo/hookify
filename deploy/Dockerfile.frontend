@@ -47,6 +47,8 @@ COPY components.json ./
 COPY app/ ./app/
 COPY components/ ./components/
 COPY lib/ ./lib/
+# Catálogos de texto (pt-BR/en-US): lib/i18n/messages.ts importa os JSON no build.
+COPY messages/ ./messages/
 RUN mkdir -p ./public
 COPY public/ ./public/
 COPY middleware.ts ./
