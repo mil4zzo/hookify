@@ -22,7 +22,7 @@ test("tags filtram por operador proprio, nao por texto nem por checkbox de statu
 
   // Casar por nome quebraria assim que a tag fosse renomeada — o filtro casa por id.
   assert.deepEqual(filterableColumns, [
-    { id: "spend", label: "Spend", isPercentage: false },
+    { id: "spend", label: "Gasto", isPercentage: false },
     { id: "tags", label: "Tags", isTags: true, options },
     { id: "pack", label: "Pack", isText: true },
   ]);
@@ -36,7 +36,7 @@ test("sem vocabulario de tags a coluna nao e oferecida como filtro", () => {
 
   // E o caso da tabela de filhos, que nao passa tagOptions e cujas linhas nao tem tags.
   const filterableColumns = getManagerFilterableColumns({ visibleColumns });
-  assert.deepEqual(filterableColumns, [{ id: "spend", label: "Spend", isPercentage: false }]);
+  assert.deepEqual(filterableColumns, [{ id: "spend", label: "Gasto", isPercentage: false }]);
 });
 
 test("pergunta incompleta nao restringe", () => {

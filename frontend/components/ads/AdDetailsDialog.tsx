@@ -895,10 +895,10 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
 
                   {/* Absolutas (sem sparklines) */}
                   <MetricSection title="Visibilidade">
-                    <VideoMetricCell label="Spend" value={formatCurrency(resolvedSpend)} series={resolvedSeries?.spend} formatFn={(n: number) => formatCurrency(n)} colorMode="series" disableSeriesFallback />
-                    <VideoMetricCell metricKey="frequency" label="Frequency" value={resolvedFrequency != null ? resolvedFrequency.toFixed(2) : "—"} />
-                    <VideoMetricCell metricKey="impressions" label="Impressions" value={resolvedImpressions.toLocaleString("pt-BR")} />
-                    <VideoMetricCell metricKey="reach" label="Reach" value={resolvedReach != null ? resolvedReach.toLocaleString("pt-BR") : "—"} />
+                    <VideoMetricCell label={getMetricLabel("spend")} value={formatCurrency(resolvedSpend)} series={resolvedSeries?.spend} formatFn={(n: number) => formatCurrency(n)} colorMode="series" disableSeriesFallback />
+                    <VideoMetricCell metricKey="frequency" label={getMetricLabel("frequency")} value={resolvedFrequency != null ? resolvedFrequency.toFixed(2) : "—"} />
+                    <VideoMetricCell metricKey="impressions" label={getMetricLabel("impressions")} value={resolvedImpressions.toLocaleString("pt-BR")} />
+                    <VideoMetricCell metricKey="reach" label={getMetricLabel("reach")} value={resolvedReach != null ? resolvedReach.toLocaleString("pt-BR") : "—"} />
                   </MetricSection>
                 </div>
               )}

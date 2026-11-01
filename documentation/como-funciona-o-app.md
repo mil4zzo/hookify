@@ -511,24 +511,24 @@ participam da decisão.
 
 ### Métricas Básicas
 
-- **Spend**: Investimento total
-- **Impressions**: Impressões
-- **Clicks**: Cliques
+- **Gasto**: Investimento total
+- **Impressões**
+- **Cliques**
 - **CTR**: Taxa de cliques
 - **CPM**: Custo por mil impressões
 - **CPC**: Custo por clique
 
 ### Métricas de Vídeo
 
-- **Hook Rate**: Taxa de retenção inicial (primeiros 3 segundos)
-- **Hold Rate**: Taxa de retenção geral
+- **Hook**: Taxa de retenção inicial (primeiros 3 segundos)
+- **Hold Rate**: retenção geral
 - **Plays**: Reproduções
 - **ThruPlays**: Reproduções completas
 
 ### Métricas de Conversão
 
 - **CPR**: Custo por resultado/conversão
-- **Page Conversion**: Taxa de conversão na página
+- **Conv. da página**: Taxa de conversão na página
 - **Connect Rate**: Taxa de conexão (cliques no link → landing page)
 
 ### Métricas Enriquecidas (via Planilha)

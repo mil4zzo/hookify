@@ -6,6 +6,8 @@
 // monetárias na moeda de `currency`. O viewer replica a formatação do modal de
 // detalhamento — não re-escale aqui.
 
+import { METRIC_DEFINITIONS } from "@/lib/metrics/definitions";
+
 export type ShareMediaType = "video" | "image";
 
 export interface ShareItemMedia {
@@ -48,26 +50,29 @@ export const MAX_HIGHLIGHT_METRICS = 2;
  * detalhamento. As de "Visibilidade" (spend/frequency/impressions/reach) não
  * têm média no modal e portanto aparecem sem cor/delta — igual lá.
  */
+// Rótulos vêm das definições de métrica: uma fonte só para Manager, modal e link público.
+const defLabel = (key: keyof typeof METRIC_DEFINITIONS): string => METRIC_DEFINITIONS[key].label;
+
 export const SHARE_HIGHLIGHT_OPTIONS: Array<{ key: ShareMetricKey; label: string }> = [
-  { key: "spend", label: "Spend" },
-  { key: "cpr", label: "CPR" },
-  { key: "cpmql", label: "CPMQL" },
-  { key: "cpc", label: "CPC" },
-  { key: "cpm", label: "CPM" },
-  { key: "ctr", label: "CTR" },
-  { key: "website_ctr", label: "Link CTR" },
-  { key: "connect_rate", label: "Connect Rate" },
-  { key: "page_conv", label: "Page Conv" },
-  { key: "scroll_stop", label: "Scroll Stop" },
-  { key: "hook", label: "Hook" },
-  { key: "hold_rate", label: "Hold Rate" },
-  { key: "video_watched_p50", label: "50% View" },
-  { key: "frequency", label: "Frequency" },
-  { key: "impressions", label: "Impressions" },
-  { key: "reach", label: "Reach" },
-  { key: "cpl_ceiling", label: "CPL Max" },
-  { key: "cpl_actual", label: "CPL Real" },
-  { key: "lead_margin", label: "Margem" },
+  { key: "spend", label: defLabel("spend") },
+  { key: "cpr", label: defLabel("cpr") },
+  { key: "cpmql", label: defLabel("cpmql") },
+  { key: "cpc", label: defLabel("cpc") },
+  { key: "cpm", label: defLabel("cpm") },
+  { key: "ctr", label: defLabel("ctr") },
+  { key: "website_ctr", label: defLabel("website_ctr") },
+  { key: "connect_rate", label: defLabel("connect_rate") },
+  { key: "page_conv", label: defLabel("page_conv") },
+  { key: "scroll_stop", label: defLabel("scroll_stop") },
+  { key: "hook", label: defLabel("hook") },
+  { key: "hold_rate", label: defLabel("hold_rate") },
+  { key: "video_watched_p50", label: defLabel("video_watched_p50") },
+  { key: "frequency", label: defLabel("frequency") },
+  { key: "impressions", label: defLabel("impressions") },
+  { key: "reach", label: defLabel("reach") },
+  { key: "cpl_ceiling", label: defLabel("cpl_ceiling") },
+  { key: "cpl_actual", label: defLabel("cpl_actual") },
+  { key: "lead_margin", label: defLabel("lead_margin") },
 ];
 
 export interface ShareItem {

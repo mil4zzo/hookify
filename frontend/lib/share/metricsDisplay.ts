@@ -1,34 +1,17 @@
-import type { ShareItemMetrics, ShareMetricKey } from "./types";
+import { METRIC_DEFINITIONS } from "@/lib/metrics/definitions";
+import { SHARE_METRIC_KEYS, type ShareItemMetrics, type ShareMetricKey } from "./types";
 
 // Apresentação das métricas na página pública. Espelha o modal de detalhamento
 // (labels, seções, formatação e quais métricas têm média), mas sem nenhuma
 // dependência autenticada — a página roda anônima, sem settings/store.
 
-export const METRIC_LABELS: Record<ShareMetricKey, string> = {
-  cpmql: "CPMQL",
-  cpr: "CPR",
-  cpc: "CPC",
-  cpm: "CPM",
-  ctr: "CTR",
-  website_ctr: "Link CTR",
-  connect_rate: "Connect Rate",
-  page_conv: "Page Conv",
-  scroll_stop: "Scroll Stop",
-  hook: "Hook",
-  hold_rate: "Hold Rate",
-  video_watched_p50: "50% View",
-  spend: "Spend",
-  frequency: "Frequency",
-  impressions: "Impressions",
-  reach: "Reach",
-  results: "Resultados",
-  clicks: "Cliques",
-  mql_count: "MQLs",
-  cpl_ceiling: "CPL Max",
-  cpl_actual: "CPL Real",
-  leads_scored: "Leads com nota",
-  lead_margin: "Margem",
-};
+// Rótulos vêm das definições de métrica (uma fonte só para Manager, modal e link público);
+// `mql_count` não é métrica do registro, é a contagem que vira legenda de outro cartão.
+const SHARE_LABEL_EXCEPTIONS: Partial<Record<ShareMetricKey, string>> = { mql_count: "MQLs" };
+
+export const METRIC_LABELS = Object.fromEntries(
+  SHARE_METRIC_KEYS.map((key) => [key, SHARE_LABEL_EXCEPTIONS[key] ?? METRIC_DEFINITIONS[key as keyof typeof METRIC_DEFINITIONS].label]),
+) as Record<ShareMetricKey, string>;
 
 const CURRENCY_KEYS = new Set<ShareMetricKey>(["cpmql", "cpr", "cpc", "cpm", "spend", "cpl_ceiling", "cpl_actual"]);
 // Frações 0–1 no snapshot (mesma escala da linha do Manager) — exibir ×100.

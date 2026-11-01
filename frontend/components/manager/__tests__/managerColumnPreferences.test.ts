@@ -80,10 +80,10 @@ test("builds filterable columns preserving status, text columns and metric order
     { id: "status", label: "Status", isStatus: true },
     { id: "ad_name", label: "Anúncio", isText: true },
     { id: "campaign_name_filter", label: "Campanha", isText: true },
-    { id: "spend", label: "Spend", isPercentage: false },
-    { id: "results", label: "Results", isPercentage: false },
-    { id: "website_ctr", label: "Link CTR", isPercentage: true },
-    { id: "impressions", label: "Impressions", isPercentage: false },
+    { id: "spend", label: "Gasto", isPercentage: false },
+    { id: "results", label: "Resultados", isPercentage: false },
+    { id: "website_ctr", label: "CTR do link", isPercentage: true },
+    { id: "impressions", label: "Impressões", isPercentage: false },
   ]);
 });
 
@@ -98,7 +98,7 @@ test("created_date filters as date, not as text", () => {
   // Pack e Conta sao dimensoes de TEXTO; "Criado em" e dimensao de DATA — o FilterBar
   // escolhe o editor (calendario vs input livre) por essa flag.
   assert.deepEqual(filterableColumns, [
-    { id: "spend", label: "Spend", isPercentage: false },
+    { id: "spend", label: "Gasto", isPercentage: false },
     { id: "pack", label: "Pack", isText: true },
     { id: "created_date", label: "Criado em", isDate: true },
   ]);

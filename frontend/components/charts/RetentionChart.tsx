@@ -10,6 +10,7 @@ import { GridRows, GridColumns } from "@visx/grid";
 import { LinearGradient } from "@visx/gradient";
 import { ParentSize } from "@visx/responsive";
 import { localPoint } from "@visx/event";
+import { METRIC_DEFINITIONS } from "@/lib/metrics/definitions";
 import { ChartTooltip } from "@/components/common/ChartTooltip";
 import { Annotation, Connector, CircleSubject } from "@visx/annotation";
 
@@ -258,7 +259,7 @@ function RetentionChartInner({ videoPlayCurve, averagesHook, averagesScrollStop,
                     const lineHeight = 4;
 
                     // Calcular dimensões do label
-                    const titleText = "Scroll Stop";
+                    const titleText = METRIC_DEFINITIONS.scroll_stop.label;
                     const valueText = `${data[1].y.toFixed(1)}%`;
                     const badgeText = delta ? delta.text : "";
                     const badgeWidth = badgeText ? badgeText.length * 5.5 + 10 : 0;
@@ -315,7 +316,7 @@ function RetentionChartInner({ videoPlayCurve, averagesHook, averagesScrollStop,
                     const lineHeight = 4;
 
                     // Calcular dimensões do label
-                    const titleText = "Hook";
+                    const titleText = METRIC_DEFINITIONS.hook.label;
                     const valueText = `${data[3].y.toFixed(1)}%`;
                     const badgeText = delta ? delta.text : "";
                     const badgeWidth = badgeText ? badgeText.length * 5.5 + 10 : 0;

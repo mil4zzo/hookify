@@ -25,8 +25,8 @@ import { formatCurrency, formatLocaleRatioPercent } from "@/lib/utils/currency";
 
 test("resolve aliases and preserve canonical labels", () => {
   assert.equal(resolveMetricKey("link_ctr"), "website_ctr");
-  assert.equal(getMetricDisplayLabel("link_ctr"), "Link CTR");
-  assert.equal(getMetricAverageTooltip("link_ctr"), "Link CTR medio");
+  assert.equal(getMetricDisplayLabel("link_ctr"), "CTR do link");
+  assert.equal(getMetricAverageTooltip("link_ctr"), "CTR do link medio");
 });
 
 test("exposes polarity, descriptions and context requirements from registry", () => {
@@ -39,9 +39,9 @@ test("exposes polarity, descriptions and context requirements from registry", ()
 
   const tooltip = getMetricTooltipContent("page_conv");
   assert.deepEqual(tooltip, {
-    title: "Page Conv",
+    title: "Conv. da página",
     description: "Mostra a eficiência da página em converter visitas em resultado.",
-    technicalDescription: "Results dividido por LPV.",
+    technicalDescription: "Resultados divididos por LPV.",
   });
 });
 
@@ -144,7 +144,7 @@ test("computes manager averages and short labels from the registry", () => {
   );
 
   assert.equal(getManagerMetricLabel("connect_rate"), "Connect");
-  assert.equal(getManagerMetricLabel("page_conv"), "Page");
+  assert.equal(getManagerMetricLabel("page_conv"), "Página");
   assert.equal(averages.sumImpressions, 1500);
   assert.equal(averages.sumResults, 6);
   assert.equal(averages.cpr, 25);
