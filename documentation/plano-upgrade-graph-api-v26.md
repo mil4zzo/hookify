@@ -25,7 +25,8 @@ chamadas que a gente acha que são v24.
 | 2.3 | `.env` da VPS: `FACEBOOK_AUTH_BASE_URL` / `FACEBOOK_TOKEN_URL` fixadas em v24 **removidas** pelo idealizador; entram no próximo deploy (comportamento idêntico até a virada) | ✅ 2026-11-01 |
 | 2.5 | Teste de ESCRITA real em v26 (`scripts/meta_write_smoke.py`, conta act_1088942488268239, tudo pausado e apagado no fim): duplicação (caminho cópia E plano B forçado), status, orçamento — **todos verdes** depois de 2 correções medidas: `media_sourcing_spec` (subcode 4931013) e melhorias Advantage+ explícitas na cópia (`video_filtering` nascia OPT_IN) | ✅ 2026-11-01 |
 | 2.6 | Migrations **182 e 183 aplicadas em produção** (2026-11-01); conferido: `bulk_ad_items` e 17 jobs legados fora, tabelas novas com RLS, anon sem leitura; `schema.sql`/`schema_map.md` regenerados | ✅ 2026-11-01 |
-| 3 | Troca "só o número" (seção 5, classe A) | ⏳ |
+| 2.7 | **Deploy em produção (commit a51120e, 2026-11-01)**, app ainda em v24 (duplicação em v26): backend+frontend saudáveis, 0 erros nos logs, `/campaign-launch` 401 / `/facebook/bulk-ads` 404, `.env` sem versão fixada. O deploy achou 2 buracos de build do trabalho de idiomas (lockfile incompatível com npm 10; `Dockerfile.frontend` sem `COPY messages/`) — corrigidos | ✅ 2026-11-01 |
+| 3 | Troca "só o número" (seção 5, classe A) — virada: `META_API_VERSION=v26.0` no `.env` da VPS + recriar o container do backend (rollback: apagar a linha) | ⏳ |
 | 4 | Itens com mudança de parâmetro/comportamento (classe B/C) | ⏳ |
 | 5 | Teste em conta real + virada da variável de ambiente em produção | ⏳ |
 
