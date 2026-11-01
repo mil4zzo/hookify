@@ -14,6 +14,13 @@ chamadas que a gente acha que são v24.
 
 ## Status
 
+> Abertos da revisão independente (não bloqueiam a virada; todos na duplicação): timeout numa
+> escrita `/copies` pode duplicar no retry (sem releitura); `contextual_multi_ads` não é mandado
+> explícito na cópia; conjunto com orçamento vitalício e agenda vencida; orçamento escolhido pelo
+> 1º conjunto da campanha, não pelos selecionados; `get_adsets_for_campaign` sem paginação (>50);
+> mídia de imagem presa em `uploading`; JWT do import do Drive pode vencer em ~1 h; `meta_job_client`
+> não lê os campos de erro novos da v26; scripts em `backend/scripts/` ainda com `?ids=`/imports removidos.
+
 | Etapa | O quê | Estado |
 |---|---|---|
 | 0 | Inventário do que o app usa (este documento, seções 2–3) | ✅ |
@@ -26,6 +33,7 @@ chamadas que a gente acha que são v24.
 | 2.5 | Teste de ESCRITA real em v26 (`scripts/meta_write_smoke.py`, conta act_1088942488268239, tudo pausado e apagado no fim): duplicação (caminho cópia E plano B forçado), status, orçamento — **todos verdes** depois de 2 correções medidas: `media_sourcing_spec` (subcode 4931013) e melhorias Advantage+ explícitas na cópia (`video_filtering` nascia OPT_IN) | ✅ 2026-11-01 |
 | 2.6 | Migrations **182 e 183 aplicadas em produção** (2026-11-01); conferido: `bulk_ad_items` e 17 jobs legados fora, tabelas novas com RLS, anon sem leitura; `schema.sql`/`schema_map.md` regenerados | ✅ 2026-11-01 |
 | 2.7 | **Deploy em produção (commit a51120e, 2026-11-01)**, app ainda em v24 (duplicação em v26): backend+frontend saudáveis, 0 erros nos logs, `/campaign-launch` 401 / `/facebook/bulk-ads` 404, `.env` sem versão fixada. O deploy achou 2 buracos de build do trabalho de idiomas (lockfile incompatível com npm 10; `Dockerfile.frontend` sem `COPY messages/`) — corrigidos | ✅ 2026-11-01 |
+| 2.8 | **Revisão independente** (agente sem as conclusões deste plano, 2026-11-01): nada de versão fixada fora da variável, nenhum campo/quebra de métrica removido em uso, nenhum `?ids=` restante em `app/`, posse e PAUSADO ok. Achados na **duplicação** (já em v26) corrigidos com teste sabotado: (a) plano B do conjunto ADICIONAVA `explore`, que a v26 removeu → agora retira; (b) rename do anúncio caía antes do checkpoint → retry copiava o anúncio de novo; (c) job que caía inteiro (token expirado) não tinha retry → agora retoma pending/running. Abertos (ver §1 e lista abaixo da tabela) | ✅ 2026-11-01 |
 | 3 | Troca "só o número" (seção 5, classe A) — virada: `META_API_VERSION=v26.0` no `.env` da VPS + recriar o container do backend (rollback: apagar a linha) | ⏳ |
 | 4 | Itens com mudança de parâmetro/comportamento (classe B/C) | ⏳ |
 | 5 | Teste em conta real + virada da variável de ambiente em produção | ⏳ |

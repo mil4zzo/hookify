@@ -60,7 +60,8 @@ _META_WRITE_DELAY_SECONDS = 0.05
 # Subcode de "Transparência dos anúncios" ausente no conjunto (ver memória
 # meta_adset_dsa_beneficiary_payor): marca a conta para a tela avisar antes.
 _COMPLIANCE_SUBCODE = "3858495"
-# /copies rejeita explore_home sem explore (meta_copies_stricter_than_create).
+# /copies rejeita explore_home sem explore (meta_copies_stricter_than_create); na v26
+# o "explore" não pode mais ser pedido, então o plano B cria o conjunto sem ele.
 _EXPLORE_SUBCODE = "2490392"
 
 
@@ -143,8 +144,9 @@ def update_item(sb, item_id: str, patch: Dict[str, Any]) -> None:
 
 
 def reset_failed_items(sb, job_id: str, item_ids: Optional[List[str]] = None) -> int:
-    """'Tentar novamente': itens com erro voltam a pending, MANTENDO os checkpoints."""
-    items = [i for i in fetch_items(sb, job_id) if i.get("status") == "error"]
+    """'Tentar novamente': tudo que não terminou volta a pending, MANTENDO os checkpoints.
+    Inclui pending/running: job que caiu inteiro (token expirado, erro fatal) os deixa assim."""
+    items = [i for i in fetch_items(sb, job_id) if i.get("status") != "success"]
     if item_ids is not None:
         wanted = set(item_ids)
         items = [i for i in items if str(i["id"]) in wanted]
@@ -355,6 +357,9 @@ class CampaignLaunchProcessor:
             if not entry.get("ad_id"):
                 entry["ad_id"], entry["ad_path"] = self._create_ad(item, entry["adset_id"], bundle, status)
                 update_item(self.sb, item_id, {"adsets": adsets})
+            if entry.get("ad_path") == "copy":
+                # Depois do checkpoint: renomear falhar não pode fazer o retry copiar o anúncio de novo.
+                self._call(self.api.update_ad, entry["ad_id"], {"name": ad_name})
 
         # 4. Ativação (campanha por último: nada veicula meio montado)
         if status == "ACTIVE":
@@ -423,8 +428,9 @@ class CampaignLaunchProcessor:
                 params[key] = src[key]
         targeting = dict(src.get("targeting") or {})
         ig = list(targeting.get("instagram_positions") or [])
-        if "explore_home" in ig and "explore" not in ig:
-            targeting["instagram_positions"] = ["explore"] + ig
+        if "explore" in ig:
+            # v26 removeu o Feed do Explorar: pedir "explore" explicitamente dá erro.
+            targeting["instagram_positions"] = [p for p in ig if p != "explore"]
         params["targeting"] = targeting
         if not is_meta_datetime_in_past(src.get("end_time")):
             for key in ("start_time", "end_time"):
@@ -462,7 +468,6 @@ class CampaignLaunchProcessor:
             ad_id = _copied_id(data, "copied_ad_id", "id")
             if not ad_id:
                 raise MetaAPIError(f"Cópia do anúncio sem id: {json.dumps(data)[:300]}", "ad_copy_missing_id")
-            self._call(self.api.update_ad, ad_id, {"name": ad_name})
             return ad_id, "copy"
         except MetaAPIError as exc:
             if exc.category in ("retryable", "auth") or str(exc.error_code) != "100":

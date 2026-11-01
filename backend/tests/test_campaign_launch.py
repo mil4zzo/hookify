@@ -281,6 +281,30 @@ class TestResume:
         assert api2.names().count("copy_ad") == 1
         assert store[item_id]["meta_campaign_id"] == "camp_1"
 
+    def test_rename_failure_after_ad_copy_never_copies_the_ad_twice(self, store):
+        """Teste sabotado: a cópia do anúncio passa e o rename cai (transitório)."""
+        item_id = _add_item(store, adset_count=1)
+        api = FakeAPI()
+        api.fail["update_ad"] = [meta_error(2, message="Service temporarily unavailable")]
+        _processor(api, _payload()).run()
+        assert store[item_id]["status"] == "error"
+        assert store[item_id]["adsets"][0]["ad_id"] == "ad_3"
+
+        store[item_id]["status"] = "pending"
+        api2 = FakeAPI()
+        _processor(api2, _payload()).run()
+        assert store[item_id]["status"] == "success"
+        assert "copy_ad" not in api2.names() and "create_ad" not in api2.names()
+        assert ("update_ad", "ad_3", {"name": "AD07"}) in api2.calls
+
+    def test_retry_after_failed_job_resumes_pending_and_running_items(self, store):
+        """Token expirado derruba o job com itens pending/running: o retry precisa pegá-los."""
+        _add_item(store, adset_count=1)
+        store["item-2"] = {**copy.deepcopy(store["item-1"]), "id": "item-2", "position": 2, "status": "running"}
+        store["item-3"] = {**copy.deepcopy(store["item-1"]), "id": "item-3", "position": 3, "status": "success"}
+        assert campaign_launch_service.reset_failed_items(None, "job") == 2
+        assert [store[i]["status"] for i in ("item-1", "item-2", "item-3")] == ["pending", "pending", "success"]
+
     def test_running_item_from_dead_worker_is_resumed(self, store):
         item_id = _add_item(store, adset_count=1)
         store[item_id].update({"status": "running", "meta_campaign_id": "camp_old"})
@@ -338,7 +362,8 @@ class TestFallbacks:
         _processor(api, _payload()).run()
         assert store[item_id]["status"] == "success"
         created = next(c for c in api.calls if c[0] == "create_adset")[2]
-        assert created["targeting"]["instagram_positions"][:1] == ["explore"]
+        # v26 removeu o Feed do Explorar: o plano B nunca pede "explore"
+        assert created["targeting"]["instagram_positions"] == ["explore_home", "stream"]
         assert all(c[0] != "update_adset" or c[1] != "src_1" for c in api.calls)
 
 

@@ -668,7 +668,7 @@ def retry_launch(job_id: str, request: RetryRequest, user: Dict[str, Any] = Depe
         raise HTTPException(status_code=409, detail={"error": "job_running", "message": "O lançamento ainda está em andamento."})
     reset = campaign_launch_service.reset_failed_items(get_supabase_service(), job_id, request.item_ids)
     if not reset:
-        raise _validation_error("Nenhum item com erro para tentar de novo.")
+        raise _validation_error("Nenhum item pendente para tentar de novo.")
     tracker.heartbeat(job_id, status=STATUS_PROCESSING, progress=0, message=f"Tentando de novo {reset} item(ns)...")
     payload = job.get("payload") or {}
     _start(user, job_id, str(payload.get("account_id") or ""), payload.get("connection_id"))

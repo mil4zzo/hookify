@@ -68,12 +68,15 @@ export function LaunchProgressView({
   const running = data.status === "processing"
   const failed = data.items.filter((i) => i.status === "error")
   const categories = new Set(failed.map((i) => i.error_category))
-  const canRetry = !running && failed.some((i) => i.error_category !== "template_replaceable")
+  // Job que caiu inteiro (token expirado, erro fatal) deixa itens sem terminar: também voltam no retry.
+  const unfinished = data.status === "failed" ? data.items.filter((i) => i.status !== "success" && i.status !== "error") : []
+  const retryIds = [...failed.filter((i) => i.error_category !== "template_replaceable"), ...unfinished].map((i) => i.id)
+  const canRetry = !running && retryIds.length > 0
 
   const retry = async () => {
     setRetrying(true)
     try {
-      await api.campaignLaunch.retry(jobId, failed.filter((i) => i.error_category !== "template_replaceable").map((i) => i.id))
+      await api.campaignLaunch.retry(jobId, retryIds)
       await queryClient.invalidateQueries({ queryKey: ["campaign-launch", "progress", jobId] })
     } catch {
       toast.error("Não foi possível tentar de novo.")
