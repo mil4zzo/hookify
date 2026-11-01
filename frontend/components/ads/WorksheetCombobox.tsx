@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { usePopoverWheelScroll } from "@/lib/hooks/usePopoverWheelScroll";
@@ -24,7 +25,9 @@ interface WorksheetComboboxProps {
   active?: boolean;
 }
 
-export function WorksheetCombobox({ spreadsheetId, value, onValueChange, placeholder = "Selecione uma aba...", className, disabled = false, connectionId, active = true }: WorksheetComboboxProps) {
+export function WorksheetCombobox({ spreadsheetId, value, onValueChange, placeholder: placeholderProp, className, disabled = false, connectionId, active = true }: WorksheetComboboxProps) {
+  const t = useTranslations("ads.worksheetCombobox");
+  const placeholder = placeholderProp ?? t("placeholder");
   const [open, setOpen] = useState(false);
   // Roda do mouse dentro de dialogo: ver o hook.
   const listRef = useRef<HTMLDivElement>(null);
@@ -108,7 +111,7 @@ export function WorksheetCombobox({ spreadsheetId, value, onValueChange, placeho
         <div className="flex flex-col">
           <div className="border-b border-border p-2">
             <Input
-              placeholder="Buscar aba por nome..."
+              placeholder={t("searchPlaceholder")}
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="h-9"
@@ -134,15 +137,15 @@ export function WorksheetCombobox({ spreadsheetId, value, onValueChange, placeho
           <div ref={listWheelRef} className="max-h-[300px] overflow-y-auto">
             {queryError ? (
               <div className="py-6 px-4 text-center">
-                <p className="text-sm text-destructive mb-2">{(queryError as any)?.message || "Erro ao carregar abas. Tente novamente."}</p>
+                <p className="text-sm text-destructive mb-2">{(queryError as any)?.message || t("loadError")}</p>
               </div>
             ) : isLoading ? (
               <div className="flex items-center justify-center gap-2 py-6">
                 <IconLoader2 className="h-4 w-4 animate-spin" />
-                <span className="text-sm text-muted-foreground">Carregando abas...</span>
+                <span className="text-sm text-muted-foreground">{t("loading")}</span>
               </div>
             ) : !isLoading && filteredOptions.length === 0 ? (
-              <div className="py-6 text-center text-sm text-muted-foreground">{!spreadsheetId ? "Selecione uma planilha primeiro." : search ? "Nenhuma aba encontrada." : "Nenhuma aba disponível."}</div>
+              <div className="py-6 text-center text-sm text-muted-foreground">{!spreadsheetId ? t("pickSpreadsheet") : search ? t("notFound") : t("none")}</div>
             ) : (
               <div className="p-1">
                 {filteredOptions.map((option) => {

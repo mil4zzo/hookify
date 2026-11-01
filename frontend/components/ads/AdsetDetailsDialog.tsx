@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import { getAppLocale } from "@/lib/i18n/locale";
 import { StatePanel } from "@/components/common/States";
 import { useEffect, useMemo, useState } from "react";
@@ -24,6 +25,7 @@ interface AdsetDetailsDialogProps {
 }
 
 export function AdsetDetailsDialog({ adsetId, adsetName, dateStart, dateStop, actionType, packIds = [] }: AdsetDetailsDialogProps) {
+  const t = useTranslations("ads.adsetDetails");
   const formatCurrency = useFormatCurrency();
   const [isLoading, setIsLoading] = useState(false);
   const [details, setDetails] = useState<any | null>(null);
@@ -49,7 +51,7 @@ export function AdsetDetailsDialog({ adsetId, adsetName, dateStart, dateStop, ac
       })
       .catch((e) => {
         if (cancelled) return;
-        setError(e?.message || "Erro ao carregar detalhes do conjunto");
+        setError(e?.message || t("loadError"));
         setDetails(null);
         setChildren([]);
       })
@@ -61,13 +63,13 @@ export function AdsetDetailsDialog({ adsetId, adsetName, dateStart, dateStop, ac
     return () => {
       cancelled = true;
     };
-  }, [adsetId, dateStart, dateStop, packIds.join("|")]);
+  }, [adsetId, dateStart, dateStop, packIds.join("|"), t]);
 
   const headerTitle = useMemo(() => {
     const name = (adsetName || details?.adset_name || "").toString().trim();
     if (name) return name;
-    return `Conjunto ${adsetId}`;
-  }, [adsetId, adsetName, details?.adset_name]);
+    return t("fallbackTitle", { id: adsetId });
+  }, [adsetId, adsetName, details?.adset_name, t]);
 
   const summary = useMemo(() => {
     const spend = getMetricNumericValueOrNull(details || {}, "spend", { actionType }) ?? 0;
@@ -93,7 +95,7 @@ export function AdsetDetailsDialog({ adsetId, adsetName, dateStart, dateStop, ac
       {error ? <div className="text-sm text-destructive">{error}</div> : null}
 
       {isLoading ? (
-        <div className="text-sm text-muted-foreground">Carregando...</div>
+        <div className="text-sm text-muted-foreground">{t("loading")}</div>
       ) : (
         <>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
@@ -102,11 +104,11 @@ export function AdsetDetailsDialog({ adsetId, adsetName, dateStart, dateStop, ac
               <div className="text-sm font-medium">{formatMetricValue("spend", summary.spend, { currencyFormatter: formatCurrency })}</div>
             </div>
             <div className="rounded-md border border-border p-3">
-              <div className="text-xs text-muted-foreground">Impressões</div>
+              <div className="text-xs text-muted-foreground">{t("impressions")}</div>
               <div className="text-sm font-medium">{summary.impressions.toLocaleString(getAppLocale())}</div>
             </div>
             <div className="rounded-md border border-border p-3">
-              <div className="text-xs text-muted-foreground">Cliques</div>
+              <div className="text-xs text-muted-foreground">{t("clicks")}</div>
               <div className="text-sm font-medium">{summary.clicks.toLocaleString(getAppLocale())}</div>
             </div>
             <div className="rounded-md border border-border p-3">
@@ -116,12 +118,12 @@ export function AdsetDetailsDialog({ adsetId, adsetName, dateStart, dateStop, ac
           </div>
 
           <div className="rounded-md border border-border overflow-hidden">
-            <div className="px-4 py-3 border-b border-border text-sm font-medium">Anúncios no conjunto</div>
+            <div className="px-4 py-3 border-b border-border text-sm font-medium">{t("adsInAdset")}</div>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead className="text-xs text-muted-foreground">
                   <tr>
-                    <th className="text-left px-4 py-2">Anúncio</th>
+                    <th className="text-left px-4 py-2">{t("ad")}</th>
                     <th className="text-right px-4 py-2">Spend</th>
                     <th className="text-right px-4 py-2">Impr.</th>
                     <th className="text-right px-4 py-2">CTR</th>
@@ -131,7 +133,7 @@ export function AdsetDetailsDialog({ adsetId, adsetName, dateStart, dateStop, ac
                   {children.length === 0 ? (
                     <tr>
                       <td colSpan={4}>
-                        <StatePanel kind="empty" layout="inline" message="Nenhum anúncio encontrado para este conjunto." />
+                        <StatePanel kind="empty" layout="inline" message={t("empty")} />
                       </td>
                     </tr>
                   ) : (

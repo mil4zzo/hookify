@@ -10,6 +10,7 @@ import {
   buildSheetsToastContent,
   SHEETS_TOAST_TOTAL_STEPS,
 } from "@/lib/utils/toast";
+import { translate } from "@/lib/i18n/translate";
 import { GoogleSheetsIcon } from "@/components/icons/GoogleSheetsIcon";
 import { logger } from "@/lib/utils/logger";
 import { pollSheetsSyncJob } from "@/lib/utils/pollSheetsSyncJob";
@@ -78,7 +79,7 @@ export function useGoogleReconnectHandler() {
 
         if (!pausedJob.integrationId) {
           logger.error(`[useGoogleReconnectHandler] Job pausado sem integrationId: ${pausedJob.packId}`);
-          finishProgressToast(newToastId, false, "Erro: integração não encontrada");
+          finishProgressToast(newToastId, false, translate("ads.googleReconnect.integrationNotFound"));
           clearJob(pausedJob.packId);
           continue;
         }
@@ -88,7 +89,7 @@ export function useGoogleReconnectHandler() {
 
         if (!syncResponse.job_id) {
           logger.error(`[useGoogleReconnectHandler] Falha ao criar novo job para pack ${pausedJob.packId}`);
-          finishProgressToast(newToastId, false, "Erro ao retomar sincronização");
+          finishProgressToast(newToastId, false, translate("ads.googleReconnect.resumeError"));
           clearJob(pausedJob.packId);
           continue;
         }
@@ -121,7 +122,7 @@ export function useGoogleReconnectHandler() {
         });
       } catch (error) {
         logger.error(`[useGoogleReconnectHandler] Erro ao retomar sync do pack ${pausedJob.packId}:`, error);
-        finishProgressToast(activeToastId, false, "Erro ao retomar sincronização");
+        finishProgressToast(activeToastId, false, translate("ads.googleReconnect.resumeError"));
         clearJob(pausedJob.packId);
       }
     }

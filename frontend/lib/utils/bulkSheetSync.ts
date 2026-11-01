@@ -10,6 +10,7 @@
  *   - falhou: erro (coluna sumiu, token do Google expirado...).
  */
 import type { BulkSheetSyncResult } from "@/lib/api/schemas";
+import { translate } from "@/lib/i18n/translate";
 
 export interface BulkSheetSyncSummary {
   updated: string[];
@@ -21,20 +22,18 @@ export interface BulkSheetSyncSummary {
   headline: string;
 }
 
-const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
-
 export function summarizeBulkSheetSync(
   results: ReadonlyArray<BulkSheetSyncResult>,
   packNames: Readonly<Record<string, string>>,
 ): BulkSheetSyncSummary {
-  const nameOf = (r: BulkSheetSyncResult) => (r.pack_id && packNames[r.pack_id]) || "Pack";
+  const nameOf = (r: BulkSheetSyncResult) => (r.pack_id && packNames[r.pack_id]) || translate("ads.bulkSheetSync.packFallback");
   const updated: string[] = [];
   const noMatch: string[] = [];
   const failed: Array<{ name: string; error: string }> = [];
   const packIdsWithChanges: string[] = [];
   for (const r of results) {
     if (r.status === "failed") {
-      failed.push({ name: nameOf(r), error: r.error || "Erro ao sincronizar a planilha." });
+      failed.push({ name: nameOf(r), error: r.error || translate("ads.bulkSheetSync.syncError") });
       continue;
     }
     if ((r.rows_updated ?? 0) > 0 || r.sync_outcome === "success") {
@@ -44,14 +43,14 @@ export function summarizeBulkSheetSync(
       noMatch.push(nameOf(r));
     }
   }
-  const parts = [plural(updated.length, "pack atualizado", "packs atualizados")];
-  if (noMatch.length) parts.push(`${noMatch.length} sem linhas correspondentes`);
-  if (failed.length) parts.push(plural(failed.length, "falhou", "falharam"));
+  const parts = [translate("ads.bulkSheetSync.packsUpdated", { count: updated.length })];
+  if (noMatch.length) parts.push(translate("ads.bulkSheetSync.noMatchCount", { count: noMatch.length }));
+  if (failed.length) parts.push(translate("ads.bulkSheetSync.failedCount", { count: failed.length }));
   return { updated, noMatch, failed, packIdsWithChanges, headline: parts.join(" · ") };
 }
 
 /** Lista curta de nomes para um aviso ("A, B e mais 3"). */
 export function listNames(names: ReadonlyArray<string>, max = 3): string {
   if (names.length <= max) return names.join(", ");
-  return `${names.slice(0, max).join(", ")} e mais ${names.length - max}`;
+  return translate("ads.bulkSheetSync.andMore", { names: names.slice(0, max).join(", "), rest: names.length - max });
 }

@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import { getAppLocale } from "@/lib/i18n/locale";
 import { EMPTY_RULE_TREE, type RuleTree } from "@/lib/rules/types";
 
@@ -79,6 +80,7 @@ interface AdDetailsDialogProps {
 }
 
 export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, actionType, packIds = [], availableConversionTypes = [], initialTab = "video", averages }: AdDetailsDialogProps) {
+  const t = useTranslations("ads.details");
   const [activeTab, setActiveTab] = useState<"variations" | "video" | "copy" | "history" | "survey">(initialTab);
   // 140: colunas vinculadas da planilha dos packs selecionados (registro publicado pela
   // página). Com alguma, a aba "Pesquisa" existe.
@@ -330,16 +332,7 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
     return `${sign}${(diff * 100).toFixed(1)}%`;
   }
 
-  function MetricSection({ title, children, contentBeforeChildren, headerAction, disabled }: { title: string; children: React.ReactNode; contentBeforeChildren?: React.ReactNode; headerAction?: React.ReactNode; disabled?: boolean }) {
-    const sectionIconMap = {
-      Retenção: IconBrandParsinta,
-      Funil: IconChartFunnel,
-      Resultados: IconCurrencyDollar,
-      Visibilidade: IconWorld,
-    } as const;
-
-    const SectionIcon = sectionIconMap[title as keyof typeof sectionIconMap];
-
+  function MetricSection({ title, icon: SectionIcon, children, contentBeforeChildren, headerAction, disabled }: { title: string; icon?: React.ComponentType<{ className?: string }>; children: React.ReactNode; contentBeforeChildren?: React.ReactNode; headerAction?: React.ReactNode; disabled?: boolean }) {
     return (
       <div className="space-y-2">
         <div className="flex items-center justify-between gap-3 text-sm font-semibold text-muted-foreground">
@@ -590,7 +583,7 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
   const cpmqlValue =
     resolvedMqlMetrics.cpmql != null && resolvedMqlMetrics.cpmql > 0 ? resolvedMqlMetrics.cpmql : null;
   const mqlCountSubtitle =
-    resolvedMqlMetrics.mqlCount != null ? `${resolvedMqlMetrics.mqlCount} MQLs` : "sem critério de MQL";
+    resolvedMqlMetrics.mqlCount != null ? t("mqlCount", { count: resolvedMqlMetrics.mqlCount }) : t("noMqlCriterion");
   const resolvedSeries = groupByAdName ? ((resolvedDetailModel?.series as any) ?? null) : series;
   const resolvedSpend = groupByAdName ? Number((resolvedDetailModel?.source?.spend ?? ad?.spend) || 0) : _spend;
   const resolvedClicks = groupByAdName ? Number((resolvedDetailModel?.source?.clicks ?? ad?.clicks) || 0) : _clicks;
@@ -690,7 +683,7 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
     setTranscriptionPending(true);
     transcribeAdMutation(adName, {
       onError: () => {
-        finishProgressToast(toastId, false, "Falha ao iniciar transcrição");
+        finishProgressToast(toastId, false, t("transcribeStartFailed"));
         setTranscriptionPending(false);
       },
     });
@@ -699,17 +692,17 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
   useEffect(() => {
     if (!transcriptionPending || !transcriptionToastId.current) return;
     if (transcriptionData?.status === "completed") {
-      finishProgressToast(transcriptionToastId.current, true, "Transcrição concluída", {
+      finishProgressToast(transcriptionToastId.current, true, t("transcribeDone"), {
         context: "transcription",
         packName: adName,
         durationSeconds: 5,
       });
       setTranscriptionPending(false);
     } else if (transcriptionData?.status === "failed") {
-      finishProgressToast(transcriptionToastId.current, false, "Transcrição falhou");
+      finishProgressToast(transcriptionToastId.current, false, t("transcribeFailed"));
       setTranscriptionPending(false);
     }
-  }, [transcriptionData, transcriptionPending, adName]);
+  }, [transcriptionData, transcriptionPending, adName, t]);
 
   const statusDotClass = groupByAdName ? (activeVariations > 0 ? "bg-success" : "bg-border") : isAdActive ? "bg-success" : "bg-border";
   const detailsTabContentGapClassName = "gap-4 md:gap-8";
@@ -736,32 +729,32 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
             {groupByAdName ? (
               <div className="flex items-center gap-1.5">
                 <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${statusDotClass}`} aria-hidden />
-                <span>{`Status: ${activeVariations} / ${totalVariations} ativos`}</span>
+                <span>{t("statusGrouped", { active: activeVariations, total: totalVariations })}</span>
               </div>
             ) : (
               <>
                 <div>{`Ad ID: ${adId || "—"}`}</div>
                 <div className="flex items-center gap-1.5">
                   <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${statusDotClass}`} aria-hidden />
-                  <span>{`Status: ${adStatus}`}</span>
+                  <span>{t("status", { status: adStatus })}</span>
                 </div>
               </>
             )}
           </div>
           <div className="mt-1 flex flex-wrap items-center gap-1">
-            <span className="text-xs px-2 py-0.5 rounded-sm bg-surface-2 text-muted-foreground">{groupByAdName ? "Agrupado" : "Individual"}</span>
+            <span className="text-xs px-2 py-0.5 rounded-sm bg-surface-2 text-muted-foreground">{groupByAdName ? t("grouped") : t("individual")}</span>
             <ProvenanceBadge names={packNames} noun="Pack" pluralNoun="Packs" />
-            <ProvenanceBadge names={accountNames} noun="Conta" pluralNoun="Ad Accounts" />
+            <ProvenanceBadge names={accountNames} noun={t("accountNoun")} pluralNoun="Ad Accounts" />
           </div>
         </div>
         {canUseAsTemplate && (
           <Button asChild variant="outline" className="shrink-0">
             <Link href={`/upload?ad=${encodeURIComponent(adId)}`}>
-              <IconRocket className="h-4 w-4" /> Usar como modelo
+              <IconRocket className="h-4 w-4" /> {t("useAsTemplate")}
             </Link>
           </Button>
         )}
-        <DateRangeFilter label="Período do histórico" value={historyDateRange} onChange={setHistoryDateRange} className="w-auto shrink-0" showLabel={false} requireConfirmation={true} usePackDates={usePackDates} onUsePackDatesChange={setUsePackDates} showPackDatesSwitch={true} packDatesRange={{ start: dateStart, end: dateStop }} />
+        <DateRangeFilter label={t("historyPeriod")} value={historyDateRange} onChange={setHistoryDateRange} className="w-auto shrink-0" showLabel={false} requireConfirmation={true} usePackDates={usePackDates} onUsePackDatesChange={setUsePackDates} showPackDatesSwitch={true} packDatesRange={{ start: dateStart, end: dateStop }} />
       </div>
 
       {/* Tabs */}
@@ -770,19 +763,19 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
         onValueChange={(value) => setActiveTab(value as typeof activeTab)}
         variant="with-controls"
         tabs={[
-          { value: "video", label: "Geral" },
+          { value: "video", label: t("tabGeneral") },
           { value: "copy", label: "Copy" },
-          { value: "history", label: "Histórico" },
-          ...(groupByAdName ? [{ value: "variations", label: "Variações" }] : []),
+          { value: "history", label: t("tabHistory") },
+          ...(groupByAdName ? [{ value: "variations", label: t("tabVariations") }] : []),
           // 140: só quando algum pack selecionado tem coluna vinculada
-          ...(surveyMappings.length > 0 ? [{ value: "survey", label: "Pesquisa" }] : []),
+          ...(surveyMappings.length > 0 ? [{ value: "survey", label: t("tabSurvey") }] : []),
         ]}
         controls={
           allConversionTypes.length > 0 ? (
             <div className="flex items-center gap-2 min-w-0">
-              <div className="text-sm font-semibold text-muted-foreground whitespace-nowrap">Evento de conversão</div>
+              <div className="text-sm font-semibold text-muted-foreground whitespace-nowrap">{t("conversionEvent")}</div>
               <div className="w-full max-w-xs min-w-[220px]">
-                <ActionTypeFilter label="" value={localActionType} onChange={setLocalActionType} options={allConversionTypes} placeholder="Evento de Conversão" />
+                <ActionTypeFilter label="" value={localActionType} onChange={setLocalActionType} options={allConversionTypes} placeholder={t("conversionEventPlaceholder")} />
               </div>
             </div>
           ) : null
@@ -801,7 +794,7 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
               mappings={surveyMappings}
               spend={surveySpend}
               isLoading={isDateRangeOverridden && loadingOverridden}
-              subjectLabel={groupByAdName ? "este criativo" : "este anúncio"}
+              subjectLabel={groupByAdName ? t("thisCreative") : t("thisAd")}
             />
           </TabbedContentItem>
         )}
@@ -811,7 +804,7 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
           {isCreativeLoading ? (
             <VideoTabSkeleton />
           ) : !isImageAd && (!resolvedVideoId || !resolvedActorId) && !resolvedIgMediaId ? (
-            <StatePanel kind="empty" message="Mídia não disponível para este anúncio." fill />
+            <StatePanel kind="empty" message={t("noMedia")} fill />
           ) : (
             <div className={`flex-1 flex flex-col md:flex-row min-h-0 ${detailsTabContentGapClassName}`}>
               {/* Player de vídeo ou imagem (compartilhado — nunca desmonta ao trocar entre Geral e Copy) */}
@@ -822,14 +815,14 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
                   ) : resolvedCreativeImageUrl ? (
                     <img src={resolvedCreativeImageUrl} alt={adName} className="w-full h-full object-contain rounded-lg" />
                   ) : (
-                    <StatePanel kind="empty" message="Imagem não disponível." fill />
+                    <StatePanel kind="empty" message={t("noImage")} fill />
                   )
                 ) : (
                   <>
                     {resolvedLoadingVideo && <RetentionVideoPlayerSkeleton />}
-                    {resolvedVideoError && <StatePanel kind="error" message="Falha ao carregar o vídeo. Tente novamente mais tarde." fill />}
+                    {resolvedVideoError && <StatePanel kind="error" message={t("videoError")} fill />}
                     {!resolvedLoadingVideo && !resolvedVideoError && resolvedVideoSourceUrl && <RetentionVideoPlayer src={resolvedVideoSourceUrl} autoplay={shouldAutoplay} initialTime={initialVideoTime} onTimeSet={() => setInitialVideoTime(null)} retentionCurve={resolvedRetentionSeries} showRetentionLoadingOverlay={isRetentionLoadingForResolvedVideo} />}
-                    {!resolvedLoadingVideo && !resolvedVideoError && !resolvedVideoSourceUrl && <StatePanel kind="empty" message="URL do vídeo não disponível." fill />}
+                    {!resolvedLoadingVideo && !resolvedVideoError && !resolvedVideoSourceUrl && <StatePanel kind="empty" message={t("noVideoUrl")} fill />}
                   </>
                 )}
               </div>
@@ -838,7 +831,7 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
               {activeTab === "video" && (
                 <div className={`flex-1 overflow-y-auto min-h-0 flex flex-col gap-4 justify-between transition-opacity duration-200 ${loadingOverridden ? "opacity-50 pointer-events-none" : ""}`}>
                   {/* Resultados */}
-                  <MetricSection title="Resultados">
+                  <MetricSection title={t("sectionResults")} icon={IconCurrencyDollar}>
                     <VideoMetricCell label={getMetricLabel("cpmql")} value={cpmqlValue != null ? formatCurrency(cpmqlValue) : "—"} deltaDisplay={getDeltaDisplay({ valueRaw: cpmqlValue, avgRaw: averages?.cpmql ?? null })} subtitle={mqlCountSubtitle} subtitleInLabelRow averageDisplay={averages?.cpmql != null ? formatCurrency(averages.cpmql) : undefined} averageTooltip={getMetricAverageTooltip("cpmql")} series={resolvedSeries?.cpmql} inverse formatFn={(n: number) => formatCurrency(n)} valueRaw={cpmqlValue} avgRaw={averages?.cpmql ?? null} better={getMetricBetterDirection("cpmql")} packAverage={averages?.cpmql ?? null} />
                     <VideoMetricCell label={getMetricLabel("cpr")} value={resolvedHasCpr ? formatCurrency(resolvedCpr) : "—"} deltaDisplay={getDeltaDisplay({ valueRaw: resolvedHasCpr ? resolvedCpr : null, avgRaw: averages?.cpr ?? null })} subtitle={`${resolvedResultsForActionType} results`} subtitleInLabelRow averageDisplay={averages?.cpr != null ? formatCurrency(averages.cpr) : undefined} averageTooltip={getMetricAverageTooltip("cpr")} series={resolvedSeries?.cpr} inverse formatFn={(n: number) => formatCurrency(n)} valueRaw={resolvedHasCpr ? resolvedCpr : null} avgRaw={averages?.cpr ?? null} better={getMetricBetterDirection("cpr")} packAverage={averages?.cpr ?? null} />
                     <VideoMetricCell label={getMetricLabel("cpc")} value={resolvedHasCpc ? formatCurrency(resolvedCpc) : "—"} deltaDisplay={getDeltaDisplay({ valueRaw: resolvedHasCpc ? resolvedCpc : null, avgRaw: averages?.cpc ?? null })} subtitle={`${resolvedClicks.toLocaleString(getAppLocale())} clicks`} subtitleInLabelRow averageDisplay={averages?.cpc != null ? formatCurrency(averages.cpc) : undefined} averageTooltip={getMetricAverageTooltip("cpc")} series={resolvedSeries?.cpc} inverse formatFn={(n: number) => formatCurrency(n)} valueRaw={resolvedHasCpc ? resolvedCpc : null} avgRaw={averages?.cpc ?? null} better={getMetricBetterDirection("cpc")} packAverage={averages?.cpc ?? null} />
@@ -851,7 +844,7 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
                   )}
 
                   {/* Funil */}
-                  <MetricSection title="Funil">
+                  <MetricSection title={t("sectionFunnel")} icon={IconChartFunnel}>
                     <VideoMetricCell label={getMetricLabel("ctr")} value={formatPct(resolvedCtrValue * 100)} deltaDisplay={getDeltaDisplay({ valueRaw: resolvedCtrValue, avgRaw: averages?.ctr ?? null })} averageDisplay={averages?.ctr != null ? formatPct(averages.ctr * 100) : undefined} averageTooltip={getMetricAverageTooltip("ctr")} series={resolvedSeries?.ctr} formatFn={(n: number) => formatPct(n * 100)} valueRaw={resolvedCtrValue} avgRaw={averages?.ctr ?? null} better={getMetricBetterDirection("ctr")} packAverage={averages?.ctr ?? null} />
                     <VideoMetricCell label={getMetricLabel("website_ctr")} value={formatPct(Number(resolvedWebsiteCtr * 100))} deltaDisplay={getDeltaDisplay({ valueRaw: resolvedWebsiteCtr, avgRaw: averages?.website_ctr ?? null })} averageDisplay={averages?.website_ctr != null ? formatPct(averages.website_ctr * 100) : undefined} averageTooltip={getMetricAverageTooltip("website_ctr")} series={resolvedSeries?.website_ctr} formatFn={(n: number) => formatPct(n * 100)} valueRaw={resolvedWebsiteCtr} avgRaw={averages?.website_ctr ?? null} better={getMetricBetterDirection("website_ctr")} packAverage={averages?.website_ctr ?? null} />
                     <VideoMetricCell label={getMetricLabel("connect_rate")} value={formatPct(resolvedConnectRate * 100)} deltaDisplay={getDeltaDisplay({ valueRaw: resolvedConnectRate, avgRaw: averages?.connect_rate ?? null })} averageDisplay={averages?.connect_rate != null ? formatPct(averages.connect_rate * 100) : undefined} averageTooltip={getMetricAverageTooltip("connect_rate")} series={resolvedSeries?.connect_rate} formatFn={(n: number) => formatPct(n * 100)} valueRaw={resolvedConnectRate} avgRaw={averages?.connect_rate ?? null} better={getMetricBetterDirection("connect_rate")} packAverage={averages?.connect_rate ?? null} />
@@ -860,29 +853,30 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
 
                   {/* Retenção */}
                   <MetricSection
-                    title="Retenção"
+                    title={t("sectionRetention")}
+                    icon={IconBrandParsinta}
                     disabled={isImageAd}
                     headerAction={isImageAd ? undefined : (
                       <TooltipProvider>
-                        <div className="flex rounded-lg border border-border bg-background" role="group" aria-label="Modo de visualização da retenção">
+                        <div className="flex rounded-lg border border-border bg-background" role="group" aria-label={t("retentionViewMode")}>
                           <Tooltip>
                             <TooltipTrigger asChild>
-                              <Button variant={retentionViewMode === "chart" ? "secondary" : "ghost"} size="sm" onClick={() => setRetentionViewMode("chart")} className="h-8 px-2.5 rounded-md" aria-label="Visualização do gráfico de retenção" aria-pressed={retentionViewMode === "chart"}>
+                              <Button variant={retentionViewMode === "chart" ? "secondary" : "ghost"} size="sm" onClick={() => setRetentionViewMode("chart")} className="h-8 px-2.5 rounded-md" aria-label={t("chartViewAria")} aria-pressed={retentionViewMode === "chart"}>
                                 <IconChartAreaLine className="h-4 w-4" />
                               </Button>
                             </TooltipTrigger>
                             <TooltipContent>
-                              <p className="text-xs">Visualização do gráfico</p>
+                              <p className="text-xs">{t("chartView")}</p>
                             </TooltipContent>
                           </Tooltip>
                           <Tooltip>
                             <TooltipTrigger asChild>
-                              <Button variant={retentionViewMode === "metrics" ? "secondary" : "ghost"} size="sm" onClick={() => setRetentionViewMode("metrics")} className="h-8 px-2.5 rounded-md" aria-label="Visualização dos cards de retenção" aria-pressed={retentionViewMode === "metrics"}>
+                              <Button variant={retentionViewMode === "metrics" ? "secondary" : "ghost"} size="sm" onClick={() => setRetentionViewMode("metrics")} className="h-8 px-2.5 rounded-md" aria-label={t("cardsViewAria")} aria-pressed={retentionViewMode === "metrics"}>
                                 <IconLayoutGrid className="h-4 w-4" />
                               </Button>
                             </TooltipTrigger>
                             <TooltipContent>
-                              <p className="text-xs">Visualização dos cards</p>
+                              <p className="text-xs">{t("cardsView")}</p>
                             </TooltipContent>
                           </Tooltip>
                         </div>
@@ -908,7 +902,7 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
                   </MetricSection>
 
                   {/* Absolutas (sem sparklines) */}
-                  <MetricSection title="Visibilidade">
+                  <MetricSection title={t("sectionVisibility")} icon={IconWorld}>
                     <VideoMetricCell label={getMetricLabel("spend")} value={formatCurrency(resolvedSpend)} series={resolvedSeries?.spend} formatFn={(n: number) => formatCurrency(n)} colorMode="series" disableSeriesFallback />
                     <VideoMetricCell metricKey="frequency" label={getMetricLabel("frequency")} value={resolvedFrequency != null ? resolvedFrequency.toFixed(2) : "—"} />
                     <VideoMetricCell metricKey="impressions" label={getMetricLabel("impressions")} value={resolvedImpressions.toLocaleString(getAppLocale())} />
@@ -923,37 +917,37 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
                   <div className="flex items-center justify-between gap-3 text-sm font-semibold text-muted-foreground flex-shrink-0">
                     <div className="flex items-center gap-1.5">
                       <IconMicrophone className="h-4 w-4 flex-shrink-0" />
-                      <span>Transcrição</span>
+                      <span>{t("transcription")}</span>
                     </div>
                     <div className="flex items-center gap-2">
                       {transcriptionData?.timestamped_text && resolvedRetentionSeries.length > 0 && (
                         <TooltipProvider>
-                          <div className="flex rounded-lg border border-border bg-background" role="group" aria-label="Modo de visualização da transcrição">
+                          <div className="flex rounded-lg border border-border bg-background" role="group" aria-label={t("transcriptionViewMode")}>
                             <Tooltip>
                               <TooltipTrigger asChild>
-                                <Button variant={transcriptionViewMode === "plain" ? "secondary" : "ghost"} size="sm" onClick={() => setTranscriptionViewMode("plain")} className="h-8 px-2.5 rounded-md" aria-label="Texto simples" aria-pressed={transcriptionViewMode === "plain"}>
+                                <Button variant={transcriptionViewMode === "plain" ? "secondary" : "ghost"} size="sm" onClick={() => setTranscriptionViewMode("plain")} className="h-8 px-2.5 rounded-md" aria-label={t("plainText")} aria-pressed={transcriptionViewMode === "plain"}>
                                   <IconAlignLeft className="h-4 w-4" />
                                 </Button>
                               </TooltipTrigger>
                               <TooltipContent>
-                                <p className="text-xs">Texto simples</p>
+                                <p className="text-xs">{t("plainText")}</p>
                               </TooltipContent>
                             </Tooltip>
                             <Tooltip>
                               <TooltipTrigger asChild>
-                                <Button variant={transcriptionViewMode === "retention" ? "secondary" : "ghost"} size="sm" onClick={() => setTranscriptionViewMode("retention")} className="h-8 px-2.5 rounded-md" aria-label="Mapa de retenção" aria-pressed={transcriptionViewMode === "retention"}>
+                                <Button variant={transcriptionViewMode === "retention" ? "secondary" : "ghost"} size="sm" onClick={() => setTranscriptionViewMode("retention")} className="h-8 px-2.5 rounded-md" aria-label={t("retentionMap")} aria-pressed={transcriptionViewMode === "retention"}>
                                   <IconBrandParsinta className="h-4 w-4" />
                                 </Button>
                               </TooltipTrigger>
                               <TooltipContent>
-                                <p className="text-xs">Mapa de retenção</p>
+                                <p className="text-xs">{t("retentionMap")}</p>
                               </TooltipContent>
                             </Tooltip>
                           </div>
                         </TooltipProvider>
                       )}
                       {transcriptionData?.full_text && (
-                        <Button variant="ghost" size="sm" onClick={handleCopyTranscription} aria-label="Copiar transcrição" className={`px-2.5 rounded-md transition-colors duration-200 ${copiedTranscription ? "bg-success-10 hover:bg-success-20 text-success" : ""}`}>
+                        <Button variant="ghost" size="sm" onClick={handleCopyTranscription} aria-label={t("copyTranscription")} className={`px-2.5 rounded-md transition-colors duration-200 ${copiedTranscription ? "bg-success-10 hover:bg-success-20 text-success" : ""}`}>
                           {copiedTranscription ? <IconCheck className="h-4 w-4 text-success animate-in zoom-in-50 duration-150" /> : <IconCopy className="h-4 w-4" />}
                         </Button>
                       )}
@@ -974,16 +968,16 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
                       <Skeleton className="h-4 w-4/5" />
                     </div>
                   ) : isTranscribing || transcriptionPending || transcriptionData?.status === "processing" ? (
-                    <StatePanel kind="loading" icon={IconMicrophone} message="Transcrevendo..." fill />
+                    <StatePanel kind="loading" icon={IconMicrophone} message={t("transcribing")} fill />
                   ) : transcriptionError ? (
                     <StatePanel
                       kind="error"
                       icon={IconMicrophone}
-                      message="Erro ao carregar transcrição."
+                      message={t("transcriptionLoadError")}
                       fill
                       action={
                         <Button variant="outline" size="sm" disabled={isTranscribing || transcriptionPending} onClick={handleTranscribeAd}>
-                          Transcrever
+                          {t("transcribe")}
                         </Button>
                       }
                     />
@@ -991,11 +985,11 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
                     <StatePanel
                       kind="empty"
                       icon={IconMicrophone}
-                      message="Esse anúncio ainda não foi transcrito."
+                      message={t("notTranscribed")}
                       fill
                       action={
                         <Button variant="outline" size="sm" disabled={isTranscribing || transcriptionPending} onClick={handleTranscribeAd}>
-                          Transcrever
+                          {t("transcribe")}
                         </Button>
                       }
                     />
@@ -1003,11 +997,11 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
                     <StatePanel
                       kind="error"
                       icon={IconMicrophone}
-                      message="A transcrição falhou para este anúncio."
+                      message={t("transcriptionAdFailed")}
                       fill
                       action={
                         <Button variant="outline" size="sm" disabled={isTranscribing || transcriptionPending} onClick={handleTranscribeAd}>
-                          Tentar novamente
+                          {t("tryAgain")}
                         </Button>
                       }
                     />
@@ -1031,7 +1025,7 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
                               const mm = Math.floor(second / 60);
                               const ss = String(second % 60).padStart(2, "0");
                               return (
-                                <span key={i} style={{ color: retentionToColor(pct) }} title={`${mm}:${ss} — ${pct.toFixed(0)}% retenção`}>
+                                <span key={i} style={{ color: retentionToColor(pct) }} title={t("wordRetention", { time: `${mm}:${ss}`, pct: pct.toFixed(0) })}>
                                   {w.text}{" "}
                                 </span>
                               );
@@ -1081,7 +1075,7 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
                 </div>
               </div>
             ) : !historyData?.data || historyData.data.length === 0 ? (
-              <StatePanel kind="empty" message="Sem dados históricos disponíveis para o período selecionado." fill />
+              <StatePanel kind="empty" message={t("noHistory")} fill />
             ) : (
               <div className="flex-1 min-h-0">
                 <MetricHistoryChart data={historyData.data} dateStart={historyDateRange.start || dateStart || ""} dateStop={historyDateRange.end || dateStop || ""} actionType={localActionType} availableMetrics={AVAILABLE_METRICS} selectedMetrics={selectedMetrics} onMetricsChange={handleMetricsChange} layoutGapClassName={detailsTabContentGapClassName} />

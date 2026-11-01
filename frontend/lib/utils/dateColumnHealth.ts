@@ -1,4 +1,5 @@
 import type { DateColumnProbe } from "@/lib/api/schemas";
+import { translate } from "@/lib/i18n/translate";
 
 /**
  * Regras do farol da coluna de data. Separado do componente porque é a parte
@@ -42,13 +43,13 @@ export function buildVerdict(
 ): HealthVerdict {
   switch (probe.format_verdict) {
     case "empty":
-      return { tone: "error", headline: "Essa coluna está vazia" };
+      return { tone: "error", headline: translate("ads.dateHealth.empty") };
     case "unreadable":
-      return { tone: "error", headline: "Não consegui ler datas nessa coluna" };
+      return { tone: "error", headline: translate("ads.dateHealth.unreadable") };
     case "conflicting":
-      return { tone: "error", headline: "Essa coluna mistura dois formatos de data" };
+      return { tone: "error", headline: translate("ads.dateHealth.conflicting") };
     case "ambiguous":
-      return { tone: "warn", headline: "Escolha o formato: os dados não decidem sozinhos" };
+      return { tone: "warn", headline: translate("ads.dateHealth.ambiguous") };
     default:
       break;
   }
@@ -56,13 +57,13 @@ export function buildVerdict(
   // Discordância com o formato provado vem antes de tudo: é o único erro daqui
   // que corrompe em silêncio (dias 1–12 parseiam e vão para o dia errado).
   if (selectedFormat && selectedFormat !== probe.resolved_format) {
-    return { tone: "error", headline: "O formato escolhido não bate com os dados" };
+    return { tone: "error", headline: translate("ads.dateHealth.mismatch") };
   }
   if (probe.readable_cells < probe.non_empty_cells) {
-    return { tone: "warn", headline: "Algumas linhas têm data que não consigo ler" };
+    return { tone: "warn", headline: translate("ads.dateHealth.someUnreadable") };
   }
   if (overlap === 0) {
-    return { tone: "warn", headline: "A planilha não cobre o período do pack" };
+    return { tone: "warn", headline: translate("ads.dateHealth.noOverlap") };
   }
-  return { tone: "ok", headline: "Tudo certo" };
+  return { tone: "ok", headline: translate("ads.dateHealth.ok") };
 }

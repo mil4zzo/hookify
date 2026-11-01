@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import { Button } from "@/components/ui/button";
 import { IconRefresh, IconCheck, IconTrash, IconPlus, IconLoader2 } from "@tabler/icons-react";
 import { GoogleConnection } from "@/lib/api/schemas";
@@ -21,20 +22,21 @@ interface ConnectStepProps {
 }
 
 export function ConnectStep({ connections, selectedConnectionId, isLoadingConnections, isConnecting, isDeletingConnection, expiredConnections, testingConnections, onSelectConnection, onConnect, onRetest, onReconnect, onDelete, onNext }: ConnectStepProps) {
+  const t = useTranslations("ads.connectStep");
   return (
     <section className="space-y-4">
-      <h3 className="font-semibold text-lg flex items-center gap-2">Conectar conta Google</h3>
-      <p className="text-sm text-muted-foreground">Selecione ou crie uma conexão para conectar uma planilha do Google Sheets. Usamos apenas permissão de leitura para importar os valores.</p>
+      <h3 className="font-semibold text-lg flex items-center gap-2">{t("title")}</h3>
+      <p className="text-sm text-muted-foreground">{t("intro")}</p>
 
       {/* Lista de conexões existentes */}
       {isLoadingConnections ? (
         <div className="flex items-center justify-center gap-2 py-8">
           <IconLoader2 className="w-4 h-4 shrink-0 animate-spin text-muted-foreground" aria-hidden />
-          <span className="text-sm text-muted-foreground">Carregando conexões...</span>
+          <span className="text-sm text-muted-foreground">{t("loading")}</span>
         </div>
       ) : connections.length > 0 ? (
         <div className="space-y-2">
-          <label className="text-sm font-medium">Conexões existentes</label>
+          <label className="text-sm font-medium">{t("existing")}</label>
           <div className="space-y-2">
             {connections.map((conn) => {
               const isExpired = expiredConnections.has(conn.id);
@@ -46,7 +48,7 @@ export function ConnectStep({ connections, selectedConnectionId, isLoadingConnec
                 <div key={conn.id} className={`flex items-center justify-between p-3 border rounded-lg transition-colors ${isSelected && canSelect ? "border-primary bg-primary-10 cursor-pointer" : isExpired ? "border-destructive-50 bg-destructive-10 cursor-not-allowed" : canSelect ? "border-border bg-surface-2 hover:bg-accent cursor-pointer" : "border-border cursor-not-allowed opacity-50"}`} onClick={() => canSelect && onSelectConnection(conn.id)}>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
-                      <div className="font-medium text-sm truncate">{conn.google_email || conn.google_name || conn.google_user_id || "Conta Google"}</div>
+                      <div className="font-medium text-sm truncate">{conn.google_email || conn.google_name || conn.google_user_id || t("googleAccount")}</div>
                     </div>
                     {conn.google_name && conn.google_name !== conn.google_email && conn.google_email && <div className="text-xs text-muted-foreground truncate">{conn.google_name}</div>}
                     {!conn.google_email && !conn.google_name && conn.google_user_id && <div className="text-xs text-muted-foreground truncate">ID: {conn.google_user_id}</div>}
@@ -55,28 +57,28 @@ export function ConnectStep({ connections, selectedConnectionId, isLoadingConnec
                     {isTesting ? (
                       <Button type="button" variant="outline" size="sm" className="px-3 text-xs" disabled>
                         <IconLoader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
-                        Verificando...
+                        {t("verifying")}
                       </Button>
                     ) : isExpired ? (
                       <>
                         <Button type="button" variant="default" size="sm" className="text-xs" onClick={(e) => onReconnect(conn.id, e)} disabled={isConnecting || isDeletingConnection}>
-                          Reconectar
+                          {t("reconnect")}
                         </Button>
-                        <Button type="button" variant="ghost" size="sm" className="w-8 p-0 text-destructive hover:text-destructive hover:bg-destructive-10" onClick={(e) => onDelete(conn.id, e)} disabled={isDeletingConnection} title="Deletar conexão">
+                        <Button type="button" variant="ghost" size="sm" className="w-8 p-0 text-destructive hover:text-destructive hover:bg-destructive-10" onClick={(e) => onDelete(conn.id, e)} disabled={isDeletingConnection} title={t("deleteConnection")}>
                           <IconTrash className="w-4 h-4" />
                         </Button>
                       </>
                     ) : (
                       <>
-                        <Button type="button" variant="outline" size="sm" className="px-3 text-xs border-border" onClick={(e) => onRetest(conn.id, e)} disabled={isDeletingConnection} title="Verificar novamente">
+                        <Button type="button" variant="outline" size="sm" className="px-3 text-xs border-border" onClick={(e) => onRetest(conn.id, e)} disabled={isDeletingConnection} title={t("verifyAgain")}>
                           <div className="flex items-center gap-1.5">
                             <IconCheck className="w-3.5 h-3.5 text-success" />
-                            <span className="text-success font-medium">Conectada</span>
+                            <span className="text-success font-medium">{t("connected")}</span>
                             <span className="text-muted-foreground mx-1">|</span>
                             <IconRefresh className="w-3.5 h-3.5 text-muted-foreground" />
                           </div>
                         </Button>
-                        <Button type="button" variant="ghost" size="sm" className="w-8 p-0 text-destructive hover:text-destructive hover:bg-destructive-10" onClick={(e) => onDelete(conn.id, e)} disabled={isDeletingConnection} title="Deletar conexão">
+                        <Button type="button" variant="ghost" size="sm" className="w-8 p-0 text-destructive hover:text-destructive hover:bg-destructive-10" onClick={(e) => onDelete(conn.id, e)} disabled={isDeletingConnection} title={t("deleteConnection")}>
                           <IconTrash className="w-4 h-4" />
                         </Button>
                       </>
@@ -90,7 +92,7 @@ export function ConnectStep({ connections, selectedConnectionId, isLoadingConnec
           {selectedConnectionId && !expiredConnections.has(selectedConnectionId) && (
             <div className="pt-4">
               <Button type="button" variant="default" className="w-full" onClick={onNext}>
-                Avançar
+                {t("next")}
               </Button>
             </div>
           )}
@@ -100,7 +102,7 @@ export function ConnectStep({ connections, selectedConnectionId, isLoadingConnec
       {/* Botão para criar nova conexão */}
       <Button type="button" variant={connections.length === 0 ? "default" : "outline"} className="flex items-center gap-2 w-full" onClick={onConnect} disabled={isConnecting || isLoadingConnections}>
         <IconPlus className="w-5 h-5" />
-        {isConnecting ? "Conectando..." : "Criar nova conexão"}
+        {isConnecting ? t("connecting") : t("createNew")}
       </Button>
     </section>
   );

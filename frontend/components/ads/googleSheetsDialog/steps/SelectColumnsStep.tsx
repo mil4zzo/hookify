@@ -1,6 +1,8 @@
 "use client";
 
 import { useMemo } from "react";
+import { useTranslations } from "next-intl";
+import { translate } from "@/lib/i18n/translate";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Combobox } from "@/components/ui/combobox";
@@ -38,11 +40,7 @@ export interface ExtraColumnDraft {
 
 // Rótulos curtos: a coluna do seletor é estreita e truncava ("Leadscore (com corte…").
 // O que o tipo leadscore tem de diferente aparece logo abaixo, no campo do corte.
-const KIND_LABEL: Record<SheetColumnKind, string> = {
-  leadscore: "Leadscore",
-  number: "Número",
-  category: "Categoria",
-};
+const kindLabel = (kind: SheetColumnKind): string => translate("ads.selectColumns.kind", { kind });
 
 interface SelectColumnsStepProps {
   /** Colunas simples (fallback quando columnsWithIndices vazio) */
@@ -129,11 +127,12 @@ interface SamplePreviewTableProps {
 }
 
 function SamplePreviewTable({ duplicates, columnsWithIndices, sampleRows }: SamplePreviewTableProps) {
+  const t = useTranslations("ads.selectColumns");
   const indexToLabel = new Map(columnsWithIndices.map((c) => [c.index, c.label]));
   const duplicateColumns: { label: string; index: number }[] = [];
   for (const indices of Object.values(duplicates)) {
     for (const idx of indices) {
-      const label = indexToLabel.get(idx) ?? `${indexToColumnLetter(idx)} (índice ${idx})`;
+      const label = indexToLabel.get(idx) ?? t("unnamedColumn", { letter: indexToColumnLetter(idx), idx });
       duplicateColumns.push({ label, index: idx });
     }
   }
@@ -143,7 +142,7 @@ function SamplePreviewTable({ duplicates, columnsWithIndices, sampleRows }: Samp
   return (
     <div className="rounded-md border border-border bg-background overflow-hidden">
       <p className="text-xs font-medium px-3 py-2 text-muted-foreground border-b border-border">
-        Amostra das colunas duplicadas (até {maxPreviewRows} linhas) — use para identificar qual coluna escolher
+        {t("samplePreview", { max: maxPreviewRows })}
       </p>
       <div className="overflow-x-auto max-h-48 overflow-y-auto">
         <table className="w-full text-sm border-collapse">
@@ -187,18 +186,18 @@ export function describeSample(columnIndex: number | null, sampleRows: string[][
 
 /** Motivo de o vínculo não estar pronto para salvar (texto para o usuário), ou null. */
 export function extraColumnProblem(draft: ExtraColumnDraft, sampleRows: string[][], reservedIndices: Set<number>): string | null {
-  if (!draft.columnValue) return "Escolha a coluna da planilha.";
-  if (draft.columnIndex != null && reservedIndices.has(draft.columnIndex)) return "Esta é a coluna de anúncio ou de data; escolha outra.";
+  if (!draft.columnValue) return translate("ads.selectColumns.problemPickColumn");
+  if (draft.columnIndex != null && reservedIndices.has(draft.columnIndex)) return translate("ads.selectColumns.problemReserved");
   const sample = describeSample(draft.columnIndex, sampleRows);
-  if (sample?.suggested === "text") return `Esta coluna tem mais de ${CATEGORY_MAX_DISTINCT} respostas diferentes na amostra: é texto livre, que ainda não é suportado.`;
-  if (!draft.kind) return "Escolha o tipo da coluna.";
+  if (sample?.suggested === "text") return translate("ads.selectColumns.problemFreeText", { max: CATEGORY_MAX_DISTINCT });
+  if (!draft.kind) return translate("ads.selectColumns.problemPickKind");
   if ((draft.kind === "number" || draft.kind === "leadscore") && sample && sample.suggested === "category") {
-    return "A amostra tem valores que não são números; escolha Categoria ou troque a coluna.";
+    return translate("ads.selectColumns.problemNotNumbers");
   }
-  if (!draft.label.trim()) return "Dê um nome à coluna.";
+  if (!draft.label.trim()) return translate("ads.selectColumns.problemGiveName");
   if (draft.kind === "leadscore") {
     const n = Number(draft.mqlMin.trim());
-    if (!draft.mqlMin.trim() || !Number.isFinite(n) || n < 0) return "Informe o leadscore mínimo para MQL desta coluna.";
+    if (!draft.mqlMin.trim() || !Number.isFinite(n) || n < 0) return translate("ads.selectColumns.problemMqlRequired");
   }
   return null;
 }
@@ -222,27 +221,28 @@ function ExtraColumnRow({
   onChange: (next: ExtraColumnDraft) => void;
   onRemove: () => void;
 }) {
+  const t = useTranslations("ads.selectColumns");
   const locked = !!draft.serverId;
   const sample = useMemo(() => describeSample(draft.columnIndex, sampleRows), [draft.columnIndex, sampleRows]);
   const problem = extraColumnProblem(draft, sampleRows, reservedIndices);
 
   const hint = (() => {
     if (!draft.columnValue) return null;
-    if (!sample) return "Amostra vazia: o tipo será verificado na importação.";
+    if (!sample) return t("hintEmptySample");
     if (sample.suggested === "text") return null; // vira o problema, abaixo
-    if (sample.suggested === "number") return "Parece número na amostra.";
-    return `Parece categoria: ${sample.distinct} resposta(s) diferente(s) na amostra.`;
+    if (sample.suggested === "number") return t("hintNumber");
+    return t("hintCategory", { distinct: sample.distinct });
   })();
 
   return (
     <div className="rounded-md border border-border p-3 space-y-3">
       <div className="grid grid-cols-1 gap-3 md:grid-cols-12">
         <div className="space-y-1 md:col-span-5">
-          <label className="text-2xs font-medium uppercase tracking-wide text-muted-foreground">Coluna da planilha</label>
+          <label className="text-2xs font-medium uppercase tracking-wide text-muted-foreground">{t("sheetColumn")}</label>
           {locked ? (
             <div className="flex items-center gap-1.5 text-sm">
               <IconLock className="h-3.5 w-3.5 text-muted-foreground" />
-              <span className="truncate">{draft.columnValue || `coluna ${draft.columnIndex != null ? indexToColumnLetter(draft.columnIndex) : "?"}`}</span>
+              <span className="truncate">{draft.columnValue || t("columnFallback", { letter: draft.columnIndex != null ? indexToColumnLetter(draft.columnIndex) : "?" })}</span>
             </div>
           ) : (
             <Combobox
@@ -256,44 +256,44 @@ function ExtraColumnRow({
                 onChange({ ...draft, columnValue: value, columnIndex, kind, label });
               }}
               options={columnOptions}
-              placeholder="Selecione..."
-              searchPlaceholder="Buscar coluna..."
+              placeholder={t("select")}
+              searchPlaceholder={t("searchColumn")}
             />
           )}
         </div>
         <div className="space-y-1 md:col-span-3">
-          <label className="text-2xs font-medium uppercase tracking-wide text-muted-foreground">Tipo</label>
+          <label className="text-2xs font-medium uppercase tracking-wide text-muted-foreground">{t("type")}</label>
           {locked ? (
             <div className="flex items-center gap-1.5 text-sm">
               <IconLock className="h-3.5 w-3.5 text-muted-foreground" />
-              <span>{draft.kind ? KIND_LABEL[draft.kind] : "—"}</span>
+              <span>{draft.kind ? kindLabel(draft.kind) : "—"}</span>
             </div>
           ) : (
             <Select value={draft.kind || undefined} onValueChange={(val) => onChange({ ...draft, kind: val as SheetColumnKind })} disabled={disabled}>
               <SelectTrigger size="sm">
-                <SelectValue placeholder="Escolha..." />
+                <SelectValue placeholder={t("choose")} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="number">{KIND_LABEL.number}</SelectItem>
-                <SelectItem value="category">{KIND_LABEL.category}</SelectItem>
-                <SelectItem value="leadscore">{KIND_LABEL.leadscore}</SelectItem>
+                <SelectItem value="number">{kindLabel("number")}</SelectItem>
+                <SelectItem value="category">{kindLabel("category")}</SelectItem>
+                <SelectItem value="leadscore">{kindLabel("leadscore")}</SelectItem>
               </SelectContent>
             </Select>
           )}
         </div>
         <div className="space-y-1 md:col-span-3">
-          <label className="text-2xs font-medium uppercase tracking-wide text-muted-foreground">Nome no app</label>
-          <Input size="sm" value={draft.label} onChange={(e) => onChange({ ...draft, label: e.target.value })} placeholder="ex: Idade" maxLength={60} disabled={disabled} />
+          <label className="text-2xs font-medium uppercase tracking-wide text-muted-foreground">{t("nameInApp")}</label>
+          <Input size="sm" value={draft.label} onChange={(e) => onChange({ ...draft, label: e.target.value })} placeholder={t("labelPlaceholder")} maxLength={60} disabled={disabled} />
         </div>
         <div className="flex items-end justify-end md:col-span-1">
           <TooltipProvider>
             <Tooltip>
               <TooltipTrigger asChild>
-                <Button type="button" variant="ghost" size="sm" onClick={onRemove} disabled={disabled} aria-label="Remover coluna">
+                <Button type="button" variant="ghost" size="sm" onClick={onRemove} disabled={disabled} aria-label={t("removeColumn")}>
                   <IconX className="h-4 w-4" />
                 </Button>
               </TooltipTrigger>
-              <TooltipContent>{locked ? "Excluir vínculo (a coluna some do app; o dado já importado fica até o próximo sync)" : "Remover"}</TooltipContent>
+              <TooltipContent>{locked ? t("deleteLink") : t("remove")}</TooltipContent>
             </Tooltip>
           </TooltipProvider>
         </div>
@@ -301,8 +301,8 @@ function ExtraColumnRow({
       {draft.kind === "leadscore" && (
         <div className="grid grid-cols-1 gap-3 md:grid-cols-12">
           <div className="space-y-1 md:col-span-5">
-            <label className="text-2xs font-medium uppercase tracking-wide text-muted-foreground">Corte de MQL desta coluna</label>
-            <Input size="sm" type="number" min="0" step="0.1" value={draft.mqlMin} onChange={(e) => onChange({ ...draft, mqlMin: e.target.value })} placeholder="ex: 70" disabled={disabled} />
+            <label className="text-2xs font-medium uppercase tracking-wide text-muted-foreground">{t("rowMqlCutoff")}</label>
+            <Input size="sm" type="number" min="0" step="0.1" value={draft.mqlMin} onChange={(e) => onChange({ ...draft, mqlMin: e.target.value })} placeholder={t("rowMqlPlaceholder")} disabled={disabled} />
           </div>
         </div>
       )}
@@ -343,6 +343,7 @@ export function SelectColumnsStep({
   onMqlLeadscoreMinChange,
   onImport,
 }: SelectColumnsStepProps) {
+  const t = useTranslations("ads.selectColumns");
   const columnOptions = buildColumnOptions(columns, columnsWithIndices);
   const hasDuplicates = Object.keys(duplicates).length > 0;
   const busy = isSaving || isImporting;
@@ -363,13 +364,13 @@ export function SelectColumnsStep({
 
   return (
     <>
-      <h3 className="font-semibold text-lg flex items-center gap-2">Selecionar colunas</h3>
+      <h3 className="font-semibold text-lg flex items-center gap-2">{t("title")}</h3>
 
       {hasDuplicates && (
         <Alert variant="default" className="border-warning-50 bg-warning-10">
           <IconAlertTriangle className="h-4 w-4" />
           <AlertDescription>
-            Esta planilha possui colunas com nomes duplicados. Selecione a coluna correta em cada campo (ex: &quot;Leadscore (coluna B)&quot;).
+            {t("duplicatesAlert")}
           </AlertDescription>
         </Alert>
       )}
@@ -383,46 +384,45 @@ export function SelectColumnsStep({
       )}
 
       {columnOptions.length === 0 ? (
-        <div className="text-sm text-muted-foreground">Carregando colunas...</div>
+        <div className="text-sm text-muted-foreground">{t("loadingColumns")}</div>
       ) : (
         <>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-2">
-              <label className="text-sm font-medium">AD ID</label>
-              <Combobox value={adIdColumn} onValueChange={onAdIdColumnChange} options={columnOptions} placeholder="Selecione..." searchPlaceholder="Buscar coluna..." />
+              <label className="text-sm font-medium">{t("adId")}</label>
+              <Combobox value={adIdColumn} onValueChange={onAdIdColumnChange} options={columnOptions} placeholder={t("select")} searchPlaceholder={t("searchColumn")} />
             </div>
 
             <div className="space-y-2">
-              <label className="text-sm font-medium">Leadscore</label>
-              <Combobox value={leadscoreColumn} onValueChange={onLeadscoreColumnChange} options={columnOptions} placeholder="Selecione..." searchPlaceholder="Buscar coluna..." />
+              <label className="text-sm font-medium">{t("leadscore")}</label>
+              <Combobox value={leadscoreColumn} onValueChange={onLeadscoreColumnChange} options={columnOptions} placeholder={t("select")} searchPlaceholder={t("searchColumn")} />
             </div>
 
             <div className="space-y-2">
-              <label className="text-sm font-medium">Leadscore mínimo para MQL</label>
+              <label className="text-sm font-medium">{t("mqlMin")}</label>
               <Input
                 type="number"
                 min="0"
                 step="0.1"
                 value={mqlLeadscoreMin}
                 onChange={(e) => onMqlLeadscoreMinChange(e.target.value)}
-                placeholder="ex: 80"
+                placeholder={t("mqlPlaceholder")}
               />
               <p className="text-xs text-muted-foreground">
-                Leads com leadscore maior ou igual contam como MQL. Sem este valor não há como
-                calcular MQL nem CPMQL — a escala é a desta planilha.
+                {t("mqlHelp")}
               </p>
             </div>
 
             <div className="space-y-2">
-              <label className="text-sm font-medium">Data</label>
-              <Combobox value={dateColumn} onValueChange={onDateColumnChange} options={columnOptions} placeholder="Selecione..." searchPlaceholder="Buscar coluna..." />
+              <label className="text-sm font-medium">{t("date")}</label>
+              <Combobox value={dateColumn} onValueChange={onDateColumnChange} options={columnOptions} placeholder={t("select")} searchPlaceholder={t("searchColumn")} />
             </div>
 
             <div className="space-y-2">
-              <label className="text-sm font-medium">Formato da data</label>
+              <label className="text-sm font-medium">{t("dateFormat")}</label>
               <Select value={dateFormat} onValueChange={(val) => onDateFormatChange(val as "DD/MM/YYYY" | "MM/DD/YYYY")}>
                 <SelectTrigger>
-                  <SelectValue placeholder="Selecione o formato de data" />
+                  <SelectValue placeholder={t("dateFormatPlaceholder")} />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="DD/MM/YYYY">DD/MM/YYYY</SelectItem>
@@ -445,15 +445,14 @@ export function SelectColumnsStep({
           <div className="space-y-3 pt-4 border-t border-border">
             <div className="flex items-start justify-between gap-3">
               <div className="space-y-0.5">
-                <h4 className="text-sm font-medium">Colunas adicionais (opcional)</h4>
+                <h4 className="text-sm font-medium">{t("extraTitle")}</h4>
                 <p className="text-xs text-muted-foreground">
-                  Outras colunas da mesma linha do lead: idade, renda, uma pergunta fechada, ou um segundo leadscore. Número rende média;
-                  categoria rende a distribuição das respostas; leadscore rende MQLs, % MQL e CPMQL com corte próprio. Texto livre não entra.
+                  {t("extraHelp")}
                 </p>
               </div>
               <Button type="button" variant="outline" size="sm" onClick={() => onExtraColumnsChange([...extraColumns, newExtraColumnDraft()])} disabled={busy}>
                 <IconPlus className="h-4 w-4" />
-                Adicionar coluna
+                {t("addColumn")}
               </Button>
             </div>
             {extraColumns.length > 0 && (
@@ -482,21 +481,21 @@ export function SelectColumnsStep({
         <div className="flex items-center justify-between gap-2">
           <Button type="button" variant="ghost" size="sm" onClick={onBack} className="flex items-center gap-1 text-muted-foreground hover:text-foreground" disabled={busy}>
             <IconChevronLeft className="w-4 h-4" />
-            Voltar
+            {t("back")}
           </Button>
           <Button type="button" onClick={onImport} disabled={!canImport || busy}>
             {isSaving ? (
               <span className="flex items-center gap-2">
                 <IconLoader2 className="w-4 h-4 animate-spin" />
-                Salvando...
+                {t("saving")}
               </span>
             ) : isImporting ? (
               <span className="flex items-center gap-2">
                 <IconLoader2 className="w-4 h-4 animate-spin" />
-                Aplicando...
+                {t("applying")}
               </span>
             ) : (
-              "Iniciar integração"
+              t("start")
             )}
           </Button>
         </div>

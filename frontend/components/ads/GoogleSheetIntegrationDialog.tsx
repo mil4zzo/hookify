@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState, useRef } from "react";
+import { useTranslations } from "next-intl";
+import { translate } from "@/lib/i18n/translate";
 import { AppDialog } from "@/components/common/AppDialog";
 import { BulkApplyReviewDialog } from "@/components/common/BulkApplyReviewDialog";
 import { reviewBulkSheet, type BulkReview } from "@/lib/utils/bulkApplyReview";
@@ -41,6 +43,7 @@ export interface GoogleSheetIntegrationDialogProps {
 type DialogStep = "connect" | "select-sheet" | "select-columns" | "summary";
 
 export function GoogleSheetIntegrationDialog({ isOpen, onClose, packId: singlePackId, bulkPackIds }: GoogleSheetIntegrationDialogProps) {
+  const t = useTranslations("ads.sheetDialog");
   const isBulk = !!bulkPackIds && bulkPackIds.length > 0;
   // No modo em massa não há "o" pack: `packId` vira null e a semente da configuração sai
   // do primeiro pack selecionado que já tem planilha (`seedPackId`).
@@ -213,7 +216,7 @@ export function GoogleSheetIntegrationDialog({ isOpen, onClose, packId: singlePa
       }
 
       logger.error("GoogleSheetIntegrationDialog: token Google expirado", { connectionId });
-      showError(new Error("Sua conexão com o Google Sheets expirou. Por favor, reconecte sua conta para continuar."));
+      showError(new Error(translate("ads.sheetDialog.tokenExpired")));
 
       if (connectionId && selectedConnectionId === connectionId) {
         setSelectedConnectionId("");
@@ -288,7 +291,7 @@ export function GoogleSheetIntegrationDialog({ isOpen, onClose, packId: singlePa
 
       await handleConnectGoogle();
     } catch (error) {
-      showError(error instanceof Error ? error : new Error("Erro ao reconectar conta Google"));
+      showError(error instanceof Error ? error : new Error(translate("ads.sheetDialog.reconnectError")));
     }
   };
 
@@ -414,12 +417,12 @@ export function GoogleSheetIntegrationDialog({ isOpen, onClose, packId: singlePa
         res = await api.integrations.google.getAuthUrl("google_sheets", redirectUri);
       } catch (error: any) {
         logger.error("Erro ao obter URL de autenticação:", error);
-        throw new Error(error?.message || "Erro ao conectar com o servidor. Verifique se o backend está rodando e acessível.");
+        throw new Error(error?.message || translate("ads.sheetDialog.serverError"));
       }
 
       if (!res?.auth_url) {
         logger.error("GoogleSheetIntegrationDialog: URL de auth inválida retornada pelo backend", { res });
-        throw new Error("Resposta inválida do servidor ao obter URL de autenticação.");
+        throw new Error(translate("ads.googleConnect.invalidResponse"));
       }
 
       const authUrl = res.auth_url;
@@ -441,7 +444,7 @@ export function GoogleSheetIntegrationDialog({ isOpen, onClose, packId: singlePa
 
       if (!messageData.code) {
         logger.error("GoogleSheetIntegrationDialog: auth code ausente na resposta do callback Google", { messageData });
-        throw new Error("Código de autorização não recebido do Google.");
+        throw new Error(translate("ads.googleConnect.noCode"));
       }
 
       let connectionData: any;
@@ -449,7 +452,7 @@ export function GoogleSheetIntegrationDialog({ isOpen, onClose, packId: singlePa
         connectionData = await api.integrations.google.exchangeCode(messageData.code, redirectUri);
       } catch (e: any) {
         logger.error("Erro ao trocar código por token:", e);
-        let errorMessage = "Erro ao finalizar autenticação. Verifique sua conexão com a internet e tente novamente.";
+        let errorMessage = translate("ads.sheetDialog.finishError");
 
         if (e?.message) {
           errorMessage = e.message;
@@ -460,19 +463,19 @@ export function GoogleSheetIntegrationDialog({ isOpen, onClose, packId: singlePa
         }
 
         if (e?.code === "ERR_NETWORK" || e?.code === "ECONNREFUSED" || e?.code === "ENOTFOUND") {
-          errorMessage = "Não foi possível conectar ao servidor. Verifique se o backend está rodando e acessível.";
+          errorMessage = translate("ads.sheetDialog.network");
         } else if (e?.status === 401) {
-          errorMessage = "Não autorizado. Sua sessão pode ter expirado. Por favor, faça login novamente.";
+          errorMessage = translate("ads.sheetDialog.unauthorized");
         } else if (e?.status === 500) {
-          errorMessage = "Erro interno do servidor. Tente novamente mais tarde.";
+          errorMessage = translate("ads.sheetDialog.internalError");
         } else if (e?.status) {
-          errorMessage = `Erro do servidor (${e.status}): ${errorMessage}`;
+          errorMessage = translate("ads.sheetDialog.serverStatus", { status: e.status, message: errorMessage });
         }
 
         throw new Error(errorMessage);
       }
 
-      showSuccess("Google Sheets conectado! Agora você pode configurar a planilha para enriquecer os anúncios.");
+      showSuccess(translate("ads.sheetDialog.connected"));
 
       // Disparar evento de reconexão para retomar jobs pausados
       window.dispatchEvent(
@@ -495,11 +498,11 @@ export function GoogleSheetIntegrationDialog({ isOpen, onClose, packId: singlePa
       logger.error("Erro completo na conexão Google:", e);
 
       if (authError?.code === "AUTH_POPUP_TIMEOUT") {
-        showError(new Error("Tempo limite para autenticação com Google Sheets atingido."));
+        showError(new Error(translate("ads.sheetDialog.timeout")));
         return;
       }
 
-      const errorMessage = e?.message || e?.toString() || "Erro desconhecido ao conectar com Google Sheets";
+      const errorMessage = e?.message || e?.toString() || translate("ads.sheetDialog.unknownError");
       showError(new Error(errorMessage));
     } finally {
       setIsConnecting(false);
@@ -538,7 +541,7 @@ export function GoogleSheetIntegrationDialog({ isOpen, onClose, packId: singlePa
         setDateColumn((prev) => prev || toValue(guess.dateColumn ?? null));
         setLeadscoreColumn((prev) => prev || toValue(guess.leadscoreColumn ?? null));
       } else {
-        showError(new Error("Não encontramos colunas na primeira linha da aba. Verifique se a planilha possui cabeçalhos."));
+        showError(new Error(translate("ads.sheetDialog.noColumns")));
       }
 
       return loadedColumns;
@@ -626,7 +629,7 @@ export function GoogleSheetIntegrationDialog({ isOpen, onClose, packId: singlePa
       onClose();
       startSyncWithToast({
         integrationId: id,
-        title: selectedSpreadsheetName || "Planilha",
+        title: selectedSpreadsheetName || translate("ads.syncJob.sheet"),
         packId: packId ?? null,
       }).catch((e) => showError(e));
     } catch (e: any) {
@@ -654,12 +657,12 @@ export function GoogleSheetIntegrationDialog({ isOpen, onClose, packId: singlePa
     }
     const failed = res.results.filter((r) => r.status === "failed");
     const skipped = res.results.filter((r) => r.status === "skipped");
-    const nameOf = (id: string) => packs.find((p) => p.id === id)?.name || "Pack";
+    const nameOf = (id: string) => packs.find((p) => p.id === id)?.name || translate("ads.bulkSheetSync.packFallback");
     if (failed.length) {
-      showError(new Error(`Não foi possível configurar: ${failed.map((r) => `${nameOf(r.pack_id)} (${r.error})`).join("; ")}`));
+      showError(new Error(translate("ads.sheetDialog.bulkFailed", { list: failed.map((r) => `${nameOf(r.pack_id)} (${r.error})`).join("; ") })));
     }
     if (skipped.length) {
-      showError(new Error(`Ignorados (compartilhados com você — só o dono configura a planilha): ${skipped.map((r) => nameOf(r.pack_id)).join(", ")}`));
+      showError(new Error(translate("ads.sheetDialog.bulkSkipped", { list: skipped.map((r) => nameOf(r.pack_id)).join(", ") })));
     }
     onClose();
     if (done.length === 0) return;
@@ -667,7 +670,7 @@ export function GoogleSheetIntegrationDialog({ isOpen, onClose, packId: singlePa
     startBulkSync({
       integrationIds: done.map((r) => r.integration_id).filter((id): id is string => !!id),
       packNames,
-      title: `${selectedSpreadsheetName || "Planilha"} · ${done.length} ${done.length === 1 ? "pack" : "packs"}`,
+      title: translate("ads.sheetDialog.bulkTitle", { name: selectedSpreadsheetName || translate("ads.syncJob.sheet"), count: done.length }),
     }).catch((e) => showError(e));
   };
 
@@ -690,7 +693,7 @@ export function GoogleSheetIntegrationDialog({ isOpen, onClose, packId: singlePa
     try {
       await startSync(integrationId, packId ?? null);
       const stats = lastSyncStats || { updated_rows: 0 };
-      showSuccess(`Dados atualizados! Atualizadas ${stats.updated_rows} linhas em ad_metrics.`);
+      showSuccess(translate("ads.sheetDialog.syncedAgain", { rows: stats.updated_rows }));
     } catch (e: any) {
       showError(e);
     }
@@ -704,23 +707,23 @@ export function GoogleSheetIntegrationDialog({ isOpen, onClose, packId: singlePa
   };
 
   return (
-    <AppDialog isOpen={isOpen} onClose={handleClose} title="Enriquecer anúncios com Google Sheets" size="xl" padding="lg" closeOnOverlayClick={!isImporting} closeOnEscape={!isImporting} showCloseButton={!isImporting}>
+    <AppDialog isOpen={isOpen} onClose={handleClose} title={t("title")} size="xl" padding="lg" closeOnOverlayClick={!isImporting} closeOnEscape={!isImporting} showCloseButton={!isImporting}>
       <div className="space-y-6">
         <div className="space-y-1">
           <h2 className="text-xl font-semibold flex items-center gap-2">
             <IconTableExport className="w-5 h-5" />
-            Enriquecer anúncios com Google Sheets
+            {t("title")}
           </h2>
           <p className="text-sm text-muted-foreground">
-            Conecte uma planilha com colunas de <strong>ad_id</strong>, <strong>data</strong> e <strong>leadscore</strong> para habilitar métricas de Marketing Qualified Lead.
+            {t.rich("description", { b: (c) => <strong>{c}</strong> })}
           </p>
           {bulkPreview && (
             <p className="text-sm text-muted-foreground">
-              Mesma configuração para <strong className="text-foreground">{bulkPreview.total} packs</strong>
-              {bulkPreview.toConnect > 0 && <> · {bulkPreview.toConnect} sem planilha serão conectados</>}
-              {bulkPreview.toReplace > 0 && <> · {bulkPreview.toReplace} já conectados terão a configuração substituída</>}
-              {bulkPreview.otherFile > 0 && <> ({bulkPreview.otherFile} apontam hoje para outro arquivo)</>}
-              . O corte de MQL vale para todos.
+              {t.rich("bulkIntro", { total: bulkPreview.total, b: (c) => <strong className="text-foreground">{c}</strong> })}
+              {bulkPreview.toConnect > 0 && <> · {t("bulkToConnect", { count: bulkPreview.toConnect })}</>}
+              {bulkPreview.toReplace > 0 && <> · {t("bulkToReplace", { count: bulkPreview.toReplace })}</>}
+              {bulkPreview.otherFile > 0 && <> {t("bulkOtherFile", { count: bulkPreview.otherFile })}</>}
+              {t("bulkMqlNote")}
             </p>
           )}
         </div>
@@ -730,19 +733,19 @@ export function GoogleSheetIntegrationDialog({ isOpen, onClose, packId: singlePa
           steps={[
             {
               id: "connect",
-              label: "Conectar Google",
-              description: isGoogleConnected ? (selectedConnectionId ? connections.find((c) => c.id === selectedConnectionId)?.google_name || connections.find((c) => c.id === selectedConnectionId)?.google_email || "Conta Google" : "Conectado") : undefined,
+              label: t("stepConnect"),
+              description: isGoogleConnected ? (selectedConnectionId ? connections.find((c) => c.id === selectedConnectionId)?.google_name || connections.find((c) => c.id === selectedConnectionId)?.google_email || t("googleAccount") : t("stepConnected")) : undefined,
               status: step !== "connect" ? "completed" : step === "connect" ? "active" : "pending",
             },
             {
               id: "select-sheet",
-              label: "Selecionar planilha",
+              label: t("stepSheet"),
               status: step === "select-columns" || step === "summary" ? "completed" : step === "select-sheet" ? "active" : "pending",
               disabled: !isGoogleConnected,
             },
             {
               id: "select-columns",
-              label: "Selecionar colunas",
+              label: t("stepColumns"),
               status: step === "summary" ? "completed" : step === "select-columns" ? "active" : "pending",
               disabled: !isGoogleConnected || !selectedSpreadsheetId || !worksheetTitle,
             },

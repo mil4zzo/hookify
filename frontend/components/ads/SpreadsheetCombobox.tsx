@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { usePopoverWheelScroll } from "@/lib/hooks/usePopoverWheelScroll";
@@ -25,7 +26,9 @@ interface SpreadsheetComboboxProps {
   active?: boolean;
 }
 
-export function SpreadsheetCombobox({ value, valueLabel, onValueChange, onValueLabelChange, placeholder = "Selecione uma planilha...", className, connectionId, disabled = false, active = true }: SpreadsheetComboboxProps) {
+export function SpreadsheetCombobox({ value, valueLabel, onValueChange, onValueLabelChange, placeholder: placeholderProp, className, connectionId, disabled = false, active = true }: SpreadsheetComboboxProps) {
+  const t = useTranslations("ads.spreadsheetCombobox");
+  const placeholder = placeholderProp ?? t("placeholder");
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -68,7 +71,7 @@ export function SpreadsheetCombobox({ value, valueLabel, onValueChange, onValueL
           status: appError?.status,
           details: appError?.details,
         });
-        setError(message || "Erro ao carregar planilhas. Tente novamente.");
+        setError(message || t("loadError"));
         throw err;
       }
     },
@@ -154,7 +157,7 @@ export function SpreadsheetCombobox({ value, valueLabel, onValueChange, onValueL
         <div className="flex flex-col">
           <div className="border-b border-border p-2">
             <Input
-              placeholder="Buscar planilha por nome..."
+              placeholder={t("searchPlaceholder")}
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="h-9"
@@ -190,16 +193,16 @@ export function SpreadsheetCombobox({ value, valueLabel, onValueChange, onValueL
                     refetch();
                   }}
                 >
-                  Tentar novamente
+                  {t("retry")}
                 </Button>
               </div>
             ) : isLoading ? (
               <div className="flex items-center justify-center gap-2 py-6">
                 <IconLoader2 className="h-4 w-4 animate-spin" />
-                <span className="text-sm text-muted-foreground">Carregando planilhas...</span>
+                <span className="text-sm text-muted-foreground">{t("loading")}</span>
               </div>
             ) : filteredOptions.length === 0 ? (
-              <div className="py-6 text-center text-sm text-muted-foreground">{search ? "Nenhuma planilha encontrada." : "Nenhuma planilha disponível."}</div>
+              <div className="py-6 text-center text-sm text-muted-foreground">{search ? t("notFound") : t("none")}</div>
             ) : (
               <div className="p-1">
                 {filteredOptions.map((option) => {
@@ -224,7 +227,7 @@ export function SpreadsheetCombobox({ value, valueLabel, onValueChange, onValueL
                 {isFetchingNextPage && (
                   <div className="flex items-center justify-center gap-2 py-2">
                     <IconLoader2 className="h-4 w-4 animate-spin" />
-                    <span className="text-sm text-muted-foreground">Carregando mais...</span>
+                    <span className="text-sm text-muted-foreground">{t("loadingMore")}</span>
                   </div>
                 )}
               </div>

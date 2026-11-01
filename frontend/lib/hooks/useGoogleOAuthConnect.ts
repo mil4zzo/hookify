@@ -3,6 +3,7 @@ import { api } from "@/lib/api/endpoints";
 import { env } from "@/lib/config/env";
 import { openAuthPopup, AuthPopupError } from "@/lib/utils/authPopup";
 import { showSuccess, showError } from "@/lib/utils/toast";
+import { translate } from "@/lib/i18n/translate";
 import { logger } from "@/lib/utils/logger";
 
 interface GoogleOAuthConnectResult {
@@ -26,7 +27,7 @@ export function useGoogleOAuthConnect() {
     packId?: string; // Pack compartilhado: reconecta a credencial no silo do dono (Opcao B)
   }): Promise<GoogleOAuthConnectResult> => {
     if (isConnecting) {
-      return { success: false, error: "Conexão já em andamento" };
+      return { success: false, error: translate("ads.googleConnect.inProgress") };
     }
 
     try {
@@ -41,11 +42,11 @@ export function useGoogleOAuthConnect() {
         res = await api.integrations.google.getAuthUrl("google_sheets", redirectUri);
       } catch (error: any) {
         logger.error("[useGoogleOAuthConnect] Erro ao obter URL de autenticação:", error);
-        throw new Error(error?.message || "Erro ao conectar com o servidor.");
+        throw new Error(error?.message || translate("ads.googleConnect.serverError"));
       }
 
       if (!res?.auth_url) {
-        throw new Error("Resposta inválida do servidor ao obter URL de autenticação.");
+        throw new Error(translate("ads.googleConnect.invalidResponse"));
       }
 
       // Abrir popup OAuth
@@ -65,7 +66,7 @@ export function useGoogleOAuthConnect() {
       });
 
       if (!messageData.code) {
-        throw new Error("Código de autorização não recebido do Google.");
+        throw new Error(translate("ads.googleConnect.noCode"));
       }
 
       // Trocar código por token
@@ -74,16 +75,16 @@ export function useGoogleOAuthConnect() {
         connectionData = await api.integrations.google.exchangeCode(messageData.code, redirectUri, options?.packId);
       } catch (e: any) {
         logger.error("[useGoogleOAuthConnect] Erro ao trocar código por token:", e);
-        let errorMessage = "Erro ao finalizar autenticação.";
+        let errorMessage = translate("ads.googleConnect.finishError");
 
         if (e?.message) {
           errorMessage = e.message;
         } else if (e?.code === "ERR_NETWORK" || e?.code === "ECONNREFUSED") {
-          errorMessage = "Não foi possível conectar ao servidor.";
+          errorMessage = translate("ads.googleConnect.network");
         } else if (e?.status === 401) {
-          errorMessage = "Sessão expirada. Faça login novamente.";
+          errorMessage = translate("ads.googleConnect.sessionExpired");
         } else if (e?.status === 500) {
-          errorMessage = "Erro interno do servidor.";
+          errorMessage = translate("ads.googleConnect.internalError");
         }
 
         throw new Error(errorMessage);
@@ -93,7 +94,7 @@ export function useGoogleOAuthConnect() {
 
       // Mostrar sucesso (se não for silencioso)
       if (!options?.silent) {
-        showSuccess("Google reconectado com sucesso!");
+        showSuccess(translate("ads.googleConnect.reconnected"));
       }
 
       // Disparar evento para retomar jobs pausados
@@ -112,11 +113,11 @@ export function useGoogleOAuthConnect() {
 
       // Timeout
       if (authError?.code === "AUTH_POPUP_TIMEOUT") {
-        showError(new Error("Tempo limite para autenticação atingido."));
+        showError(new Error(translate("ads.googleConnect.timeout")));
         return { success: false, error: "timeout" };
       }
 
-      const errorMessage = e?.message || "Erro ao conectar com Google";
+      const errorMessage = e?.message || translate("ads.googleConnect.connectError");
       showError(new Error(errorMessage));
       return { success: false, error: errorMessage };
     } finally {

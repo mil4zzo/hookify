@@ -1,6 +1,7 @@
 "use client";
 
 import { getAppLocale } from "@/lib/i18n/locale";
+import { translate } from "@/lib/i18n/translate";
 import { useId, useState } from "react";
 import { IconAlertTriangle, IconCalculator, IconChevronDown } from "@tabler/icons-react";
 
@@ -39,7 +40,7 @@ export function LeadEconomicsBreakdown({ outcome, formatCurrency, defaultExpande
   const header = (
     <div className="flex items-center gap-1.5 text-sm font-semibold text-muted-foreground">
       <IconCalculator className="h-4 w-4 flex-shrink-0" />
-      <span>Economia do lead</span>
+      <span>{translate("ads.leadBreakdown.title")}</span>
     </div>
   );
 
@@ -59,34 +60,34 @@ export function LeadEconomicsBreakdown({ outcome, formatCurrency, defaultExpande
     <div className="space-y-2">
       {header}
       <div className="grid grid-cols-4 gap-3">
-        <VideoMetricCell label="CPL Max" value={formatCurrency(result.cplCeiling)} subtitle="por lead com nota" subtitleInLabelRow />
+        <VideoMetricCell label="CPL Max" value={formatCurrency(result.cplCeiling)} subtitle={translate("ads.leadBreakdown.perScoredLead")} subtitleInLabelRow />
         <VideoMetricCell
           label="CPL Real"
           value={result.cplActual === null ? "—" : formatCurrency(result.cplActual)}
-          subtitle="gasto ÷ leads com nota"
+          subtitle={translate("ads.leadBreakdown.spendOverLeads")}
           subtitleInLabelRow
         />
         <VideoMetricCell
-          label="Margem"
+          label={translate("ads.leadBreakdown.margin")}
           value={result.margin === null ? "—" : pct(result.margin)}
           // Cor pela meta, não pela média (D14): a mesma régua da coluna.
           valueClassName={cn("text-md", tone && getMetricValueTextClass(tone))}
-          subtitle={result.targetMargin === null ? undefined : `meta ${pct(result.targetMargin)}`}
+          subtitle={result.targetMargin === null ? undefined : translate("ads.leadBreakdown.target", { value: pct(result.targetMargin) })}
           subtitleInLabelRow
         />
-        <VideoMetricCell metricKey="leads_scored" label="Leads com nota" value={count(result.leadsScored)} />
+        <VideoMetricCell metricKey="leads_scored" label={translate("ads.leadBreakdown.leadsScored")} value={count(result.leadsScored)} />
       </div>
 
       {result.lowSample && (
         <p className="flex items-start gap-1.5 text-xs text-muted-foreground">
           <IconAlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
-          Menos de {LEAD_ECONOMICS_MIN_SAMPLE} leads com nota: o número ainda muda muito com poucos leads a mais.
+          {translate("ads.leadBreakdown.lowSample", { min: LEAD_ECONOMICS_MIN_SAMPLE })}
         </p>
       )}
 
       <Button variant="ghost" size="sm" aria-expanded={expanded} aria-controls={tableId} onClick={() => setExpanded((open) => !open)}>
         <IconChevronDown className={cn("transition-transform", expanded && "rotate-180")} />
-        {expanded ? "Esconder a conta por faixa" : "Ver a conta por faixa"}
+        {translate(expanded ? "ads.leadBreakdown.hideTable" : "ads.leadBreakdown.showTable")}
       </Button>
 
       {expanded && (
@@ -95,12 +96,12 @@ export function LeadEconomicsBreakdown({ outcome, formatCurrency, defaultExpande
             <table className="w-full min-w-[36rem] text-xs tabular-nums">
               <thead className="text-muted-foreground">
                 <tr className="border-b border-border">
-                  <th scope="col" className="px-3 py-2 text-left font-normal">Nota</th>
-                  <th scope="col" className="px-3 py-2 text-right font-normal">Leads</th>
-                  <th scope="col" className="px-3 py-2 text-left font-normal">Produto</th>
-                  <th scope="col" className="px-3 py-2 text-right font-normal">Conversão</th>
-                  <th scope="col" className="px-3 py-2 text-right font-normal">Teto na faixa</th>
-                  <th scope="col" className="px-3 py-2 text-right font-normal">Entra no teto</th>
+                  <th scope="col" className="px-3 py-2 text-left font-normal">{translate("ads.leadBreakdown.colScore")}</th>
+                  <th scope="col" className="px-3 py-2 text-right font-normal">{translate("ads.leadBreakdown.colLeads")}</th>
+                  <th scope="col" className="px-3 py-2 text-left font-normal">{translate("ads.leadBreakdown.colProduct")}</th>
+                  <th scope="col" className="px-3 py-2 text-right font-normal">{translate("ads.leadBreakdown.colConversion")}</th>
+                  <th scope="col" className="px-3 py-2 text-right font-normal">{translate("ads.leadBreakdown.colBandCeiling")}</th>
+                  <th scope="col" className="px-3 py-2 text-right font-normal">{translate("ads.leadBreakdown.colInCeiling")}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border text-foreground">
@@ -127,9 +128,9 @@ export function LeadEconomicsBreakdown({ outcome, formatCurrency, defaultExpande
           </div>
           <div className="space-y-0.5 text-xs text-muted-foreground">
             <p>
-              Conta feita com os {count(result.leadsScored)} {result.leadsScored === 1 ? "lead" : "leads"} com nota que casaram com a planilha.
+              {translate("ads.leadBreakdown.basis", { formatted: count(result.leadsScored), count: result.leadsScored })}
             </p>
-            <p>Teto na faixa: conversão × ticket × (quanto sobra − margem desejada). Entra no teto: a fatia dos leads × o teto na faixa.</p>
+            <p>{translate("ads.leadBreakdown.formula")}</p>
           </div>
         </div>
       )}

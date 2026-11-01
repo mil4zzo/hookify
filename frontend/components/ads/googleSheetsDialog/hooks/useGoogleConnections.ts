@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect } from "react";
 import { api } from "@/lib/api/endpoints";
 import { GoogleConnection } from "@/lib/api/schemas";
 import { showError } from "@/lib/utils/toast";
+import { translate } from "@/lib/i18n/translate";
 import { logger } from "@/lib/utils/logger";
 
 const VERIFICATION_CACHE_KEY = "google_connections_verification_cache";
@@ -250,7 +251,7 @@ export function useGoogleConnections(isOpen: boolean) {
   const handleDeleteConnection = useCallback(
     async (connectionId: string, e: React.MouseEvent) => {
       e.stopPropagation();
-      if (!confirm("Tem certeza que deseja deletar esta conexão?")) {
+      if (!confirm(translate("ads.googleConnections.confirmDelete"))) {
         return;
       }
       try {
@@ -282,7 +283,7 @@ export function useGoogleConnections(isOpen: boolean) {
         }
       } catch (error) {
         logger.error("useGoogleConnections: erro ao deletar conexão Google", { connectionId, error });
-        showError(error instanceof Error ? error : new Error("Erro ao deletar conexão"));
+        showError(error instanceof Error ? error : new Error(translate("ads.googleConnections.deleteError")));
         // Em caso de erro, recarregar para garantir sincronização
         await loadConnections();
       } finally {

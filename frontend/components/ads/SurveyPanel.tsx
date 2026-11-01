@@ -9,6 +9,7 @@
  * mostra a distribuição em barras. Tudo sai do histograma que a RPC devolve — nenhuma
  * média pronta do servidor.
  */
+import { useTranslations } from "next-intl";
 import { getAppLocale } from "@/lib/i18n/locale";
 import { useMemo } from "react";
 import { StatePanel } from "@/components/common/States";
@@ -44,6 +45,7 @@ function Stat({ label, value }: { label: string; value: string }) {
 }
 
 function NumericCard({ mapping, hist, spend }: { mapping: SheetColumnMapping; hist: Record<string, number> | undefined; spend: number }) {
+  const t = useTranslations("ads.survey");
   const formatCurrency = useFormatCurrency();
   const stats = useMemo(() => histogramStats(hist), [hist]);
   const isLeadscore = mapping.kind === "leadscore";
@@ -58,21 +60,21 @@ function NumericCard({ mapping, hist, spend }: { mapping: SheetColumnMapping; hi
     <section className="rounded-md border border-border bg-background p-4 space-y-3">
       <header className="flex items-baseline justify-between gap-2">
         <h4 className="text-sm font-semibold">{mapping.label}</h4>
-        <span className="text-2xs text-muted-foreground">{isLeadscore ? "leadscore" : "número"} · {fmtNumber(stats?.n ?? 0, 0)} leads</span>
+        <span className="text-2xs text-muted-foreground">{t("numberHeader", { kind: isLeadscore ? "leadscore" : "number", n: fmtNumber(stats?.n ?? 0, 0) })}</span>
       </header>
       {!stats ? (
-        <p className="text-sm text-muted-foreground">Sem valores neste período.</p>
+        <p className="text-sm text-muted-foreground">{t("noValues")}</p>
       ) : (
         <>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            <Stat label="Média" value={fmtNumber(stats.avg)} />
-            <Stat label="Mediana" value={fmtNumber(stats.median)} />
-            <Stat label="Mínimo" value={fmtNumber(stats.min)} />
-            <Stat label="Máximo" value={fmtNumber(stats.max)} />
+            <Stat label={t("average")} value={fmtNumber(stats.avg)} />
+            <Stat label={t("median")} value={fmtNumber(stats.median)} />
+            <Stat label={t("min")} value={fmtNumber(stats.min)} />
+            <Stat label={t("max")} value={fmtNumber(stats.max)} />
           </div>
           {isLeadscore && facets && (
             <div className="grid grid-cols-2 gap-3 border-t border-border pt-3 sm:grid-cols-4">
-              <Stat label="Corte de MQL" value={mapping.config?.mql_min == null ? "não definido" : fmtNumber(mapping.config.mql_min)} />
+              <Stat label={t("mqlCutoff")} value={mapping.config?.mql_min == null ? t("notSet") : fmtNumber(mapping.config.mql_min)} />
               <Stat label="MQLs" value={facets.mqls == null ? "—" : fmtNumber(facets.mqls, 0)} />
               <Stat label="% MQL" value={fmtPct(facets.mql_rate)} />
               <Stat label="CPMQL" value={facets.cpmql == null ? "—" : facets.cpmql > 0 ? formatCurrency(facets.cpmql) : "—"} />
@@ -80,7 +82,7 @@ function NumericCard({ mapping, hist, spend }: { mapping: SheetColumnMapping; hi
           )}
           {/* Distribuição compacta: uma barra por valor, altura proporcional */}
           {entries.length > 1 && entries.length <= 60 && (
-            <div className="flex h-12 items-end gap-px" aria-label={`Distribuição de ${mapping.label}`}>
+            <div className="flex h-12 items-end gap-px" aria-label={t("distributionOf", { label: mapping.label })}>
               {entries.map(([value, qty]) => (
                 <div
                   key={value}
@@ -98,16 +100,17 @@ function NumericCard({ mapping, hist, spend }: { mapping: SheetColumnMapping; hi
 }
 
 function CategoryCard({ mapping, hist }: { mapping: SheetColumnMapping; hist: Record<string, number> | undefined }) {
+  const t = useTranslations("ads.survey");
   const entries = useMemo(() => histogramEntries(hist, false), [hist]);
   const total = entries.reduce((acc, [, qty]) => acc + qty, 0);
   return (
     <section className="rounded-md border border-border bg-background p-4 space-y-3">
       <header className="flex items-baseline justify-between gap-2">
         <h4 className="text-sm font-semibold">{mapping.label}</h4>
-        <span className="text-2xs text-muted-foreground">categoria · {total.toLocaleString(getAppLocale())} respostas</span>
+        <span className="text-2xs text-muted-foreground">{t("categoryHeader", { n: total.toLocaleString(getAppLocale()) })}</span>
       </header>
       {entries.length === 0 ? (
-        <p className="text-sm text-muted-foreground">Sem respostas neste período.</p>
+        <p className="text-sm text-muted-foreground">{t("noAnswers")}</p>
       ) : (
         <ul className="space-y-1.5">
           {entries.map(([value, qty]) => {
@@ -132,15 +135,16 @@ function CategoryCard({ mapping, hist }: { mapping: SheetColumnMapping; hist: Re
   );
 }
 
-export function SurveyPanel({ histograms, mappings, spend, isLoading = false, subjectLabel = "este anúncio" }: SurveyPanelProps) {
+export function SurveyPanel({ histograms, mappings, spend, isLoading = false, subjectLabel }: SurveyPanelProps) {
+  const t = useTranslations("ads.survey");
   if (isLoading) {
-    return <StatePanel kind="loading" message="Carregando respostas da pesquisa..." density="compact" />;
+    return <StatePanel kind="loading" message={t("loading")} density="compact" />;
   }
   if (mappings.length === 0) {
     return (
       <StatePanel
         kind="empty"
-        message="Nenhuma coluna da planilha vinculada aos packs selecionados. Vincule colunas na integração da planilha."
+        message={t("noMappings")}
         density="compact"
       />
     );
@@ -153,7 +157,7 @@ export function SurveyPanel({ histograms, mappings, spend, isLoading = false, su
     return (
       <StatePanel
         kind="empty"
-        message={`Nenhum lead de ${subjectLabel} com resposta nas colunas vinculadas neste período.`}
+        message={t("noLeads", { subject: subjectLabel ?? t("thisAd") })}
         density="compact"
       />
     );

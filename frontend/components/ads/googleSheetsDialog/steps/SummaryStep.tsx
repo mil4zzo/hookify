@@ -1,5 +1,7 @@
 "use client";
 
+import { useTranslations } from "next-intl";
+import { formatLocaleDate, formatLocaleNumber } from "@/lib/i18n/locale";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { IconCheck, IconRefresh, IconInfoCircle, IconAlertTriangle } from "@tabler/icons-react";
@@ -13,14 +15,16 @@ interface SummaryStepProps {
   onClose: () => void;
 }
 
-/** YYYY-MM-DD → DD/MM. Datas do backend vêm em ISO; o resumo lê em BR. */
+/** YYYY-MM-DD → DD/MM (MM/DD em inglês). Datas do backend vêm em ISO. */
 function brShort(iso?: string | null): string {
   if (!iso) return "—";
   const [, m, d] = iso.split("-");
-  return m && d ? `${d}/${m}` : iso;
+  return m && d ? formatLocaleDate(`${iso}T00:00:00`, { day: "2-digit", month: "2-digit" }) : iso;
 }
 
 export function SummaryStep({ stats, isImporting, onSyncAgain, onClose }: SummaryStepProps) {
+  const t = useTranslations("ads.summaryStep");
+  const fmt = (v: number) => formatLocaleNumber(v);
   const total = stats.processed_rows;
   const invalidas = stats.skipped_invalid;
   const validas = total - invalidas;
@@ -43,20 +47,22 @@ export function SummaryStep({ stats, isImporting, onSyncAgain, onClose }: Summar
       <h3 className={isSuccess ? "font-semibold text-lg flex items-center gap-2 text-success mb-4" : "font-semibold text-lg flex items-center gap-2 text-warning mb-4"}>
         {isSuccess ? <IconCheck className="w-5 h-5" /> : <IconAlertTriangle className="w-5 h-5" />}
         {isSuccess
-          ? "Importação concluída com sucesso!"
+          ? t("titleSuccess")
           : outcome === "empty"
-            ? "Planilha sem linhas válidas"
-            : "Nenhuma linha foi aplicada"}
+            ? t("titleEmpty")
+            : t("titleNoRows")}
       </h3>
       <div className="space-y-4">
         {/* Renomeacao na origem: informa sempre, inclusive num sync que deu certo —
             trocar o nome costuma acompanhar trocar o conteudo. */}
         {stats.spreadsheet_renamed_from && (
           <InlineNotice tone="info">
-            A planilha foi renomeada desde a última sincronização:{" "}
-            <span className="line-through">{stats.spreadsheet_renamed_from}</span> →{" "}
-            <span className="font-medium">{stats.spreadsheet_name}</span>. Confira se o conteúdo
-            dela ainda é o mesmo que você vinculou.
+            {t.rich("renamed", {
+              from: stats.spreadsheet_renamed_from,
+              to: stats.spreadsheet_name ?? "",
+              old: (c) => <span className="line-through">{c}</span>,
+              new: (c) => <span className="font-medium">{c}</span>,
+            })}
           </InlineNotice>
         )}
         {/* O motivo vem pronto do backend: ele é quem sabe comparar a janela da
@@ -66,16 +72,16 @@ export function SummaryStep({ stats, isImporting, onSyncAgain, onClose }: Summar
             {stats.outcome_message}
             {stats.sheet_date_min && stats.pack_date_start && (
               <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-2xs text-muted-foreground">
-                <span>Planilha: {brShort(stats.sheet_date_min)} → {brShort(stats.sheet_date_max)}</span>
-                <span>Pack: {brShort(stats.pack_date_start)} → {brShort(stats.pack_date_stop)}</span>
+                <span>{t("sheetRange", { from: brShort(stats.sheet_date_min), to: brShort(stats.sheet_date_max) })}</span>
+                <span>{t("packRange", { from: brShort(stats.pack_date_start), to: brShort(stats.pack_date_stop) })}</span>
               </div>
             )}
           </InlineNotice>
         )}
         {/* Total de linhas processadas */}
         <div className="text-center">
-          <div className="text-sm text-muted-foreground mb-1">Linhas processadas</div>
-          <div className="text-2xl font-bold">{total.toLocaleString()}</div>
+          <div className="text-sm text-muted-foreground mb-1">{t("processed")}</div>
+          <div className="text-2xl font-bold">{fmt(total)}</div>
         </div>
 
         {/* Grupos de métricas */}
@@ -84,95 +90,95 @@ export function SummaryStep({ stats, isImporting, onSyncAgain, onClose }: Summar
             {/* Válidas */}
             <div className="flex items-center justify-between py-2 border-b border-border">
               <div className="flex items-center gap-1.5">
-                <span className="text-sm text-foreground">Válidas</span>
+                <span className="text-sm text-foreground">{t("valid")}</span>
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <IconInfoCircle className="w-3.5 h-3.5 text-muted-foreground cursor-help" />
                   </TooltipTrigger>
                   <TooltipContent>
-                    <p>Linhas com ad_id não nulo, data válida e leadscore não nulo</p>
+                    <p>{t("validHint")}</p>
                   </TooltipContent>
                 </Tooltip>
               </div>
               <div className="flex items-center gap-2">
-                <span className="text-sm font-medium text-foreground">{validas.toLocaleString()}</span>
+                <span className="text-sm font-medium text-foreground">{fmt(validas)}</span>
                 <span className="text-xs text-muted-foreground">({pct(validas)}%)</span>
               </div>
             </div>
             {/* Utilizadas */}
             <div className="flex items-center justify-between py-2 border-b border-border">
               <div className="flex items-center gap-1.5">
-                <span className="text-sm text-foreground pl-3">Utilizadas</span>
+                <span className="text-sm text-foreground pl-3">{t("used")}</span>
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <IconInfoCircle className="w-3.5 h-3.5 text-muted-foreground cursor-help" />
                   </TooltipTrigger>
                   <TooltipContent>
-                    <p>Linhas válidas cujo par (ad_id, data) tem match no ad_metrics</p>
+                    <p>{t("usedHint")}</p>
                   </TooltipContent>
                 </Tooltip>
               </div>
               <div className="flex items-center gap-2">
-                <span className="text-sm font-medium text-success">{utilizadas.toLocaleString()}</span>
+                <span className="text-sm font-medium text-success">{fmt(utilizadas)}</span>
                 <span className="text-xs text-muted-foreground">({pct(utilizadas)}%)</span>
               </div>
             </div>
             {/* Únicas */}
             <div className="flex items-center justify-between py-2 border-b border-border">
               <div className="flex items-center gap-1.5">
-                <span className="text-sm text-foreground pl-6">Únicas</span>
+                <span className="text-sm text-foreground pl-6">{t("unique")}</span>
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <IconInfoCircle className="w-3.5 h-3.5 text-muted-foreground cursor-help" />
                   </TooltipTrigger>
                   <TooltipContent>
-                    <p>Pares únicos (ad_id, data) atualizados no ad_metrics. Linhas com mesmo ad_id e data são agregadas em um único registro</p>
+                    <p>{t("uniqueHint")}</p>
                   </TooltipContent>
                 </Tooltip>
               </div>
               <div className="flex items-center gap-2">
-                <span className="text-sm font-medium text-success-70">{unicas.toLocaleString()}</span>
+                <span className="text-sm font-medium text-success-70">{fmt(unicas)}</span>
                 <span className="text-xs text-muted-foreground">({pct(unicas)}%)</span>
               </div>
             </div>
             {/* Ignoradas */}
             <div className="flex items-center justify-between py-2 border-b border-border">
               <div className="flex items-center gap-1.5">
-                <span className="text-sm text-foreground pl-3">Ignoradas</span>
+                <span className="text-sm text-foreground pl-3">{t("ignored")}</span>
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <IconInfoCircle className="w-3.5 h-3.5 text-muted-foreground cursor-help" />
                   </TooltipTrigger>
                   <TooltipContent>
-                    <p>Linhas válidas cujo par (ad_id, data) não tem match no ad_metrics</p>
+                    <p>{t("ignoredHint")}</p>
                     {stats.ids_not_found_count != null && stats.ids_out_of_pack_count != null && (
                       <p className="mt-1 text-xs text-muted-foreground">
-                        Não encontrados: {stats.ids_not_found_count} · Fora do pack: {stats.ids_out_of_pack_count}
+                        {t("notFound", { notFound: stats.ids_not_found_count, outOfPack: stats.ids_out_of_pack_count })}
                       </p>
                     )}
                   </TooltipContent>
                 </Tooltip>
               </div>
               <div className="flex items-center gap-2">
-                <span className="text-sm font-medium text-warning">{ignoradas.toLocaleString()}</span>
+                <span className="text-sm font-medium text-warning">{fmt(ignoradas)}</span>
                 <span className="text-xs text-muted-foreground">({pct(ignoradas)}%)</span>
               </div>
             </div>
             {/* Inválidas */}
             <div className="flex items-center justify-between py-2">
               <div className="flex items-center gap-1.5">
-                <span className="text-sm text-foreground">Inválidas</span>
+                <span className="text-sm text-foreground">{t("invalid")}</span>
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <IconInfoCircle className="w-3.5 h-3.5 text-muted-foreground cursor-help" />
                   </TooltipTrigger>
                   <TooltipContent>
-                    <p>Linhas com ad_id nulo, data inválida ou sem leadscore</p>
+                    <p>{t("invalidHint")}</p>
                   </TooltipContent>
                 </Tooltip>
               </div>
               <div className="flex items-center gap-2">
-                <span className="text-sm font-medium text-destructive">{invalidas.toLocaleString()}</span>
+                <span className="text-sm font-medium text-destructive">{fmt(invalidas)}</span>
                 <span className="text-xs text-muted-foreground">({pct(invalidas)}%)</span>
               </div>
             </div>
@@ -182,19 +188,19 @@ export function SummaryStep({ stats, isImporting, onSyncAgain, onClose }: Summar
         {/* 140: o que o sync fez com cada coluna vinculada */}
         {customColumns.length > 0 && (
           <div className="rounded-md border border-border bg-background p-3 space-y-1.5">
-            <div className="text-xs font-medium text-muted-foreground">Colunas adicionais</div>
+            <div className="text-xs font-medium text-muted-foreground">{t("extraColumns")}</div>
             {customColumns.map(([id, report]) => (
               <div key={id} className="flex items-center justify-between gap-3 text-sm">
                 <span className="truncate">
                   {report.label || id}
-                  <span className="text-2xs text-muted-foreground"> · {report.kind === "leadscore" ? "leadscore" : report.kind === "category" ? "categoria" : "número"}</span>
+                  <span className="text-2xs text-muted-foreground"> · {t("kind", { kind: report.kind === "leadscore" || report.kind === "category" ? report.kind : "number" })}</span>
                 </span>
                 {report.invalid_reason ? (
-                  <span className="shrink-0 text-2xs text-warning">ignorada: {report.invalid_reason}</span>
+                  <span className="shrink-0 text-2xs text-warning">{t("ignoredReason", { reason: report.invalid_reason })}</span>
                 ) : (
                   <span className="shrink-0 tabular-nums text-xs text-muted-foreground">
-                    {(report.values ?? 0).toLocaleString()} valores
-                    {report.skipped ? ` · ${report.skipped.toLocaleString()} célula(s) inválida(s) pulada(s)` : ""}
+                    {t("values", { count: fmt(report.values ?? 0) })}
+                    {report.skipped ? t("skippedCells", { count: fmt(report.skipped) }) : ""}
                   </span>
                 )}
               </div>
@@ -204,10 +210,10 @@ export function SummaryStep({ stats, isImporting, onSyncAgain, onClose }: Summar
         <div className="flex gap-2 pt-4">
           <Button type="button" variant="outline" onClick={onSyncAgain} disabled={isImporting} className="flex items-center gap-2">
             <IconRefresh className="w-4 h-4" />
-            Atualizar dados novamente
+            {t("syncAgain")}
           </Button>
           <Button type="button" variant="default" onClick={onClose} disabled={isImporting}>
-            Fechar
+            {t("close")}
           </Button>
         </div>
       </div>

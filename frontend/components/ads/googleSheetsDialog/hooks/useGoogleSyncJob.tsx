@@ -2,6 +2,7 @@
 
 import { useState, useCallback, useRef, useEffect } from "react";
 import { api } from "@/lib/api/endpoints";
+import { translate } from "@/lib/i18n/translate";
 import { logger } from "@/lib/utils/logger";
 import { SheetSyncResponse } from "@/lib/api/schemas";
 import {
@@ -43,7 +44,7 @@ export function useGoogleSyncJob() {
     async (options: { integrationId: string; title: string; packId?: string | null }): Promise<void> => {
       const { integrationId, title, packId } = options;
       const toastId = `sheet-import-${integrationId}-${Date.now()}`;
-      const packNameForWarning = title || "Importação";
+      const packNameForWarning = title || translate("ads.syncJob.importFallback");
       const storeKey = packId ?? integrationId;
 
       const jobIdRef = { current: null as string | null };
@@ -111,7 +112,7 @@ export function useGoogleSyncJob() {
           });
         }
       } catch (error: any) {
-        const msg = error?.message || "Erro ao iniciar importação";
+        const msg = error?.message || translate("ads.syncJob.startError");
         logger.error("useGoogleSyncJob: erro ao iniciar ou processar sync com Google Sheets", { integrationId, packId, error });
         finishProgressToast(toastId, false, msg);
       }
@@ -140,12 +141,12 @@ export function useGoogleSyncJob() {
           api.facebook.cancelJobsBatch([jobIdRef.current], "Importação do Leadscore cancelada pelo usuário").catch(() => {});
         }
         dismissToast(toastId);
-        showProcessCancelledWarning("sheets", "Planilha");
+        showProcessCancelledWarning("sheets", translate("ads.syncJob.sheet"));
       };
 
       showProgressToast(
         toastId,
-        "Planilha",
+        translate("ads.syncJob.sheet"),
         1,
         SHEETS_TOAST_TOTAL_STEPS,
         undefined,
@@ -162,7 +163,7 @@ export function useGoogleSyncJob() {
         const result = await pollSheetsSyncJob({
           syncJobId: job_id,
           toastId,
-          packName: "Planilha",
+          packName: translate("ads.syncJob.sheet"),
           packId: storeKey,
           integrationId,
           getCancelled: () => cancelledRef.current,

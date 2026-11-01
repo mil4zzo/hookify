@@ -28,6 +28,7 @@ import { AppError, normalizeJobErrorMessage } from "@/lib/utils/errors";
 import { logger } from "@/lib/utils/logger";
 import type { SheetSyncCustomColumnReport } from "@/lib/api/schemas";
 import React from "react";
+import { translate } from "@/lib/i18n/translate";
 
 /**
  * O que o job de sync devolve ao terminar (`stats` do progresso). Nasce em
@@ -199,7 +200,7 @@ export async function pollSheetsSyncJob(config: PollSheetsSyncJobConfig): Promis
         // técnico vai para a linha de diagnóstico.
         const { message: userMessage, diagnostic } = normalizeJobErrorMessage(
           progress.message,
-          "Não foi possível sincronizar a planilha.",
+          translate("ads.pollSync.fallbackError"),
         );
         // O backend manda o detalhe técnico em details.technical; a extração da
         // mensagem é fallback para erros antigos/de outras camadas.
@@ -241,12 +242,12 @@ export async function pollSheetsSyncJob(config: PollSheetsSyncJobConfig): Promis
           // deu certo isso não é alarme, mas precisa ser dito: é o sinal de que o
           // arquivo pode não ser mais o mesmo que foi vinculado.
           const renameNote = stats.spreadsheet_renamed_from
-            ? ` A planilha foi renomeada para "${stats.spreadsheet_name}".`
+            ? translate("ads.pollSync.renamed", { name: String(stats.spreadsheet_name) })
             : "";
           finishProgressToast(
             toastId,
             true,
-            `Planilha importada com sucesso! ${updatedRows} registros atualizados.${renameNote}`,
+            translate("ads.pollSync.success", { rows: updatedRows, renameNote }),
             { durationSeconds: renameNote ? 9 : 5, context: "sheets", packName }
           );
         } else {
@@ -256,7 +257,7 @@ export async function pollSheetsSyncJob(config: PollSheetsSyncJobConfig): Promis
           showSheetSyncOutcomeWarning(
             packName,
             stats.outcome_message ||
-              "Nenhuma linha da planilha foi aplicada. Confira se ela está vinculada ao pack certo.",
+              translate("ads.pollSync.noRowsApplied"),
             outcome === "empty" ? "empty" : "no_match"
           );
         }
@@ -307,7 +308,7 @@ export async function pollSheetsSyncJob(config: PollSheetsSyncJobConfig): Promis
         undefined,
         onCancel,
         sheetsToastIcon,
-        buildSheetsToastContent("processing", {}, `Erro ao verificar progresso (tentativa ${consecutiveErrors})...`),
+        buildSheetsToastContent("processing", {}, translate("ads.pollSync.progressRetry", { attempt: consecutiveErrors })),
         lastPercent,
         true,
       );
@@ -316,11 +317,11 @@ export async function pollSheetsSyncJob(config: PollSheetsSyncJobConfig): Promis
     onTimeout: () => {
       finishProgressToast(
         toastId, false,
-        "A importação da planilha demorou mais de 10 minutos e o acompanhamento foi encerrado.",
+        translate("ads.pollSync.timeout"),
         {
           context: "sheets",
           packName,
-          diagnosticLine: "Registros já importados estão salvos. Rode a sincronização novamente se necessário.",
+          diagnosticLine: translate("ads.pollSync.timeoutDiagnostic"),
         }
       );
       return { success: false, error: "Timeout" };
@@ -330,7 +331,7 @@ export async function pollSheetsSyncJob(config: PollSheetsSyncJobConfig): Promis
     onMaxConsecutiveErrors: () => {
       finishProgressToast(
         toastId, false,
-        "Não foi possível verificar o progresso da importação. Verifique sua conexão e tente novamente.",
+        translate("ads.pollSync.tooManyErrors"),
         { context: "sheets", packName }
       );
       return { success: false, error: "Erros consecutivos" };

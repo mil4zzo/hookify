@@ -4,6 +4,7 @@ import { useCallback } from "react";
 import { api } from "@/lib/api/endpoints";
 import type { BulkSheetSyncResult } from "@/lib/api/schemas";
 import { useInvalidatePackAds } from "@/lib/api/hooks";
+import { translate } from "@/lib/i18n/translate";
 import { logger } from "@/lib/utils/logger";
 import { listNames, summarizeBulkSheetSync } from "@/lib/utils/bulkSheetSync";
 import {
@@ -58,9 +59,9 @@ export function useBulkSheetSync() {
           onCancel,
           icon,
           {
-            stageLabel: `Pack ${Math.min(done + 1, total)} de ${total}`,
-            stageTitle: "Sincronizando planilha",
-            dynamicLine: "Lendo o arquivo uma vez para todos os packs",
+            stageLabel: translate("ads.bulkSync.stageLabel", { current: Math.min(done + 1, total), total }),
+            stageTitle: translate("ads.bulkSync.stageTitle"),
+            dynamicLine: translate("ads.bulkSync.dynamicLine"),
             stageContext: "Leadscore",
           },
           Math.round((done / total) * 95),
@@ -87,7 +88,7 @@ export function useBulkSheetSync() {
           results = progress.details?.bulk_results ?? results;
           if (progress.status === "cancelled") return;
           if (progress.status === "failed") {
-            finishProgressToast(toastId, false, progress.message || "Erro ao sincronizar as planilhas.", { context: "sheets", packName: title });
+            finishProgressToast(toastId, false, progress.message || translate("ads.bulkSync.syncError"), { context: "sheets", packName: title });
             return;
           }
           if (progress.status === "completed") break;
@@ -108,8 +109,7 @@ export function useBulkSheetSync() {
           // O caso do pack antigo: a planilha é um arquivo só, com o conteúdo trocado a
           // cada lançamento — os anúncios dele podem não estar mais lá.
           showWarning(
-            `Sem linhas correspondentes em ${listNames(summary.noMatch)}: a planilha não tem leads dos anúncios desses packs. ` +
-              "Se forem de um lançamento anterior, o arquivo provavelmente já traz outro lançamento.",
+            translate("ads.bulkSync.noMatchWarning", { names: listNames(summary.noMatch) }),
           );
         }
         if (summary.failed.length) {
@@ -117,13 +117,13 @@ export function useBulkSheetSync() {
             new Error(
               summary.failed.length === 1
                 ? `${summary.failed[0].name}: ${summary.failed[0].error}`
-                : `Falharam: ${listNames(summary.failed.map((f) => f.name))}. ${summary.failed[0].error}`,
+                : translate("ads.bulkSync.failedMany", { names: listNames(summary.failed.map((f) => f.name)), error: summary.failed[0].error }),
             ),
           );
         }
       } catch (error: any) {
         logger.error("useBulkSheetSync: erro ao iniciar ou acompanhar o sync em massa", { error });
-        finishProgressToast(toastId, false, error?.message || "Erro ao sincronizar as planilhas.", { context: "sheets", packName: title });
+        finishProgressToast(toastId, false, error?.message || translate("ads.bulkSync.syncError"), { context: "sheets", packName: title });
       }
     },
     [invalidatePackAds, invalidateAdPerformance],

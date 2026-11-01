@@ -1,6 +1,8 @@
 "use client";
 
 import { useMemo } from "react";
+import { useTranslations } from "next-intl";
+import { formatLocaleDate } from "@/lib/i18n/locale";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   IconCircleCheck,
@@ -12,11 +14,11 @@ import {
 import type { DateColumnProbe } from "@/lib/api/schemas";
 import { overlapDays, buildVerdict, type HealthTone } from "@/lib/utils/dateColumnHealth";
 
-/** YYYY-MM-DD → DD/MM. Datas viajam em ISO; a tela fala BR. */
+/** YYYY-MM-DD → DD/MM (MM/DD em inglês). Datas viajam em ISO; a tela fala o idioma do usuário. */
 function br(iso?: string | null): string {
   if (!iso) return "—";
   const [, m, d] = iso.split("-");
-  return m && d ? `${d}/${m}` : iso;
+  return m && d ? formatLocaleDate(`${iso}T00:00:00`, { day: "2-digit", month: "2-digit" }) : iso;
 }
 
 const TONE_ICON: Record<HealthTone, typeof IconCircleCheck> = {
@@ -48,6 +50,7 @@ export function DateColumnHealth({
   packDateStart,
   packDateStop,
 }: DateColumnHealthProps) {
+  const t = useTranslations("ads.dateHealth");
   const overlap = useMemo(
     () => (probe ? overlapDays(probe.date_min, probe.date_max, packDateStart, packDateStop) : null),
     [probe, packDateStart, packDateStop],
@@ -57,7 +60,7 @@ export function DateColumnHealth({
     return (
       <div className="flex items-center gap-1.5 text-2xs text-muted-foreground">
         <IconLoader2 className="w-3.5 h-3.5 animate-spin" />
-        Analisando a coluna...
+        {t("analyzing")}
       </div>
     );
   }
@@ -69,16 +72,16 @@ export function DateColumnHealth({
   const { tone, headline } = buildVerdict(probe, selectedFormat, overlap);
   const Icon = TONE_ICON[tone];
 
-  const formatLine =
+  const formatKind =
     probe.resolved_format === "DD/MM/YYYY"
-      ? "dia/mês/ano — reconhecido pelos próprios dados"
+      ? "dmy"
       : probe.resolved_format === "MM/DD/YYYY"
-        ? "mês/dia/ano — reconhecido pelos próprios dados"
-        : probe.format_verdict === "conflicting"
-          ? "há linhas que só fazem sentido em dia/mês e outras só em mês/dia"
-          : probe.format_verdict === "ambiguous"
-            ? "todas as datas caem entre os dias 1 e 12, então os dois formatos são possíveis"
-            : "nenhuma data reconhecida";
+        ? "mdy"
+        : probe.format_verdict === "conflicting" || probe.format_verdict === "ambiguous"
+          ? probe.format_verdict
+          : "none";
+  const formatLine = t("formatLine", { kind: formatKind });
+  const datesTail = probe.resolved_format ? (probe.readable_cells === probe.non_empty_cells ? "allReadable" : "someUnreadable") : "none";
 
   return (
     <div className={`flex items-center gap-1.5 text-2xs ${TONE_TEXT[tone]}`}>
@@ -92,37 +95,30 @@ export function DateColumnHealth({
           <TooltipContent className="max-w-xs">
             <div className="space-y-1.5">
               <div>
-                <span className="font-medium">Datas</span>
+                <span className="font-medium">{t("datesTitle")}</span>
                 <p className="text-muted-foreground">
-                  {probe.non_empty_cells.toLocaleString()} linhas preenchidas
-                  {probe.resolved_format
-                    ? probe.readable_cells === probe.non_empty_cells
-                      ? ", todas legíveis."
-                      : `, ${(probe.non_empty_cells - probe.readable_cells).toLocaleString()} que não consigo ler.`
-                    : "."}
+                  {t("datesFilled", { filled: probe.non_empty_cells, tail: datesTail, unreadable: probe.non_empty_cells - probe.readable_cells })}
                   {probe.unparseable_samples.length > 0 && (
-                    <> Ex.: {probe.unparseable_samples.map((s) => `"${s}"`).join(", ")}.</>
+                    <> {t("examples", { samples: probe.unparseable_samples.map((s) => `"${s}"`).join(", ") })}</>
                   )}
                 </p>
               </div>
               <div>
-                <span className="font-medium">Formato</span>
+                <span className="font-medium">{t("formatTitle")}</span>
                 <p className="text-muted-foreground">{formatLine}</p>
               </div>
               {probe.date_min && (
                 <div>
-                  <span className="font-medium">Período</span>
+                  <span className="font-medium">{t("periodTitle")}</span>
                   <p className="text-muted-foreground">
-                    planilha de {br(probe.date_min)} a {br(probe.date_max)}
+                    {t("sheetRange", { from: br(probe.date_min), to: br(probe.date_max) })}
                     {packDateStart && packDateStop ? (
                       <>
-                        {" · "}pack de {br(packDateStart)} a {br(packDateStop)}
+                        {" · "}{t("packRange", { from: br(packDateStart), to: br(packDateStop) })}
                         {overlap != null && (
                           <>
                             {" · "}
-                            {overlap === 0
-                              ? "nenhum dia em comum"
-                              : `${overlap.toLocaleString()} ${overlap === 1 ? "dia" : "dias"} em comum`}
+                            {overlap === 0 ? t("noCommonDays") : t("commonDays", { count: overlap })}
                           </>
                         )}
                       </>
