@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import { useMemo } from "react";
 import { IconFocus2 } from "@tabler/icons-react";
 import { cn } from "@/lib/utils/cn";
@@ -32,7 +33,10 @@ function formatLabel(option: string) {
   return option;
 }
 
-export function ActionTypeFilter({ label = "Evento de Conversão", value, onChange, options, className, placeholder = "Evento de Conversão", isLoading = false }: ActionTypeFilterProps) {
+export function ActionTypeFilter({ label, value, onChange, options, className, placeholder, isLoading = false }: ActionTypeFilterProps) {
+  const t = useTranslations("commonUi");
+  const resolvedLabel = label ?? t("actionType.label");
+  const resolvedPlaceholder = placeholder ?? t("actionType.label");
   // Determinar se está carregando (prop explícita ou quando não há opções ainda)
   const isActuallyLoading = isLoading || options.length === 0;
 
@@ -55,7 +59,7 @@ export function ActionTypeFilter({ label = "Evento de Conversão", value, onChan
 
   return (
     <div className={cn("space-y-2", className)}>
-      {label && <label className="text-sm font-medium">{label}</label>}
+      {resolvedLabel && <label className="text-sm font-medium">{resolvedLabel}</label>}
       <TooltipProvider>
         <FilterListPopover
           options={listOptions}
@@ -64,8 +68,8 @@ export function ActionTypeFilter({ label = "Evento de Conversão", value, onChan
           selectedIds={selectedIds}
           onSelect={onChange}
           searchable
-          searchPlaceholder="Buscar evento de conversão..."
-          emptyMessage="Nenhum evento encontrado."
+          searchPlaceholder={t("actionType.search")}
+          emptyMessage={t("actionType.empty")}
           contentClassName="w-[var(--radix-popover-trigger-width)] bg-card text-foreground"
           disabled={isActuallyLoading}
           trigger={
@@ -75,7 +79,7 @@ export function ActionTypeFilter({ label = "Evento de Conversão", value, onChan
                   <Skeleton className="h-4 w-32" />
                 </span>
               ) : (
-                <span className="truncate text-left">{selectedOption ? formatLabel(selectedOption) : placeholder}</span>
+                <span className="truncate text-left">{selectedOption ? formatLabel(selectedOption) : resolvedPlaceholder}</span>
               )}
             </FilterSelectButton>
           }
@@ -83,7 +87,7 @@ export function ActionTypeFilter({ label = "Evento de Conversão", value, onChan
             <Tooltip>
               <TooltipTrigger asChild>{node}</TooltipTrigger>
               <TooltipContent>
-                <p>Evento de conversão</p>
+                <p>{t("actionType.tooltip")}</p>
               </TooltipContent>
             </Tooltip>
           )}

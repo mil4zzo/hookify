@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import { useMemo } from "react";
 import { IconAlertTriangle } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
@@ -50,6 +51,7 @@ interface PackConflictGuardProps {
  *      "não sei" era abrir justamente a porta que este componente fecha.
  */
 export function PackConflictGuard({ serverOverlapRows, children }: PackConflictGuardProps) {
+  const t = useTranslations("commonUi");
   const { conflictMap, isUnavailable: conflictUnknown } = usePackConflicts();
   const { packs } = useClientPacks();
   const packPreferences = useFiltersStore((s) => s.packPreferences);
@@ -97,13 +99,13 @@ export function PackConflictGuard({ serverOverlapRows, children }: PackConflictG
         <div className="space-y-1">
           <h2 className="text-lg font-semibold text-foreground">
             {unknownWithMultiple && conflictingPairs.length === 0
-              ? "Não foi possível verificar conflito entre packs"
-              : "Packs em conflito na seleção"}
+              ? t("conflictGuard.unknownTitle")
+              : t("conflictGuard.conflictTitle")}
           </h2>
           <p className="text-sm text-muted-foreground">
             {unknownWithMultiple && conflictingPairs.length === 0
-              ? "A verificação de packs que compartilham anúncios falhou. Com mais de um pack somando, não há como garantir que os totais estejam exatos — então preferimos não mostrá-los. Deixe um pack selecionado, ou recarregue a página para tentar de novo."
-              : "Os packs abaixo contêm os mesmos anúncios nos mesmos dias. Analisá-los juntos duplicaria (ou descartaria) dados — os totais deixariam de ser exatos. Desmarque um pack de cada par para continuar, ou crie um pack que junte os dois recortes."}
+              ? t("conflictGuard.unknownBody")
+              : t("conflictGuard.conflictBody")}
           </p>
         </div>
 
@@ -119,10 +121,10 @@ export function PackConflictGuard({ serverOverlapRows, children }: PackConflictG
                 </span>
                 <div className="flex gap-2">
                   <Button variant="outline" size="sm" onClick={() => unselect(a)}>
-                    Desmarcar «{nameById.get(a) ?? "primeiro"}»
+                    {t("conflictGuard.unselect", { name: nameById.get(a) ?? t("conflictGuard.first") })}
                   </Button>
                   <Button variant="outline" size="sm" onClick={() => unselect(b)}>
-                    Desmarcar «{nameById.get(b) ?? "segundo"}»
+                    {t("conflictGuard.unselect", { name: nameById.get(b) ?? t("conflictGuard.second") })}
                   </Button>
                 </div>
               </div>
@@ -135,7 +137,7 @@ export function PackConflictGuard({ serverOverlapRows, children }: PackConflictG
           <div className="flex w-full flex-wrap items-center justify-center gap-2">
             {selectedIds.map((id) => (
               <Button key={id} variant="outline" size="sm" onClick={() => unselect(id)}>
-                Desmarcar «{nameById.get(id) ?? id}»
+                {t("conflictGuard.unselect", { name: nameById.get(id) ?? id })}
               </Button>
             ))}
           </div>
@@ -147,8 +149,7 @@ export function PackConflictGuard({ serverOverlapRows, children }: PackConflictG
           // fiação fica para o dia em que a detecção server-side voltar; não
           // confie nela como rede de segurança enquanto isto estiver escrito.
           <p className="text-xs text-muted-foreground">
-            O servidor detectou {serverOverlapRows} linha{(serverOverlapRows ?? 0) === 1 ? "" : "s"} em
-            conflito na seleção atual. Revise os packs selecionados no filtro acima.
+            {t("conflictGuard.serverOverlap", { count: serverOverlapRows ?? 0 })}
           </p>
         )}
       </div>

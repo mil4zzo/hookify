@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import React, { useState, useEffect } from "react";
 import { AppDialog } from "./AppDialog";
 import { Button } from "@/components/ui/button";
@@ -23,6 +24,7 @@ interface AutoRefreshConfirmModalProps {
 }
 
 export function AutoRefreshConfirmModal({ isOpen, packCount, autoRefreshPacks, onConfirm, onCancel }: AutoRefreshConfirmModalProps) {
+  const t = useTranslations("commonUi");
   // Estado para controlar quais packs estão selecionados
   const [selectedPackIds, setSelectedPackIds] = useState<Set<string>>(new Set());
 
@@ -52,21 +54,21 @@ export function AutoRefreshConfirmModal({ isOpen, packCount, autoRefreshPacks, o
   // Se há apenas 1 pack, usar o comportamento simples
   if (packCount === 1) {
     return (
-      <AppDialog isOpen={isOpen} onClose={onCancel} title="Atualizar dados de Packs" size="md" closeOnOverlayClick={false} closeOnEscape={false} showCloseButton={false}>
+      <AppDialog isOpen={isOpen} onClose={onCancel} title={t("autoRefresh.title")} size="md" closeOnOverlayClick={false} closeOnEscape={false} showCloseButton={false}>
         <div className="flex flex-col items-center gap-6 py-4">
-          <h2 className="text-xl font-semibold text-foreground">Atualizar dados de Packs</h2>
+          <h2 className="text-xl font-semibold text-foreground">{t("autoRefresh.title")}</h2>
 
-          <p className="text-center text-sm text-muted-foreground">Encontramos 1 pack configurado para atualização automática. Deseja atualizá-lo agora?</p>
+          <p className="text-center text-sm text-muted-foreground">{t("autoRefresh.single")}</p>
 
           <div className="flex gap-4 w-full">
             <Button onClick={onCancel} variant="destructive" className="flex-1 flex items-center justify-center gap-2">
               <IconCircleX className="h-5 w-5" />
-              Não
+              {t("autoRefresh.no")}
             </Button>
 
             <Button onClick={() => onConfirm(autoRefreshPacks.map((p: any) => p.id))} variant="success" className="flex-1 flex items-center justify-center gap-2">
               <IconCircleCheck className="h-5 w-5" />
-              Sim
+              {t("autoRefresh.yes")}
             </Button>
           </div>
         </div>
@@ -76,11 +78,11 @@ export function AutoRefreshConfirmModal({ isOpen, packCount, autoRefreshPacks, o
 
   // Se há múltiplos packs, mostrar lista com checkboxes
   return (
-    <AppDialog isOpen={isOpen} onClose={onCancel} title="Atualizar dados de Packs" size="md" closeOnOverlayClick={false} closeOnEscape={false} showCloseButton={false}>
+    <AppDialog isOpen={isOpen} onClose={onCancel} title={t("autoRefresh.title")} size="md" closeOnOverlayClick={false} closeOnEscape={false} showCloseButton={false}>
       <div className="flex flex-col gap-6 py-4">
         <div>
-          <h2 className="text-xl font-semibold text-foreground mb-2">Atualizar dados de Packs</h2>
-          <p className="text-sm text-muted-foreground">Selecione quais deseja atualizar:</p>
+          <h2 className="text-xl font-semibold text-foreground mb-2">{t("autoRefresh.title")}</h2>
+          <p className="text-sm text-muted-foreground">{t("autoRefresh.pick")}</p>
         </div>
 
         <div className="space-y-2 max-h-[300px] overflow-y-auto border border-border rounded-lg p-2">
@@ -107,7 +109,7 @@ export function AutoRefreshConfirmModal({ isOpen, packCount, autoRefreshPacks, o
 
         <div className="flex items-center justify-between text-sm">
           <span className="text-muted-foreground">
-            {selectedPackIds.size} de {packCount} pack{packCount > 1 ? "s" : ""} selecionado{selectedPackIds.size > 1 ? "s" : ""}
+            {t("autoRefresh.selectedCount", { selected: selectedPackIds.size, total: packCount })}
           </span>
           <Button
             variant="ghost"
@@ -122,19 +124,19 @@ export function AutoRefreshConfirmModal({ isOpen, packCount, autoRefreshPacks, o
               }
             }}
           >
-            {selectedPackIds.size === autoRefreshPacks.length ? "Desmarcar todos" : "Marcar todos"}
+            {selectedPackIds.size === autoRefreshPacks.length ? t("autoRefresh.deselectAll") : t("autoRefresh.selectAll")}
           </Button>
         </div>
 
         <div className="flex gap-4 w-full">
           <Button onClick={onCancel} variant="destructiveOutline" className="flex-1 flex items-center justify-center gap-2">
             <IconCircleX className="h-5 w-5" />
-            Cancelar
+            {t("cancel")}
           </Button>
 
           <Button onClick={handleConfirmClick} disabled={selectedPackIds.size === 0} variant="success" className="flex-1 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed">
             <IconCircleCheck className="h-5 w-5" />
-            Atualizar {selectedPackIds.size > 0 ? `${selectedPackIds.size} pack${selectedPackIds.size > 1 ? "s" : ""}` : "packs"}
+            {selectedPackIds.size > 0 ? t("autoRefresh.updateN", { count: selectedPackIds.size }) : t("autoRefresh.updatePacks")}
           </Button>
         </div>
       </div>

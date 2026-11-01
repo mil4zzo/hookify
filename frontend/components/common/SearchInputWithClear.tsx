@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import React from "react";
 import { IconSearch, IconX } from "@tabler/icons-react";
 import { Input, type InputProps } from "@/components/ui/input";
@@ -27,13 +28,14 @@ export interface SearchInputWithClearProps extends Omit<React.InputHTMLAttribute
 export function SearchInputWithClear({
   value,
   onChange,
-  placeholder = "Buscar...",
+  placeholder: placeholderProp,
   wrapperClassName,
   inputClassName,
   inputRef,
   onClear,
   ...inputProps
 }: SearchInputWithClearProps) {
+  const t = useTranslations("commonUi");
   const handleClear = () => {
     if (onClear) {
       onClear();
@@ -48,7 +50,7 @@ export function SearchInputWithClear({
       <Input
         ref={inputRef}
         type="search"
-        placeholder={placeholder}
+        placeholder={placeholderProp ?? t("search.placeholder")}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         className={cn("pl-9 pr-9", inputClassName)}
@@ -59,7 +61,7 @@ export function SearchInputWithClear({
           type="button"
           onClick={handleClear}
           className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded-full hover:bg-muted transition-colors text-foreground hover:text-destructive"
-          aria-label="Limpar busca"
+          aria-label={t("search.clear")}
         >
           <IconX className="h-4 w-4" />
         </button>

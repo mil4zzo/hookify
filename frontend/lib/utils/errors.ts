@@ -1,3 +1,4 @@
+import { translate } from "@/lib/i18n/translate"
 export type AppError = {
   status?: number
   code?: string
@@ -22,13 +23,13 @@ export function parseError(err: unknown): AppError {
       const validationErrors = data.detail
         .map((e: any) => {
           if (typeof e === 'object' && e.msg) {
-            const field = e.loc?.join('.') || 'campo'
+            const field = e.loc?.join('.') || translate('utils.errors.field')
             return `${field}: ${e.msg}`
           }
           return typeof e === 'string' ? e : JSON.stringify(e)
         })
         .join(', ')
-      message = `Erro de validação: ${validationErrors}`
+      message = translate('utils.errors.validation', { errors: validationErrors })
     } else if (data?.detail) {
       // Se detail é objeto estruturado (com code/message), extrair message
       if (typeof data.detail === 'object' && data.detail !== null && 'message' in data.detail) {
@@ -66,24 +67,24 @@ export function parseError(err: unknown): AppError {
   // Erro de rede/conexão
   if (anyErr?.request) {
     const code = anyErr.code || 'NETWORK'
-    let message = 'Falha de conexão com o servidor'
+    let message = translate('utils.errors.connectionFailed')
     
     // Mensagens mais específicas baseadas no código de erro
     switch (anyErr.code) {
       case 'ECONNREFUSED':
-        message = 'Servidor recusou a conexão. Verifique se o backend está rodando.'
+        message = translate('utils.errors.refused')
         break
       case 'ENOTFOUND':
-        message = 'Servidor não encontrado. Verifique a URL do backend.'
+        message = translate('utils.errors.notFound')
         break
       case 'ECONNABORTED':
-        message = 'Timeout na requisição: A busca de anúncios demorou mais que 20 minutos. Tente novamente ou reduza o período de busca.'
+        message = translate('utils.errors.timeoutSearch')
         break
       case 'ETIMEDOUT':
-        message = 'Timeout de conexão. Verifique sua conexão com a internet.'
+        message = translate('utils.errors.timeoutConnection')
         break
       default:
-        message = `Erro de rede: ${anyErr.message || 'Falha de conexão com o servidor'}`
+        message = translate('utils.errors.network', { message: anyErr.message || translate('utils.errors.connectionFailed') })
     }
     
     return { 
@@ -131,7 +132,7 @@ const MAX_DIAGNOSTIC_LENGTH = 240
  */
 export function normalizeJobErrorMessage(
   raw?: string | null,
-  fallback = 'Erro desconhecido',
+  fallback = translate('utils.errors.unknown'),
 ): { message: string; diagnostic?: string } {
   let message = String(raw ?? '').trim()
   if (!message) return { message: fallback }
@@ -210,23 +211,23 @@ export function normalizeAuthError(error: unknown): AppError {
       code: 'AUTH_UNREACHABLE',
       status,
       message:
-        'Não foi possível conectar ao servidor de autenticação. Ele pode estar temporariamente indisponível — aguarde alguns instantes e tente novamente.',
+        translate('utils.errors.authUnreachable'),
       details: msg,
     }
   }
 
   // Traduções pontuais das mensagens em inglês mais comuns do Supabase Auth.
   const AUTH_MESSAGE_PT: Record<string, string> = {
-    'Invalid login credentials': 'E-mail ou senha incorretos.',
-    'Email not confirmed': 'E-mail ainda não confirmado. Verifique sua caixa de entrada.',
-    'User already registered': 'Já existe uma conta com este e-mail.',
+    'Invalid login credentials': translate('utils.errors.invalidCredentials'),
+    'Email not confirmed': translate('utils.errors.emailNotConfirmed'),
+    'User already registered': translate('utils.errors.alreadyRegistered'),
   }
   if (msg && AUTH_MESSAGE_PT[msg]) {
     return { status, code: anyErr?.code ?? name, message: AUTH_MESSAGE_PT[msg] }
   }
 
   if (msg) return { status, code: anyErr?.code ?? name ?? 'AUTH_ERROR', message: msg }
-  return { code: 'AUTH_ERROR', message: 'Erro de autenticação. Tente novamente.', details: error }
+  return { code: 'AUTH_ERROR', message: translate('utils.errors.auth'), details: error }
 }
 
 

@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import React from "react";
 import { IconPhoto } from "@tabler/icons-react";
 import { cn } from "@/lib/utils/cn";
@@ -25,14 +26,15 @@ import { cn } from "@/lib/utils/cn";
  *   e centraliza de verdade, em vez de ficar no lugar do número.
  */
 export function MetricNotApplicable({ minimal = false, className }: { minimal?: boolean; className?: string }) {
+  const t = useTranslations("commonUi");
   return (
     <div
       // Altura = a do par que substitui, para não desalinhar as linhas vizinhas:
       // sparkline (h-6 = 24) + gap-3 (12) + número text-base leading-none (16) = 52.
       // No minimal: h-4 (16) + gap-1 (4) + text-xs leading-none (12) = 32 = h-8.
       className={cn("grid place-items-center text-muted-foreground opacity-50", minimal ? "h-8" : "h-[52px]", className)}
-      title="Anúncio de imagem — não tem métricas de vídeo"
-      aria-label="Não se aplica: anúncio de imagem"
+      title={t("metricNotApplicable.title")}
+      aria-label={t("metricNotApplicable.aria")}
       role="img"
     >
       <IconPhoto className={minimal ? "h-3.5 w-3.5" : "h-5 w-5"} stroke={1.7} aria-hidden />

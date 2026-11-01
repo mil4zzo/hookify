@@ -4,7 +4,8 @@ import { useServerHealth } from "@/lib/hooks/useServerHealth";
 import { IconWifi, IconWifiOff, IconLoader2, IconCheck } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 import { formatDistanceToNow } from "date-fns";
-import { ptBR } from "date-fns/locale";
+import { useTranslations } from "next-intl";
+import { getDateFnsLocale } from "@/lib/utils/dateFnsLocale";
 import { useEffect, useState, useRef } from "react";
 
 /**
@@ -14,6 +15,7 @@ import { useEffect, useState, useRef } from "react";
  * Renderizado junto com o topheader de forma responsiva.
  */
 export default function ServerStatusBanner() {
+  const t = useTranslations("layout.server");
   const { status, isChecking, lastOnlineAt, hasCheckedOnce, refetch } = useServerHealth({
     checkInterval: 30000,
     enabled: true,
@@ -52,13 +54,13 @@ export default function ServerStatusBanner() {
         <div className="hidden md:flex container mx-auto items-center justify-center px-8">
           <div className="flex items-center gap-2 text-success">
             <IconCheck className="h-4 w-4 shrink-0" />
-            <span className="text-sm font-medium">Servidor reconectado!</span>
+            <span className="text-sm font-medium">{t("reconnected")}</span>
           </div>
         </div>
         <div className="md:hidden container mx-auto flex items-center justify-center px-4">
           <div className="flex items-center gap-2 text-success">
             <IconCheck className="h-4 w-4 shrink-0" />
-            <span className="text-sm font-medium">Servidor reconectado!</span>
+            <span className="text-sm font-medium">{t("reconnected")}</span>
           </div>
         </div>
       </div>
@@ -80,13 +82,13 @@ export default function ServerStatusBanner() {
         <div className="hidden md:flex container mx-auto items-center justify-between px-8">
           <div className="flex items-center gap-2 text-warning">
             <IconLoader2 className="h-4 w-4 animate-spin shrink-0" />
-            <span className="text-sm font-medium">Verificando conexão com o servidor...</span>
+            <span className="text-sm font-medium">{t("checking")}</span>
           </div>
         </div>
         <div className="md:hidden container mx-auto flex items-center justify-between px-4">
           <div className="flex items-center gap-2 text-warning">
             <IconLoader2 className="h-4 w-4 animate-spin shrink-0" />
-            <span className="text-sm font-medium">Verificando conexão com o servidor...</span>
+            <span className="text-sm font-medium">{t("checking")}</span>
           </div>
         </div>
       </div>
@@ -102,15 +104,15 @@ export default function ServerStatusBanner() {
         <div className="flex items-center gap-2 text-destructive min-w-0">
           <IconWifiOff className="h-4 w-4 shrink-0" />
           <span className="text-sm font-medium truncate">
-            Servidor offline
+            {t("offline")}
             {lastOnlineAt && (
               <span className="text-destructive-70 ml-2 font-normal">
-                (última conexão há{" "}
-                {formatDistanceToNow(lastOnlineAt, {
-                  addSuffix: true,
-                  locale: ptBR,
+                {t("lastOnline", {
+                  when: formatDistanceToNow(lastOnlineAt, {
+                    addSuffix: true,
+                    locale: getDateFnsLocale(),
+                  }),
                 })}
-                )
               </span>
             )}
           </span>
@@ -120,12 +122,12 @@ export default function ServerStatusBanner() {
             {isChecking ? (
               <>
                 <IconLoader2 className="h-3 w-3 mr-1 animate-spin" />
-                Verificando...
+                {t("verifying")}
               </>
             ) : (
               <>
                 <IconWifi className="h-3 w-3 mr-1" />
-                Tentar novamente
+                {t("retry")}
               </>
             )}
           </Button>
@@ -136,15 +138,15 @@ export default function ServerStatusBanner() {
         <div className="flex items-center gap-2 text-destructive min-w-0">
           <IconWifiOff className="h-4 w-4 shrink-0" />
           <span className="text-sm font-medium truncate">
-            Servidor offline
+            {t("offline")}
             {lastOnlineAt && (
               <span className="text-destructive-70 ml-2 font-normal">
-                (última conexão há{" "}
-                {formatDistanceToNow(lastOnlineAt, {
-                  addSuffix: true,
-                  locale: ptBR,
+                {t("lastOnline", {
+                  when: formatDistanceToNow(lastOnlineAt, {
+                    addSuffix: true,
+                    locale: getDateFnsLocale(),
+                  }),
                 })}
-                )
               </span>
             )}
           </span>
@@ -154,12 +156,12 @@ export default function ServerStatusBanner() {
             {isChecking ? (
               <>
                 <IconLoader2 className="h-3 w-3 mr-1 animate-spin" />
-                Verificando...
+                {t("verifying")}
               </>
             ) : (
               <>
                 <IconWifi className="h-3 w-3 mr-1" />
-                Tentar novamente
+                {t("retry")}
               </>
             )}
           </Button>

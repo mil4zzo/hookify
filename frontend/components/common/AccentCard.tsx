@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import type { HTMLAttributes, KeyboardEvent, MouseEvent, ReactNode } from "react";
 import { cn } from "@/lib/utils/cn";
 import { CircleHelp } from "lucide-react";
@@ -34,6 +35,7 @@ export function AccentCard({
   onKeyDown,
   ...props
 }: AccentCardProps) {
+  const t = useTranslations("commonUi");
   const isInteractive = interactive ?? Boolean(onClick);
 
   const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
@@ -87,7 +89,7 @@ export function AccentCard({
                       <button
                         type="button"
                         className="flex-shrink-0 text-muted-foreground transition-colors hover:text-foreground"
-                        aria-label="Ver descrição da métrica"
+                        aria-label={t("accentCard.describeMetric")}
                         onClick={handleTooltipTriggerClick}
                         onKeyDown={handleTooltipTriggerKeyDown}
                       >

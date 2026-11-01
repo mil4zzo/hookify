@@ -1,4 +1,6 @@
 "use client";
+import { translate } from "@/lib/i18n/translate";
+import { useTranslations } from "next-intl";
 import { useEffect, useMemo, useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { LoadingState, ErrorState } from "@/components/common/States";
@@ -7,6 +9,7 @@ import { showError } from "@/lib/utils/toast";
 import { useAuthManager } from "@/lib/hooks/useAuthManager";
 
 function CallbackContent() {
+  const t = useTranslations("auth.callback");
   const search = useSearchParams();
   const router = useRouter();
   const code = search.get("code");
@@ -65,7 +68,7 @@ function CallbackContent() {
             router.replace("/packs");
           }
         } catch (e: any) {
-          showError({ message: e?.message ?? "Falha ao autenticar" });
+          showError({ message: e?.message ?? translate("auth.callback.failed") });
         }
       };
       run();
@@ -75,23 +78,24 @@ function CallbackContent() {
   if (error) {
     return (
       <main className="min-h-screen max-w-screen-md mx-auto px-4 md:px-6 lg:px-8 py-10">
-        <h1 className="text-2xl font-semibold mb-4">Login com Facebook</h1>
-        <ErrorState message={errorDescription || "Falha na autenticação."} />
+        <h1 className="text-2xl font-semibold mb-4">{t("title")}</h1>
+        <ErrorState message={errorDescription || t("failedState")} />
       </main>
     );
   }
 
   return (
     <main className="min-h-screen max-w-screen-md mx-auto px-4 md:px-6 lg:px-8 py-10">
-      <h1 className="text-2xl font-semibold mb-4">Login com Facebook</h1>
-      <LoadingState label="Finalizando autenticação..." />
+      <h1 className="text-2xl font-semibold mb-4">{t("title")}</h1>
+      <LoadingState label={t("finishing")} />
     </main>
   );
 }
 
 export default function CallbackPage() {
+  const t = useTranslations("auth.callback");
   return (
-    <Suspense fallback={<LoadingState label="Carregando..." />}>
+    <Suspense fallback={<LoadingState label={t("loading")} />}>
       <CallbackContent />
     </Suspense>
   );

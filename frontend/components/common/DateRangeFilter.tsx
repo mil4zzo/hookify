@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import { DateRange } from "react-day-picker";
 import { format, parse } from "date-fns";
 import { DateRangePicker } from "@/components/ui/date-range-picker";
@@ -56,7 +57,9 @@ function valueToDateRange(value: DateRangeValue): DateRange | undefined {
   }
 }
 
-export function DateRangeFilter({ label = "Período", showLabel = true, value, onChange, className, useModal = false, disableFutureDates = false, requireConfirmation = false, disabled = false, usePackDates = false, onUsePackDatesChange, showPackDatesSwitch = false, packDatesRange }: DateRangeFilterProps) {
+export function DateRangeFilter({ label: labelProp, showLabel = true, value, onChange, className, useModal = false, disableFutureDates = false, requireConfirmation = false, disabled = false, usePackDates = false, onUsePackDatesChange, showPackDatesSwitch = false, packDatesRange }: DateRangeFilterProps) {
+  const t = useTranslations("commonUi");
+  const label = labelProp ?? t("dateRange.label");
   const dateRange = valueToDateRange(value);
   // Preservar null explicitamente para distinguir entre "sem dados" (null) e "aguardando" (undefined)
   const packDatesRangeDateRange = packDatesRange === null ? null : packDatesRange ? valueToDateRange(packDatesRange) : undefined;
@@ -68,5 +71,5 @@ export function DateRangeFilter({ label = "Período", showLabel = true, value, o
     onChange(newValue);
   };
 
-  return <DateRangePicker label={label} showLabel={showLabel} date={dateRange} onDateChange={handleDateChange} className={className} placeholder="Selecione um período" useModal={useModal} disableFutureDates={disableFutureDates} requireConfirmation={requireConfirmation} disabled={disabled} usePackDates={usePackDates} onUsePackDatesChange={onUsePackDatesChange} showPackDatesSwitch={showPackDatesSwitch} packDatesRange={packDatesRangeDateRange} />;
+  return <DateRangePicker label={label} showLabel={showLabel} date={dateRange} onDateChange={handleDateChange} className={className} placeholder={t("dateRange.placeholder")} useModal={useModal} disableFutureDates={disableFutureDates} requireConfirmation={requireConfirmation} disabled={disabled} usePackDates={usePackDates} onUsePackDatesChange={onUsePackDatesChange} showPackDatesSwitch={showPackDatesSwitch} packDatesRange={packDatesRangeDateRange} />;
 }

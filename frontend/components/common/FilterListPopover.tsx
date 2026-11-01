@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import { type CSSProperties, type ReactElement, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { closestCenter, DndContext, type DragEndEvent, KeyboardSensor, PointerSensor, useSensor, useSensors } from "@dnd-kit/core";
 import { arrayMove, SortableContext, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
@@ -109,7 +110,10 @@ function SortableFilterListRow({ id, children }: { id: string; children: (state:
  * Base de GemsColumnFilter, ManagerColumnFilter, PackFilter e ActionTypeFilter — criar
  * novos filtros de lista SEMPRE por aqui, nunca reimplementando popover+lista+checkbox.
  */
-export function FilterListPopover({ options, groups, mode = "multi", selectedIds, onSelect, trigger, triggerWrap, header, searchable = false, searchPlaceholder = "Buscar...", emptyMessage = "Nenhum resultado encontrado.", onSelectAll, onDeselectAll, reorderable = false, onReorder, align = "start", contentClassName, disablePortal = false, onOpenChange, disabled = false }: FilterListPopoverProps) {
+export function FilterListPopover({ options, groups, mode = "multi", selectedIds, onSelect, trigger, triggerWrap, header, searchable = false, searchPlaceholder: searchPlaceholderProp, emptyMessage: emptyMessageProp, onSelectAll, onDeselectAll, reorderable = false, onReorder, align = "start", contentClassName, disablePortal = false, onOpenChange, disabled = false }: FilterListPopoverProps) {
+  const t = useTranslations("commonUi");
+  const searchPlaceholder = searchPlaceholderProp ?? t("filterList.search");
+  const emptyMessage = emptyMessageProp ?? t("filterList.empty");
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
   const listRef = useRef<HTMLDivElement>(null);
@@ -225,7 +229,7 @@ export function FilterListPopover({ options, groups, mode = "multi", selectedIds
             // O clique na alça não deve alternar a seleção da opção.
             onClick={(e) => e.stopPropagation()}
             className="mr-1 flex h-5 w-4 shrink-0 cursor-grab items-center justify-center text-muted-foreground outline-none hover:text-foreground active:cursor-grabbing"
-            aria-label={`Reordenar ${option.label}`}
+            aria-label={t("filterList.reorder", { label: option.label })}
           >
             <IconGripVertical className="h-3.5 w-3.5" />
           </button>
@@ -331,13 +335,13 @@ export function FilterListPopover({ options, groups, mode = "multi", selectedIds
             <div className="flex items-center gap-2">
               {onSelectAll && (
                 <button type="button" onClick={() => onSelectAll(selectableVisibleIds)} disabled={!hasSelectableLeft} className="text-xs font-medium text-foreground hover:underline disabled:pointer-events-none disabled:opacity-40">
-                  Selecionar todos
+                  {t("filterList.selectAll")}
                 </button>
               )}
               {onSelectAll && onDeselectAll && <span className="text-xs text-muted-foreground">·</span>}
               {onDeselectAll && (
                 <button type="button" onClick={() => onDeselectAll(visibleIds)} disabled={visibleSelectedCount === 0} className="text-xs font-medium text-foreground hover:underline disabled:pointer-events-none disabled:opacity-40">
-                  Limpar
+                  {t("filterList.clear")}
                 </button>
               )}
             </div>

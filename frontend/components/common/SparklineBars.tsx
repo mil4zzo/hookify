@@ -1,5 +1,6 @@
 "use client";
 
+import { translate } from "@/lib/i18n/translate";
 import React from "react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import {
@@ -98,7 +99,7 @@ export function getSparklineBarValueDisplay(params: {
   zeroValueLabel?: string;
 }): string {
   const { value, hasData, valueFormatter, zeroValueLabel } = params;
-  if (!hasData) return "Sem dados";
+  if (!hasData) return translate("commonUi.sparkline.noData");
   const isNull = value == null || Number.isNaN(value as number);
   if (isNull || value === 0) return zeroValueLabel || (valueFormatter ? valueFormatter(0) : "0");
   return valueFormatter ? valueFormatter(Number(value)) : `${Number(value).toFixed(2)}`;

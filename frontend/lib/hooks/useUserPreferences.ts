@@ -1,5 +1,6 @@
 "use client";
 
+import { translate } from "@/lib/i18n/translate";
 import { useCallback, useEffect } from "react";
 import { getSupabaseClient } from "@/lib/supabase/client";
 import { useSupabaseAuth } from "./useSupabaseAuth";
@@ -143,7 +144,7 @@ async function ensureUserPreferencesLoaded(userId: string, fallbackSettings: { l
       saveValidationCriteriaToStorage(preferences.validationCriteria);
     } catch (err) {
       logger.error("Erro ao carregar preferências:", err);
-      useUserPreferencesStore.getState().setError("Erro ao carregar configuração");
+      useUserPreferencesStore.getState().setError(translate("hooks.preferences.loadError"));
       const fallback = normalizePreferences(null, fallbackSettings);
       useUserPreferencesStore.getState().setPreferences(fallback, userId);
     } finally {
@@ -252,7 +253,7 @@ export function useUserPreferences() {
         }
       } catch (err) {
         logger.error("Erro ao salvar preferências:", err);
-        useUserPreferencesStore.getState().setError("Erro ao salvar configuração");
+        useUserPreferencesStore.getState().setError(translate("hooks.preferences.saveError"));
         throw err;
       } finally {
         useUserPreferencesStore.getState().setIsSaving(false);

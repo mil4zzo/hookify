@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import { useMemo } from "react";
 import { IconCards } from "@tabler/icons-react";
 import { FilterSelectButton } from "@/components/common/FilterSelectButton";
@@ -68,6 +69,7 @@ interface PackFilterProps {
 }
 
 export function PackFilter({ packs, selectedPackIds, onTogglePack, onClose, className, showLabel = true, isLoading = false, packsClient = true, groupByPacks = false, onGroupByPacksChange, showGroupByPacksSwitch = false, singleSelect = false, onSelectAll, onDeselectAll, conflictMap, conflictUnknown = false }: PackFilterProps) {
+  const t = useTranslations("commonUi");
   // Determinar se está carregando (prop explícita ou quando packsClient é false ou quando não há packs ainda)
   const isActuallyLoading = isLoading || !packsClient || packs.length === 0;
 
@@ -89,7 +91,6 @@ export function PackFilter({ packs, selectedPackIds, onTogglePack, onClose, clas
         // Usar stats.uniqueAds (preferencialmente do backend)
         // Não usar pack.ads porque ads estão no cache IndexedDB
         const adCount = pack.stats?.uniqueAds || 0;
-        const sharedSuffix = pack.shared_role ? " · compartilhado" : "";
 
         // A regra vive em `packConflictGate` — a mesma que o "Selecionar todos" e
         // o bloqueio da área usam. Aqui só se traduz o veto em texto.
@@ -104,33 +105,33 @@ export function PackFilter({ packs, selectedPackIds, onTogglePack, onClose, clas
           veto === null
             ? undefined
             : veto.kind === "conflict"
-              ? `Conflita com «${nameById.get(veto.withPackId) ?? "um pack selecionado"}»: os dois têm os mesmos anúncios nos mesmos dias. Desmarque um para usar o outro.`
-              : "Não foi possível verificar conflito entre packs agora. Enquanto isso, só um pack por vez — somar packs que compartilham anúncios daria totais errados.";
+              ? t("packFilter.conflictHint", { name: nameById.get(veto.withPackId) ?? t("packFilter.selectedPackFallback") })
+              : t("packFilter.unknownHint");
 
         return {
           id: pack.id,
           label: pack.name,
-          meta: `(${adCount} ${adCount === 1 ? "anúncio" : "anúncios"}${sharedSuffix})`,
+          meta: t(pack.shared_role ? "packFilter.sharedMeta" : "packFilter.meta", { count: adCount }),
           disabled,
           disabledHint,
         };
       }),
-    [packs, sortKey, sortDirection, conflictMap, conflictUnknown, selectedPackIds, nameById],
+    [packs, sortKey, sortDirection, conflictMap, conflictUnknown, selectedPackIds, nameById, t],
   );
 
   if (hasNoPacks) {
     return (
       <div className={`space-y-2 ${className || ""}`}>
-        {showLabel && <label className="text-sm font-medium">Packs</label>}
+        {showLabel && <label className="text-sm font-medium">{t("packFilter.label")}</label>}
         <TooltipProvider>
           <Tooltip>
             <TooltipTrigger asChild>
               <FilterSelectButton disabled iconPosition="start" icon={<IconCards className="mr-2 h-4 w-4 flex-shrink-0" />}>
-                <span className="text-muted-foreground">Nenhum pack carregado</span>
+                <span className="text-muted-foreground">{t("packFilter.noneLoaded")}</span>
               </FilterSelectButton>
             </TooltipTrigger>
             <TooltipContent>
-              <p>Pack selecionado</p>
+              <p>{t("packFilter.tooltip")}</p>
             </TooltipContent>
           </Tooltip>
         </TooltipProvider>
@@ -148,26 +149,26 @@ export function PackFilter({ packs, selectedPackIds, onTogglePack, onClose, clas
   // Texto para o botão
   const getButtonText = () => {
     if (selectedCount === 0) {
-      return singleSelect ? "Selecione um pack" : "Nenhum pack selecionado";
+      return singleSelect ? t("packFilter.pickOne") : t("packFilter.noneSelected");
     }
     if (singleSelect) {
       // Em single-select, sempre mostra o nome do pack selecionado
       const selectedPack = packs.find((p) => selectedPackIds.has(p.id));
-      return selectedPack?.name || "Pack selecionado";
+      return selectedPack?.name || t("packFilter.selectedPack");
     }
     if (selectedCount === totalCount) {
-      return `Todos os packs (${totalCount})`;
+      return t("packFilter.all", { total: totalCount });
     }
     if (selectedCount === 1) {
       const selectedPack = packs.find((p) => selectedPackIds.has(p.id));
-      return selectedPack?.name || "1 pack selecionado";
+      return selectedPack?.name || t("packFilter.oneSelected");
     }
-    return `${selectedCount} de ${totalCount} packs selecionados`;
+    return t("packFilter.someSelected", { selected: selectedCount, total: totalCount });
   };
 
   return (
     <div className={`space-y-2 ${className || ""}`}>
-      {showLabel && <label className="text-sm font-medium">Packs</label>}
+      {showLabel && <label className="text-sm font-medium">{t("packFilter.label")}</label>}
       <TooltipProvider>
         <FilterListPopover
           options={options}
@@ -175,8 +176,8 @@ export function PackFilter({ packs, selectedPackIds, onTogglePack, onClose, clas
           onSelect={onTogglePack}
           mode={singleSelect ? "single" : "multi"}
           searchable={showSearch}
-          searchPlaceholder="Buscar pack..."
-          emptyMessage="Nenhum pack encontrado."
+          searchPlaceholder={t("packFilter.search")}
+          emptyMessage={t("packFilter.empty")}
           onSelectAll={!singleSelect ? onSelectAll : undefined}
           onDeselectAll={!singleSelect ? onDeselectAll : undefined}
           contentClassName={singleSelect ? "w-[300px] bg-card text-foreground" : undefined}
@@ -184,7 +185,7 @@ export function PackFilter({ packs, selectedPackIds, onTogglePack, onClose, clas
             if (!open) onClose?.();
           }}
           disabled={isActuallyLoading}
-          header={showGroupByPacksSwitch && onGroupByPacksChange ? <ToggleSwitch id="group-by-packs-popover" checked={groupByPacks} onCheckedChange={onGroupByPacksChange} label="Agrupar por packs" variant="default" size="md" /> : undefined}
+          header={showGroupByPacksSwitch && onGroupByPacksChange ? <ToggleSwitch id="group-by-packs-popover" checked={groupByPacks} onCheckedChange={onGroupByPacksChange} label={t("packFilter.groupBy")} variant="default" size="md" /> : undefined}
           trigger={
             <FilterSelectButton disabled={isActuallyLoading} iconPosition="start" icon={<IconCards className="mr-2 h-4 w-4 flex-shrink-0" />}>
               {isActuallyLoading ? (
@@ -200,7 +201,7 @@ export function PackFilter({ packs, selectedPackIds, onTogglePack, onClose, clas
             <Tooltip>
               <TooltipTrigger asChild>{node}</TooltipTrigger>
               <TooltipContent>
-                <p>Pack selecionado</p>
+                <p>{t("packFilter.tooltip")}</p>
               </TooltipContent>
             </Tooltip>
           )}

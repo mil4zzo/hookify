@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import { ReactNode } from "react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
@@ -38,7 +39,10 @@ export interface SortableColumnProps {
  * Componente de coluna arrastável genérico.
  * Pode ser usado com qualquer tipo de coluna que use GenericColumn.
  */
-export function SortableColumn({ id, title, items, colorScheme, emptyMessage = "Nenhum item encontrado", averageValue, renderCard, formatAverage, showSearch = false, searchValue = "", onSearchChange, searchPlaceholder = "Pesquisar", maxHeight, tooltip, headerRight, enableDrag = true }: SortableColumnProps) {
+export function SortableColumn({ id, title, items, colorScheme, emptyMessage: emptyMessageProp, averageValue, renderCard, formatAverage, showSearch = false, searchValue = "", onSearchChange, searchPlaceholder: searchPlaceholderProp, maxHeight, tooltip, headerRight, enableDrag = true }: SortableColumnProps) {
+  const t = useTranslations("commonUi");
+  const emptyMessage = emptyMessageProp ?? t("column.empty");
+  const searchPlaceholder = searchPlaceholderProp ?? t("column.search");
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
 
   // Normalizar transform: manter apenas translate, forçando escala 1 para evitar deformação vertical

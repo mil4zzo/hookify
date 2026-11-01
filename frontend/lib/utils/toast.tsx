@@ -1,3 +1,4 @@
+import { translate } from "@/lib/i18n/translate";
 import { toast } from "sonner";
 import { AppError } from "./errors";
 import { parseError } from "./errors";
@@ -95,8 +96,8 @@ export function showWarning(message: string) {
  *   - Transcrição: "Transcrição cancelada."
  */
 export function showProcessCancelledWarning(context: "meta" | "sheets" | "transcription", packName: string) {
-  const label = context === "meta" ? "Meta" : context === "sheets" ? "Leadscore" : "Transcrição";
-  const message = context === "transcription" ? "Transcrição cancelada." : "Atualização cancelada.";
+  const label = context === "meta" ? "Meta" : context === "sheets" ? "Leadscore" : translate("utils.toast.transcription");
+  const message = context === "transcription" ? translate("utils.toast.cancelledTranscription") : translate("utils.toast.cancelled");
 
   const { icon } = getTerminalContextMeta(context);
   emitStatusToast("warning", message, { eyebrow: packName ? `${packName}: ${label}` : label, icon });
@@ -130,12 +131,13 @@ export function showSheetSyncOutcomeWarning(
 }
 
 // Meta Ads: mapeamento status/stage -> índice 1-5 para "Etapa X de 5"
+// Getters: o idioma é lido na hora do uso, não na carga do módulo.
 const META_STAGE_TITLES: Record<string, string> = {
-  "1": "Preparando atualização",
-  "2": "Coletando anúncios",
-  "3": "Buscando detalhes",
-  "4": "Processando dados",
-  "5": "Salvando",
+  get "1"() { return translate("utils.toast.metaStage1"); },
+  get "2"() { return translate("utils.toast.metaStage2"); },
+  get "3"() { return translate("utils.toast.metaStage3"); },
+  get "4"() { return translate("utils.toast.metaStage4"); },
+  get "5"() { return translate("utils.toast.metaStage5"); },
 };
 
 /** Retorna índice da etapa (1-5) e título a partir de status e details. */
@@ -165,10 +167,10 @@ export function getMetaDynamicLine(status: string, stage: string, details?: any)
     const pageCount = details?.page_count;
     const totalCollected = details?.total_collected;
     if (pageCount > 0 && totalCollected != null) {
-      return `Página ${pageCount} (${totalCollected} registros)`;
+      return translate("utils.toast.pageWithTotal", { page: pageCount, total: totalCollected });
     }
-    if (pageCount > 0) return `Página ${pageCount}`;
-    return "Trabalhando nisso...";
+    if (pageCount > 0) return translate("utils.toast.page", { page: pageCount });
+    return translate("utils.toast.working");
   }
 
   // Enriquecimento: "X de Y anúncios"
@@ -179,24 +181,24 @@ export function getMetaDynamicLine(status: string, stage: string, details?: any)
     const totalBeforeDedup = details?.ads_before_dedup ?? 0;
     const total = (adsEnriched ?? 0) > totalAfterDedup ? totalBeforeDedup || totalAfterDedup : totalAfterDedup || details?.enrichment_total;
     if (adsEnriched != null && total != null && total > 0) {
-      return `${adsEnriched} de ${total} anúncios`;
+      return translate("utils.toast.adsOf", { done: adsEnriched, total });
     }
     if (details?.enrichment_batches != null && details?.enrichment_total > 0) {
-      return `Bloco ${details.enrichment_batches} de ${details.enrichment_total}`;
+      return translate("utils.toast.block", { done: details.enrichment_batches, total: details.enrichment_total });
     }
-    return "Buscando detalhes...";
+    return translate("utils.toast.fetchingDetails");
   }
 
   // Formatação
   if (stage === "formatação" || stage === "STAGE_FORMATTING") {
-    return "Otimizando...";
+    return translate("utils.toast.optimizing");
   }
 
   // Persistência (message vem de progress.message no backend, passada via details em buildMetaToastContent)
   if (stage === "persistência" || stage === "STAGE_PERSISTENCE") {
     const msg = details?.message || "";
     if (msg) return msg;
-    return "Salvando...";
+    return translate("utils.toast.saving");
   }
 
   // Retry do GK: o backend escreve "Instabilidade na Meta. Tentativa 2 de 3 em 15 s…"
@@ -204,8 +206,8 @@ export function getMetaDynamicLine(status: string, stage: string, details?: any)
   if (stage === "meta_retry_wait" && details?.message) return details.message;
 
   // meta_running ou fallback
-  if (status === "meta_running") return "Solicitando dados ao Meta...";
-  return "Aguarde...";
+  if (status === "meta_running") return translate("utils.toast.requestingMeta");
+  return translate("utils.toast.wait");
 }
 
 // ----- Meta Ads: Progress Calculation & Toast Content -----
@@ -274,7 +276,7 @@ export function buildMetaToastContent(status: string, details: any, topLevelMess
     : details;
   const dynamicLine = getMetaDynamicLine(status, stage, detailsWithMessage);
   return {
-    stageLabel: `Etapa ${stepIndex} de 5`,
+    stageLabel: translate("utils.toast.step", { step: stepIndex, total: 5 }),
     stageTitle: title,
     dynamicLine,
     stageContext: "Meta",
@@ -285,35 +287,35 @@ export function buildMetaToastContent(status: string, details: any, topLevelMess
  * Traduz stages técnicos do backend para mensagens amigáveis (legado)
  */
 export function getStageMessage(stage: string, details?: any): string {
-  if (stage === "paginação" || stage === "STAGE_PAGINATION") return "Coletando anúncios";
-  if (stage === "enriquecimento" || stage === "STAGE_ENRICHMENT") return "Buscando detalhes";
-  if (stage === "formatação" || stage === "STAGE_FORMATTING") return "Processando dados";
+  if (stage === "paginação" || stage === "STAGE_PAGINATION") return translate("utils.toast.metaStage2");
+  if (stage === "enriquecimento" || stage === "STAGE_ENRICHMENT") return translate("utils.toast.metaStage3");
+  if (stage === "formatação" || stage === "STAGE_FORMATTING") return translate("utils.toast.metaStage4");
   if (stage === "persistência" || stage === "STAGE_PERSISTENCE") {
     const msg = details?.message || "";
-    if (msg.includes("Salvando anúncios")) return "Salvando anúncios";
-    if (msg.includes("Salvando métricas")) return "Salvando métricas";
-    if (msg.includes("Calculando")) return "Calculando estatísticas";
-    if (msg.includes("Otimizando")) return "Finalizando";
-    if (msg.includes("Finalizando")) return "Concluindo";
-    return "Salvando";
+    if (msg.includes("Salvando anúncios")) return translate("utils.toast.stageSavingAds");
+    if (msg.includes("Salvando métricas")) return translate("utils.toast.stageSavingMetrics");
+    if (msg.includes("Calculando")) return translate("utils.toast.stageCalculating");
+    if (msg.includes("Otimizando")) return translate("utils.toast.stageFinishing");
+    if (msg.includes("Finalizando")) return translate("utils.toast.stageConcluding");
+    return translate("utils.toast.stageSaving");
   }
-  if (stage === "lendo_planilha") return "Lendo planilha";
-  if (stage === "processando_dados") return "Processando dados";
-  if (stage.includes("persistindo")) return "Salvando dados";
-  return details?.message || "Processando";
+  if (stage === "lendo_planilha") return translate("utils.toast.readingSheet");
+  if (stage === "processando_dados") return translate("utils.toast.processingData");
+  if (stage.includes("persistindo")) return translate("utils.toast.savingData");
+  return details?.message || translate("utils.toast.processing");
 }
 
 /**
  * Traduz status do job para mensagem de progresso (legado)
  */
 export function getStatusMessage(status: string, stage?: string, details?: any): string {
-  if (status === "meta_running") return "Preparando atualização";
-  if (status === "processing") return stage ? getStageMessage(stage, details) : "Processando";
+  if (status === "meta_running") return translate("utils.toast.preparing");
+  if (status === "processing") return stage ? getStageMessage(stage, details) : translate("utils.toast.processing");
   if (status === "persisting") return getStageMessage("persistência", details);
-  if (status === "completed") return "Concluído";
-  if (status === "failed") return "Erro ao atualizar";
-  if (status === "cancelled") return "Cancelado";
-  return "Processando";
+  if (status === "completed") return translate("utils.toast.done");
+  if (status === "failed") return translate("utils.toast.failedUpdate");
+  if (status === "cancelled") return translate("utils.toast.cancelledShort");
+  return translate("utils.toast.processing");
 }
 
 /** Conteúdo do toast de progresso em etapas (Meta, Sheets, Transcrição). */
@@ -333,9 +335,9 @@ export type MetaProgressToastContent = ProgressToastContent;
 // ----- Google Sheets Sync -----
 const SHEETS_TOTAL_STAGES = 3;
 const SHEETS_STAGE_TITLES: Record<string, string> = {
-  "1": "Lendo planilha",
-  "2": "Processando dados",
-  "3": "Salvando dados",
+  get "1"() { return translate("utils.toast.readingSheet"); },
+  get "2"() { return translate("utils.toast.processingData"); },
+  get "3"() { return translate("utils.toast.savingData"); },
 };
 
 export function getSheetsStageInfo(status: string, details?: any): { stepIndex: number; title: string } {
@@ -356,23 +358,23 @@ export function getSheetsStageInfo(status: string, details?: any): { stepIndex: 
 export function getSheetsDynamicLine(status: string, stage: string, details?: any): string {
   if (status === "completed") {
     const rows = details?.rows_updated ?? details?.updated_rows;
-    if (rows != null && rows > 0) return `${rows} registros atualizados`;
-    return "Importação concluída";
+    if (rows != null && rows > 0) return translate("utils.toast.rowsUpdated", { count: rows });
+    return translate("utils.toast.importDone");
   }
   if (stage === "lendo_planilha") {
     const rows = details?.rows_read;
-    if (rows != null && rows > 0) return `${rows} linhas lidas`;
-    return "Conectando à planilha...";
+    if (rows != null && rows > 0) return translate("utils.toast.rowsRead", { count: rows });
+    return translate("utils.toast.connectingSheet");
   }
   if (stage === "processando_dados") {
     const rows = details?.rows_processed;
-    if (rows != null && rows > 0) return `${rows} linhas processadas`;
-    return "Validando dados...";
+    if (rows != null && rows > 0) return translate("utils.toast.rowsProcessed", { count: rows });
+    return translate("utils.toast.validating");
   }
   if (stage === "persistindo" || status === "persisting") {
-    return "Aplicando leadscore aos anúncios...";
+    return translate("utils.toast.applyingLeadscore");
   }
-  return "Preparando importação...";
+  return translate("utils.toast.preparingImport");
 }
 
 /**
@@ -384,7 +386,7 @@ export function buildSheetsToastContent(status: string, details?: any, overrideD
   const stage = details?.stage ?? "";
   const dynamicLine = overrideDynamicLine ?? getSheetsDynamicLine(status, stage, details);
   return {
-    stageLabel: `Etapa ${stepIndex} de ${SHEETS_TOTAL_STAGES}`,
+    stageLabel: translate("utils.toast.step", { step: stepIndex, total: SHEETS_TOTAL_STAGES }),
     stageTitle: title,
     dynamicLine,
     stageContext: "Leadscore",
@@ -408,21 +410,21 @@ export const SHEETS_TOAST_TOTAL_STEPS = SHEETS_TOTAL_STAGES;
 
 /** Label padronizado para toasts de progresso do Sheets: "Planilha: {title}". */
 export function getSheetsProgressPackLabel(title: string): string {
-  return `Planilha: ${title || "Importação"}`;
+  return translate("utils.toast.sheetLabel", { title: title || translate("utils.toast.importFallback") });
 }
 
 // ----- Transcrição -----
 const TRANSCRIPTION_TOTAL_STAGES = 2;
 const TRANSCRIPTION_STAGE_TITLES: Record<string, string> = {
-  "1": "Iniciando transcrição",
-  "2": "Transcrevendo anúncios",
+  get "1"() { return translate("utils.toast.transcriptionStage1"); },
+  get "2"() { return translate("utils.toast.transcriptionStage2"); },
 };
 
 export function getTranscriptionStageInfo(status: string, details?: any): { stepIndex: number; title: string } {
   const total = Math.max(0, Number(details?.total ?? 0));
   const done = Math.max(0, Number(details?.done ?? 0));
   if (status === "completed" || status === "cancelled" || status === "failed") {
-    return { stepIndex: TRANSCRIPTION_TOTAL_STAGES, title: "Concluído" };
+    return { stepIndex: TRANSCRIPTION_TOTAL_STAGES, title: translate("utils.toast.done") };
   }
   if (status === "processing") {
     if (total > 0 || done > 0) return { stepIndex: 2, title: TRANSCRIPTION_STAGE_TITLES["2"] };
@@ -432,9 +434,7 @@ export function getTranscriptionStageInfo(status: string, details?: any): { step
 }
 
 function formatTranscriptionCount(count: number): string {
-  if (count === 0) return "0 anúncios transcritos";
-  if (count === 1) return "1 anúncio transcrito";
-  return `${count} anúncios transcritos`;
+  return translate("utils.toast.transcribedCount", { count });
 }
 
 export function getTranscriptionDynamicLine(status: string, details?: any): string {
@@ -446,10 +446,9 @@ export function getTranscriptionDynamicLine(status: string, details?: any): stri
   }
   if (status === "processing" && total > 0) {
     const current = Math.min(done, total);
-    const label = total === 1 ? "anúncio" : "anúncios";
-    return `${current} de ${total} ${label}`;
+    return translate("utils.toast.adsProgress", { done: current, total });
   }
-  return "Preparando anúncios...";
+  return translate("utils.toast.preparingAds");
 }
 
 /**
@@ -460,10 +459,10 @@ export function buildTranscriptionToastContent(status: string, details?: any, ov
   const { stepIndex, title } = getTranscriptionStageInfo(status, details);
   const dynamicLine = overrideDynamicLine ?? getTranscriptionDynamicLine(status, details);
   return {
-    stageLabel: `Etapa ${stepIndex} de ${TRANSCRIPTION_TOTAL_STAGES}`,
+    stageLabel: translate("utils.toast.step", { step: stepIndex, total: TRANSCRIPTION_TOTAL_STAGES }),
     stageTitle: title,
     dynamicLine,
-    stageContext: "Transcrevendo",
+    stageContext: translate("utils.toast.transcribing"),
   };
 }
 
@@ -599,7 +598,7 @@ const TRANSCRIPTION_TOAST_ICON = <IconMicrophone className="h-5 w-5 flex-shrink-
 export function getTerminalContextMeta(context?: "meta" | "sheets" | "transcription"): { stageContext?: string; icon?: ReactNode } {
   if (context === "meta") return { stageContext: "Meta", icon: META_TOAST_ICON };
   if (context === "sheets") return { stageContext: "Leadscore", icon: SHEETS_TOAST_ICON };
-  if (context === "transcription") return { stageContext: "Transcrição", icon: TRANSCRIPTION_TOAST_ICON };
+  if (context === "transcription") return { stageContext: translate("utils.toast.transcription"), icon: TRANSCRIPTION_TOAST_ICON };
   return {};
 }
 
@@ -634,8 +633,8 @@ export function finishProgressToast(
   }
 
   const stagedContent: ProgressToastContent = {
-    stageLabel: "Concluído",
-    stageTitle: "Concluído",
+    stageLabel: translate("utils.toast.done"),
+    stageTitle: translate("utils.toast.done"),
     dynamicLine: message,
     stageContext,
   };

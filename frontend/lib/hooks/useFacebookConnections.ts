@@ -1,5 +1,6 @@
 "use client"
 
+import { translate } from "@/lib/i18n/translate"
 import { useEffect } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { facebookConnectorApi } from '@/lib/api/facebookConnector'
@@ -77,7 +78,7 @@ export function useFacebookConnections() {
       }
 
       if (!messageData.code) {
-        throw new Error('Código de autorização não recebido do Facebook.')
+        throw new Error(translate('hooks.facebook.noCode'))
       }
 
       try {
@@ -103,7 +104,7 @@ export function useFacebookConnections() {
           qc.refetchQueries({ queryKey: queryKeys.adAccounts }),
           qc.refetchQueries({ queryKey: queryKeys.me }),
         ])
-        showSuccess(reauth ? 'Facebook reconectado com sucesso!' : 'Facebook conectado com sucesso!')
+        showSuccess(translate(reauth ? 'hooks.facebook.reconnected' : 'hooks.facebook.connected'))
         return true
       } catch (e: any) {
         const authError = e as AuthPopupError

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { LEAD_ECONOMICS_MESSAGES as M, normalizeLeadEconomics, validateLeadEconomics, type LeadEconomics } from "../leadEconomics";
 import {
   LEAD_ECONOMICS_FIELD_MESSAGES as F,
-  LEAD_ECONOMICS_UNREADABLE_CUT_MESSAGE as UNREADABLE_CUT,
+  leadEconomicsUnreadableCutMessage,
   addDraftBand,
   addDraftProduct,
   bandsUsingProduct,
@@ -43,6 +43,8 @@ import {
   validateLeadEconomicsDraft,
   type LeadEconomicsDraft,
 } from "../leadEconomicsDraft";
+
+const UNREADABLE_CUT = leadEconomicsUnreadableCutMessage();
 
 /**
  * O rascunho da tela da economia do lead: texto digitado ↔ documento do contrato.

@@ -1,3 +1,4 @@
+import { translate } from "@/lib/i18n/translate"
 import { useQueryClient } from '@tanstack/react-query'
 import { useSessionStore } from '../store/session'
 import { useActiveJobsStore } from '../store/activeJobs'
@@ -25,7 +26,7 @@ export const useAuthManager = () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.me })
       
       // Mostrar sucesso
-      showSuccess('Autenticação realizada com sucesso!')
+      showSuccess(translate('hooks.authSuccess'))
       
       return true
     } catch (error) {

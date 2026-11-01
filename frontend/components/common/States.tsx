@@ -1,5 +1,6 @@
 "use client";
 
+import { translate } from "@/lib/i18n/translate";
 import type { ComponentType, ReactNode } from "react";
 import { IconAlertTriangle, IconCircleCheck, IconFolderOpen, IconInfoCircle, IconLoader2 } from "@tabler/icons-react";
 // design-system-exception: direct-skeleton-import - canonical state skeleton definitions
@@ -196,11 +197,11 @@ export function StateSkeleton({ variant, rows = 4, density = "default", classNam
   );
 }
 
-export function LoadingState({ label = "Carregando..." }: { label?: string }) {
+export function LoadingState({ label }: { label?: string }) {
   return (
     <div className="flex items-center gap-3 text-muted-foreground">
       <IconLoader2 className="h-5 w-5 animate-spin" />
-      <span>{label}</span>
+      <span>{label ?? translate("commonUi.loading")}</span>
     </div>
   );
 }

@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import { IconPhoto, IconPlayerPlayFilled } from "@tabler/icons-react";
 import Image from "next/image";
 import { getAdThumbnail } from "@/lib/utils/thumbnailFallback";
@@ -38,6 +39,7 @@ const ASPECT_RATIO_CLASSES: Record<AdPlayAreaAspectRatio, string> = {
 };
 
 export function AdPlayArea({ ad, thumbnailUrl, alt, aspectRatio = "3:4", size, className, onPlayClick, disablePlay = false, alwaysShowPlay = false, playButtonSize = 24 }: AdPlayAreaProps) {
+  const t = useTranslations("commonUi");
   // Obter thumbnail: priorizar thumbnailUrl, senão usar getAdThumbnail(ad)
   const thumbnail = thumbnailUrl || (ad ? getAdThumbnail(ad) : null);
   const altText = alt || (ad?.ad_name ? `${ad.ad_name} thumbnail` : "Ad thumbnail");
@@ -77,7 +79,7 @@ export function AdPlayArea({ ad, thumbnailUrl, alt, aspectRatio = "3:4", size, c
 
       {/* Botão de play */}
       {!disablePlay && (
-        <button className="absolute inset-0 flex items-center justify-center z-10 transition-opacity duration-500 opacity-100" onClick={handlePlayClick} aria-label="Reproduzir vídeo">
+        <button className="absolute inset-0 flex items-center justify-center z-10 transition-opacity duration-500 opacity-100" onClick={handlePlayClick} aria-label={t("adPlay.play")}>
           <div
             className={cn(
               "flex items-center justify-center rounded-full transition-all duration-500",

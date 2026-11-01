@@ -1,3 +1,4 @@
+import { translate } from "@/lib/i18n/translate";
 export type AuthPopupErrorCode =
   | "AUTH_POPUP_BLOCKED"
   | "AUTH_POPUP_CLOSED"
@@ -75,7 +76,7 @@ export async function openAuthPopup<TData extends AuthPopupEventData = AuthPopup
 ): Promise<TData> {
   if (typeof window === "undefined") {
     const err: AuthPopupError = Object.assign(
-      new Error("Popup de autenticação só pode ser usado no cliente."),
+      new Error(translate("utils.authPopup.clientOnly")),
       { code: "AUTH_POPUP_MESSAGE_ERROR" as AuthPopupErrorCode }
     );
     throw err;
@@ -110,7 +111,7 @@ export async function openAuthPopup<TData extends AuthPopupEventData = AuthPopup
 
   if (!popup) {
     const err: AuthPopupError = Object.assign(
-      new Error("Não foi possível abrir a janela de autenticação. Verifique o bloqueador de pop-ups."),
+      new Error(translate("utils.authPopup.blocked")),
       { code: "AUTH_POPUP_BLOCKED" as AuthPopupErrorCode }
     );
     throw err;
@@ -173,7 +174,7 @@ export async function openAuthPopup<TData extends AuthPopupEventData = AuthPopup
           anyData.errorDescription ||
           anyData.error_description ||
           anyData.error ||
-          "Falha na autenticação.";
+          translate("utils.authPopup.failed");
 
         const err: AuthPopupError = Object.assign(new Error(message), {
           code: "AUTH_POPUP_MESSAGE_ERROR" as AuthPopupErrorCode,
@@ -187,7 +188,7 @@ export async function openAuthPopup<TData extends AuthPopupEventData = AuthPopup
     if (timeoutMs > 0) {
       timeoutId = window.setTimeout(() => {
         const err: AuthPopupError = Object.assign(
-          new Error("Tempo limite para autenticação atingido."),
+          new Error(translate("utils.authPopup.timeout")),
           { code: "AUTH_POPUP_TIMEOUT" as AuthPopupErrorCode }
         );
         safeReject(err);
@@ -197,7 +198,7 @@ export async function openAuthPopup<TData extends AuthPopupEventData = AuthPopup
     closeWatcherId = window.setInterval(() => {
       if (popup.closed) {
         const err: AuthPopupError = Object.assign(
-          new Error("Autenticação cancelada pelo usuário (popup fechado)."),
+          new Error(translate("utils.authPopup.closed")),
           { code: "AUTH_POPUP_CLOSED" as AuthPopupErrorCode }
         );
         safeReject(err);

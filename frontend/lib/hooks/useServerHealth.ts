@@ -1,3 +1,4 @@
+import { translate } from "@/lib/i18n/translate"
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useState, useRef } from 'react'
 import { parseError, AppError } from '@/lib/utils/errors'
@@ -271,7 +272,7 @@ export function useServerHealth(
       }
 
       // 4. Mostrar toast de sucesso
-      showSuccess('Servidor reconectado! Dados atualizados.')
+      showSuccess(translate('hooks.serverReconnected'))
     } catch (error) {
       logger.error('Erro ao recarregar dados após reconexão:', error)
       // Não mostrar erro ao usuário - apenas logar

@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import { useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { IconChevronDown } from "@tabler/icons-react";
@@ -24,10 +25,11 @@ interface GemsColumnFilterProps {
 }
 
 export function GemsColumnFilter({ activeColumns, onToggleColumn, className }: GemsColumnFilterProps) {
+  const t = useTranslations("commonUi");
   const selectedCount = activeColumns.size;
   const totalCount = GEMS_COLUMNS.length;
 
-  const buttonText = selectedCount === 0 ? "Métricas (0)" : selectedCount === totalCount ? `Métricas (${totalCount})` : `Métricas (${selectedCount} de ${totalCount})`;
+  const buttonText = selectedCount === 0 ? t("gems.none") : selectedCount === totalCount ? t("gems.all", { total: totalCount }) : t("gems.some", { selected: selectedCount, total: totalCount });
 
   const options = useMemo(() => GEMS_COLUMNS.map((column) => ({ id: column.id, label: column.name })), []);
 

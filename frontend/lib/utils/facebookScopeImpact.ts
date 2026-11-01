@@ -12,6 +12,8 @@
 
 export type ScopeCriticality = "blocking" | "high" | "medium" | "low";
 
+import { translate } from "@/lib/i18n/translate";
+
 export interface ScopeImpact {
   /** Nome curto, exibido como título do item na lista */
   label: string;
@@ -23,34 +25,49 @@ export interface ScopeImpact {
 
 export const SCOPE_IMPACTS: Record<string, ScopeImpact> = {
   ads_read: {
-    label: "Ler dados de anúncios",
+    get label() {
+      return translate("utils.scopes.ads_read.label");
+    },
     criticality: "blocking",
-    impact:
-      "Sem essa permissão a conexão é inútil — nenhuma conta de anúncios pode ser lida. Reconecte autorizando todas as permissões.",
+    get impact() {
+      return translate("utils.scopes.ads_read.impact");
+    },
   },
   ads_management: {
-    label: "Gerenciar anúncios",
+    get label() {
+      return translate("utils.scopes.ads_management.label");
+    },
     criticality: "high",
-    impact:
-      "Você poderá visualizar seus anúncios, mas não poderá criar, editar ou pausar anúncios pela Hookify.",
+    get impact() {
+      return translate("utils.scopes.ads_management.impact");
+    },
   },
   business_management: {
-    label: "Gerenciar Business Manager",
+    get label() {
+      return translate("utils.scopes.business_management.label");
+    },
     criticality: "high",
-    impact:
-      "Contas de anúncios ligadas a um Business Manager não vão aparecer nem atualizar — só contas pessoais.",
+    get impact() {
+      return translate("utils.scopes.business_management.impact");
+    },
   },
   pages_show_list: {
-    label: "Listar Páginas",
+    get label() {
+      return translate("utils.scopes.pages_show_list.label");
+    },
     criticality: "medium",
-    impact:
-      "Sem essa permissão a Hookify não consegue obter o Page Access Token, necessário pra ler mídias de muitos anúncios. Thumbnails, vídeos e prévias podem ficar quebrados, e você não conseguirá criar anúncios novos (o seletor de Página fica vazio).",
+    get impact() {
+      return translate("utils.scopes.pages_show_list.impact");
+    },
   },
   pages_read_engagement: {
-    label: "Ler engajamento de Páginas",
+    get label() {
+      return translate("utils.scopes.pages_read_engagement.label");
+    },
     criticality: "low",
-    impact:
-      "Algumas leituras avançadas de Página podem falhar (insights de posts orgânicos, leitura específica).",
+    get impact() {
+      return translate("utils.scopes.pages_read_engagement.impact");
+    },
   },
 };
 

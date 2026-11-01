@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import React, { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/common/ConfirmDialog";
@@ -18,6 +19,7 @@ export interface AdStatusControlProps {
 }
 
 export function AdStatusControl({ entityType, entityId, currentStatus, variant = "icon", showConfirm = true, stopPropagation = true, onStatusChange }: AdStatusControlProps) {
+  const t = useTranslations("commonUi");
   const [confirmOpen, setConfirmOpen] = useState(false);
 
   const { isPaused, isLoading, toggleStatus, pause, resume } = useAdStatusControl({
@@ -28,28 +30,26 @@ export function AdStatusControl({ entityType, entityId, currentStatus, variant =
   });
 
   const label = useMemo(() => {
-    const kind = entityType === "ad" ? "anúncio" : entityType === "adset" ? "conjunto" : "campanha";
-    return isPaused ? `Ativar ${kind}` : `Pausar ${kind}`;
-  }, [entityType, isPaused]);
+    return isPaused ? t("adStatus.activate", { kind: entityType }) : t("adStatus.pause", { kind: entityType });
+  }, [entityType, isPaused, t]);
 
   const dialogConfig = useMemo(() => {
-    const kind = entityType === "ad" ? "anúncio" : entityType === "adset" ? "conjunto" : "campanha";
     if (isPaused) {
       return {
-        title: "Confirmar ativação",
-        message: `Tem certeza que deseja ativar este ${kind}? Isso retomará a entrega do tráfego imediatamente e pode impactar seu orçamento.`,
-        confirmText: "Ativar",
+        title: t("adStatus.activateTitle"),
+        message: t("adStatus.activateMessage", { kind: entityType }),
+        confirmText: t("adStatus.activateConfirm"),
         variant: "default" as const,
       };
     } else {
       return {
-        title: "Confirmar pausa",
-        message: `Tem certeza que deseja pausar este ${kind}? Isso pode impactar a entrega do seu tráfego imediatamente.`,
-        confirmText: "Pausar",
+        title: t("adStatus.pauseTitle"),
+        message: t("adStatus.pauseMessage", { kind: entityType }),
+        confirmText: t("adStatus.pauseConfirm"),
         variant: "destructive" as const,
       };
     }
-  }, [entityType, isPaused]);
+  }, [entityType, isPaused, t]);
 
   const handleClick = async (e: React.MouseEvent) => {
     if (stopPropagation) e.stopPropagation();
@@ -107,7 +107,7 @@ export function AdStatusControl({ entityType, entityId, currentStatus, variant =
         </TooltipProvider>
       )}
 
-      <ConfirmDialog isOpen={confirmOpen} onClose={() => setConfirmOpen(false)} title={dialogConfig.title} message={dialogConfig.message} confirmText={dialogConfig.confirmText} cancelText="Cancelar" variant={dialogConfig.variant} isLoading={isLoading} onConfirm={handleConfirm} />
+      <ConfirmDialog isOpen={confirmOpen} onClose={() => setConfirmOpen(false)} title={dialogConfig.title} message={dialogConfig.message} confirmText={dialogConfig.confirmText} cancelText={t("cancel")} variant={dialogConfig.variant} isLoading={isLoading} onConfirm={handleConfirm} />
     </>
   );
 }

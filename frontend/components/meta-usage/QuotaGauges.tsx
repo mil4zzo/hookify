@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import { MetaUsageSummaryResponse, MetaUsageBucEntry } from "@/lib/api/schemas";
 import { InlineNotice } from "@/components/common/States";
 import { cn } from "@/lib/utils/cn";
@@ -38,6 +39,7 @@ function Gauge({ label, value }: { label: string; value: number | null | undefin
 }
 
 export function QuotaGauges({ summary, isLoading }: QuotaGaugesProps) {
+  const t = useTranslations("metaUsage.quota");
   const latest = summary?.latest ?? null;
 
   // supabase-py sometimes double-encodes jsonb columns as a JSON string atom.
@@ -66,9 +68,8 @@ export function QuotaGauges({ summary, isLoading }: QuotaGaugesProps) {
   return (
     <div className="space-y-4">
       {regainMinutes != null && regainMinutes > 0 && (
-        <InlineNotice tone="destructive" title="Rate limit atingido">
-          Uma ou mais contas de anúncios está temporariamente bloqueada pela Meta.
-          Acesso estimado em <strong>{regainMinutes} min</strong>.
+        <InlineNotice tone="destructive" title={t("rateLimitTitle")}>
+          {t.rich("rateLimitBody", { minutes: regainMinutes, b: (c) => <strong>{c}</strong> })}
         </InlineNotice>
       )}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -79,15 +80,15 @@ export function QuotaGauges({ summary, isLoading }: QuotaGaugesProps) {
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm">
         <div className="p-3 rounded-sm border border-border">
-          <div className="text-xs text-muted-foreground">Chamadas (24h)</div>
+          <div className="text-xs text-muted-foreground">{t("calls24h")}</div>
           <div className="text-lg font-semibold">{summary?.calls_24h ?? 0}</div>
         </div>
         <div className="p-3 rounded-sm border border-border">
-          <div className="text-xs text-muted-foreground">Chamadas (7d)</div>
+          <div className="text-xs text-muted-foreground">{t("calls7d")}</div>
           <div className="text-lg font-semibold">{summary?.calls_7d ?? 0}</div>
         </div>
         <div className="p-3 rounded-sm border border-border">
-          <div className="text-xs text-muted-foreground">Última atualização</div>
+          <div className="text-xs text-muted-foreground">{t("lastUpdate")}</div>
           <div className="text-sm font-medium">
             {latest?.created_at ? new Date(latest.created_at).toLocaleString() : "—"}
           </div>
@@ -97,14 +98,14 @@ export function QuotaGauges({ summary, isLoading }: QuotaGaugesProps) {
       {summary && summary.top_routes_24h.length > 0 && (
         <div className="rounded-sm border border-border overflow-hidden">
           <div className="px-4 py-2 bg-muted text-xs font-medium text-muted-foreground">
-            Rotas mais caras (24h) — somatório de CPU time %
+            {t("topRoutes")}
           </div>
           <table className="w-full text-sm">
             <thead>
               <tr className="text-left text-xs text-muted-foreground">
-                <th className="px-4 py-2 font-normal">Rota</th>
-                <th className="px-4 py-2 font-normal">Chamadas</th>
-                <th className="px-4 py-2 font-normal">Soma CPU %</th>
+                <th className="px-4 py-2 font-normal">{t("route")}</th>
+                <th className="px-4 py-2 font-normal">{t("calls")}</th>
+                <th className="px-4 py-2 font-normal">{t("cpuSum")}</th>
               </tr>
             </thead>
             <tbody>
@@ -123,12 +124,12 @@ export function QuotaGauges({ summary, isLoading }: QuotaGaugesProps) {
       {buc && Object.keys(buc).length > 0 && (
         <details className="rounded-sm border border-border">
           <summary className="px-4 py-2 cursor-pointer text-sm bg-muted">
-            Breakdown por Business Use Case (última chamada)
+            {t("buc")}
           </summary>
           <div className="p-4 space-y-3">
             {Object.entries(buc).map(([account, entries]) => (
               <div key={account}>
-                <div className="text-xs text-muted-foreground mb-1">Account {account}</div>
+                <div className="text-xs text-muted-foreground mb-1">{t("accountLabel", { account })}</div>
                 <div className="space-y-1">
                   {entries.map((e, idx) => (
                     <div key={idx} className="flex items-center gap-3 text-xs">

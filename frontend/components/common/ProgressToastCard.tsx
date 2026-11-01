@@ -1,5 +1,6 @@
 "use client";
 
+import { translate } from "@/lib/i18n/translate";
 import React, { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { IconAlertCircle, IconAlertTriangle, IconCircleCheck, IconInfoCircle, IconLoader2, IconX } from "@tabler/icons-react";
 import { cn } from "@/lib/utils/cn";
@@ -404,20 +405,20 @@ export function ProgressToastCard({ packName, progress, stagedContent, message, 
     ? staged.stageContext
       ? [name ? `${name}:` : null, staged.stageContext, "›", staged.stageLabel].filter(Boolean).join(" ")
       : name
-        ? `Atualizando ${name} — ${staged.stageLabel}`
+        ? translate("commonUi.toastCard.updating", { name, stage: staged.stageLabel })
         : staged.stageLabel
     : name
-      ? `${name} — etapa ${currentStep}/${totalSteps}`
-      : `Etapa ${currentStep}/${totalSteps}`;
+      ? translate("commonUi.toastCard.stepOf", { name, current: currentStep, total: totalSteps })
+      : translate("commonUi.toastCard.step", { current: currentStep, total: totalSteps });
 
-  const titleText = staged ? staged.stageTitle : "Processando";
+  const titleText = staged ? staged.stageTitle : translate("commonUi.toastCard.processing");
   const dynamicLine = staged ? staged.dynamicLine : message || "...";
   const isSuccess = variant === "success";
   const showBar = !cancelling && !inlineError;
   const showIconRing = Boolean(icon) && !inlineError && !cancelling && !isSuccess;
   const showActionButton = Boolean(onCancel) && !(terminal && isSuccess);
   const isCloseAction = terminal && inlineError;
-  const actionButtonLabel = isCloseAction ? "Fechar" : "Cancelar";
+  const actionButtonLabel = isCloseAction ? translate("commonUi.close") : translate("commonUi.cancel");
 
   // O "X" pode ser lido como "minimizar/dispensar" — cancelar exige confirmação
   // inline antes de disparar onCancel. Só o "Fechar" do erro terminal fecha direto.
@@ -496,19 +497,19 @@ export function ProgressToastCard({ packName, progress, stagedContent, message, 
         </div>
 
         {confirmingCancel && (
-          <div className="flex flex-col gap-2 rounded-md border border-white/10 px-3 py-2" style={{ background: "color-mix(in oklab, var(--neutral-950) 25%, transparent)" }} role="alertdialog" aria-label="Confirmar cancelamento">
+          <div className="flex flex-col gap-2 rounded-md border border-white/10 px-3 py-2" style={{ background: "color-mix(in oklab, var(--neutral-950) 25%, transparent)" }} role="alertdialog" aria-label={translate("commonUi.toastCard.confirmCancelAria")}>
             <div className="flex items-start gap-2">
               <IconAlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0 text-attention" />
               <p className="text-xs font-medium leading-snug text-primary-foreground">
-                Cancelar esta operação? O progresso será perdido.
+                {translate("commonUi.toastCard.confirmCancel")}
               </p>
             </div>
             <div className="flex justify-end gap-2">
               <Button type="button" size="sm" variant="ghost" onClick={() => setConfirmingCancel(false)}>
-                Continuar
+                {translate("commonUi.toastCard.continue")}
               </Button>
               <Button type="button" size="sm" variant="destructive" onClick={onCancel}>
-                Sim, cancelar
+                {translate("commonUi.toastCard.yesCancel")}
               </Button>
             </div>
           </div>
@@ -584,8 +585,8 @@ export function StatusToastCard({ variant, message, eyebrow, icon, onDismiss, co
           <button
             type="button"
             onClick={onDismiss}
-            aria-label="Fechar"
-            title="Fechar"
+            aria-label={translate("commonUi.close")}
+            title={translate("commonUi.close")}
             className="ml-1 mt-0.5 flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-sm text-white/80 hover:bg-white/10 hover:text-primary-foreground focus-inset focus:outline-none"
           >
             <IconX className="h-4 w-4" strokeWidth={2} />
@@ -597,7 +598,7 @@ export function StatusToastCard({ variant, message, eyebrow, icon, onDismiss, co
 }
 
 export function PausedToastCard({ packName, onReconnect, onCancel, animated = true, canReconnect = true, ownerName = null }: PausedToastCardProps) {
-  const ownerLabel = (ownerName ?? "").trim() || "o dono do pack";
+  const ownerLabel = (ownerName ?? "").trim() || translate("commonUi.toastCard.ownerFallback");
   return (
     <ToastCardFrame variant="initializing" progress={0} animated={animated}>
       <div className="flex flex-col gap-4 px-4 pb-4 pt-3 text-primary-foreground" role="alert" aria-live="assertive">
@@ -607,11 +608,11 @@ export function PausedToastCard({ packName, onReconnect, onCancel, animated = tr
           </span>
           <div className="min-w-0 flex-1 space-y-1">
             <p className="text-2xs font-medium leading-tight text-white/80">{packName}: Leadscore</p>
-            <p className="text-sm font-semibold leading-snug tracking-tight text-attention">Sincronização pausada</p>
+            <p className="text-sm font-semibold leading-snug tracking-tight text-attention">{translate("commonUi.toastCard.pausedTitle")}</p>
             <p className="pt-0.5 text-sm leading-snug text-white/80">
               {canReconnect
-                ? "Aguardando reconexão do Google para continuar a importação."
-                : `A planilha é do dono. Peça a ${ownerLabel} para reconectar o Google.`}
+                ? translate("commonUi.toastCard.pausedWaiting")
+                : translate("commonUi.toastCard.pausedOwner", { owner: ownerLabel })}
             </p>
           </div>
         </div>
@@ -619,11 +620,11 @@ export function PausedToastCard({ packName, onReconnect, onCancel, animated = tr
         <div className="flex flex-wrap justify-end gap-2">
           {canReconnect && (
             <Button type="button" size="sm" onClick={onReconnect}>
-              Reconectar Google
+              {translate("commonUi.toastCard.reconnectGoogle")}
             </Button>
           )}
           <Button type="button" size="sm" variant="ghost" onClick={onCancel}>
-            {canReconnect ? "Cancelar" : "Fechar"}
+            {canReconnect ? translate("commonUi.cancel") : translate("commonUi.close")}
           </Button>
         </div>
       </div>

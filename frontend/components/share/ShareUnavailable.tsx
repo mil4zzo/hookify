@@ -1,3 +1,6 @@
+"use client";
+
+import { useTranslations } from "next-intl";
 import Image from "next/image";
 import { Button } from "@/components/ui/button";
 import { getSiteOrigin } from "@/lib/utils/siteUrl";
@@ -8,6 +11,7 @@ import { getSiteOrigin } from "@/lib/utils/siteUrl";
  * expiração em CTA: métricas congeladas envelhecem, peça um link novo.
  */
 export function ShareUnavailable() {
+  const t = useTranslations("share.unavailable");
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-4 text-foreground">
       <div className="w-full max-w-sm space-y-6 text-center">
@@ -16,14 +20,13 @@ export function ShareUnavailable() {
           <p className="text-4xl" aria-hidden>
             😴
           </p>
-          <h1 className="text-xl font-semibold leading-tight">Esse link tirou uma soneca — e não voltou</h1>
+          <h1 className="text-xl font-semibold leading-tight">{t("title")}</h1>
           <p className="text-sm leading-relaxed text-muted-foreground">
-            Links compartilhados expiram de propósito: métricas congeladas envelhecem mal. Peça um link
-            novinho para quem te enviou ;)
+            {t("body")}
           </p>
         </div>
         <Button asChild size="lg" className="w-full sm:w-auto">
-          <a href={`${getSiteOrigin()}/pv`}>Conhecer o Hookify</a>
+          <a href={`${getSiteOrigin()}/pv`}>{t("cta")}</a>
         </Button>
       </div>
     </div>

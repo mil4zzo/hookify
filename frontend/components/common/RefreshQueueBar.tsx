@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import React from "react";
 import { Button } from "@/components/ui/button";
 import { useRefreshQueueStore, selectQueuedCount } from "@/lib/store/refreshQueue";
@@ -14,6 +15,7 @@ import { cancelQueuedPackRefreshes } from "@/lib/hooks/usePackRefresh";
  * card da frente da pilha, logo acima.
  */
 export function RefreshQueueBar() {
+  const t = useTranslations("commonUi");
   const queuedCount = useRefreshQueueStore(selectQueuedCount);
   const doneCount = useRefreshQueueStore((state) => state.doneCount);
   const failedCount = useRefreshQueueStore((state) => state.failedCount);
@@ -31,13 +33,13 @@ export function RefreshQueueBar() {
         <span className="relative inline-flex h-2 w-2 rounded-full bg-primary" />
       </span>
 
-      <span className="whitespace-nowrap text-xs font-medium text-foreground">{queuedCount} na fila</span>
+      <span className="whitespace-nowrap text-xs font-medium text-foreground">{t("refreshQueue.queued", { count: queuedCount })}</span>
 
       {(doneCount > 0 || failedCount > 0) && <div className="h-4 w-px flex-none bg-border" />}
-      {doneCount > 0 && <span className="whitespace-nowrap text-xs text-muted-foreground">{doneCount} ok</span>}
+      {doneCount > 0 && <span className="whitespace-nowrap text-xs text-muted-foreground">{t("refreshQueue.done", { count: doneCount })}</span>}
       {failedCount > 0 && (
         <span className="whitespace-nowrap text-xs text-destructive">
-          {failedCount} {failedCount === 1 ? "falhou" : "falharam"}
+          {t("refreshQueue.failed", { count: failedCount })}
         </span>
       )}
 
@@ -49,7 +51,7 @@ export function RefreshQueueBar() {
         className="px-2 text-xs text-muted-foreground hover:text-destructive"
         onClick={() => cancelQueuedPackRefreshes()}
       >
-        Cancelar fila
+        {t("refreshQueue.cancel")}
       </Button>
     </div>
   );

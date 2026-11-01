@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import { useState, useMemo, ReactNode } from "react";
 import { DndContext, KeyboardSensor, PointerSensor, useSensor, useSensors, DragEndEvent, pointerWithin } from "@dnd-kit/core";
 import { arrayMove, SortableContext, sortableKeyboardCoordinates, horizontalListSortingStrategy, verticalListSortingStrategy } from "@dnd-kit/sortable";
@@ -73,6 +74,7 @@ export interface BaseKanbanWidgetProps<T extends string> {
  * Suporta drag and drop, tooltips, visibilidade de colunas e persistência de ordem.
  */
 export function BaseKanbanWidget<T extends string>({ storageKey, defaultColumnOrder, columnConfigs, activeColumns, enableDrag = true, modalProps, onAdClick, itemWidth = 320, scrollItems = 1, orientation = "horizontal" }: BaseKanbanWidgetProps<T>) {
+  const t = useTranslations("commonUi");
   const [selectedAd, setSelectedAd] = useState<RankingsItem | null>(null);
   const [, setOpenInVideoTab] = useState(false);
   const { columnOrder, setColumnOrder } = useKanbanColumnOrder(storageKey, defaultColumnOrder);
@@ -221,7 +223,7 @@ export function BaseKanbanWidget<T extends string>({ storageKey, defaultColumnOr
             setSelectedAd(null);
             setOpenInVideoTab(false);
           }}
-          title="Detalhes do anúncio"
+          title={t("kanban.adDetails")}
           size="5xl"
           padding="md"
           className="flex h-[90dvh] min-h-0 flex-col overflow-hidden"

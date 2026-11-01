@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import { MetaUsageDistinctResponse } from "@/lib/api/schemas";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -54,34 +55,35 @@ function FilterSelect({ label, value, options, allLabel, onValueChange }: { labe
 }
 
 export function MetaUsageFilterBar({ filters, onChange, distinct }: Props) {
+  const t = useTranslations("metaUsage.filters");
   const update = (patch: Partial<MetaUsageFilters>) => onChange({ ...filters, ...patch });
 
   const hasFilters = Object.values(filters).some((v) => v !== "");
 
   return (
     <div className="rounded-md border border-border p-3 flex flex-wrap items-end gap-3">
-      <FilterSelect label="Rota" value={filters.route} options={distinct?.routes} allLabel="Todas" onValueChange={(route) => update({ route })} />
-      <FilterSelect label="Serviço" value={filters.service_name} options={distinct?.services} allLabel="Todos" onValueChange={(service_name) => update({ service_name })} />
-      <FilterSelect label="Ad account" value={filters.ad_account_id} options={distinct?.ad_accounts} allLabel="Todas" onValueChange={(ad_account_id) => update({ ad_account_id })} />
+      <FilterSelect label={t("route")} value={filters.route} options={distinct?.routes} allLabel={t("allFeminine")} onValueChange={(route) => update({ route })} />
+      <FilterSelect label={t("service")} value={filters.service_name} options={distinct?.services} allLabel={t("allMasculine")} onValueChange={(service_name) => update({ service_name })} />
+      <FilterSelect label={t("adAccount")} value={filters.ad_account_id} options={distinct?.ad_accounts} allLabel={t("allFeminine")} onValueChange={(ad_account_id) => update({ ad_account_id })} />
 
       <label className="flex flex-col gap-1">
-        <span className="text-xs text-muted-foreground">De</span>
+        <span className="text-xs text-muted-foreground">{t("from")}</span>
         <Input type="datetime-local" size="sm" value={filters.from} onChange={(e) => update({ from: e.target.value })} />
       </label>
 
       <label className="flex flex-col gap-1">
-        <span className="text-xs text-muted-foreground">Até</span>
+        <span className="text-xs text-muted-foreground">{t("to")}</span>
         <Input type="datetime-local" size="sm" value={filters.to} onChange={(e) => update({ to: e.target.value })} />
       </label>
 
       <label className="flex flex-col gap-1">
-        <span className="text-xs text-muted-foreground">CPU mín. %</span>
+        <span className="text-xs text-muted-foreground">{t("minCpu")}</span>
         <Input type="number" min={0} step={0.1} size="sm" className="w-24" value={filters.min_cputime} onChange={(e) => update({ min_cputime: e.target.value })} />
       </label>
 
       {hasFilters && (
         <Button type="button" variant="ghost" size="sm" onClick={() => onChange(EMPTY_FILTERS)}>
-          Limpar filtros
+          {t("clear")}
         </Button>
       )}
     </div>

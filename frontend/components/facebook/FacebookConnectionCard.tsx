@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import { useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { IconBrandFacebook, IconCheck, IconLoader2, IconRefresh, IconTrash, IconAlertCircle, IconShieldExclamation } from "@tabler/icons-react";
@@ -35,6 +36,7 @@ interface FacebookConnectionCardProps {
 }
 
 export function FacebookConnectionCard({ connection, isSelected = false, onSelect, onDelete, onReconnect, onRefreshPicture, onSetPrimary, onVerify, isDeleting = false, showActions = true }: FacebookConnectionCardProps) {
+  const t = useTranslations("facebook.connectionCard");
   const { testingConnections, expiredConnections, handleRetestConnection } = useFacebookConnectionVerification();
   const hasTriggeredPictureRefresh = useRef(false);
   const avatarUrl = getFacebookAvatarUrl(connection);
@@ -92,32 +94,32 @@ export function FacebookConnectionCard({ connection, isSelected = false, onSelec
 
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2">
-              <div className="font-medium text-sm truncate">{connection.facebook_name || connection.facebook_email || `ID: ${connection.facebook_user_id}` || "Conta do Facebook"}</div>
+              <div className="font-medium text-sm truncate">{connection.facebook_name || connection.facebook_email || `ID: ${connection.facebook_user_id}` || t("fallbackName")}</div>
               {isTesting && (
                 <span className="text-xs px-2 py-0.5 rounded-sm bg-surface-3 text-muted-foreground font-medium flex items-center gap-1">
                   <IconLoader2 className="w-3 h-3 animate-spin" />
-                  Verificando...
+                  {t("testing")}
                 </span>
               )}
               {!isTesting && isValid && (
                 <span className="flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-success-20 text-success border border-success-30">
                   <IconCheck className="w-3 h-3" />
-                  Conectada
+                  {t("connected")}
                 </span>
               )}
               {!isTesting && isExpired && (
                 <span className="flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-warning-20 text-warning border border-warning-30">
                   <IconAlertCircle className="w-3 h-3" />
-                  {connection.status === "expired" ? "Expirada" : "Inválida"}
+                  {connection.status === "expired" ? t("expired") : t("invalid")}
                 </span>
               )}
               {!isTesting && !isExpired && isDegraded && (
                 <span className="flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-warning-20 text-warning border border-warning-30">
                   <IconShieldExclamation className="w-3 h-3" />
-                  Permissões incompletas ({missingScopes.length})
+                  {t("incomplete", { count: missingScopes.length })}
                 </span>
               )}
-              {connection.is_primary && <span className="text-xs px-2 py-0.5 rounded-sm bg-primary-20 text-primary font-medium">Primária</span>}
+              {connection.is_primary && <span className="text-xs px-2 py-0.5 rounded-sm bg-primary-20 text-primary font-medium">{t("primary")}</span>}
             </div>
             {connection.facebook_email && connection.facebook_email !== connection.facebook_name && <div className="text-xs text-muted-foreground truncate">{connection.facebook_email}</div>}
             {!connection.facebook_email && !connection.facebook_name && <div className="text-xs text-muted-foreground truncate">ID: {connection.facebook_user_id}</div>}
@@ -135,10 +137,10 @@ export function FacebookConnectionCard({ connection, isSelected = false, onSelec
           ) : isExpired ? (
             <>
               <Button type="button" variant="default" size="sm" className="text-xs" onClick={handleReconnect} disabled={isDeleting}>
-                Reconectar
+                {t("reconnect")}
               </Button>
               {onDelete && (
-                <Button type="button" variant="ghost" size="sm" className="w-8 p-0 text-destructive hover:text-destructive hover:bg-destructive-10" onClick={handleDelete} disabled={isDeleting} title="Excluir conexão">
+                <Button type="button" variant="ghost" size="sm" className="w-8 p-0 text-destructive hover:text-destructive hover:bg-destructive-10" onClick={handleDelete} disabled={isDeleting} title={t("deleteTitle")}>
                   {isDeleting ? <IconLoader2 className="w-4 h-4 animate-spin" /> : <IconTrash className="w-4 h-4" />}
                 </Button>
               )}
@@ -153,14 +155,14 @@ export function FacebookConnectionCard({ connection, isSelected = false, onSelec
                   className="px-2 text-xs"
                   onClick={handleReconnect}
                   disabled={isDeleting}
-                  title="Reconectar para renovar token ou solicitar novas permissões"
+                  title={t("reconnectTitle")}
                 >
-                  Reconectar
+                  {t("reconnect")}
                 </Button>
               )}
-              <Button type="button" variant="ghost" size="sm" className="px-2 text-xs text-muted-foreground hover:text-foreground" onClick={handleRetest} disabled={isDeleting} title="Verificar novamente">
+              <Button type="button" variant="ghost" size="sm" className="px-2 text-xs text-muted-foreground hover:text-foreground" onClick={handleRetest} disabled={isDeleting} title={t("retestTitle")}>
                 <IconRefresh className="w-3.5 h-3.5 mr-1" />
-                Verificar
+                {t("verify")}
               </Button>
               {onDelete && (
                 <Button type="button" variant="ghost" size="sm" className="w-8 p-0 text-destructive hover:text-destructive hover:bg-destructive-10" onClick={handleDelete} disabled={isDeleting}>
@@ -175,7 +177,7 @@ export function FacebookConnectionCard({ connection, isSelected = false, onSelec
 
       {!isTesting && !isExpired && isDegraded && missingScopes.length > 0 && (
         <div onClick={(e) => e.stopPropagation()}>
-          <InlineNotice tone="warning" title="O que essa conexão deixa de fazer:" className="text-xs leading-relaxed">
+          <InlineNotice tone="warning" title={t("impactTitle")} className="text-xs leading-relaxed">
             <ul className="mt-1 space-y-2">
             {missingScopes.map((scope) => {
               const info = getScopeImpact(scope);
@@ -204,7 +206,7 @@ export function FacebookConnectionCard({ connection, isSelected = false, onSelec
                   onClick={handleReconnect}
                   disabled={isDeleting}
                 >
-                  Atualizar permissões
+                  {t("updatePermissions")}
                 </Button>
               </div>
             )}

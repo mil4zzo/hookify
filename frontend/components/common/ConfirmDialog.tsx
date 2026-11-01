@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import React from "react";
 import { AppDialog } from "./AppDialog";
 import { Button } from "@/components/ui/button";
@@ -52,7 +53,11 @@ export interface ConfirmDialogProps {
   nested?: boolean;
 }
 
-export function ConfirmDialog({ isOpen, onClose, title, message, children, confirmText = "Confirmar", cancelText = "Cancelar", variant = "default", onConfirm, onCancel, isLoading = false, size = "md", closeOnOverlayClick, closeOnEscape, showCloseButton = false, confirmIcon, cancelIcon, layout = "centered", loadingText = "Processando...", nested = false }: ConfirmDialogProps) {
+export function ConfirmDialog({ isOpen, onClose, title, message, children, confirmText: confirmTextProp, cancelText: cancelTextProp, variant = "default", onConfirm, onCancel, isLoading = false, size = "md", closeOnOverlayClick, closeOnEscape, showCloseButton = false, confirmIcon, cancelIcon, layout = "centered", loadingText: loadingTextProp, nested = false }: ConfirmDialogProps) {
+  const t = useTranslations("commonUi");
+  const confirmText = confirmTextProp ?? t("confirm");
+  const cancelText = cancelTextProp ?? t("cancel");
+  const loadingText = loadingTextProp ?? t("processing");
   // Se não especificado, não permite fechar durante loading
   const canClose = !isLoading;
   const effectiveCloseOnOverlayClick = closeOnOverlayClick ?? canClose;

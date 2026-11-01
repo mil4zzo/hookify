@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import { StatePanel } from "@/components/common/States";
 import React from "react";
 import { IconInfoCircle } from "@tabler/icons-react";
@@ -39,7 +40,9 @@ export interface GenericColumnProps {
   };
 }
 
-export function GenericColumn({ title, items, colorScheme, averageValue, renderCard, emptyMessage = "Nenhum item encontrado", showAverage = true, className, headerRight, headerContent, formatAverage, maxHeight, tooltip }: GenericColumnProps) {
+export function GenericColumn({ title, items, colorScheme, averageValue, renderCard, emptyMessage: emptyMessageProp, showAverage = true, className, headerRight, headerContent, formatAverage, maxHeight, tooltip }: GenericColumnProps) {
+  const t = useTranslations("commonUi");
+  const emptyMessage = emptyMessageProp ?? t("column.empty");
   const formatAverageValue =
     formatAverage ||
     ((value: number | null | undefined): string => {

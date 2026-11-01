@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import { useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { IconChevronDown } from "@tabler/icons-react";
@@ -74,11 +75,12 @@ const columnLabel = (columnId: ManagerColumnType): string =>
   COLUMN_NAME_BY_ID.get(columnId) ?? getActiveCustomColumn(columnId)?.label ?? columnId;
 
 export function ManagerColumnFilter({ activeColumns, columnOrder, onToggleColumn, onReorderColumns, isColumnDisabled, onSelectAll, onDeselectAll, className }: ManagerColumnFilterProps) {
+  const t = useTranslations("commonUi");
   // A ordem carrega TODAS as colunas (fixas + vinculadas dos packs selecionados).
   const totalCount = columnOrder.length;
   const selectedCount = activeColumns.size;
 
-  const buttonText = selectedCount === 0 ? "Colunas (0)" : selectedCount === totalCount ? `Colunas (${totalCount})` : `Colunas (${selectedCount} de ${totalCount})`;
+  const buttonText = selectedCount === 0 ? t("managerColumns.none") : selectedCount === totalCount ? t("managerColumns.all", { total: totalCount }) : t("managerColumns.some", { selected: selectedCount, total: totalCount });
 
   const options = useMemo(
     () =>
@@ -88,9 +90,9 @@ export function ManagerColumnFilter({ activeColumns, columnOrder, onToggleColumn
         disabled: isColumnDisabled?.(columnId) ?? false,
         // CPL Max e Margem: o que falta costuma ser o cadastro (a economia só se
         // configura em pack com planilha, então "economia" já implica planilha).
-        disabledHint: METRIC_DEFINITIONS[columnId as MetricKey]?.requiresLeadEconomics ? " (requer economia do lead no pack)" : " (requer planilha)",
+        disabledHint: METRIC_DEFINITIONS[columnId as MetricKey]?.requiresLeadEconomics ? t("managerColumns.requiresEconomics") : t("managerColumns.requiresSheet"),
       })),
-    [columnOrder, isColumnDisabled],
+    [columnOrder, isColumnDisabled, t],
   );
 
   return (
@@ -102,8 +104,8 @@ export function ManagerColumnFilter({ activeColumns, columnOrder, onToggleColumn
         reorderable
         onReorder={(orderedIds) => onReorderColumns(orderedIds as ManagerColumnType[])}
         searchable={totalCount > 5}
-        searchPlaceholder="Buscar coluna..."
-        emptyMessage="Nenhuma coluna encontrada."
+        searchPlaceholder={t("managerColumns.search")}
+        emptyMessage={t("managerColumns.empty")}
         onSelectAll={onSelectAll}
         onDeselectAll={onDeselectAll}
         align="end"

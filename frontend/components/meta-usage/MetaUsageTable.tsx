@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import { MetaUsageCall } from "@/lib/api/schemas";
 import { cn } from "@/lib/utils/cn";
 
@@ -39,6 +40,7 @@ export function MetaUsageTable({
   pageSize,
   onPageChange,
 }: Props) {
+  const t = useTranslations("metaUsage.table");
   const totalPages = total != null ? Math.max(1, Math.ceil(total / pageSize)) : null;
   const showingFrom = items.length === 0 ? 0 : (page - 1) * pageSize + 1;
   const showingTo = (page - 1) * pageSize + items.length;
@@ -49,32 +51,32 @@ export function MetaUsageTable({
         <table className="w-full text-sm">
           <thead>
             <tr className="text-left text-xs text-muted-foreground bg-muted">
-              <th className="px-3 py-2 font-normal">Quando</th>
-              <th className="px-3 py-2 font-normal">Página</th>
-              <th className="px-3 py-2 font-normal">Rota backend</th>
-              <th className="px-3 py-2 font-normal">Serviço</th>
-              <th className="px-3 py-2 font-normal">Meta endpoint</th>
-              <th className="px-3 py-2 font-normal">Account</th>
+              <th className="px-3 py-2 font-normal">{t("when")}</th>
+              <th className="px-3 py-2 font-normal">{t("page")}</th>
+              <th className="px-3 py-2 font-normal">{t("backendRoute")}</th>
+              <th className="px-3 py-2 font-normal">{t("service")}</th>
+              <th className="px-3 py-2 font-normal">{t("metaEndpoint")}</th>
+              <th className="px-3 py-2 font-normal">{t("account")}</th>
               <th className="px-3 py-2 font-normal text-right">CPU %</th>
               <th className="px-3 py-2 font-normal text-right">Calls %</th>
               <th className="px-3 py-2 font-normal text-right">Time %</th>
-              <th className="px-3 py-2 font-normal text-right">Latência</th>
+              <th className="px-3 py-2 font-normal text-right">{t("latency")}</th>
               <th className="px-3 py-2 font-normal text-right">Status</th>
-              <th className="px-3 py-2 font-normal text-right">Bloqueio</th>
+              <th className="px-3 py-2 font-normal text-right">{t("block")}</th>
             </tr>
           </thead>
           <tbody>
             {isLoading && items.length === 0 && (
               <tr>
                 <td colSpan={12} className="px-3 py-8 text-center text-muted-foreground">
-                  Carregando...
+                  {t("loading")}
                 </td>
               </tr>
             )}
             {!isLoading && items.length === 0 && (
               <tr>
                 <td colSpan={12} className="px-3 py-8 text-center text-muted-foreground">
-                  Nenhuma chamada registrada no período/filtros.
+                  {t("empty")}
                 </td>
               </tr>
             )}
@@ -118,11 +120,11 @@ export function MetaUsageTable({
         <div>
           {total != null ? (
             <>
-              Mostrando {showingFrom}–{showingTo} de {total}
+              {t("showing", { from: showingFrom, to: showingTo, total })}
             </>
           ) : (
             <>
-              {items.length} itens
+              {t("itemCount", { count: items.length })}
             </>
           )}
         </div>
@@ -133,10 +135,10 @@ export function MetaUsageTable({
             disabled={page <= 1}
             onClick={() => onPageChange(page - 1)}
           >
-            Anterior
+            {t("previous")}
           </button>
           <span>
-            Página {page}
+            {t("pageOf", { page })}
             {totalPages != null ? ` / ${totalPages}` : ""}
           </span>
           <button
@@ -145,7 +147,7 @@ export function MetaUsageTable({
             disabled={totalPages != null ? page >= totalPages : items.length < pageSize}
             onClick={() => onPageChange(page + 1)}
           >
-            Próxima
+            {t("next")}
           </button>
         </div>
       </div>

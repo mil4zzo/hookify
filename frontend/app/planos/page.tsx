@@ -1,5 +1,7 @@
 "use client";
 
+import { translate } from "@/lib/i18n/translate";
+import { useTranslations } from "next-intl";
 import { getAppLocale } from "@/lib/i18n/locale";
 import { Suspense, useEffect, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
@@ -23,19 +25,9 @@ import {
   IconAlertTriangle,
 } from "@tabler/icons-react";
 
-const STANDARD_FEATURES = [
-  "Packs — importe e gerencie seus anúncios",
-  "Manager — análise de performance com agrupamentos",
-  "Insights — oportunidades e gems dos seus criativos",
-];
+const STANDARD_FEATURES = ["packs", "manager", "insights"] as const;
 
-const INSIDER_FEATURES = [
-  "Tudo do Standard",
-  "Explorer — análise profunda de criativos",
-  "G.O.L.D. — rankings dos melhores anúncios",
-  "Upload — criação de anúncios em massa",
-  "Meta Usage — monitoramento da API",
-];
+const INSIDER_FEATURES = ["all", "explorer", "gold", "upload", "metaUsage"] as const;
 
 const PAGE_LABELS: Record<string, string> = {
   "/explorer": "Explorer",
@@ -47,6 +39,7 @@ const PAGE_LABELS: Record<string, string> = {
 type BillingPlan = "monthly" | "annual";
 
 function PlanosContent() {
+  const t = useTranslations("plans");
   const searchParams = useSearchParams();
   const router = useRouter();
   const queryClient = useQueryClient();
@@ -76,12 +69,12 @@ function PlanosContent() {
   // Handle return from Stripe Checkout (URL param → toast + kick off activation)
   useEffect(() => {
     if (checkout === "success") {
-      toast.success("Pagamento confirmado! Ativando sua conta Insider...");
+      toast.success(translate("plans.paymentConfirmed"));
       setActivating(true);
       // Clean query param from URL without full reload
       router.replace("/planos", { scroll: false });
     } else if (checkout === "cancel") {
-      toast.info("Assinatura cancelada. Você pode tentar novamente quando quiser.");
+      toast.info(translate("plans.checkoutCanceled"));
       router.replace("/planos", { scroll: false });
     }
   }, [checkout, router]);
@@ -111,7 +104,7 @@ function PlanosContent() {
       await queryClient.invalidateQueries({ queryKey: ["user-tier"] });
       if (cancelled) return;
       if (confirmed || isActivated()) {
-        toast.success("Conta Insider ativada!");
+        toast.success(translate("plans.activated"));
         setActivating(false);
         return;
       }
@@ -123,14 +116,12 @@ function PlanosContent() {
         if (cancelled) return;
         if (isActivated()) {
           clearInterval(interval);
-          toast.success("Conta Insider ativada!");
+          toast.success(translate("plans.activated"));
           setActivating(false);
         } else if (attempts >= 6) {
           clearInterval(interval);
           setActivating(false);
-          toast.info(
-            "A ativação está demorando um pouco mais que o normal. Atualize a página em instantes."
-          );
+          toast.info(translate("plans.activationSlow"));
         }
       }, 2500);
     })();
@@ -150,12 +141,12 @@ function PlanosContent() {
       // 409 = já existe assinatura ativa (aba antiga/estado desatualizado) —
       // duplicar cobraria duas vezes; o portal é o lugar certo para gerenciar
       if ((err as { status?: number })?.status === 409) {
-        toast.info("Você já tem uma assinatura ativa. Abrindo o portal...");
+        toast.info(translate("plans.alreadySubscribed"));
         queryClient.invalidateQueries({ queryKey: ["user-tier"] });
         await handlePortal();
         return;
       }
-      toast.error("Não foi possível iniciar o checkout. Tente novamente.");
+      toast.error(translate("plans.checkoutError"));
       setLoading(null);
     }
   }
@@ -166,7 +157,7 @@ function PlanosContent() {
       const { url } = await api.billing.createPortalSession();
       window.location.href = url;
     } catch {
-      toast.error("Não foi possível abrir o portal. Tente novamente.");
+      toast.error(translate("plans.portalError"));
       setLoading(null);
     }
   }
@@ -178,11 +169,11 @@ function PlanosContent() {
   return (
     <PageContainer
       variant="standard"
-      title="Planos"
+      title={t("title")}
       description={
         blockedPage
-          ? `Você precisa do plano Insider para acessar ${blockedPage}.`
-          : "Escolha o plano ideal para o seu negócio."
+          ? t("blocked", { page: blockedPage })
+          : t("choose")
       }
       icon={<PageIcon icon={IconSparkles} />}
     >
@@ -190,19 +181,16 @@ function PlanosContent() {
       {requiresAction && (
         <Alert variant="destructive" className="max-w-2xl mb-4">
           <IconAlertTriangle className="h-4 w-4" />
-          <AlertTitle>Ação necessária — autenticação de pagamento</AlertTitle>
+          <AlertTitle>{t("actionRequired")}</AlertTitle>
           <AlertDescription className="flex items-center justify-between gap-4 flex-wrap">
-            <span>
-              Seu último pagamento exige autenticação 3DS. Complete-o antes do vencimento
-              para manter o acesso Insider.
-            </span>
+            <span>{t("actionRequiredBody")}</span>
             <Button size="sm" variant="destructive" onClick={handlePortal} disabled={loading === "portal"}>
               {loading === "portal" ? (
                 <IconLoader2 className="w-3 h-3 animate-spin mr-1" />
               ) : (
                 <IconExternalLink className="w-3 h-3 mr-1" />
               )}
-              Autenticar pagamento
+              {t("authenticate")}
             </Button>
           </AlertDescription>
         </Alert>
@@ -212,8 +200,7 @@ function PlanosContent() {
       {cancelAtPeriodEnd && expiresAt && !requiresAction && (
         <Alert className="max-w-2xl mb-4">
           <AlertDescription>
-            Seu plano Insider foi cancelado e permanece ativo até{" "}
-            <strong>{formatDate(expiresAt)}</strong>. Reative no portal para continuar.
+            {t.rich("canceledNotice", { date: formatDate(expiresAt), b: (c) => <strong>{c}</strong> })}
           </AlertDescription>
         </Alert>
       )}
@@ -223,17 +210,17 @@ function PlanosContent() {
         <StandardCard padding="lg">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-base font-semibold text-foreground">Standard</h2>
-            {!isInsider && <Badge variant="outline">Seu plano atual</Badge>}
+            {!isInsider && <Badge variant="outline">{t("current")}</Badge>}
           </div>
           <ul className="space-y-2">
             {STANDARD_FEATURES.map((f) => (
               <li key={f} className="flex items-start gap-2 text-sm text-muted-foreground">
                 <IconCheck className="w-4 h-4 text-success mt-0.5 shrink-0" />
-                <span>{f}</span>
+                <span>{t(`standardFeatures.${f}`)}</span>
               </li>
             ))}
           </ul>
-          <p className="mt-4 text-sm font-medium text-foreground">Grátis</p>
+          <p className="mt-4 text-sm font-medium text-foreground">{t("free")}</p>
         </StandardCard>
 
         {/* Insider */}
@@ -241,9 +228,9 @@ function PlanosContent() {
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-base font-semibold text-foreground">Insider</h2>
             {isInsider ? (
-              <Badge>Seu plano atual</Badge>
+              <Badge>{t("current")}</Badge>
             ) : (
-              <Badge>Recomendado</Badge>
+              <Badge>{t("recommended")}</Badge>
             )}
           </div>
 
@@ -255,7 +242,7 @@ function PlanosContent() {
                 ) : (
                   <IconLock className="w-4 h-4 text-primary mt-0.5 shrink-0" />
                 )}
-                <span className={i > 0 ? "text-foreground" : ""}>{f}</span>
+                <span className={i > 0 ? "text-foreground" : ""}>{t(`insiderFeatures.${f}`)}</span>
               </li>
             ))}
           </ul>
@@ -274,7 +261,7 @@ function PlanosContent() {
               ) : (
                 <IconExternalLink className="w-4 h-4 mr-2" />
               )}
-              Gerenciar assinatura
+              {t("manage")}
             </Button>
           ) : (
             <div className="space-y-3">
@@ -288,7 +275,7 @@ function PlanosContent() {
                   }`}
                   onClick={() => setSelectedPlan("monthly")}
                 >
-                  Mensal
+                  {t("monthly")}
                 </button>
                 <button
                   className={`flex-1 text-xs font-medium py-1.5 rounded-sm transition-colors ${
@@ -298,7 +285,7 @@ function PlanosContent() {
                   }`}
                   onClick={() => setSelectedPlan("annual")}
                 >
-                  Anual
+                  {t("annual")}
                   <span className="ml-1 text-2xs opacity-80">−32%</span>
                 </button>
               </div>
@@ -307,15 +294,15 @@ function PlanosContent() {
               <div className="text-center">
                 {selectedPlan === "monthly" ? (
                   <span className="text-lg font-bold text-foreground">
-                    R$97<span className="text-sm font-normal text-muted-foreground">/mês</span>
+                    R$97<span className="text-sm font-normal text-muted-foreground">{t("perMonth")}</span>
                   </span>
                 ) : (
                   <div>
                     <span className="text-lg font-bold text-foreground">
-                      R$790<span className="text-sm font-normal text-muted-foreground">/ano</span>
+                      R$790<span className="text-sm font-normal text-muted-foreground">{t("perYear")}</span>
                     </span>
                     <p className="text-xs text-muted-foreground">
-                      Equivale a R$65,83/mês · parcelamento disponível
+                      {t("equivalent")}
                     </p>
                   </div>
                 )}
@@ -329,7 +316,7 @@ function PlanosContent() {
                 {loading === "checkout" && (
                   <IconLoader2 className="w-4 h-4 animate-spin mr-2" />
                 )}
-                Assinar Insider
+                {t("subscribe")}
               </Button>
 
               {/* Pix: pagamento avulso de 12 meses (Pix não suporta recorrência) */}
@@ -344,10 +331,10 @@ function PlanosContent() {
                     {loading === "pix" && (
                       <IconLoader2 className="w-4 h-4 animate-spin mr-2" />
                     )}
-                    Pagar anual com Pix
+                    {t("payPix")}
                   </Button>
                   <p className="text-2xs text-muted-foreground text-center">
-                    Pix: 12 meses de acesso, sem renovação automática.
+                    {t("pixNote")}
                   </p>
                 </>
               )}

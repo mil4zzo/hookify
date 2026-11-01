@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import { getAppLocale } from "@/lib/i18n/locale";
 import React from "react";
 import { cn } from "@/lib/utils/cn";
@@ -70,6 +71,7 @@ interface GenericCardProps {
 }
 
 export function GenericCard({ ad, metricLabel, rank, metricKey, averageValue, metricColor, onClick, topMetrics, actionType, averages, selected = false }: GenericCardProps) {
+  const t = useTranslations("commonUi");
   const formatCurrency = useFormatCurrency();
 
   // Estilos padrão para gems (amarelo/dourado sutil)
@@ -228,7 +230,7 @@ export function GenericCard({ ad, metricLabel, rank, metricKey, averageValue, me
                 <div className="space-y-0.5">
                   <div className="flex items-center justify-between gap-2 min-w-0">
                     <p className="truncate text-xs font-medium text-foreground flex-1 min-w-0" title={ad.ad_name || undefined}>
-                      {ad.ad_name || "Sem nome"}
+                      {ad.ad_name || t("genericCard.unnamed")}
                     </p>
                     {/* Rank badge na mesma linha do título */}
                     <div className={cn("flex items-center justify-center text-2xs font-bold transition-all flex-shrink-0 px-2 py-1 rounded-sm text-muted-foreground")} style={rankBadgeStyles || undefined}>
@@ -274,7 +276,7 @@ export function GenericCard({ ad, metricLabel, rank, metricKey, averageValue, me
 
             {/* Resultados */}
             <div className="flex flex-col gap-2">
-              <h3 className="text-xs font-semibold text-foreground">Resultados{conversions > 0 ? `: ${conversions.toLocaleString(getAppLocale())} conversões` : ""}</h3>
+              <h3 className="text-xs font-semibold text-foreground">{conversions > 0 ? t("genericCard.resultsWithConversions", { count: conversions.toLocaleString(getAppLocale()) }) : t("genericCard.results")}</h3>
               <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
                 <div>
                   <span className="text-muted-foreground">CPR:</span>
@@ -301,7 +303,7 @@ export function GenericCard({ ad, metricLabel, rank, metricKey, averageValue, me
 
             {/* Funil */}
             <div className="flex flex-col gap-2">
-              <h3 className="text-xs font-semibold text-foreground">Funil</h3>
+              <h3 className="text-xs font-semibold text-foreground">{t("genericCard.funnel")}</h3>
               <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
                 <div>
                   <span className="text-muted-foreground">CTR:</span>
@@ -316,7 +318,7 @@ export function GenericCard({ ad, metricLabel, rank, metricKey, averageValue, me
                   <span className={cn("ml-2 font-medium", averages ? getValueColor(connectRate, averages.connect_rate ?? null, "connect_rate") : "")}>{formatPct1(connectRate)}</span>
                 </div>
                 <div>
-                  <span className="text-muted-foreground">Conversão Página:</span>
+                  <span className="text-muted-foreground">{t("genericCard.pageConversion")}</span>
                   <span className={cn("ml-2 font-medium", averages && actionType ? getValueColor(pageConv, averages.per_action_type?.[actionType]?.page_conv ?? null, "page_conv") : "")}>{formatPct1(pageConv)}</span>
                 </div>
               </div>
@@ -351,32 +353,32 @@ export function GenericCard({ ad, metricLabel, rank, metricKey, averageValue, me
               <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
                 {leadscoreAvg > 0 && (
                   <div>
-                    <span className="text-muted-foreground">Leadscore médio:</span>
+                    <span className="text-muted-foreground">{t("genericCard.avgLeadscore")}</span>
                     <span className="ml-2 font-medium">{leadscoreAvg.toFixed(1)}</span>
                   </div>
                 )}
                 {frequency > 0 && (
                   <div>
-                    <span className="text-muted-foreground">Frequência:</span>
+                    <span className="text-muted-foreground">{t("genericCard.frequency")}</span>
                     <span className="ml-2 font-medium">{frequency.toFixed(2)}</span>
                   </div>
                 )}
                 {impressions > 0 && (
                   <div>
-                    <span className="text-muted-foreground">Impressões:</span>
+                    <span className="text-muted-foreground">{t("genericCard.impressions")}</span>
                     <span className="ml-2 font-medium">{impressions.toLocaleString(getAppLocale())}</span>
                   </div>
                 )}
                 {reach > 0 && (
                   <div>
-                    <span className="text-muted-foreground">Alcance:</span>
+                    <span className="text-muted-foreground">{t("genericCard.reach")}</span>
                     <span className="ml-2 font-medium">{reach.toLocaleString(getAppLocale())}</span>
                   </div>
                 )}
               </div>
             </div>
 
-            <div className="pt-2 mt-2 border-t border-border text-xs text-muted-foreground">Clique para ver detalhes completos e histórico</div>
+            <div className="pt-2 mt-2 border-t border-border text-xs text-muted-foreground">{t("genericCard.clickHint")}</div>
           </div>
         </TooltipContent>
       </Tooltip>

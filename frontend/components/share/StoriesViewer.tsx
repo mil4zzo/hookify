@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import {
@@ -114,6 +115,7 @@ function VideoSegmentFill({ videoRef, resetKey }: { videoRef: React.RefObject<HT
 // ── Viewer ───────────────────────────────────────────────────────────────────
 
 export function StoriesViewer({ share }: { share: PublicShare }) {
+  const t = useTranslations("share.viewer");
   const items = share.items;
   const [index, setIndex] = useState(0);
   const [isHolding, setIsHolding] = useState(false);
@@ -256,11 +258,11 @@ export function StoriesViewer({ share }: { share: PublicShare }) {
                   <p className="text-3xl" aria-hidden>
                     ⏳
                   </p>
-                  <p className="text-sm font-semibold">Esse vídeo expirou 😴</p>
+                  <p className="text-sm font-semibold">{t("videoExpired")}</p>
                   <p className="text-xs leading-relaxed text-muted-foreground">
-                    A CDN da Meta aposentou o link. Peça um link atualizado no Hookify ;)
+                    {t("videoExpiredHint")}
                   </p>
-                  <p className="text-xs text-muted-foreground">As métricas continuam logo abaixo 👇</p>
+                  <p className="text-xs text-muted-foreground">{t("metricsBelow")}</p>
                 </div>
               </div>
             ) : current.media.image_url || current.media.thumbnail_url ? (
@@ -311,7 +313,7 @@ export function StoriesViewer({ share }: { share: PublicShare }) {
               </span>
               <button
                 type="button"
-                aria-label={isUserPaused ? "Retomar" : "Pausar"}
+                aria-label={isUserPaused ? t("resume") : t("pause")}
                 className="pointer-events-auto rounded-full bg-background-60 p-1.5 text-foreground"
                 onClick={() => setIsUserPaused((p) => !p)}
               >
@@ -320,7 +322,7 @@ export function StoriesViewer({ share }: { share: PublicShare }) {
               {hasPlayableVideo && (
                 <button
                   type="button"
-                  aria-label={isMuted ? "Ativar som" : "Silenciar"}
+                  aria-label={isMuted ? t("unmute") : t("mute")}
                   className="pointer-events-auto rounded-full bg-background-60 p-1.5 text-foreground"
                   onClick={() => setIsMuted((m) => !m)}
                 >
@@ -335,7 +337,7 @@ export function StoriesViewer({ share }: { share: PublicShare }) {
         {isMetricsExpanded && (
           <button
             type="button"
-            aria-label="Fechar métricas"
+            aria-label={t("closeMetrics")}
             className="absolute inset-0 z-20 bg-background-60"
             onClick={() => setIsMetricsExpanded(false)}
           />
@@ -358,7 +360,7 @@ export function StoriesViewer({ share }: { share: PublicShare }) {
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-medium">{current.ad_name}</p>
                 <p className="text-2xs text-muted-foreground">
-                  {formatDatePt(share.date_start)}–{formatDatePt(share.date_stop)} · snapshot na criação do link
+                  {t("snapshot", { start: formatDatePt(share.date_start), end: formatDatePt(share.date_stop) })}
                 </p>
               </div>
               <IconChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
@@ -396,7 +398,7 @@ export function StoriesViewer({ share }: { share: PublicShare }) {
                 );
               })}
               {visibleSections.length === 0 && (
-                <p className="py-4 text-center text-sm text-muted-foreground">Sem métricas disponíveis para este criativo.</p>
+                <p className="py-4 text-center text-sm text-muted-foreground">{t("noMetrics")}</p>
               )}
             </div>
 
@@ -406,14 +408,14 @@ export function StoriesViewer({ share }: { share: PublicShare }) {
               rel="noopener noreferrer"
               className="shrink-0 border-t border-border py-1.5 text-center text-2xs text-muted-foreground hover:text-foreground"
             >
-              Feito com <span className="font-semibold text-primary">Hookify</span>
+              {t.rich("madeWith", { b: (c) => <span className="font-semibold text-primary">{c}</span> })}
             </a>
           </div>
         ) : (
           <button
             type="button"
             aria-expanded={false}
-            aria-label="Ver todas as métricas"
+            aria-label={t("seeAll")}
             onClick={() => setIsMetricsExpanded(true)}
             className="absolute inset-x-0 bottom-0 z-30 flex w-full flex-col gap-1.5 bg-gradient-to-t from-overlay to-transparent px-3 pb-3 pt-12 text-left"
           >

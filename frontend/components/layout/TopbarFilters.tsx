@@ -7,6 +7,7 @@ import { useClientAuth } from "@/lib/hooks/useClientSession"
 import { PackFilter } from "@/components/common/PackFilter"
 import { deselectVisible, selectVisibleRespectingConflicts } from "@/components/common/filterListBulk"
 import { showInfo } from "@/lib/utils/toast"
+import { translate } from "@/lib/i18n/translate"
 import { usePackConflicts } from "@/lib/hooks/usePackConflicts"
 import { useAvailableConversionTypes } from "@/lib/hooks/useAvailableConversionTypes"
 import { ActionTypeFilter } from "@/components/common/ActionTypeFilter"
@@ -140,7 +141,7 @@ function TopbarFilterControls() {
     // regra pura permitiria, e ela segue valendo como rede): "selecionar todos"
     // que marca um pack arbitrario da lista se le como bug, nao como protecao.
     if (conflictUnknownRef.current) {
-      showInfo("Não foi possível verificar conflito entre packs agora. Selecione um pack por vez — somar packs que compartilham anúncios daria totais errados.")
+      showInfo(translate("layout.filters.conflictUnknown"))
       return
     }
     const { next, skipped } = selectVisibleRespectingConflicts(pendingPackIdsRef.current, visibleIds, conflictMapRef.current, { graphUnavailable: conflictUnknownRef.current })
@@ -150,8 +151,7 @@ function TopbarFilterControls() {
 
     if (skipped.length > 0) {
       const nameById = new Map(packsRef.current.map((p) => [p.id, p.name]))
-      const label = skipped.length === 1 ? `«${nameById.get(skipped[0]) ?? "1 pack"}» não foi marcado: conflita` : `${skipped.length} packs não foram marcados: conflitam`
-      showInfo(`${label} com packs selecionados (mesmos anúncios em contas de donos diferentes).`)
+      showInfo(translate("layout.filters.skipped", { count: skipped.length, name: nameById.get(skipped[0]) ?? translate("layout.filters.onePack") }))
     }
   }, [])
 

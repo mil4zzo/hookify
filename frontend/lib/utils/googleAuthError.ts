@@ -3,6 +3,7 @@
  * Elimina duplicação de lógica de detecção de token expirado.
  */
 
+import { translate } from "@/lib/i18n/translate";
 import { AppError } from "./errors";
 
 // Códigos de erro do Google (deve corresponder aos códigos do backend)
@@ -46,7 +47,7 @@ export function handleGoogleAuthError(
   const appError = error as AppError;
   
   if (!isGoogleTokenError(appError)) {
-    return { shouldReconnect: false, message: appError?.message || "Erro desconhecido" };
+    return { shouldReconnect: false, message: appError?.message || translate("utils.errors.unknown") };
   }
 
   // Limpar cache de verificação da conexão se houver connectionId

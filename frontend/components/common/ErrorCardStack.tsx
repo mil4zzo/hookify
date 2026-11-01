@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import React from "react";
 import { ProgressToastCard } from "@/components/common/ProgressToastCard";
 import { useErrorCardsStore } from "@/lib/store/errorCards";
@@ -14,6 +15,7 @@ import { getTerminalContextMeta } from "@/lib/utils/toast";
  * terminal de antes; só o dono da posição mudou.
  */
 export function ErrorCardStack() {
+  const t = useTranslations("commonUi");
   const cards = useErrorCardsStore((state) => state.cards);
   const dismiss = useErrorCardsStore((state) => state.dismiss);
 
@@ -37,8 +39,8 @@ export function ErrorCardStack() {
               currentStep={1}
               totalSteps={1}
               stagedContent={{
-                stageLabel: "Falhou",
-                stageTitle: "Erro",
+                stageLabel: t("errorCard.failed"),
+                stageTitle: t("errorCard.error"),
                 dynamicLine: card.message,
                 stageContext,
                 diagnosticLine: card.diagnosticLine,

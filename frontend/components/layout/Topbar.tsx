@@ -69,6 +69,7 @@ export default function Topbar() {
   const { currency: userCurrency, isSaving: isSavingCurrency, saveCurrency } = useCurrency();
   const { currency: detectedCurrency, isMixed: isMixedCurrency, isLoading: isDetectingCurrency } = useDetectedAccountCurrency();
   const tNav = useTranslations("nav");
+  const t = useTranslations("topbar");
   const { language: userLanguage, isLoading: isLoadingLanguage, isSaving: isSavingLanguage, saveLanguage } = useLanguage();
   const { niche: userNiche, isLoading: isLoadingNiche, isSaving: isSavingNiche, updateNiche, saveNiche } = useNiche();
   const { packs } = useClientPacks();
@@ -273,7 +274,7 @@ export default function Topbar() {
       // Limpar packs do Zustand store para atualizar Topbar imediatamente
       useSessionStore.setState({ packs: [], adAccounts: [] });
       queryClient.clear();
-      showSuccess("Seus dados foram excluídos com sucesso. Sua conta foi mantida.");
+      showSuccess(t("dataDeleted"));
       setShowDeleteDataConfirm(false);
       closeSettings();
       router.push("/packs");
@@ -286,8 +287,8 @@ export default function Topbar() {
 
   // Função para excluir conta completa (irreversível)
   const handleDeleteAccount = async () => {
-    if (deleteAccountInput !== "EXCLUIR") {
-      showWarning('Digite exatamente "EXCLUIR" para confirmar.');
+    if (deleteAccountInput !== t("deleteWord")) {
+      showWarning(t("deleteWordWarning", { word: t("deleteWord") }));
       return;
     }
     setIsDeletingAccount(true);
@@ -361,7 +362,7 @@ export default function Topbar() {
     return (
       <DropdownMenu open={profileMenuOpen} onOpenChange={setProfileMenuOpen}>
         <DropdownMenuTrigger asChild>
-          <button className="relative flex items-center justify-center w-10 h-10 rounded-full overflow-hidden hover:ring-2 hover:ring-border transition-all focus-inset focus:outline-none" aria-label="Perfil do usuário">
+          <button className="relative flex items-center justify-center w-10 h-10 rounded-full overflow-hidden hover:ring-2 hover:ring-border transition-all focus-inset focus:outline-none" aria-label={t("profileAria")}>
             {renderTriggerAvatar()}
           </button>
         </DropdownMenuTrigger>
@@ -387,7 +388,7 @@ export default function Topbar() {
                 </div>
               )}
               <div className="flex-1 min-w-0">
-                <p className="font-semibold text-foreground truncate">{formatToTitleCase(user.user_metadata?.name || user.user_metadata?.full_name) || user.email?.split("@")[0] || "Usuário"}</p>
+                <p className="font-semibold text-foreground truncate">{formatToTitleCase(user.user_metadata?.name || user.user_metadata?.full_name) || user.email?.split("@")[0] || t("userFallback")}</p>
                 <p className="text-sm text-muted-foreground truncate">{user.email}</p>
               </div>
             </div>
@@ -396,16 +397,16 @@ export default function Topbar() {
           <DropdownMenuSeparator />
 
           <DropdownMenuItem icon={<IconBell />} onSelect={() => {}}>
-            Notificações
+            {t("notifications")}
           </DropdownMenuItem>
           <DropdownMenuItem icon={theme === "dark" ? <IconSun /> : <IconMoon />} onSelect={() => toggleTheme()}>
-            {theme === "dark" ? "Modo Claro" : "Modo Escuro"}
+            {theme === "dark" ? t("lightMode") : t("darkMode")}
           </DropdownMenuItem>
           <DropdownMenuItem icon={<IconSettings />} onSelect={() => openSettings()}>
-            Configurações
+            {t("settings")}
           </DropdownMenuItem>
           <DropdownMenuItem icon={<IconLogout />} onSelect={handleLogoutClick}>
-            Sair
+            {t("logout")}
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
@@ -434,7 +435,7 @@ export default function Topbar() {
 
     const pack = packs.find((p) => p.id === selectedPackId);
     if (!pack) {
-      showError({ message: "Pack não encontrado" });
+      showError({ message: t("packNotFound") });
       return;
     }
 
@@ -467,7 +468,7 @@ export default function Topbar() {
     // a um clique que o backend recusa com 409 (REFRESH_ALREADY_RUNNING).
     if (refreshingPackIds.length > 0 || packs.some((p) => isPackRefreshingOnServer(p))) {
       return (
-        <Button variant="outline" size="icon" className="shrink-0" disabled aria-label="Atualizando dados">
+        <Button variant="outline" size="icon" className="shrink-0" disabled aria-label={t("updating")}>
           <IconLoader2 className="h-4 w-4 animate-spin" />
         </Button>
       );
@@ -476,7 +477,7 @@ export default function Topbar() {
     // Se há apenas um pack, vai direto para confirmação ao clicar
     if (packs.length === 1) {
       return (
-        <Button variant="outline" size="icon" className="shrink-0" onClick={() => handleSelectPack(packs[0].id)} aria-label="Atualizar dados">
+        <Button variant="outline" size="icon" className="shrink-0" onClick={() => handleSelectPack(packs[0].id)} aria-label={t("updateData")}>
           <IconRefresh className="h-4 w-4" />
         </Button>
       );
@@ -486,12 +487,12 @@ export default function Topbar() {
     return (
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button variant="outline" size="icon" className="shrink-0" aria-label="Atualizar dados">
+          <Button variant="outline" size="icon" className="shrink-0" aria-label={t("updateData")}>
             <IconRefresh className="h-4 w-4" />
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-64">
-          <DropdownMenuLabel className="bg-card">Atualizar pack:</DropdownMenuLabel>
+          <DropdownMenuLabel className="bg-card">{t("updatePack")}</DropdownMenuLabel>
           {packs.map((pack) => (
             <DropdownMenuItem key={pack.id} onClick={() => handleSelectPack(pack.id)} className="flex flex-col items-start gap-1 py-3">
               <div className="flex items-center justify-between w-full">
@@ -515,64 +516,64 @@ export default function Topbar() {
   const renderGeneralTabContent = () => (
     <div className="space-y-6">
       <div>
-        <h3 className="text-lg font-semibold text-foreground mb-6">Preferências</h3>
+        <h3 className="text-lg font-semibold text-foreground mb-6">{t("general.title")}</h3>
       </div>
 
       <div className="space-y-4">
         {/* Idioma */}
         <div className="space-y-2">
-          <label className="text-sm font-medium text-foreground">Idioma</label>
+          <label className="text-sm font-medium text-foreground">{t("general.language")}</label>
           <Select
             value={userLanguage}
             onValueChange={async (value) => {
               try {
                 await saveLanguage(value);
-                showSuccess("Idioma atualizado com sucesso");
+                showSuccess(t("general.languageSaved"));
               } catch (error) {
                 console.error("Erro ao salvar idioma:", error);
-                showError({ message: "Erro ao salvar idioma" });
+                showError({ message: t("general.languageError") });
               }
             }}
             disabled={isLoadingLanguage || isSavingLanguage}
           >
             <SelectTrigger className="w-full">
-              <SelectValue placeholder="Selecione um idioma" />
+              <SelectValue placeholder={t("general.languagePlaceholder")} />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="pt-BR">Português</SelectItem>
               <SelectItem value="en-US">English</SelectItem>
               <SelectItem value="es-ES" disabled>
-                Espanhol
+                {t("general.spanish")}
               </SelectItem>
             </SelectContent>
           </Select>
-          <p className="text-xs text-muted-foreground">{isSavingLanguage ? "Salvando..." : "O idioma será aplicado em todas as páginas do app"}</p>
+          <p className="text-xs text-muted-foreground">{isSavingLanguage ? t("saving") : t("general.languageHint")}</p>
         </div>
 
         {/* Moeda: informativa, não editável — vem da conta Meta conectada (nunca convertemos valores) */}
         <div className="space-y-2">
-          <label className="text-sm font-medium text-foreground">Moeda</label>
+          <label className="text-sm font-medium text-foreground">{t("general.currency")}</label>
           <Input
             type="text"
             readOnly
             disabled
-            value={isMixedCurrency ? "Múltiplas moedas" : detectedCurrency || userCurrency}
+            value={isMixedCurrency ? t("general.multipleCurrencies") : detectedCurrency || userCurrency}
           />
           <p className="text-xs text-muted-foreground">
             {isMixedCurrency
-              ? "Suas contas Meta conectadas usam moedas diferentes — os valores são exibidos na moeda de cada conta, sem conversão."
+              ? t("general.currencyMixed")
               : detectedCurrency
-                ? "Detectada automaticamente na sua conta Meta conectada. Os valores já vêm nessa moeda, então não é possível trocar manualmente."
-                : "Detectando a moeda da sua conta Meta conectada..."}
+                ? t("general.currencyDetected")
+                : t("general.currencyDetecting")}
           </p>
         </div>
 
         {/* Nicho */}
         <div className="space-y-2">
-          <label className="text-sm font-medium text-foreground">Nicho</label>
+          <label className="text-sm font-medium text-foreground">{t("general.niche")}</label>
           <Input
             type="text"
-            placeholder="Ex: E-commerce, SaaS, etc."
+            placeholder={t("general.nichePlaceholder")}
             value={userNiche}
             onChange={(e) => {
               updateNiche(e.target.value);
@@ -581,15 +582,15 @@ export default function Topbar() {
               const newValue = e.target.value;
               try {
                 await saveNiche(newValue);
-                showSuccess("Nicho atualizado com sucesso");
+                showSuccess(t("general.nicheSaved"));
               } catch (error) {
                 console.error("Erro ao salvar nicho:", error);
-                showError({ message: "Erro ao salvar nicho" });
+                showError({ message: t("general.nicheError") });
               }
             }}
             disabled={isLoadingNiche || isSavingNiche}
           />
-          <p className="text-xs text-muted-foreground">{isSavingNiche ? "Salvando..." : "Digite o nicho do seu negócio (ex: E-commerce, SaaS, etc.)"}</p>
+          <p className="text-xs text-muted-foreground">{isSavingNiche ? t("saving") : t("general.nicheHint")}</p>
         </div>
       </div>
     </div>
@@ -598,7 +599,7 @@ export default function Topbar() {
   const renderAccountsTabContent = () => (
     <div className="space-y-6">
       <div>
-        <h3 className="text-lg font-semibold text-foreground mb-6">Contas</h3>
+        <h3 className="text-lg font-semibold text-foreground mb-6">{t("accounts.title")}</h3>
       </div>
 
       {connections.isLoading ? (
@@ -620,7 +621,7 @@ export default function Topbar() {
                 try {
                   clearConnectionCache(connectionId);
                   await disconnect.mutateAsync(connectionId);
-                  showSuccess("Conta desconectada com sucesso!");
+                  showSuccess(t("accounts.disconnected"));
                 } catch (error) {
                   showError(error as any);
                 }
@@ -634,11 +635,11 @@ export default function Topbar() {
         <StatePanel
           kind="empty"
           icon={IconBrandFacebook}
-          title="Nenhuma conta do Facebook conectada"
+          title={t("accounts.emptyTitle")}
           action={
             <Button variant="default" onClick={handleConnectFacebook} disabled={connect.isPending} className="flex items-center gap-2">
               {connect.isPending ? <IconLoader2 className="h-4 w-4 animate-spin" /> : <IconBrandFacebook className="h-4 w-4" />}
-              {connect.isPending ? "Conectando..." : "Conectar Facebook"}
+              {connect.isPending ? t("connecting") : t("connectFacebook")}
             </Button>
           }
         />
@@ -646,27 +647,27 @@ export default function Topbar() {
 
       {/* Zona de perigo */}
       <div className="mt-8 pt-6 border-t border-destructive-20 space-y-4">
-        <h4 className="text-sm font-semibold text-destructive">Zona de perigo</h4>
+        <h4 className="text-sm font-semibold text-destructive">{t("accounts.dangerZone")}</h4>
 
         <div className="flex items-start justify-between gap-4">
           <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium text-foreground">Excluir meus dados</p>
-            <p className="text-xs text-muted-foreground">Remove todos os dados (packs, métricas, anúncios, conexões e configurações). Sua conta Hookify será mantida.</p>
+            <p className="text-sm font-medium text-foreground">{t("accounts.deleteDataTitle")}</p>
+            <p className="text-xs text-muted-foreground">{t("accounts.deleteDataHint")}</p>
           </div>
           <Button variant="destructiveOutline" size="sm" className="flex-shrink-0" onClick={() => setShowDeleteDataConfirm(true)}>
             <IconTrash className="h-4 w-4 mr-1" />
-            Excluir dados
+            {t("accounts.deleteDataButton")}
           </Button>
         </div>
 
         <div className="flex items-start justify-between gap-4">
           <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium text-foreground">Excluir minha conta</p>
-            <p className="text-xs text-muted-foreground">Remove permanentemente sua conta e todos os dados associados. Esta ação é irreversível.</p>
+            <p className="text-sm font-medium text-foreground">{t("accounts.deleteAccountTitle")}</p>
+            <p className="text-xs text-muted-foreground">{t("accounts.deleteAccountHint")}</p>
           </div>
           <Button variant="destructive" size="sm" className="flex-shrink-0" onClick={() => setShowDeleteAccountConfirm(true)}>
             <IconTrash className="h-4 w-4 mr-1" />
-            Excluir conta
+            {t("accounts.deleteAccountButton")}
           </Button>
         </div>
       </div>
@@ -677,25 +678,25 @@ export default function Topbar() {
     <div className="space-y-6">
       <div>
         <div className="flex items-center justify-between mb-2">
-          <h3 className="text-lg font-semibold text-foreground">Critério de validação</h3>
+          <h3 className="text-lg font-semibold text-foreground">{t("validation.title")}</h3>
           {(isLoadingCriteria || isSavingCriteria) && (
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               {isLoadingCriteria && (
                 <>
                   <IconLoader2 className="h-4 w-4 animate-spin" />
-                  <span>Carregando...</span>
+                  <span>{t("loading")}</span>
                 </>
               )}
               {isSavingCriteria && !isLoadingCriteria && (
                 <>
                   <IconLoader2 className="h-4 w-4 animate-spin" />
-                  <span>Salvando...</span>
+                  <span>{t("saving")}</span>
                 </>
               )}
             </div>
           )}
         </div>
-        <p className="text-sm text-muted-foreground mb-4">Defina a partir de quando um anúncio já tem dados suficientes para ser julgado. Quem não atende continua em fase de teste e fica fora do G.O.L.D., do plano de ação e das oportunidades. É o mesmo construtor dos filtros do Manager e dos grupos do Boards.</p>
+        <p className="text-sm text-muted-foreground mb-4">{t("validation.description")}</p>
       </div>
       <div className="space-y-4">
         {isLoadingCriteria ? (
@@ -720,18 +721,16 @@ export default function Topbar() {
     <div className="space-y-6">
       <div>
         <div className="flex items-center justify-between mb-2">
-          <h3 className="text-lg font-semibold text-foreground">Configuração de Leadscore</h3>
+          <h3 className="text-lg font-semibold text-foreground">{t("leadscore.title")}</h3>
           {isLoadingMql && (
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <IconLoader2 className="h-4 w-4 animate-spin" />
-              <span>Carregando...</span>
+              <span>{t("loading")}</span>
             </div>
           )}
         </div>
         <p className="text-sm text-muted-foreground mb-4">
-          O leadscore mínimo para considerar um lead como MQL é definido em cada pack, junto da
-          planilha que produz o leadscore — é ela que dá a escala do número. Não existe mais um
-          padrão de conta: o critério acompanha o pack, inclusive quando ele é compartilhado.
+          {t("leadscore.description")}
         </p>
       </div>
 
@@ -742,24 +741,21 @@ export default function Topbar() {
           </div>
         ) : (
           <div className="space-y-2">
-            <label className="text-sm font-medium text-foreground">Em vigor na seleção atual</label>
+            <label className="text-sm font-medium text-foreground">{t("leadscore.current")}</label>
             <p className="text-2xl font-semibold text-foreground tabular-nums">
               {effectiveMqlLeadscoreMin != null ? effectiveMqlLeadscoreMin.toFixed(1) : "—"}
             </p>
             {mqlDivergent ? (
               <p className="text-xs text-warning">
-                Os packs selecionados usam cortes diferentes entre si, então MQL e CPMQL ficam
-                indisponíveis. Selecione um pack por vez ou alinhe o corte em Packs → configuração.
+                {t("leadscore.divergent")}
               </p>
             ) : effectiveMqlLeadscoreMin == null ? (
               <p className="text-xs text-warning">
-                Nenhum corte definido para os packs selecionados — MQL e CPMQL ficam indisponíveis.
-                Defina em Packs → configuração.
+                {t("leadscore.missing")}
               </p>
             ) : (
               <p className="text-xs text-muted-foreground">
-                Leads com leadscore &gt;= {effectiveMqlLeadscoreMin.toFixed(1)} contam como MQL.
-                Para alterar, use Packs → configuração.
+                {t("leadscore.applied", { value: effectiveMqlLeadscoreMin.toFixed(1) })}
               </p>
             )}
           </div>
@@ -804,10 +800,10 @@ export default function Topbar() {
                 {packs.length > 0 && (
                   <div className="hidden md:flex flex-col items-end gap-0 pr-3 border-r border-border">
                     <p className="text-xs font-medium text-foreground leading-tight">
-                      {packs.length} {packs.length === 1 ? "pack" : "packs"}
+                      {t("packCount", { count: packs.length })}
                     </p>
                     <p className="text-xs font-medium text-muted-foreground leading-tight">
-                      {packStats.uniqueAds} {packStats.uniqueAds === 1 ? "anúncio" : "anúncios"}
+                      {t("adCount", { count: packStats.uniqueAds })}
                     </p>
                   </div>
                 )}
@@ -819,7 +815,7 @@ export default function Topbar() {
                 ) : shouldShowConnectButton ? (
                   <Button variant="default" size="sm" onClick={handleConnectFacebook} disabled={connect.isPending} className="flex items-center gap-2">
                     {connect.isPending ? <IconLoader2 className="h-4 w-4 animate-spin" /> : <IconBrandFacebook className="h-4 w-4" />}
-                    {connect.isPending ? "Conectando..." : "Conectar Facebook"}
+                    {connect.isPending ? t("connecting") : t("connectFacebook")}
                   </Button>
                 ) : hasFacebookConnection ? (
                   renderUpdateDataButton()
@@ -838,7 +834,7 @@ export default function Topbar() {
 
         {/* Settings Modal - Shared between mobile and desktop (AppDialog = Radix, foco acessível) */}
         {isAuthenticated && (
-          <AppDialog isOpen={isSettingsOpen} onClose={closeSettings} size="4xl" padding="none" title="Configurações" mobileVariant="bottom-sheet" className="max-w-none md:max-w-4xl">
+          <AppDialog isOpen={isSettingsOpen} onClose={closeSettings} size="4xl" padding="none" title={t("dialogs.settingsTitle")} mobileVariant="bottom-sheet" className="max-w-none md:max-w-4xl">
             <div className="flex flex-col h-[90vh] md:flex-row md:h-[600px] md:max-h-[90vh] overflow-hidden">
               {/* Mobile: Header with drag indicator + Title */}
               <div className="md:hidden">
@@ -846,16 +842,16 @@ export default function Topbar() {
                   <div className="w-10 h-1 rounded-full bg-border" />
                 </div>
                 <div className="flex items-center justify-between px-5 pb-3">
-                  <h2 className="text-lg font-semibold text-foreground">Configurações</h2>
+                  <h2 className="text-lg font-semibold text-foreground">{t("dialogs.settingsTitle")}</h2>
                 </div>
                 {/* Mobile: Tabs horizontal */}
                 <div className="border-b border-border">
                   <div className="flex overflow-x-auto px-1">
                     {([
-                      { value: "general", label: "Preferências", icon: IconSettings },
-                      { value: "accounts", label: "Contas", icon: IconUsers },
-                      { value: "validation", label: "Validação", icon: IconCheck },
-                      { value: "leadscore", label: "Leadscore", icon: IconTarget },
+                      { value: "general", label: t("tabs.general"), icon: IconSettings },
+                      { value: "accounts", label: t("tabs.accounts"), icon: IconUsers },
+                      { value: "validation", label: t("tabs.validationShort"), icon: IconCheck },
+                      { value: "leadscore", label: t("tabs.leadscore"), icon: IconTarget },
                     ] as const).map((tab) => {
                       const Icon = tab.icon;
                       const isActive = activeSettingsTab === tab.value;
@@ -890,7 +886,7 @@ export default function Topbar() {
               {/* Desktop: Sidebar with Title and Tabs */}
               <div className="hidden md:flex w-fit min-w-0 border-r border-border bg-card flex-col shrink-0">
                 <div className="p-4 border-b border-border">
-                  <h2 className="text-lg font-semibold text-foreground whitespace-nowrap">Configurações</h2>
+                  <h2 className="text-lg font-semibold text-foreground whitespace-nowrap">{t("dialogs.settingsTitle")}</h2>
                 </div>
                 <div className="flex-1 overflow-y-auto min-w-0">
                   <TabbedContent
@@ -899,10 +895,10 @@ export default function Topbar() {
                     variant="with-icons"
                     orientation="vertical"
                     tabs={[
-                      { value: "general", label: "Preferências", icon: IconSettings },
-                      { value: "accounts", label: "Contas", icon: IconUsers },
-                      { value: "validation", label: "Critério de validação", icon: IconCheck },
-                      { value: "leadscore", label: "Leadscore", icon: IconTarget },
+                      { value: "general", label: t("tabs.general"), icon: IconSettings },
+                      { value: "accounts", label: t("tabs.accounts"), icon: IconUsers },
+                      { value: "validation", label: t("tabs.validation"), icon: IconCheck },
+                      { value: "leadscore", label: t("tabs.leadscore"), icon: IconTarget },
                     ]}
                     tabsContainerClassName="h-full w-fit"
                     tabsListClassName="flex-col w-auto border-r-0 border-t-0 border-border bg-card rounded-none gap-1 space-y-1 p-2 flex-shrink-0"
@@ -931,10 +927,10 @@ export default function Topbar() {
                   variant="with-icons"
                   orientation="vertical"
                   tabs={[
-                    { value: "general", label: "Preferências", icon: IconSettings },
-                    { value: "accounts", label: "Contas", icon: IconUsers },
-                    { value: "validation", label: "Critério de validação", icon: IconCheck },
-                    { value: "leadscore", label: "Leadscore", icon: IconTarget },
+                    { value: "general", label: t("tabs.general"), icon: IconSettings },
+                    { value: "accounts", label: t("tabs.accounts"), icon: IconUsers },
+                    { value: "validation", label: t("tabs.validation"), icon: IconCheck },
+                    { value: "leadscore", label: t("tabs.leadscore"), icon: IconTarget },
                   ]}
                   tabsContainerClassName="flex flex-col h-full flex-1"
                   tabsListClassName="hidden"
@@ -956,15 +952,15 @@ export default function Topbar() {
           <ConfirmDialog
             isOpen={isConfirmingUpdate}
             onClose={handleCancelConfirmation}
-            title="Confirmar atualização"
+            title={t("dialogs.confirmUpdateTitle")}
             message={
               <>
-                Deseja atualizar o pack <strong>"{packs.find((p) => p.id === selectedPackId)?.name || "desconhecido"}"</strong>?
+                {t.rich("dialogs.confirmUpdateMessage", { name: packs.find((p) => p.id === selectedPackId)?.name || t("dialogs.unknownPack"), b: (c) => <strong>{c}</strong> })}
                 <br />
-                <span className="text-xs">A atualização buscará novos dados desde a última atualização até hoje.</span>
+                <span className="text-xs">{t("dialogs.confirmUpdateNote")}</span>
               </>
             }
-            confirmText="Confirmar atualização"
+            confirmText={t("dialogs.confirmUpdateButton")}
             onConfirm={handleConfirmUpdate}
             isLoading={refreshingPackIds.length > 0}
             confirmIcon={<IconRefresh className="h-4 w-4" />}
@@ -975,20 +971,20 @@ export default function Topbar() {
         <ConfirmDialog
           isOpen={showDeleteDataConfirm}
           onClose={() => setShowDeleteDataConfirm(false)}
-          title="Excluir meus dados"
+          title={t("accounts.deleteDataTitle")}
           message={
             <>
-              Tem certeza que deseja excluir <strong>todos os seus dados</strong>? Isso inclui packs, métricas, anúncios, conexões e configurações.
+              {t.rich("dialogs.deleteDataMessage", { b: (c) => <strong>{c}</strong> })}
               <br />
               <br />
-              <span className="text-xs">Sua conta Hookify será mantida e você poderá usá-la novamente no futuro.</span>
+              <span className="text-xs">{t("dialogs.deleteDataNote")}</span>
             </>
           }
-          confirmText="Sim, excluir meus dados"
+          confirmText={t("dialogs.deleteDataConfirm")}
           variant="destructive"
           onConfirm={handleDeleteUserData}
           isLoading={isDeletingData}
-          loadingText="Excluindo dados..."
+          loadingText={t("dialogs.deleteDataLoading")}
           confirmIcon={<IconTrash className="h-4 w-4" />}
         />
 
@@ -999,26 +995,26 @@ export default function Topbar() {
             setShowDeleteAccountConfirm(false);
             setDeleteAccountInput("");
           }}
-          title="Excluir minha conta"
+          title={t("accounts.deleteAccountTitle")}
           message={
             <>
-              Esta ação é <strong>irreversível</strong>. Sua conta e todos os dados associados serão permanentemente removidos.
+              {t.rich("dialogs.deleteAccountMessage", { b: (c) => <strong>{c}</strong> })}
               <br />
               <br />
               <span className="text-xs">
-                Para confirmar, digite <strong>EXCLUIR</strong> abaixo:
+                {t.rich("dialogs.deleteAccountNote", { word: t("deleteWord"), b: (c) => <strong>{c}</strong> })}
               </span>
             </>
           }
-          confirmText="Excluir minha conta permanentemente"
+          confirmText={t("dialogs.deleteAccountConfirm")}
           variant="destructive"
           onConfirm={handleDeleteAccount}
           isLoading={isDeletingAccount}
-          loadingText="Excluindo conta..."
+          loadingText={t("dialogs.deleteAccountLoading")}
           confirmIcon={<IconTrash className="h-4 w-4" />}
         >
-          <Input value={deleteAccountInput} onChange={(e) => setDeleteAccountInput(e.target.value)} placeholder='Digite "EXCLUIR" para confirmar' className="mt-2" />
-          {deleteAccountInput !== "EXCLUIR" && deleteAccountInput.length > 0 && <p className="text-xs text-destructive mt-1">Digite exatamente &quot;EXCLUIR&quot; para confirmar</p>}
+          <Input value={deleteAccountInput} onChange={(e) => setDeleteAccountInput(e.target.value)} placeholder={t("deleteWordPlaceholder", { word: t("deleteWord") })} className="mt-2" />
+          {deleteAccountInput !== t("deleteWord") && deleteAccountInput.length > 0 && <p className="text-xs text-destructive mt-1">{t("deleteWordInline", { word: t("deleteWord") })}</p>}
         </ConfirmDialog>
       </header>
     </>

@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import { IconAlertTriangle, IconInfoCircle } from "@tabler/icons-react";
 
 import { ConfirmDialog } from "@/components/common/ConfirmDialog";
@@ -20,19 +21,19 @@ interface BulkApplyReviewDialogProps {
  * `review.needsConfirm` — quem chama decide (ver `bulkApplyReview.ts`).
  */
 export function BulkApplyReviewDialog({ review, packCount, onCancel, onConfirm }: BulkApplyReviewDialogProps) {
+  const t = useTranslations("commonUi");
   const lines = review ? [...review.lines.filter((l) => l.overwrites), ...review.lines.filter((l) => !l.overwrites)] : [];
-  const noun = packCount === 1 ? "pack" : "packs";
   return (
     <ConfirmDialog
       isOpen={!!review}
       onClose={onCancel}
-      title={`Aplicar igual aos ${packCount} ${noun}?`}
-      message="Nada é adaptado por pack: o que você configurou vale exatamente igual em todos, inclusive onde substitui o que o pack já tinha."
+      title={t("bulkReview.title", { count: packCount })}
+      message={t("bulkReview.message")}
       layout="left-aligned"
       size="lg"
       nested
-      cancelText="Voltar e revisar"
-      confirmText={`Aplicar aos ${packCount} ${noun}`}
+      cancelText={t("bulkReview.back")}
+      confirmText={t("bulkReview.confirm", { count: packCount })}
       onConfirm={onConfirm}
     >
       <ul className="space-y-3">
