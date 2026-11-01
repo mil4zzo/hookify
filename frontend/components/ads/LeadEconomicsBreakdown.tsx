@@ -1,5 +1,6 @@
 "use client";
 
+import { getAppLocale } from "@/lib/i18n/locale";
 import { useId, useState } from "react";
 import { IconAlertTriangle, IconCalculator, IconChevronDown } from "@tabler/icons-react";
 
@@ -13,7 +14,7 @@ import { LEAD_ECONOMICS_MIN_SAMPLE, leadMarginTone, type RowLeadEconomicsOutcome
 import { getMetricValueTextClass } from "@/lib/utils/metricQuality";
 
 const pct = (fraction: number) => formatMetricValue("lead_margin", fraction);
-const count = (n: number) => n.toLocaleString("pt-BR");
+const count = (n: number) => n.toLocaleString(getAppLocale());
 
 export interface LeadEconomicsBreakdownProps {
   /** A conta do anúncio (ou do criativo agrupado) — a MESMA de `getRowLeadEconomics`, que a coluna usa. */

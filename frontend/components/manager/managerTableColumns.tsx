@@ -1,5 +1,6 @@
 "use client";
 
+import { getAppLocale } from "@/lib/i18n/locale";
 import React from "react";
 import type { ColumnDef, ColumnHelper, Row, Table as TableInstance } from "@tanstack/react-table";
 import type { RankingsItem } from "@/lib/api/schemas";
@@ -115,7 +116,16 @@ export type CreateManagerTableColumnsParams = {
 
 
 
-const CREATED_DATE_FORMATTER = new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" });
+const createdDateFormatters = new Map<string, Intl.DateTimeFormat>();
+function formatCreatedDate(date: Date): string {
+  const locale = getAppLocale();
+  let formatter = createdDateFormatters.get(locale);
+  if (!formatter) {
+    formatter = new Intl.DateTimeFormat(locale, { day: "2-digit", month: "2-digit", year: "numeric" });
+    createdDateFormatters.set(locale, formatter);
+  }
+  return formatter.format(date);
+}
 
 
 /** Considera ativo apenas ACTIVE; demais (PAUSED, ADSET_PAUSED, etc.) são inativos. */
@@ -423,7 +433,7 @@ export function createManagerTableColumns(params: CreateManagerTableColumnsParam
             );
           }
           const [year, month, day] = isoDate.split("-").map(Number);
-          return <span className="tabular-nums">{CREATED_DATE_FORMATTER.format(new Date(year, month - 1, day))}</span>;
+          return <span className="tabular-nums">{formatCreatedDate(new Date(year, month - 1, day))}</span>;
         },
       }),
     );

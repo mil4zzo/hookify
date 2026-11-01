@@ -1,5 +1,6 @@
 "use client";
 
+import { getAppLocale } from "@/lib/i18n/locale";
 import { StatePanel } from "@/components/common/States";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
@@ -48,7 +49,7 @@ export interface ShareCreateDialogProps {
 function formatDatePt(iso: string): string {
   if (!iso) return "";
   const d = new Date(`${iso.slice(0, 10)}T00:00:00`);
-  return Number.isNaN(d.getTime()) ? iso : d.toLocaleDateString("pt-BR");
+  return Number.isNaN(d.getTime()) ? iso : d.toLocaleDateString(getAppLocale());
 }
 
 /**

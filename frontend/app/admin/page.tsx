@@ -1,5 +1,6 @@
 "use client";
 
+import { getAppLocale } from "@/lib/i18n/locale";
 import { StatePanel } from "@/components/common/States";
 import React, { useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -17,7 +18,7 @@ type SortDir = "asc" | "desc";
 
 function fmt(iso: string | null): string {
   if (!iso) return "—";
-  return new Date(iso).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" });
+  return new Date(iso).toLocaleDateString(getAppLocale(), { day: "2-digit", month: "2-digit", year: "numeric" });
 }
 
 function SortIcon({ col, sortKey, sortDir }: { col: SortKey; sortKey: SortKey; sortDir: SortDir }) {

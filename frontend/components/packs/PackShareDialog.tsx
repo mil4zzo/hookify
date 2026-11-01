@@ -1,5 +1,6 @@
 "use client";
 
+import { getAppLocale } from "@/lib/i18n/locale";
 import { useCallback, useEffect, useState } from "react";
 import { IconLoader2, IconTrash, IconUsers } from "@tabler/icons-react";
 
@@ -39,7 +40,7 @@ export function MemberIdentity({ name, fallback, since }: { name: string | null;
   const words = label.split(/\s+/).filter(Boolean);
   const initials = (words.length > 1 ? `${words[0][0]}${words[words.length - 1][0]}` : label.slice(0, 2)).toUpperCase();
   const sinceDate = since ? new Date(since) : null;
-  const sinceLabel = sinceDate && !Number.isNaN(sinceDate.getTime()) ? sinceDate.toLocaleDateString("pt-BR") : null;
+  const sinceLabel = sinceDate && !Number.isNaN(sinceDate.getTime()) ? sinceDate.toLocaleDateString(getAppLocale()) : null;
 
   return (
     <div className="flex min-w-0 items-center gap-3">

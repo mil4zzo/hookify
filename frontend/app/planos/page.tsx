@@ -1,5 +1,6 @@
 "use client";
 
+import { getAppLocale } from "@/lib/i18n/locale";
 import { Suspense, useEffect, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
@@ -171,7 +172,7 @@ function PlanosContent() {
   }
 
   function formatDate(iso: string) {
-    return new Date(iso).toLocaleDateString("pt-BR", { day: "2-digit", month: "long", year: "numeric" });
+    return new Date(iso).toLocaleDateString(getAppLocale(), { day: "2-digit", month: "long", year: "numeric" });
   }
 
   return (

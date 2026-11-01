@@ -1,4 +1,5 @@
 set -e
 cd frontend
 npm run check:design-system
+npm run check:i18n
 npx tsc --noEmit

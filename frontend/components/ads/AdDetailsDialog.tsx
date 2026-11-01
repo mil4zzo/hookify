@@ -1,5 +1,6 @@
 "use client";
 
+import { getAppLocale } from "@/lib/i18n/locale";
 import { EMPTY_RULE_TREE, type RuleTree } from "@/lib/rules/types";
 
 import { useMemo, useState, useEffect, useRef } from "react";
@@ -827,7 +828,7 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
                   <MetricSection title="Resultados">
                     <VideoMetricCell label={getMetricLabel("cpmql")} value={cpmqlValue != null ? formatCurrency(cpmqlValue) : "—"} deltaDisplay={getDeltaDisplay({ valueRaw: cpmqlValue, avgRaw: averages?.cpmql ?? null })} subtitle={mqlCountSubtitle} subtitleInLabelRow averageDisplay={averages?.cpmql != null ? formatCurrency(averages.cpmql) : undefined} averageTooltip={getMetricAverageTooltip("cpmql")} series={resolvedSeries?.cpmql} inverse formatFn={(n: number) => formatCurrency(n)} valueRaw={cpmqlValue} avgRaw={averages?.cpmql ?? null} better={getMetricBetterDirection("cpmql")} packAverage={averages?.cpmql ?? null} />
                     <VideoMetricCell label={getMetricLabel("cpr")} value={resolvedHasCpr ? formatCurrency(resolvedCpr) : "—"} deltaDisplay={getDeltaDisplay({ valueRaw: resolvedHasCpr ? resolvedCpr : null, avgRaw: averages?.cpr ?? null })} subtitle={`${resolvedResultsForActionType} results`} subtitleInLabelRow averageDisplay={averages?.cpr != null ? formatCurrency(averages.cpr) : undefined} averageTooltip={getMetricAverageTooltip("cpr")} series={resolvedSeries?.cpr} inverse formatFn={(n: number) => formatCurrency(n)} valueRaw={resolvedHasCpr ? resolvedCpr : null} avgRaw={averages?.cpr ?? null} better={getMetricBetterDirection("cpr")} packAverage={averages?.cpr ?? null} />
-                    <VideoMetricCell label={getMetricLabel("cpc")} value={resolvedHasCpc ? formatCurrency(resolvedCpc) : "—"} deltaDisplay={getDeltaDisplay({ valueRaw: resolvedHasCpc ? resolvedCpc : null, avgRaw: averages?.cpc ?? null })} subtitle={`${resolvedClicks.toLocaleString("pt-BR")} clicks`} subtitleInLabelRow averageDisplay={averages?.cpc != null ? formatCurrency(averages.cpc) : undefined} averageTooltip={getMetricAverageTooltip("cpc")} series={resolvedSeries?.cpc} inverse formatFn={(n: number) => formatCurrency(n)} valueRaw={resolvedHasCpc ? resolvedCpc : null} avgRaw={averages?.cpc ?? null} better={getMetricBetterDirection("cpc")} packAverage={averages?.cpc ?? null} />
+                    <VideoMetricCell label={getMetricLabel("cpc")} value={resolvedHasCpc ? formatCurrency(resolvedCpc) : "—"} deltaDisplay={getDeltaDisplay({ valueRaw: resolvedHasCpc ? resolvedCpc : null, avgRaw: averages?.cpc ?? null })} subtitle={`${resolvedClicks.toLocaleString(getAppLocale())} clicks`} subtitleInLabelRow averageDisplay={averages?.cpc != null ? formatCurrency(averages.cpc) : undefined} averageTooltip={getMetricAverageTooltip("cpc")} series={resolvedSeries?.cpc} inverse formatFn={(n: number) => formatCurrency(n)} valueRaw={resolvedHasCpc ? resolvedCpc : null} avgRaw={averages?.cpc ?? null} better={getMetricBetterDirection("cpc")} packAverage={averages?.cpc ?? null} />
                     <VideoMetricCell label={getMetricLabel("cpm")} value={formatCurrency(resolvedCpm)} deltaDisplay={getDeltaDisplay({ valueRaw: resolvedCpm, avgRaw: averages?.cpm ?? null })} averageDisplay={averages?.cpm != null ? formatCurrency(averages.cpm) : undefined} averageTooltip={getMetricAverageTooltip("cpm")} series={resolvedSeries?.cpm} inverse formatFn={(n: number) => formatCurrency(n)} valueRaw={resolvedCpm} avgRaw={averages?.cpm ?? null} better={getMetricBetterDirection("cpm")} packAverage={averages?.cpm ?? null} />
                   </MetricSection>
 
@@ -897,8 +898,8 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
                   <MetricSection title="Visibilidade">
                     <VideoMetricCell label={getMetricLabel("spend")} value={formatCurrency(resolvedSpend)} series={resolvedSeries?.spend} formatFn={(n: number) => formatCurrency(n)} colorMode="series" disableSeriesFallback />
                     <VideoMetricCell metricKey="frequency" label={getMetricLabel("frequency")} value={resolvedFrequency != null ? resolvedFrequency.toFixed(2) : "—"} />
-                    <VideoMetricCell metricKey="impressions" label={getMetricLabel("impressions")} value={resolvedImpressions.toLocaleString("pt-BR")} />
-                    <VideoMetricCell metricKey="reach" label={getMetricLabel("reach")} value={resolvedReach != null ? resolvedReach.toLocaleString("pt-BR") : "—"} />
+                    <VideoMetricCell metricKey="impressions" label={getMetricLabel("impressions")} value={resolvedImpressions.toLocaleString(getAppLocale())} />
+                    <VideoMetricCell metricKey="reach" label={getMetricLabel("reach")} value={resolvedReach != null ? resolvedReach.toLocaleString(getAppLocale()) : "—"} />
                   </MetricSection>
                 </div>
               )}

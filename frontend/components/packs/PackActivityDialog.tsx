@@ -1,5 +1,6 @@
 "use client";
 
+import { getAppLocale } from "@/lib/i18n/locale";
 import { useMemo, useState } from "react";
 import { format, formatDistanceToNow } from "date-fns";
 import { ptBR } from "date-fns/locale";
@@ -67,7 +68,7 @@ const ROLE_LABEL: Record<string, string> = {
 function formatMoneySubunit(value: unknown): string {
   const n = Number(value);
   if (!Number.isFinite(n)) return String(value ?? "");
-  return (n / 100).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return (n / 100).toLocaleString(getAppLocale(), { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
 /** Complemento da frase: o QUE foi afetado. Vazio quando o verbo já se basta. */
@@ -77,7 +78,7 @@ function describeTarget(entry: PackActivityEntry): string {
     const [singular, plural] = kind;
     return entry.target_count === 1
       ? `1 ${singular}`
-      : `${entry.target_count.toLocaleString("pt-BR")} ${plural}`;
+      : `${entry.target_count.toLocaleString(getAppLocale())} ${plural}`;
   }
   return "";
 }
@@ -93,7 +94,7 @@ function describeDetail(entry: PackActivityEntry): string | null {
     // Ajuste em massa: guarda o PEDIDO (o valor final difere por entidade).
     if (d.mode === "percent" && d.percent != null) {
       const pct = Number(d.percent);
-      return `${pct > 0 ? "+" : ""}${pct.toLocaleString("pt-BR")}% em cada`;
+      return `${pct > 0 ? "+" : ""}${pct.toLocaleString(getAppLocale())}% em cada`;
     }
     if (d.mode === "delta" && d.amount != null) {
       const amount = Number(d.amount);

@@ -1,5 +1,6 @@
 "use client";
 
+import { getAppLocale } from "@/lib/i18n/locale";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { IconInfoCircle, IconLoader2 } from "@tabler/icons-react";
 
@@ -131,7 +132,7 @@ export function PackDateRangeDialog({ pack, open, onOpenChange, onConfirm }: Pac
                   </span>{" "}
                   deste pack, somando{" "}
                   <span className="font-medium">
-                    {previa.investimento.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
+                    {previa.investimento.toLocaleString(getAppLocale(), { style: "currency", currency: "BRL" })}
                   </span>{" "}
                   de investimento.
                 </p>

@@ -15,6 +15,7 @@
  * Funções puras: o teste prende quem conta como sobrescrito.
  */
 
+import { getAppLocale } from "@/lib/i18n/locale";
 import type { SheetColumnMappingInput, SheetIntegrationRequest } from "@/lib/api/schemas";
 import { normalizeMqlLeadscoreMin, normalizeTargetCpr } from "@/lib/judgment/resolveJudgment";
 import { normalizeSheetColumnName } from "@/lib/metrics/customColumns";
@@ -41,7 +42,7 @@ type ReviewPack = Pick<AdsPack, "id" | "name" | "mql_leadscore_min" | "target_cp
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 const packs = (n: number) => plural(n, "pack", "packs");
 const names = (list: ReadonlyArray<ReviewPack>) => listNames(list.map((p) => p.name || "Pack"));
-const fmt = (n: number) => n.toLocaleString("pt-BR", { maximumFractionDigits: 6 });
+const fmt = (n: number) => n.toLocaleString(getAppLocale(), { maximumFractionDigits: 6 });
 
 function review(lines: BulkReviewLine[]): BulkReview {
   return { lines, needsConfirm: lines.some((line) => line.overwrites) };

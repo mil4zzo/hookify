@@ -9,6 +9,7 @@
  * mostra a distribuição em barras. Tudo sai do histograma que a RPC devolve — nenhuma
  * média pronta do servidor.
  */
+import { getAppLocale } from "@/lib/i18n/locale";
 import { useMemo } from "react";
 import { StatePanel } from "@/components/common/States";
 import { useFormatCurrency } from "@/lib/utils/currency";
@@ -28,10 +29,10 @@ interface SurveyPanelProps {
 }
 
 const fmtNumber = (value: number | null | undefined, digits = 1): string =>
-  value == null || !Number.isFinite(value) ? "—" : value.toLocaleString("pt-BR", { maximumFractionDigits: digits });
+  value == null || !Number.isFinite(value) ? "—" : value.toLocaleString(getAppLocale(), { maximumFractionDigits: digits });
 
 const fmtPct = (value: number | null | undefined): string =>
-  value == null || !Number.isFinite(value) ? "—" : `${(value * 100).toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%`;
+  value == null || !Number.isFinite(value) ? "—" : `${(value * 100).toLocaleString(getAppLocale(), { maximumFractionDigits: 1 })}%`;
 
 function Stat({ label, value }: { label: string; value: string }) {
   return (
@@ -103,7 +104,7 @@ function CategoryCard({ mapping, hist }: { mapping: SheetColumnMapping; hist: Re
     <section className="rounded-md border border-border bg-background p-4 space-y-3">
       <header className="flex items-baseline justify-between gap-2">
         <h4 className="text-sm font-semibold">{mapping.label}</h4>
-        <span className="text-2xs text-muted-foreground">categoria · {total.toLocaleString("pt-BR")} respostas</span>
+        <span className="text-2xs text-muted-foreground">categoria · {total.toLocaleString(getAppLocale())} respostas</span>
       </header>
       {entries.length === 0 ? (
         <p className="text-sm text-muted-foreground">Sem respostas neste período.</p>
@@ -116,7 +117,7 @@ function CategoryCard({ mapping, hist }: { mapping: SheetColumnMapping; hist: Re
                 <div className="flex items-center justify-between gap-2 text-xs">
                   <span className="truncate font-medium">{value}</span>
                   <span className="shrink-0 tabular-nums text-muted-foreground">
-                    {qty.toLocaleString("pt-BR")} · {fmtPct(share)}
+                    {qty.toLocaleString(getAppLocale())} · {fmtPct(share)}
                   </span>
                 </div>
                 <div className="h-1.5 w-full overflow-hidden rounded-full bg-border">

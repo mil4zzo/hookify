@@ -1,5 +1,6 @@
 "use client";
 
+import { getAppLocale } from "@/lib/i18n/locale";
 import React, { useCallback, useMemo, useState } from "react";
 import { IconAlertTriangle, IconPencil, IconSquareCheck } from "@tabler/icons-react";
 import type { RankingsItem } from "@/lib/api/schemas";
@@ -262,7 +263,7 @@ export function BudgetCell({ original, currentTab, packIds }: BudgetCellProps) {
     const value = budgetMinorToValue(minor, currency);
     const formatted = currency
       ? formatCurrency(value, currency)
-      : new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 2 }).format(value);
+      : new Intl.NumberFormat(getAppLocale(), { maximumFractionDigits: 2 }).format(value);
     const isShared = currentTab === "por-conjunto" && mode === "abo_shared";
     const titleHint = isShared
       ? "Orçamento do conjunto com compartilhamento ativo: a Meta pode mover até 20% entre conjuntos da campanha. Clique para editar."

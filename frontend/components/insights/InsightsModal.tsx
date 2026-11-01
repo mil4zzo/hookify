@@ -1,5 +1,6 @@
 "use client";
 
+import { getAppLocale } from "@/lib/i18n/locale";
 import { useState, useEffect, useMemo } from "react";
 import { OpportunityRow } from "@/lib/utils/opportunity";
 import { Button } from "@/components/ui/button";
@@ -238,7 +239,7 @@ export function InsightsModal({ row, isOpen, onClose, formatCurrency, avgCpr, ca
                     <span className="text-xs text-muted-foreground">CPR</span>
                     <div className="flex flex-col items-baseline">
                       <span className="text-lg font-semibold text-foreground">{formatCurrency(row.cpr_actual)}</span>
-                      <span className="text-2xs text-muted-foreground">({Math.round(conversions).toLocaleString("pt-BR")} conversões)</span>
+                      <span className="text-2xs text-muted-foreground">({Math.round(conversions).toLocaleString(getAppLocale())} conversões)</span>
                     </div>
                   </div>
 
@@ -247,7 +248,7 @@ export function InsightsModal({ row, isOpen, onClose, formatCurrency, avgCpr, ca
                     <span className="text-xs text-muted-foreground">CPMQL</span>
                     <div className="flex flex-col items-baseline">
                       <span className="text-lg font-semibold text-foreground">{effectiveCpmql > 0 ? formatCurrency(effectiveCpmql) : "—"}</span>
-                      <span className="text-2xs text-muted-foreground">({effectiveMqlCount.toLocaleString("pt-BR")} MQLs)</span>
+                      <span className="text-2xs text-muted-foreground">({effectiveMqlCount.toLocaleString(getAppLocale())} MQLs)</span>
                     </div>
                   </div>
 

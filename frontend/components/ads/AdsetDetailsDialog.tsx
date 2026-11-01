@@ -1,5 +1,6 @@
 "use client";
 
+import { getAppLocale } from "@/lib/i18n/locale";
 import { StatePanel } from "@/components/common/States";
 import { useEffect, useMemo, useState } from "react";
 import { api } from "@/lib/api/endpoints";
@@ -102,11 +103,11 @@ export function AdsetDetailsDialog({ adsetId, adsetName, dateStart, dateStop, ac
             </div>
             <div className="rounded-md border border-border p-3">
               <div className="text-xs text-muted-foreground">Impressões</div>
-              <div className="text-sm font-medium">{summary.impressions.toLocaleString("pt-BR")}</div>
+              <div className="text-sm font-medium">{summary.impressions.toLocaleString(getAppLocale())}</div>
             </div>
             <div className="rounded-md border border-border p-3">
               <div className="text-xs text-muted-foreground">Cliques</div>
-              <div className="text-sm font-medium">{summary.clicks.toLocaleString("pt-BR")}</div>
+              <div className="text-sm font-medium">{summary.clicks.toLocaleString(getAppLocale())}</div>
             </div>
             <div className="rounded-md border border-border p-3">
               <div className="text-xs text-muted-foreground">{getManagerMetricLabel("cpr")}</div>

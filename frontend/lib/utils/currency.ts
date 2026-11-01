@@ -1,3 +1,4 @@
+import { getAppLocale } from "@/lib/i18n/locale";
 import { useSettingsStore, useSettings } from '@/lib/store/settings'
 import { useMemo } from 'react'
 
@@ -112,7 +113,7 @@ export function getCurrencySymbol(currency?: string): string {
   const settings = useSettingsStore.getState().settings
   const currencyCode = currency || settings.currency
 
-  const formatter = new Intl.NumberFormat('pt-BR', {
+  const formatter = new Intl.NumberFormat(getAppLocale(), {
     style: 'currency',
     currency: currencyCode,
   })

@@ -1,5 +1,6 @@
 "use client";
 
+import { getAppLocale } from "@/lib/i18n/locale";
 import { StatePanel } from "@/components/common/States";
 import { useMemo, useState, useEffect, type ReactNode } from "react";
 import { scaleLinear } from "@visx/scale";
@@ -264,7 +265,7 @@ function MetricHistoryChartInner({ data, formatValue, actionType, availableMetri
       return (v: number) => `R$ ${v.toFixed(0)}`;
     }
     // Se misturar tipos, usar formato numérico genérico
-    return (v: number) => v.toLocaleString("pt-BR");
+    return (v: number) => v.toLocaleString(getAppLocale());
   }, [selectedMetricsConfig, isNormalized]);
 
   // Calcular tooltipPoints no nível do componente, não dentro do render do ParentSize

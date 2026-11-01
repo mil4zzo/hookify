@@ -1,5 +1,6 @@
 "use client";
 
+import { getAppLocale } from "@/lib/i18n/locale";
 import React from "react";
 import { cn } from "@/lib/utils/cn";
 import { IconArrowBigDownLinesFilled, IconArrowBigUpLinesFilled, IconEye } from "@tabler/icons-react";
@@ -238,7 +239,7 @@ export function GenericCard({ ad, metricLabel, rank, metricKey, averageValue, me
                     <AdStatusIcon status={(ad as any).effective_status} />
                     <span className="leading-none">{formatCurrency(spend)}</span>
                     <span className="flex items-center gap-1">
-                      <IconEye className="h-3 w-3" /> <span className="leading-none">{impressions.toLocaleString("pt-BR")}</span>
+                      <IconEye className="h-3 w-3" /> <span className="leading-none">{impressions.toLocaleString(getAppLocale())}</span>
                     </span>
                   </p>
                 </div>
@@ -273,7 +274,7 @@ export function GenericCard({ ad, metricLabel, rank, metricKey, averageValue, me
 
             {/* Resultados */}
             <div className="flex flex-col gap-2">
-              <h3 className="text-xs font-semibold text-foreground">Resultados{conversions > 0 ? `: ${conversions.toLocaleString("pt-BR")} conversões` : ""}</h3>
+              <h3 className="text-xs font-semibold text-foreground">Resultados{conversions > 0 ? `: ${conversions.toLocaleString(getAppLocale())} conversões` : ""}</h3>
               <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
                 <div>
                   <span className="text-muted-foreground">CPR:</span>
@@ -283,7 +284,7 @@ export function GenericCard({ ad, metricLabel, rank, metricKey, averageValue, me
                   <div>
                     <span className="text-muted-foreground">CPMQL:</span>
                     <span className="ml-2 font-medium">
-                      {formatCurrency(cpmql)} {mqlCount > 0 && `(${mqlCount.toLocaleString("pt-BR")} MQLs)`}
+                      {formatCurrency(cpmql)} {mqlCount > 0 && `(${mqlCount.toLocaleString(getAppLocale())} MQLs)`}
                     </span>
                   </div>
                 )}
@@ -363,13 +364,13 @@ export function GenericCard({ ad, metricLabel, rank, metricKey, averageValue, me
                 {impressions > 0 && (
                   <div>
                     <span className="text-muted-foreground">Impressões:</span>
-                    <span className="ml-2 font-medium">{impressions.toLocaleString("pt-BR")}</span>
+                    <span className="ml-2 font-medium">{impressions.toLocaleString(getAppLocale())}</span>
                   </div>
                 )}
                 {reach > 0 && (
                   <div>
                     <span className="text-muted-foreground">Alcance:</span>
-                    <span className="ml-2 font-medium">{reach.toLocaleString("pt-BR")}</span>
+                    <span className="ml-2 font-medium">{reach.toLocaleString(getAppLocale())}</span>
                   </div>
                 )}
               </div>

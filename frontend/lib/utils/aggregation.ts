@@ -1,3 +1,4 @@
+import { getAppLocale } from "@/lib/i18n/locale";
 /**
  * Utilitários de formatação de dados
  * Funções auxiliares para formatação de números, porcentagens e moedas
@@ -39,5 +40,5 @@ export function formatPercentage(value: number, decimals: number = 2): string {
  * Formata número com separadores de milhares
  */
 export function formatNumber(value: number): string {
-  return new Intl.NumberFormat('pt-BR').format(value);
+  return new Intl.NumberFormat(getAppLocale()).format(value);
 }
