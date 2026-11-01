@@ -1,3 +1,4 @@
+import { translate } from "@/lib/i18n/translate";
 import type { AdsPack } from "@/lib/types";
 
 /**
@@ -28,10 +29,11 @@ export const PACK_SORT_DEFAULT_DIRECTION: Record<PackSortKey, PackSortDirection>
 };
 
 export const PACK_SORT_OPTIONS: { value: PackSortKey; label: string }[] = [
-  { value: "recent", label: "Mais recentes" },
-  { value: "updated", label: "Última atualização" },
-  { value: "name", label: "Nome" },
-  { value: "account", label: "Conta" },
+  // `label` é getter: o texto acompanha o idioma na hora da leitura, não o da carga do módulo.
+  { value: "recent", get label() { return translate("packs.sort.recent"); } },
+  { value: "updated", get label() { return translate("packs.sort.updated"); } },
+  { value: "name", get label() { return translate("packs.sort.name"); } },
+  { value: "account", get label() { return translate("packs.sort.account"); } },
 ];
 
 export function isPackSortKey(value: unknown): value is PackSortKey {

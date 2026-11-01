@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { IconChevronRight, IconDots, IconFolder, IconFolderOpenFilled, IconFolderShare, IconLayoutGrid } from "@tabler/icons-react";
 import { SearchInputWithClear } from "@/components/common/SearchInputWithClear";
@@ -129,6 +130,7 @@ export function PackFolderTree({
   hasSelection,
   className,
 }: PackFolderTreeProps) {
+  const t = useTranslations("packs.tree");
   const navRef = useRef<HTMLElement>(null);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [dropTarget, setDropTarget] = useState<string | "loose" | null>(null);
@@ -375,7 +377,7 @@ export function PackFolderTree({
               <IconFolderOpenFilled className="h-4 w-4" />
             ) : folder.shared_root ? (
               // Pasta que outra pessoa compartilhou com o usuário: a raiz do que ele vê dela.
-              <IconFolderShare className="h-4 w-4" aria-label={folder.owner_name ? `Compartilhada por ${folder.owner_name}` : "Compartilhada com você"} />
+              <IconFolderShare className="h-4 w-4" aria-label={folder.owner_name ? t("sharedBy", { name: folder.owner_name }) : t("sharedWithYou")} />
             ) : (
               <IconFolder className="h-4 w-4" />
             )
@@ -402,7 +404,7 @@ export function PackFolderTree({
             {children.map((child, i) => renderFolder(child, children, i))}
             {showPacks &&
               (packs.length === 0 && children.length === 0 ? (
-                <span className="px-2 py-1.5 text-xs text-muted-foreground">Pasta vazia</span>
+                <span className="px-2 py-1.5 text-xs text-muted-foreground">{t("emptyFolder")}</span>
               ) : (
                 packs.map(renderPackRow)
               ))}
@@ -419,7 +421,7 @@ export function PackFolderTree({
   return (
     <div className={cn("flex min-h-0 flex-col gap-4", className)}>
       <div className="flex flex-col gap-1.5">
-        <SearchInputWithClear value={search} onChange={onSearchChange} placeholder="Buscar pack ou pasta..." aria-label="Buscar na Biblioteca" />
+        <SearchInputWithClear value={search} onChange={onSearchChange} placeholder={t("searchPlaceholder")} aria-label={t("searchAria")} />
         {isSearching && typeof matchCount === "number" && typeof totalInView === "number" && (
           <span className="px-1 text-xs text-muted-foreground tabular-nums">
             {matchCount} de {totalInView} packs
@@ -427,13 +429,13 @@ export function PackFolderTree({
         )}
       </div>
 
-      <nav ref={navRef} className="scroll-faded -mx-1 flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto overscroll-contain px-1 lg:pb-8" aria-label="Pastas e packs">
+      <nav ref={navRef} className="scroll-faded -mx-1 flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto overscroll-contain px-1 lg:pb-8" aria-label={t("navAria")}>
         {/* "Todos os packs": uma VISTA, não uma pasta — ícone de grade, sem caret
             (abrir listaria a Biblioteca inteira, o que a árvore fechada evita) e não
             recebe pack arrastado. */}
         {showAllRow && (
         <TreeRow
-          label="Todos os packs"
+          label={t("allPacks")}
           count={allCount}
           icon={<IconLayoutGrid className="h-4 w-4" />}
           isCurrent={view === ALL_PACKS_VIEW}
@@ -452,7 +454,7 @@ export function PackFolderTree({
         {(loosePacks.length > 0 || isDragging) && (
         <div>
           <TreeRow
-            label="Sem pasta"
+            label={t("noFolder")}
             count={loosePacks.length}
             icon={view === null ? <IconFolderOpenFilled className="h-4 w-4" /> : <IconFolder className="h-4 w-4" />}
             isCurrent={view === null}
@@ -468,7 +470,7 @@ export function PackFolderTree({
           {isOpen("__loose__") && showPacks && (
             <TreeChildren>
               {loosePacks.length === 0 ? (
-                <span className="px-2 py-1.5 text-xs text-muted-foreground">{isDragging ? "Solte aqui para tirar da pasta" : "Todos os packs estão em pastas"}</span>
+                <span className="px-2 py-1.5 text-xs text-muted-foreground">{isDragging ? t("dropToRemove") : t("allInFolders")}</span>
               ) : (
                 loosePacks.map(renderPackRow)
               )}
@@ -478,7 +480,7 @@ export function PackFolderTree({
         )}
 
         {isSearching && roots.length === 0 && loosePacks.length === 0 && (
-          <span className="px-2 py-3 text-xs text-muted-foreground">Nada encontrado.</span>
+          <span className="px-2 py-3 text-xs text-muted-foreground">{t("nothingFound")}</span>
         )}
       </nav>
     </div>
@@ -517,6 +519,7 @@ interface TreeRowProps extends React.HTMLAttributes<HTMLDivElement> {
  * o clique no menu acabaria disparando a navegação.
  */
 function TreeRow({ label, count, icon, isCurrent, isDropTarget = false, isOpen, menu, insertEdge, isDraggingSelf = false, onMainKeyDown, onClick, onToggle, ...dragProps }: TreeRowProps) {
+  const t = useTranslations("packs.tree");
   return (
     <div
       {...dragProps}
@@ -536,7 +539,7 @@ function TreeRow({ label, count, icon, isCurrent, isDropTarget = false, isOpen, 
         <button
           type="button"
           onClick={onToggle}
-          aria-label={isOpen ? `Recolher ${label}` : `Expandir ${label}`}
+          aria-label={isOpen ? t("collapse", { label }) : t("expand", { label })}
           aria-expanded={isOpen}
           className="focus-inset grid h-7 w-6 shrink-0 place-items-center rounded-md text-muted-foreground transition-colors hover:text-foreground"
         >
@@ -604,6 +607,7 @@ function PackRow({
   onDragEnd?: () => void;
   onClick: () => void;
 }) {
+  const t = useTranslations("packs.tree");
   return (
     <div
       draggable
@@ -639,7 +643,7 @@ function PackRow({
           onCheckedChange={(v) => onToggle?.(!!v)}
           onMouseDown={(e) => { if (e.shiftKey) e.preventDefault(); }}
           onClick={onCheckboxClick}
-          aria-label={`Selecionar ${label}`}
+          aria-label={t("select", { label })}
         />
       </span>
       <button
@@ -722,12 +726,13 @@ function useEdgeAutoScroll(ref: React.RefObject<HTMLElement | null>, active: boo
  * hover: com dezenas de linhas na tela, um `⋯` fixo em cada uma vira ruído.
  */
 export const TreeRowMenuTrigger = React.forwardRef<HTMLButtonElement, React.ButtonHTMLAttributes<HTMLButtonElement> & { label?: string }>(
-  function TreeRowMenuTrigger({ label = "Ações", className, ...props }, ref) {
+  function TreeRowMenuTrigger({ label, className, ...props }, ref) {
+    const t = useTranslations("packs.tree");
     return (
       <button
         ref={ref}
         type="button"
-        aria-label={label}
+        aria-label={label ?? t("actions")}
         {...props}
         className={cn(
           // Largura ZERO em repouso: um `⋯` só invisível continuaria ocupando 24px e

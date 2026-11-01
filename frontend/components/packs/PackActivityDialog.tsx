@@ -1,9 +1,11 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import { getAppLocale } from "@/lib/i18n/locale";
+import { translate } from "@/lib/i18n/translate";
+import { getDateFnsLocale } from "@/lib/utils/dateFnsLocale";
 import { useMemo, useState } from "react";
 import { format, formatDistanceToNow } from "date-fns";
-import { ptBR } from "date-fns/locale";
 import {
   IconAlertTriangle,
   IconHistory,
@@ -26,44 +28,40 @@ interface PackActivityDialogProps {
 }
 
 /**
- * Verbo canônico -> frase em português. O `Record` é exaustivo sobre
- * `PackActionVerb`: um verbo novo no backend quebra o build aqui em vez de
- * aparecer cru na tela do usuário.
+ * Verbo canônico -> chave da frase no catálogo (`packs.activity.verb.*`). O `Record` é
+ * exaustivo sobre `PackActionVerb`: um verbo novo no backend quebra o build aqui em vez
+ * de aparecer cru na tela do usuário.
  */
-const VERB_LABEL: Record<PackActionVerb, string> = {
-  "ad.status": "alterou o status de",
-  "adset.status": "alterou o status de",
-  "campaign.status": "alterou o status de",
-  "adset.budget": "mudou o orçamento de",
-  "campaign.budget": "mudou o orçamento de",
-  "pack.refresh": "atualizou os dados do pack",
-  "pack.transcribe": "iniciou a transcrição dos vídeos",
-  "pack.sheet_sync": "sincronizou a planilha",
-  "pack.sheet_relink": "reconectou a conta Google",
-  "pack.sheet_columns": "alterou uma coluna vinculada da planilha",
-  "job.cancel": "cancelou um processamento em andamento",
-  "pack.judgment": "mudou os critérios de julgamento",
-  "pack.auto_refresh": "mudou a atualização automática",
-  "pack.rename": "renomeou o pack",
-  "pack.date_range": "alterou o período do pack",
-  "pack.delete": "apagou o pack",
-  "share.grant": "deu acesso a",
-  "share.role": "mudou o papel de",
-  "share.revoke": "removeu o acesso de",
-  "share.leave": "saiu do pack",
+const VERB_KEY: Record<PackActionVerb, string> = {
+  "ad.status": "status",
+  "adset.status": "status",
+  "campaign.status": "status",
+  "adset.budget": "budget",
+  "campaign.budget": "budget",
+  "pack.refresh": "refresh",
+  "pack.transcribe": "transcribe",
+  "pack.sheet_sync": "sheetSync",
+  "pack.sheet_relink": "sheetRelink",
+  "pack.sheet_columns": "sheetColumns",
+  "job.cancel": "jobCancel",
+  "pack.judgment": "judgment",
+  "pack.auto_refresh": "autoRefresh",
+  "pack.rename": "rename",
+  "pack.date_range": "dateRange",
+  "pack.delete": "delete",
+  "share.grant": "shareGrant",
+  "share.role": "shareRole",
+  "share.revoke": "shareRevoke",
+  "share.leave": "shareLeave",
 };
 
-const KIND_PT: Record<string, [string, string]> = {
-  ad: ["anúncio", "anúncios"],
-  adset: ["conjunto", "conjuntos"],
-  campaign: ["campanha", "campanhas"],
-};
+const TARGET_KINDS = new Set(["ad", "adset", "campaign"]);
 
-const ROLE_LABEL: Record<string, string> = {
-  dono: "dono",
-  editor: "editor",
-  viewer: "leitura",
-};
+const tr = (key: string, values?: Record<string, string | number>) => translate(`packs.activity.${key}`, values);
+
+function roleLabel(role: string): string {
+  return role === "dono" || role === "editor" || role === "viewer" ? tr(`role.${role}`) : role;
+}
 
 function formatMoneySubunit(value: unknown): string {
   const n = Number(value);
@@ -73,14 +71,8 @@ function formatMoneySubunit(value: unknown): string {
 
 /** Complemento da frase: o QUE foi afetado. Vazio quando o verbo já se basta. */
 function describeTarget(entry: PackActivityEntry): string {
-  const kind = KIND_PT[entry.target_type ?? ""];
-  if (kind) {
-    const [singular, plural] = kind;
-    return entry.target_count === 1
-      ? `1 ${singular}`
-      : `${entry.target_count.toLocaleString(getAppLocale())} ${plural}`;
-  }
-  return "";
+  const kind = entry.target_type ?? "";
+  return TARGET_KINDS.has(kind) ? tr("target", { kind, count: entry.target_count }) : "";
 }
 
 /** Detalhe curto entre parênteses — o "de X para Y" quando existe. */
@@ -88,23 +80,24 @@ function describeDetail(entry: PackActivityEntry): string | null {
   const d = entry.detail ?? {};
 
   if (entry.action.endsWith(".status") && typeof d.to === "string") {
-    return d.to === "PAUSED" ? "pausou" : "ativou";
+    return d.to === "PAUSED" ? tr("detail.paused") : tr("detail.activated");
   }
   if (entry.action.endsWith(".budget")) {
+    const type = d.budget_type === "lifetime" ? "lifetime" : "daily";
     // Ajuste em massa: guarda o PEDIDO (o valor final difere por entidade).
     if (d.mode === "percent" && d.percent != null) {
       const pct = Number(d.percent);
-      return `${pct > 0 ? "+" : ""}${pct.toLocaleString(getAppLocale())}% em cada`;
+      return tr("detail.budgetPercent", { pct: `${pct > 0 ? "+" : ""}${pct.toLocaleString(getAppLocale())}` });
     }
     if (d.mode === "delta" && d.amount != null) {
       const amount = Number(d.amount);
-      return `${amount < 0 ? "−" : "+"}${formatMoneySubunit(Math.abs(amount))} em cada ${d.budget_type === "lifetime" ? "total" : "diário"}`;
+      return tr("detail.budgetDelta", { sign: amount < 0 ? "−" : "+", amount: formatMoneySubunit(Math.abs(amount)), type });
     }
     if (d.mode === "fixed" && d.amount != null) {
-      return `${d.budget_type === "lifetime" ? "total" : "diário"} para ${formatMoneySubunit(d.amount)}`;
+      return tr("detail.budgetFixed", { type, amount: formatMoneySubunit(d.amount) });
     }
-    if (d.daily_budget != null) return `diário para ${formatMoneySubunit(d.daily_budget)}`;
-    if (d.lifetime_budget != null) return `total para ${formatMoneySubunit(d.lifetime_budget)}`;
+    if (d.daily_budget != null) return tr("detail.budgetDaily", { amount: formatMoneySubunit(d.daily_budget) });
+    if (d.lifetime_budget != null) return tr("detail.budgetLifetime", { amount: formatMoneySubunit(d.lifetime_budget) });
     return null;
   }
   if (entry.action === "pack.rename") {
@@ -114,50 +107,52 @@ function describeDetail(entry: PackActivityEntry): string | null {
     const from = d.from as { date_start?: string; date_stop?: string } | undefined;
     const to = d.to as { date_start?: string; date_stop?: string } | undefined;
     const fmt = (s?: string) => (s ? s.slice(0, 10).split("-").reverse().join("/") : "?");
-    return from && to ? `${fmt(from.date_start)} → ${fmt(from.date_stop)} virou ${fmt(to.date_start)} → ${fmt(to.date_stop)}` : null;
+    return from && to ? tr("detail.dateRange", { fromStart: fmt(from.date_start), fromStop: fmt(from.date_stop), toStart: fmt(to.date_start), toStop: fmt(to.date_stop) }) : null;
   }
   if (entry.action === "pack.auto_refresh") {
-    return d.to === true ? "ligou" : "desligou";
+    return d.to === true ? tr("detail.autoOn") : tr("detail.autoOff");
   }
   if (entry.action === "pack.judgment") {
     const parts: string[] = [];
     if ("mql_leadscore_min" in d) {
-      parts.push(d.mql_leadscore_min == null ? "corte de MQL removido" : `corte de MQL ${d.mql_leadscore_min}`);
+      parts.push(d.mql_leadscore_min == null ? tr("detail.mqlRemoved") : tr("detail.mqlSet", { value: String(d.mql_leadscore_min) }));
     }
     if ("target_cpr" in d) {
-      parts.push(d.target_cpr == null ? "CPR alvo removido" : "CPR alvo redefinido");
+      parts.push(d.target_cpr == null ? tr("detail.targetRemoved") : tr("detail.targetSet"));
     }
     if ("lead_economics" in d) {
-      parts.push(d.lead_economics == null ? "economia do lead removida" : "economia do lead redefinida");
+      parts.push(d.lead_economics == null ? tr("detail.economicsRemoved") : tr("detail.economicsSet"));
     }
     return parts.length ? parts.join(" · ") : null;
   }
   if (entry.action === "pack.refresh") {
-    return d.since && d.until ? `${String(d.since)} a ${String(d.until)}` : null;
+    return d.since && d.until ? tr("detail.refreshRange", { since: String(d.since), until: String(d.until) }) : null;
   }
   if (entry.action === "pack.transcribe") {
-    return d.pending != null ? `${String(d.pending)} vídeo(s)` : null;
+    return d.pending != null ? tr("detail.videos", { count: String(d.pending) }) : null;
   }
   if (entry.action === "share.grant" || entry.action === "share.role") {
-    const role = typeof d.role === "string" ? (ROLE_LABEL[d.role] ?? d.role) : null;
+    const role = typeof d.role === "string" ? roleLabel(d.role) : null;
     // Acesso que veio de uma pasta compartilhada (181). Sem o nome da pasta: o feed é lido
     // também pelo convidado, e a pasta é organização pessoal do dono.
-    return d.via_folder ? [role, "via pasta compartilhada"].filter(Boolean).join(" · ") : role;
+    return d.via_folder ? [role, tr("detail.viaFolder")].filter(Boolean).join(" · ") : role;
   }
   if (entry.action === "share.revoke" && d.via_folder) {
-    return "via pasta compartilhada";
+    return tr("detail.viaFolder");
   }
   if (entry.action === "pack.sheet_relink") {
     return typeof d.google_email === "string" ? d.google_email : null;
   }
   if (entry.action === "pack.sheet_columns") {
-    const op = d.op === "delete" ? "excluiu" : "editou";
+    const op = d.op === "delete" ? tr("detail.columnDeleted") : tr("detail.columnEdited");
     return typeof d.label === "string" ? `${op} "${d.label}"` : op;
   }
   return null;
 }
 
 function ActivityRow({ entry }: { entry: PackActivityEntry }) {
+  const t = useTranslations("packs.activity");
+  const dateLocale = getDateFnsLocale();
   const when = new Date(entry.created_at);
   const target = describeTarget(entry);
   const detail = describeDetail(entry);
@@ -168,22 +163,22 @@ function ActivityRow({ entry }: { entry: PackActivityEntry }) {
       <IconUserCircle className="mt-0.5 h-5 w-5 shrink-0 text-muted-foreground" />
       <div className="min-w-0 flex-1">
         <p className="text-sm text-foreground">
-          <span className="font-medium">{entry.actor_name || "Alguém"}</span>{" "}
-          <span className="text-muted-foreground">{VERB_LABEL[entry.action] ?? entry.action}</span>
+          <span className="font-medium">{entry.actor_name || t("someone")}</span>{" "}
+          <span className="text-muted-foreground">{VERB_KEY[entry.action] ? t(`verb.${VERB_KEY[entry.action]}`) : entry.action}</span>
           {target && <span className="font-medium"> {target}</span>}
           {detail && <span className="text-muted-foreground"> — {detail}</span>}
         </p>
 
         <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-2xs text-muted-foreground">
-          <span title={format(when, "dd/MM/yyyy HH:mm:ss", { locale: ptBR })}>
-            {formatDistanceToNow(when, { addSuffix: true, locale: ptBR })}
+          <span title={format(when, t("dateTimeFormat"), { locale: dateLocale })}>
+            {formatDistanceToNow(when, { addSuffix: true, locale: dateLocale })}
           </span>
           <span>·</span>
-          <span>{ROLE_LABEL[entry.actor_role] ?? entry.actor_role}</span>
+          <span>{roleLabel(entry.actor_role)}</span>
           {entry.status === "partial" && (
             <>
               <span>·</span>
-              <span className="text-warning">parcial</span>
+              <span className="text-warning">{t("partial")}</span>
             </>
           )}
         </div>
@@ -193,7 +188,7 @@ function ActivityRow({ entry }: { entry: PackActivityEntry }) {
         {failed && (
           <p className="mt-1 flex items-start gap-1.5 text-xs text-destructive">
             <IconAlertTriangle className="mt-px h-3 w-3 shrink-0" />
-            <span>Não concluído{entry.error ? `: ${entry.error}` : ""}</span>
+            <span>{t("notDone", { hasError: entry.error ? "yes" : "no", error: entry.error ?? "" })}</span>
           </p>
         )}
         {/* Parcial também diz o porquê: "3 de 50 não mudaram" sem motivo não responde nada. */}
@@ -219,6 +214,7 @@ function ActivityRow({ entry }: { entry: PackActivityEntry }) {
  * não protegeria nada.
  */
 export function PackActivityDialog({ pack, open, onOpenChange }: PackActivityDialogProps) {
+  const t = useTranslations("packs.activity");
   const [actorFilter, setActorFilter] = useState<string>("all");
 
   const { data, isLoading, isError, error, fetchNextPage, hasNextPage, isFetchingNextPage } =
@@ -234,22 +230,21 @@ export function PackActivityDialog({ pack, open, onOpenChange }: PackActivityDia
   const actors = useMemo(() => {
     const map = new Map<string, string>();
     for (const e of entries) {
-      if (e.actor_id && !map.has(e.actor_id)) map.set(e.actor_id, e.actor_name || "Alguém");
+      if (e.actor_id && !map.has(e.actor_id)) map.set(e.actor_id, e.actor_name || t("someone"));
     }
     return [...map.entries()];
-  }, [entries]);
+  }, [entries, t]);
 
   return (
-    <AppDialog isOpen={open} onClose={() => onOpenChange(false)} size="lg" title="Histórico do pack">
+    <AppDialog isOpen={open} onClose={() => onOpenChange(false)} size="lg" title={t("title")}>
       <div className="space-y-4">
         <header className="space-y-1">
           <h2 className="flex items-center gap-2 text-lg font-semibold text-foreground">
             <IconHistory className="h-5 w-5" />
-            Histórico de «{pack.name}»
+            {t("heading", { name: pack.name })}
           </h2>
           <p className="text-sm text-muted-foreground">
-            Quem fez o quê neste pack. Ações feitas por convidados aparecem no Gerenciador
-            de Anúncios como sendo suas — aqui aparece quem realmente agiu.
+            {t("intro")}
           </p>
         </header>
 
@@ -257,10 +252,10 @@ export function PackActivityDialog({ pack, open, onOpenChange }: PackActivityDia
           <div className="flex items-center gap-2">
             <Select value={actorFilter} onValueChange={setActorFilter}>
               <SelectTrigger size="sm" className="w-56">
-                <SelectValue placeholder="Todas as pessoas" />
+                <SelectValue placeholder={t("allPeople")} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">Todas as pessoas</SelectItem>
+                <SelectItem value="all">{t("allPeople")}</SelectItem>
                 {actors.map(([id, name]) => (
                   <SelectItem key={id} value={id}>
                     {name}
@@ -276,16 +271,15 @@ export function PackActivityDialog({ pack, open, onOpenChange }: PackActivityDia
         {isLoading ? (
           <div className="flex items-center justify-center gap-2 py-10 text-sm text-muted-foreground">
             <IconLoader2 className="h-4 w-4 animate-spin" />
-            Carregando histórico...
+            {t("loading")}
           </div>
         ) : isError ? (
-          <InlineNotice tone="destructive" title="Não foi possível carregar o histórico">
-            {error instanceof Error ? error.message : "Tente abrir de novo em instantes."}
+          <InlineNotice tone="destructive" title={t("errorTitle")}>
+            {error instanceof Error ? error.message : t("errorRetry")}
           </InlineNotice>
         ) : entries.length === 0 ? (
           <p className="py-10 text-center text-sm text-muted-foreground">
-            Nenhuma ação registrada neste pack ainda. Pausar um anúncio, mudar um orçamento
-            ou atualizar os dados aparece aqui.
+            {t("empty")}
           </p>
         ) : (
           <>
@@ -303,12 +297,12 @@ export function PackActivityDialog({ pack, open, onOpenChange }: PackActivityDia
                 onClick={() => void fetchNextPage()}
                 disabled={isFetchingNextPage}
               >
-                {isFetchingNextPage ? <IconLoader2 className="h-4 w-4 animate-spin" /> : "Carregar mais"}
+                {isFetchingNextPage ? <IconLoader2 className="h-4 w-4 animate-spin" /> : t("loadMore")}
               </Button>
             )}
 
             <p className="text-xs text-muted-foreground">
-              O histórico guarda os últimos 365 dias.
+              {t("retention")}
             </p>
           </>
         )}

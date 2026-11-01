@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import { useMemo } from "react";
 import { useAdPerformanceSeries } from "@/lib/api/hooks";
 import {
@@ -76,6 +77,7 @@ export function usePackDiagnostic({
   // selectTarget — but falls back to "cpr" if "cpmql" is chosen without MQL data.
   targetOverride?: DiagnosticTarget | null;
 }): UsePackDiagnosticResult {
+  const t = useTranslations("packs.diagnosticLabels");
   const formatCurrency = useFormatCurrency();
 
   const { groupKeys, adKeyToName, adMap } = useMemo(() => {
@@ -204,7 +206,7 @@ export function usePackDiagnostic({
       },
       {
         key: "page_conv",
-        label: "Conv. Página",
+        label: t("pageConv"),
         color: "var(--chart-3)",
         data: make((d) => (d.lpv > 0 ? d.results / d.lpv : null)),
       },
@@ -213,14 +215,14 @@ export function usePackDiagnostic({
     if (target === "cpmql") {
       lines.push({
         key: "mql_rate",
-        label: "Taxa MQL",
+        label: t("mqlRate"),
         color: "var(--chart-4)",
         data: make((d) => (d.results > 0 ? d.mqls / d.results : null)),
       });
     }
 
     return lines;
-  }, [seriesData, target, actionType, decomposition]);
+  }, [seriesData, target, actionType, decomposition, t]);
 
   // Summary without driver attribution (hero only needs the base sentence).
   // The panel recomputes it locally with driverAttribution when a driver is selected.

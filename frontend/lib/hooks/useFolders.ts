@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "@/lib/api/endpoints";
 import { showError, showSuccess } from "@/lib/utils/toast";
 import { logger } from "@/lib/utils/logger";
+import { translate } from "@/lib/i18n/translate";
 import type { AdsPack, DirectShareEntry, FolderAccessChanges, FolderShareEntry, PackFolder, PackFolderMembers } from "@/lib/types";
 import { buildFolderTree, flattenTree, planFolderMove, type FolderBucket, type FolderDropEdge } from "@/lib/utils/folderTree";
 
@@ -79,10 +80,10 @@ export function useFolders(packs: AdsPack[]) {
             return next;
           });
         }
-        showSuccess(packIds.length ? `Pasta "${res.folder.name}" criada com ${packIds.length} ${packIds.length === 1 ? "pack" : "packs"}.` : `Pasta "${res.folder.name}" criada.`);
+        showSuccess(packIds.length ? translate("packs.folders.createdWithPacks", { name: res.folder.name, count: packIds.length }) : translate("packs.folders.created", { name: res.folder.name }));
         return res.folder;
       } catch (error) {
-        showError(error instanceof Error ? error : new Error("Erro ao criar a pasta"));
+        showError(error instanceof Error ? error : new Error(translate("packs.folders.errCreate")));
         return null;
       }
     },
@@ -96,7 +97,7 @@ export function useFolders(packs: AdsPack[]) {
       await api.folders.rename(folderId, name);
     } catch (error) {
       setFolders(previous);
-      showError(error instanceof Error ? error : new Error("Erro ao renomear a pasta"));
+      showError(error instanceof Error ? error : new Error(translate("packs.folders.errRename")));
     }
   }, [folders]);
 
@@ -130,15 +131,22 @@ export function useFolders(packs: AdsPack[]) {
       const res = await api.folders.remove(folderId);
       const moved = (res.packs_moved || 0) + (res.folders_moved || 0);
       const lostAccess = res.access_changes?.revoked ?? 0;
-      const parts = [
-        res.packs_moved > 0 ? `${res.packs_moved} ${res.packs_moved === 1 ? "pack" : "packs"}` : null,
-        res.folders_moved > 0 ? `${res.folders_moved} ${res.folders_moved === 1 ? "subpasta" : "subpastas"}` : null,
-      ].filter(Boolean);
-      const where = parentName ? `para “${parentName}”` : "para a Biblioteca";
-      const base = moved > 0 ? `Pasta desfeita. ${parts.join(" e ")} ${moved > 1 ? "subiram" : "subiu"} ${where}.` : "Pasta desfeita.";
-      showSuccess(lostAccess > 0 ? `${base} O acesso que vinha por ela terminou.` : base);
+      const lost = lostAccess > 0 ? "yes" : "no";
+      showSuccess(
+        moved > 0
+          ? translate("packs.folders.dissolvedMoved", {
+              packs: res.packs_moved > 0 ? res.packs_moved : 0,
+              folders: res.folders_moved > 0 ? res.folders_moved : 0,
+              both: res.packs_moved > 0 && res.folders_moved > 0 ? "yes" : "no",
+              moved,
+              dest: parentName ? "parent" : "root",
+              parent: parentName ?? "",
+              lost,
+            })
+          : translate("packs.folders.dissolved", { lost }),
+      );
     } catch (error) {
-      showError(error instanceof Error ? error : new Error("Erro ao desfazer a pasta"));
+      showError(error instanceof Error ? error : new Error(translate("packs.folders.errDissolve")));
     } finally {
       // A verdade vem do servidor nos dois casos: no sucesso, a ordem exata das
       // subpastas que subiram; no erro, desfazer à mão um otimista de vários
@@ -168,7 +176,7 @@ export function useFolders(packs: AdsPack[]) {
       await api.folders.place(folderId, plan.parentId, plan.siblingIds);
     } catch (error) {
       setFolders(previous);
-      showError(error instanceof Error ? error : new Error("Erro ao mover a pasta"));
+      showError(error instanceof Error ? error : new Error(translate("packs.folders.errMove")));
     }
   }, [folders]);
 
@@ -204,7 +212,7 @@ export function useFolders(packs: AdsPack[]) {
           });
           return next;
         });
-        showError(error instanceof Error ? error : new Error("Erro ao mover os packs"));
+        showError(error instanceof Error ? error : new Error(translate("packs.folders.errMovePacks")));
         return null;
       }
     },
@@ -242,9 +250,9 @@ export function useFolders(packs: AdsPack[]) {
   const leaveFolder = useCallback(async (folderId: string) => {
     try {
       await api.folderShares.leave(folderId);
-      showSuccess("Você saiu da pasta.");
+      showSuccess(translate("packs.folders.left"));
     } catch (error) {
-      showError(error instanceof Error ? error : new Error("Erro ao sair da pasta"));
+      showError(error instanceof Error ? error : new Error(translate("packs.folders.errLeave")));
     } finally {
       load();
     }

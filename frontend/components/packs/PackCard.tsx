@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import React, { useState, useRef, useEffect } from "react";
 import { StandardCard } from "@/components/common/StandardCard";
 import { ToggleSwitch } from "@/components/common/ToggleSwitch";
@@ -26,6 +27,9 @@ const FILTER_FIELDS = [
   { label: "Adset Name", value: "adset.name" },
   { label: "Ad Name", value: "ad.name" },
 ];
+
+/** "Atualizado há 5 mins" -> "há 5 mins": o prefixo vem do formatador, que tem um texto por idioma. */
+const relativeWhen = (dateTime: string) => formatRelativeTime(dateTime).text.replace(/^(Atualizado|Updated) /, "");
 
 const getFilterFieldLabel = (fieldValue: string) => {
   const field = FILTER_FIELDS.find((f) => f.value === fieldValue);
@@ -74,6 +78,7 @@ export interface PackCardProps {
  * - Footer: Última atualização (esquerda) + Atualização automática (direita)
  */
 export function PackCard({ pack, adAccountName, formatCurrency, formatDate, onRefresh, onRemove, onMove, onToggleAutoRefresh, onSetSheetIntegration, onEditSheetIntegration, onDeleteSheetIntegration, onEditJudgment, onEditDateRange, onTranscribeAds, isSelected = false, isUpdating, updatingByName, isTogglingAutoRefresh, packToDisableAutoRefresh }: PackCardProps) {
+  const t = useTranslations("packs.card");
   const stats = pack.stats;
   // Conta de anúncio de origem: prefere o nome resolvido; cai para o id cru (act_...) se ainda não carregou/não resolveu.
   const adAccountLabel = adAccountName || pack.adaccount_id;
@@ -180,7 +185,7 @@ export function PackCard({ pack, adAccountName, formatCurrency, formatDate, onRe
     const trimmedName = editingName.trim();
 
     if (!trimmedName) {
-      showError({ message: "Nome do pack não pode ser vazio" });
+      showError({ message: t("nameEmpty") });
       setEditingName(pack.name);
       setIsEditingName(false);
       return;
@@ -195,7 +200,7 @@ export function PackCard({ pack, adAccountName, formatCurrency, formatDate, onRe
     // Verificar se já existe outro pack com o mesmo nome
     const isUnique = checkNameUniqueness(trimmedName);
     if (!isUnique) {
-      showError({ message: `Já existe um pack com o nome "${trimmedName}"` });
+      showError({ message: t("nameDuplicate", { name: trimmedName }) });
       // Manter o input aberto com borda vermelha (não fechar)
       return;
     }
@@ -222,7 +227,7 @@ export function PackCard({ pack, adAccountName, formatCurrency, formatDate, onRe
       if (errorMessage.includes("já existe") || errorMessage.includes("already exists")) {
         setHasNameError(true);
       }
-      showError({ message: `Erro ao renomear pack: ${errorMessage}` });
+      showError({ message: t("renameError", { message: errorMessage }) });
     } finally {
       isSavingNameRef.current = false;
     }
@@ -260,8 +265,8 @@ export function PackCard({ pack, adAccountName, formatCurrency, formatDate, onRe
 
   const daysCount = calculateDays(pack.date_start, pack.date_stop);
   const isSameDate = pack.date_start === pack.date_stop;
-  const dateStartDisplay = isToday(pack.date_start) ? "HOJE" : formatDate(pack.date_start);
-  const dateEndDisplay = isToday(pack.date_stop) ? "HOJE" : formatDate(pack.date_stop);
+  const dateStartDisplay = isToday(pack.date_start) ? t("today") : formatDate(pack.date_start);
+  const dateEndDisplay = isToday(pack.date_stop) ? t("today") : formatDate(pack.date_stop);
   const dateRangeDisplay = isSameDate ? dateStartDisplay : `${formatDate(pack.date_start)} → ${dateEndDisplay}`;
   const lastSuccessfulSyncAt = pack.sheet_integration?.last_successful_sync_at;
   const lastSyncAttemptAt = pack.sheet_integration?.last_synced_at;
@@ -271,7 +276,7 @@ export function PackCard({ pack, adAccountName, formatCurrency, formatDate, onRe
   // e sem este estado a integração dizia "success" e o problema sumia.
   const leadscoreSyncEmpty = pack.sheet_integration?.last_sync_status === "warning";
   const leadscoreSyncNotOk = leadscoreSyncFailed || leadscoreSyncEmpty;
-  const leadscoreTitle = pack.sheet_integration?.spreadsheet_name || "Leadscore";
+  const leadscoreTitle = pack.sheet_integration?.spreadsheet_name || t("leadscore");
   // 147/148: o arquivo foi renomeado no Drive desde a última conferência. A
   // revalidação passiva já corrigiu o nome exibido — esta marca é o que impede o
   // conserto de APAGAR A EVIDÊNCIA de que a planilha pode não ser mais a mesma.
@@ -279,7 +284,7 @@ export function PackCard({ pack, adAccountName, formatCurrency, formatDate, onRe
   // última vez que olhei?". Sai por um sync que aplique linhas ou pelo "estou ciente".
   const spreadsheetRenamedFrom = pack.sheet_integration?.spreadsheet_renamed_from || null;
   const renameNotice = spreadsheetRenamedFrom
-    ? `Renomeada: antes era ${spreadsheetRenamedFrom}.`
+    ? t("renamedFrom", { name: spreadsheetRenamedFrom })
     : null;
   const hasAnyLeadscoreSyncInfo = !!(lastSuccessfulSyncAt || lastSyncAttemptAt);
   // Nos dois estados ruins o tempo mostrado é o do último SUCESSO: exibir o da
@@ -334,7 +339,7 @@ export function PackCard({ pack, adAccountName, formatCurrency, formatDate, onRe
                 {/* Badge no topo direito */}
                 <div className="absolute top-3 right-3 bg-primary text-primary-foreground px-2.5 py-1 rounded-md text-xs font-medium flex items-center gap-1.5 z-[20] shadow-elevation-overlay">
                   <IconLoader2 className="w-3.5 h-3.5 animate-spin" />
-                  <span>{updatingByName ? `Atualizando por ${updatingByName}...` : "Atualizando..."}</span>
+                  <span>{updatingByName ? t("updatingBy", { name: updatingByName }) : t("updating")}</span>
                 </div>
               </>
             )}
@@ -343,7 +348,7 @@ export function PackCard({ pack, adAccountName, formatCurrency, formatDate, onRe
                 {isSharedGuest && (
                   <span className="inline-flex items-center gap-1 rounded-md bg-primary-10 px-2 py-0.5 text-2xs font-medium text-primary">
                     <IconUsers className="h-3 w-3" />
-                    Compartilhado por {pack.shared_owner_name || "outra conta"} · {isViewer ? "leitura" : "editor"}
+                    {t("sharedBadge", { owner: pack.shared_owner_name || t("otherAccount"), role: isViewer ? "viewer" : "editor" })}
                   </span>
                 )}
                 {/* Header: Nome do pack */}
@@ -419,7 +424,7 @@ export function PackCard({ pack, adAccountName, formatCurrency, formatDate, onRe
                         </div>
                       </TooltipTrigger>
                       <TooltipContent side="bottom">
-                        <p>Conta de anúncio: {adAccountLabel}</p>
+                        <p>{t("accountTooltip", { account: adAccountLabel })}</p>
                       </TooltipContent>
                     </Tooltip>
                   </TooltipProvider>
@@ -433,7 +438,7 @@ export function PackCard({ pack, adAccountName, formatCurrency, formatDate, onRe
                           <div className="inline-flex items-center gap-1.5 text-xs text-muted-foreground cursor-default">
                             <IconFilter className="w-3.5 h-3.5 flex-shrink-0" />
                             <span className="font-medium text-muted-foreground">
-                              Ver {pack.filters.length} {pack.filters.length === 1 ? "filtro" : "filtros"}
+                              {t("viewFilters", { count: pack.filters.length })}
                             </span>
                           </div>
                         </TooltipTrigger>
@@ -479,7 +484,7 @@ export function PackCard({ pack, adAccountName, formatCurrency, formatDate, onRe
                             </div>
                           </TooltipTrigger>
                           <TooltipContent>
-                            <p>Os dados podem estar desatualizados. Atualize para garantir uma análise atual.</p>
+                            <p>{t("outdated")}</p>
                           </TooltipContent>
                         </Tooltip>
                       </TooltipProvider>
@@ -487,7 +492,7 @@ export function PackCard({ pack, adAccountName, formatCurrency, formatDate, onRe
                   </div>
                   {/* Duração */}
                   <div className="text-xs text-muted-foreground mt-0.5">
-                    {daysCount} {daysCount === 1 ? "dia" : "dias"}
+                    {t("days", { count: daysCount })}
                   </div>
                 </div>
                 {/* Valor monetário em destaque */}
@@ -509,19 +514,19 @@ export function PackCard({ pack, adAccountName, formatCurrency, formatDate, onRe
               {/* Métricas: Lista vertical com separadores */}
               <div className="flex flex-col">
                 <div className="flex items-center justify-between py-2 border-b border-border">
-                  <span className="text-sm text-foreground">Campanhas</span>
+                  <span className="text-sm text-foreground">{t("campaigns")}</span>
                   <span className="text-sm font-medium text-foreground">{stats?.uniqueCampaigns || 0}</span>
                 </div>
                 <div className="flex items-center justify-between py-2 border-b border-border">
-                  <span className="text-sm text-foreground">Conjuntos</span>
+                  <span className="text-sm text-foreground">{t("adsets")}</span>
                   <span className="text-sm font-medium text-foreground">{stats?.uniqueAdsets || 0}</span>
                 </div>
                 <div className="flex items-center justify-between py-2 border-b border-border">
-                  <span className="text-sm text-foreground">Anúncios</span>
+                  <span className="text-sm text-foreground">{t("ads")}</span>
                   <span className="text-sm font-medium text-foreground">{stats?.uniqueAdNames || 0}</span>
                 </div>
                 <div className="flex items-center justify-between py-2 border-b border-border">
-                  <span className="text-sm text-foreground">Variações</span>
+                  <span className="text-sm text-foreground">{t("variations")}</span>
                   <span className="text-sm font-medium text-foreground">{stats?.uniqueAds || 0}</span>
                 </div>
                 {/* Janela de atribuição (migration 143): de onde vem o recuo do refresh */}
@@ -529,12 +534,12 @@ export function PackCard({ pack, adAccountName, formatCurrency, formatDate, onRe
                   <TooltipProvider>
                     <Tooltip>
                       <TooltipTrigger asChild>
-                        <span className="text-sm text-foreground cursor-help">Atribuição</span>
+                        <span className="text-sm text-foreground cursor-help">{t("attribution")}</span>
                       </TooltipTrigger>
                       <TooltipContent side="top" className="max-w-xs">
                         {pack.attribution_setting
-                          ? `Janela de atribuição dos conjuntos deste pack (${pack.attribution_setting}). Cada atualização "desde a última" recua ${lookbackDaysForPack(pack)} ${lookbackDaysForPack(pack) === 1 ? "dia" : "dias"} para as conversões tardias entrarem.`
-                          : `Ainda não calibrada — a primeira atualização lê a janela dos conjuntos. Até lá o recuo é de ${lookbackDaysForPack(pack)} dias.`}
+                          ? t("attributionTip", { setting: pack.attribution_setting, days: lookbackDaysForPack(pack) })
+                          : t("attributionTipUncalibrated", { days: lookbackDaysForPack(pack) })}
                       </TooltipContent>
                     </Tooltip>
                   </TooltipProvider>
@@ -554,7 +559,7 @@ export function PackCard({ pack, adAccountName, formatCurrency, formatDate, onRe
                       </div>
                       <div className="flex flex-col">
                         <label htmlFor={`auto-refresh-${pack.id}`} className="font-medium text-sm text-foreground cursor-pointer">
-                          Manter atualizado
+                          {t("keepUpdated")}
                         </label>
                         <UpdatedAtText dateTime={pack.updated_at} className="text-2xs text-muted-foreground" />
                       </div>
@@ -593,7 +598,7 @@ export function PackCard({ pack, adAccountName, formatCurrency, formatDate, onRe
                               <PopoverTrigger asChild>
                                 <button
                                   type="button"
-                                  aria-label="Planilha renomeada — ver detalhes"
+                                  aria-label={t("renamedAria")}
                                   className="flex-shrink-0 leading-none cursor-pointer"
                                 >
                                   <IconAlertTriangle className="w-3.5 h-3.5 text-warning" />
@@ -602,8 +607,7 @@ export function PackCard({ pack, adAccountName, formatCurrency, formatDate, onRe
                               <PopoverContent align="start" className="w-64 p-3">
                                 <p className="text-xs text-foreground">{renameNotice}</p>
                                 <p className="text-xs text-muted-foreground mt-1">
-                                  Renomear costuma acompanhar troca de conteúdo. Confira se a
-                                  planilha ainda é a mesma que você vinculou.
+                                  {t("renameHint")}
                                 </p>
                                 {!isSharedGuest && (
                                   <Button
@@ -613,7 +617,7 @@ export function PackCard({ pack, adAccountName, formatCurrency, formatDate, onRe
                                     disabled={isDismissingRename}
                                     onClick={handleDismissRename}
                                   >
-                                    {isDismissingRename ? "Dispensando..." : "Estou ciente"}
+                                    {isDismissingRename ? t("dismissing") : t("dismiss")}
                                   </Button>
                                 )}
                               </PopoverContent>
@@ -621,7 +625,7 @@ export function PackCard({ pack, adAccountName, formatCurrency, formatDate, onRe
                           )}
                         </div>
                         {!pack.sheet_integration ? (
-                          <span className="text-2xs text-muted-foreground">Não conectado</span>
+                          <span className="text-2xs text-muted-foreground">{t("notConnected")}</span>
                         ) : hasAnyLeadscoreSyncInfo ? (
                           leadscoreSyncNotOk ? (
                             // Falha na última tentativa: comunicar o ERRO explicitamente em vez de
@@ -632,15 +636,15 @@ export function PackCard({ pack, adAccountName, formatCurrency, formatDate, onRe
                                   <div className="flex items-center gap-1 cursor-help">
                                     <IconAlertCircle className="w-3 h-3 text-warning flex-shrink-0" />
                                     <span className="text-2xs text-warning font-medium">
-                                      {leadscoreSyncFailed ? "Falha ao atualizar" : "Nada aplicado"}
+                                      {leadscoreSyncFailed ? t("syncFailed") : t("nothingApplied")}
                                     </span>
                                   </div>
                                 </TooltipTrigger>
                                 <TooltipContent>
                                   {leadscoreSyncFailed ? (
-                                    <p>{lastSuccessfulSyncAt ? `A última tentativa de sincronização falhou. Última sincronização bem-sucedida: ${formatRelativeTime(lastSuccessfulSyncAt).text.replace(/^Atualizado /, "")}.` : "A última tentativa de sincronização falhou e ainda não há nenhuma sincronização bem-sucedida para este pack."}</p>
+                                    <p>{lastSuccessfulSyncAt ? t("syncFailedWithLast", { when: relativeWhen(lastSuccessfulSyncAt) }) : t("syncFailedNever")}</p>
                                   ) : (
-                                    <p>{`O último sync rodou sem erro, mas nenhuma linha da planilha foi aplicada — normalmente a planilha está vinculada a outro pack ou cobre um período diferente. Abra a integração para ver o motivo.${lastSuccessfulSyncAt ? ` Última sincronização com dados: ${formatRelativeTime(lastSuccessfulSyncAt).text.replace(/^Atualizado /, "")}.` : ""}`}</p>
+                                    <p>{t("syncEmpty", { hasLast: lastSuccessfulSyncAt ? "yes" : "no", when: lastSuccessfulSyncAt ? relativeWhen(lastSuccessfulSyncAt) : "" })}</p>
                                   )}
                                 </TooltipContent>
                               </Tooltip>
@@ -648,7 +652,7 @@ export function PackCard({ pack, adAccountName, formatCurrency, formatDate, onRe
                           ) : leadscoreDateForDisplay ? (
                             <UpdatedAtText dateTime={leadscoreDateForDisplay} className="text-2xs text-muted-foreground" />
                           ) : (
-                            <span className="text-2xs text-muted-foreground">Sem sync bem-sucedido</span>
+                            <span className="text-2xs text-muted-foreground">{t("noSuccessfulSync")}</span>
                           )
                         ) : null}
                       </div>

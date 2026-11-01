@@ -6,6 +6,7 @@ import { useClientPacks } from "@/lib/hooks/useClientSession";
 import { useInvalidatePackAds } from "@/lib/api/hooks";
 import { finishProgressToast, showProgressToast } from "@/lib/utils/toast";
 import { logger } from "@/lib/utils/logger";
+import { translate } from "@/lib/i18n/translate";
 
 export interface PackDeleteTarget {
   id: string;
@@ -43,13 +44,13 @@ export function useBulkPackDelete() {
       if (targets.length === 0) return result;
 
       const total = targets.length;
-      const header = total === 1 ? "Removendo pack" : `Removendo ${total} packs`;
+      const header = translate("packs.bulkDelete.header", { total });
       setIsDeleting(true);
 
       try {
         for (let index = 0; index < total; index++) {
           const target = targets[index];
-          showProgressToast(TOAST_ID, header, index, total, total === 1 ? target.name : `${target.name} (${index + 1} de ${total})`);
+          showProgressToast(TOAST_ID, header, index, total, total === 1 ? target.name : translate("packs.bulkDelete.itemOf", { name: target.name, index: index + 1, total }));
 
           try {
             await api.analytics.deletePack(target.id, []);
@@ -75,8 +76,8 @@ export function useBulkPackDelete() {
           TOAST_ID,
           ok,
           ok
-            ? `${removed} ${removed === 1 ? "pack removido" : "packs removidos"}.`
-            : `${removed} de ${total} ${removed === 1 ? "removido" : "removidos"}. Falharam no servidor: ${result.failed.map((f) => f.name).join(", ")}.`,
+            ? translate("packs.bulkDelete.done", { count: removed })
+            : translate("packs.bulkDelete.partial", { removed, total, names: result.failed.map((f) => f.name).join(", ") }),
         );
 
         return result;

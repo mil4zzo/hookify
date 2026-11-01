@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import React, { useId } from "react";
 import { IconUsers } from "@tabler/icons-react";
 import { MetaIcon, GoogleSheetsIcon } from "@/components/icons";
@@ -56,6 +57,7 @@ export interface FolderGlyphProps {
 }
 
 export function FolderGlyph({ hasSheet = false, hasShared = false, sharedWith = 0, sharedBy = null, isDropTarget = false, isCurrent = false, className }: FolderGlyphProps) {
+  const t = useTranslations("packs.folderGlyph");
   // Um degradê por instância: id duplicado no documento resolve para o primeiro
   // e amarraria todas as pastas ao ciclo de vida da que montou primeiro.
   const rawId = useId();
@@ -110,7 +112,7 @@ export function FolderGlyph({ hasSheet = false, hasShared = false, sharedWith = 
           <MetaIcon className="h-2.5 w-2.5 text-primary" />
         </FolderBadge>
         {hasSheet && (
-          <FolderBadge title="Algum pack tem planilha conectada">
+          <FolderBadge title={t("sheet")}>
             <GoogleSheetsIcon className="h-2.5 w-2.5 text-success" />
           </FolderBadge>
         )}
@@ -119,11 +121,11 @@ export function FolderGlyph({ hasSheet = false, hasShared = false, sharedWith = 
             title={
               sharedBy !== null
                 ? sharedBy
-                  ? `Compartilhada com você por ${sharedBy}`
-                  : "Compartilhada com você"
+                  ? t("sharedWithYouBy", { name: sharedBy })
+                  : t("sharedWithYou")
                 : sharedWith > 0
-                  ? `Pasta compartilhada com ${sharedWith} ${sharedWith === 1 ? "pessoa" : "pessoas"}`
-                  : "Algum pack é compartilhado"
+                  ? t("folderSharedWith", { count: sharedWith })
+                  : t("someShared")
             }
           >
             <IconUsers className="h-2.5 w-2.5 text-primary" />

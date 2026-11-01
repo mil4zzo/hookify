@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import React, { useEffect, useState, useCallback } from "react";
 import { AppDialog } from "@/components/common/AppDialog";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -57,6 +58,8 @@ const AD_LIST_BOX =
   "h-[18rem] overflow-y-auto rounded-lg border border-border bg-background p-2";
 
 export function TranscriptionStatusDialog({ isOpen, onClose, packId, packName, onConfirm, onForce }: Props) {
+  const t = useTranslations("packs.transcription");
+  const tc = useTranslations("packs.common");
   const [status, setStatus] = useState<PackTranscriptionStatus | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -119,20 +122,20 @@ export function TranscriptionStatusDialog({ isOpen, onClose, packId, packName, o
     <AppDialog
       isOpen={isOpen}
       onClose={onClose}
-      title={`Transcrição — ${packName}`}
+      title={t("title", { name: packName })}
       size="md"
       closeOnOverlayClick
       closeOnEscape
       showCloseButton={false}
     >
       <div className="flex flex-col gap-6 py-4">
-        <h2 className="text-xl font-semibold text-foreground">Transcrição — {packName}</h2>
+        <h2 className="text-xl font-semibold text-foreground">{t("title", { name: packName })}</h2>
 
         {isLoading && <TranscriptionStatusSkeleton />}
 
         {!isLoading && !status && (
           <p className="text-sm text-muted-foreground py-4 text-center">
-            Não foi possível carregar o status de transcrição.
+            {t("loadError")}
           </p>
         )}
 
@@ -143,9 +146,9 @@ export function TranscriptionStatusDialog({ isOpen, onClose, packId, packName, o
             {status.total_video_ads > 0 && (
               <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as TabValue)}>
                 <TabsList className="w-full">
-                  <TabTriggerContent value="untranscribed" label="Pendentes" count={untranscribedTotal} activeTab={activeTab} />
-                  <TabTriggerContent value="transcribed" label="Transcritos" count={status.transcribed} activeTab={activeTab} />
-                  <TabTriggerContent value="no_voice" label="Sem áudio" count={status.no_voice} activeTab={activeTab} />
+                  <TabTriggerContent value="untranscribed" label={t("tabPending")} count={untranscribedTotal} activeTab={activeTab} />
+                  <TabTriggerContent value="transcribed" label={t("tabDone")} count={status.transcribed} activeTab={activeTab} />
+                  <TabTriggerContent value="no_voice" label={t("tabNoAudio")} count={status.no_voice} activeTab={activeTab} />
                 </TabsList>
 
                 <TabsContent value="untranscribed" className="flex flex-col gap-2 pt-3">
@@ -158,7 +161,7 @@ export function TranscriptionStatusDialog({ isOpen, onClose, packId, packName, o
                   )}
                   <AdList
                     isEmpty={untranscribedTotal === 0}
-                    emptyMessage="Todos os anúncios de vídeo deste pack já foram transcritos ou não têm áudio detectável."
+                    emptyMessage={t("emptyPending")}
                   >
                     {status.untranscribed_ads.map((ad) => (
                       <AdRow
@@ -177,7 +180,7 @@ export function TranscriptionStatusDialog({ isOpen, onClose, packId, packName, o
                 <TabsContent value="transcribed" className="pt-3">
                   <AdList
                     isEmpty={status.transcribed_ads.length === 0}
-                    emptyMessage="Nenhum anúncio transcrito ainda."
+                    emptyMessage={t("emptyDone")}
                   >
                     {status.transcribed_ads.map((ad) => (
                       <ReadOnlyAdRow key={ad.ad_name} ad={ad} />
@@ -189,8 +192,7 @@ export function TranscriptionStatusDialog({ isOpen, onClose, packId, packName, o
                   {status.no_voice_ads.length > 0 && (
                     <>
                       <p className="text-xs text-muted-foreground">
-                        Nenhum áudio foi detectado nestes vídeos, por isso não são transcritos.
-                        Se acha que houve engano, marque e force uma nova tentativa.
+                        {t("noAudioHint")}
                       </p>
                       <SelectionHeader
                         selectedCount={forceCount}
@@ -201,7 +203,7 @@ export function TranscriptionStatusDialog({ isOpen, onClose, packId, packName, o
                   )}
                   <AdList
                     isEmpty={status.no_voice_ads.length === 0}
-                    emptyMessage="Nenhum vídeo sem áudio detectável."
+                    emptyMessage={t("emptyNoAudio")}
                   >
                     {status.no_voice_ads.map((ad) => (
                       <AdRow
@@ -225,7 +227,7 @@ export function TranscriptionStatusDialog({ isOpen, onClose, packId, packName, o
             className="flex-1 flex items-center justify-center gap-2"
           >
             <IconCircleX className="h-5 w-5" />
-            Cancelar
+            {tc("cancel")}
           </Button>
           {/* durante o load o botão já ocupa o slot (desabilitado): evita que a
               linha de ações mude de largura quando o status chega */}
@@ -237,7 +239,7 @@ export function TranscriptionStatusDialog({ isOpen, onClose, packId, packName, o
               className="flex-1 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <IconMicrophone className="h-5 w-5" />
-              Transcrever {confirmCount > 0 ? `${confirmCount} ${confirmCount === 1 ? "ad" : "ads"}` : "ads"}
+              {t("transcribe", { count: confirmCount })}
             </Button>
           )}
           {activeTab === "no_voice" && (status?.no_voice ?? 0) > 0 && (
@@ -247,7 +249,7 @@ export function TranscriptionStatusDialog({ isOpen, onClose, packId, packName, o
               className="flex-1 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <IconRefresh className="h-5 w-5" />
-              Forçar {forceCount > 0 ? `${forceCount} ${forceCount === 1 ? "ad" : "ads"}` : "nova tentativa"}
+              {t("force", { count: forceCount })}
             </Button>
           )}
         </div>
@@ -291,13 +293,14 @@ function SelectionHeader({
   totalCount: number;
   onToggleAll: () => void;
 }) {
+  const t = useTranslations("packs.transcription");
   return (
     <div className="flex items-center justify-between text-sm">
       <span className="text-muted-foreground">
-        {selectedCount} de {totalCount} selecionado{selectedCount !== 1 ? "s" : ""}
+        {t("selectedOf", { selected: selectedCount, total: totalCount })}
       </span>
       <Button variant="ghost" size="sm" onClick={onToggleAll}>
-        {selectedCount === totalCount ? "Desmarcar todos" : "Marcar todos"}
+        {selectedCount === totalCount ? t("unmarkAll") : t("markAll")}
       </Button>
     </div>
   );
@@ -416,13 +419,14 @@ function AdBreakdownBar({
   status: PackTranscriptionStatus;
   activeTab: TabValue;
 }) {
+  const t = useTranslations("packs.transcription");
   const total = status.total_video_ads;
   const untranscribedTotal = status.untranscribed + status.processing;
 
   if (total === 0) {
     return (
       <p className="text-sm text-muted-foreground">
-        Nenhum anúncio de vídeo neste pack.
+        {t("noVideoAds")}
       </p>
     );
   }
@@ -436,9 +440,7 @@ function AdBreakdownBar({
   return (
     <div className="flex flex-col gap-2.5">
       <span className="text-sm text-muted-foreground">
-        Dos{" "}
-        <span className="font-semibold text-foreground">{total}</span>{" "}
-        de vídeo:
+        {t.rich("breakdown", { total, b: (c) => <span className="font-semibold text-foreground">{c}</span> })}
       </span>
 
       <div

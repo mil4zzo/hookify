@@ -16,6 +16,7 @@
  * - arquivo em UTF-8 ou no Windows-1252 do Excel (`decodeCsvBytes`).
  */
 
+import { translate } from "@/lib/i18n/translate";
 import { LEAD_ECONOMICS_MAX_PRODUCTS, productNameKey } from "./leadEconomics";
 import {
   formatPercentInput,
@@ -135,7 +136,7 @@ interface CsvBand {
   product: string;
 }
 
-const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+const csvMsg = (key: string, values?: Record<string, string | number>) => translate(`packs.economicsCsv.${key}`, values);
 
 /** CSV de faixas + rascunho atual → rascunho com as faixas do arquivo, ou o motivo de não importar. */
 export function importLeadEconomicsBandsCsv(text: string, draft: LeadEconomicsDraft): LeadEconomicsCsvResult {
@@ -144,7 +145,7 @@ export function importLeadEconomicsBandsCsv(text: string, draft: LeadEconomicsDr
     .split(/\r\n|\n|\r/)
     .map((line, index) => ({ line: index + 1, text: line }))
     .filter((entry) => entry.text.trim() !== "");
-  if (lines.length === 0) return { kind: "error", message: "O arquivo está vazio." };
+  if (lines.length === 0) return { kind: "error", message: csvMsg("empty") };
 
   const delimiter = detectDelimiter(lines[0].text);
   const rows = lines.map((entry) => ({ line: entry.line, cells: splitLine(entry.text, delimiter) }));
@@ -162,17 +163,17 @@ export function importLeadEconomicsBandsCsv(text: string, draft: LeadEconomicsDr
   }
   const hasProductColumn = columns.product >= 0 && dataRows.some((row) => (row.cells[columns.product] ?? "").trim() !== "");
 
-  if (dataRows.length === 0) return { kind: "error", message: "O arquivo não tem nenhuma faixa, só o cabeçalho." };
+  if (dataRows.length === 0) return { kind: "error", message: csvMsg("headerOnly") };
 
   const bands: CsvBand[] = [];
   let anyPercentSign = false;
   for (const row of dataRows) {
     const rangeCell = row.cells[columns.range] ?? "";
     const min = parseBandFloor(rangeCell);
-    if (min === undefined) return { kind: "error", message: `Linha ${row.line}: não deu para ler a nota "${rangeCell}".` };
+    if (min === undefined) return { kind: "error", message: csvMsg("unreadableScore", { line: row.line, cell: rangeCell }) };
     const conversionCell = row.cells[columns.conversion] ?? "";
     const conversion = parsePercentInput(conversionCell);
-    if (conversion === null) return { kind: "error", message: `Linha ${row.line}: a conversão "${conversionCell}" não é um número.` };
+    if (conversion === null) return { kind: "error", message: csvMsg("conversionNotNumber", { line: row.line, cell: conversionCell }) };
     if (conversionCell.includes("%")) anyPercentSign = true;
     const product = hasProductColumn ? (row.cells[columns.product] ?? "").replace(/\s+/g, " ").trim() : "";
     bands.push({ line: row.line, min, conversion, product });
@@ -181,12 +182,12 @@ export function importLeadEconomicsBandsCsv(text: string, draft: LeadEconomicsDr
   // Ordem pela nota; a faixa sem piso é a de baixo.
   const floorless = bands.filter((band) => band.min === null);
   if (floorless.length > 1) {
-    return { kind: "error", message: `Só uma faixa pode não ter nota mínima (linhas ${floorless.map((b) => b.line).join(" e ")}).` };
+    return { kind: "error", message: csvMsg("oneFloorless", { lines: floorless.map((b) => b.line).join(csvMsg("listAnd")) }) };
   }
   bands.sort((a, b) => (a.min === null ? -1 : b.min === null ? 1 : a.min - b.min));
   for (let i = 1; i < bands.length; i += 1) {
     if (bands[i].min !== null && bands[i].min === bands[i - 1].min) {
-      return { kind: "error", message: `Duas faixas começam na nota ${formatScoreInput(bands[i].min!)} (linhas ${bands[i - 1].line} e ${bands[i].line}).` };
+      return { kind: "error", message: csvMsg("duplicateStart", { value: formatScoreInput(bands[i].min!), a: bands[i - 1].line, b: bands[i].line }) };
     }
   }
 
@@ -195,12 +196,10 @@ export function importLeadEconomicsBandsCsv(text: string, draft: LeadEconomicsDr
   // a valer também para o que estiver abaixo dela.
   const lowest = bands[0];
   if (lowest.min !== null && lowest.min > 0) {
-    warnings.push(`A faixa que começa em ${formatScoreInput(lowest.min)} é a primeira: ela passa a valer também para as notas abaixo de ${formatScoreInput(lowest.min)}.`);
+    warnings.push(csvMsg("lowestApplies", { value: formatScoreInput(lowest.min) }));
   }
   if (!anyPercentSign && bands.every((band) => band.conversion <= 0.01) && bands.some((band) => band.conversion > 0)) {
-    warnings.push(
-      "Nenhuma conversão passa de 1%. Os números foram lidos como porcentagem (0,04 = 0,04%); se o arquivo usa fração (0,04 = 4%), multiplique por 100 e importe de novo.",
-    );
+    warnings.push(csvMsg("fractionHint"));
   }
 
   // Produtos: casa pelo nome com o cadastro; nome novo ocupa primeiro um produto
@@ -239,7 +238,7 @@ export function importLeadEconomicsBandsCsv(text: string, draft: LeadEconomicsDr
     if (band.product) {
       const id = productIdFor(band.product);
       if (id === null) {
-        return { kind: "error", message: `O arquivo nomeia produtos demais: o cadastro aceita no máximo ${LEAD_ECONOMICS_MAX_PRODUCTS}.` };
+        return { kind: "error", message: csvMsg("tooManyProducts", { max: LEAD_ECONOMICS_MAX_PRODUCTS }) };
       }
       productId = id;
     } else if (hasProductColumn) {
@@ -253,15 +252,13 @@ export function importLeadEconomicsBandsCsv(text: string, draft: LeadEconomicsDr
     });
   }
   if (!hasProductColumn && products.length > 1) {
-    warnings.push(`O arquivo não diz o produto de cada faixa: todas ficaram com "${products[0].name || "o primeiro produto"}". Ajuste na coluna Produto.`);
+    warnings.push(csvMsg("noProductColumn", { product: products[0].name || csvMsg("firstProduct") }));
   }
   if (unnamed > 0) {
-    warnings.push(`${plural(unnamed, "faixa veio", "faixas vieram")} sem produto e ${unnamed === 1 ? "ficou" : "ficaram"} com "${products[0].name || "o primeiro produto"}".`);
+    warnings.push(csvMsg("unnamedBands", { count: unnamed, product: products[0].name || csvMsg("firstProduct") }));
   }
   if (newProducts.length > 0) {
-    warnings.push(
-      `${plural(newProducts.length, "produto novo", "produtos novos")} (${newProducts.join(", ")}): preencha ticket, quanto sobra e margem desejada.`,
-    );
+    warnings.push(csvMsg("newProducts", { count: newProducts.length, names: newProducts.join(", ") }));
   }
 
   return { kind: "ok", draft: { products, bands: bandDrafts }, bandCount: bandDrafts.length, newProducts, warnings };

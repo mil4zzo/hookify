@@ -29,6 +29,7 @@ import { filterVideoAds } from "@/lib/utils/filterVideoAds";
 import { getAdStatistics } from "@/lib/utils/adCounting";
 import { MetaIcon } from "@/components/icons/MetaIcon";
 import { logger } from "@/lib/utils/logger";
+import { translate } from "@/lib/i18n/translate";
 
 // ============================================================================
 // TYPES
@@ -121,7 +122,7 @@ export function usePackCreation(options?: PackCreationOptions): UsePackCreationR
     if (toastId) {
       dismissToast(toastId);
     }
-    showWarning("Criação do pack cancelada.");
+    showWarning(translate("packs.creation.cancelled"));
     if (jobId) removeActiveJob(jobId);
     jobIdRef.current = null;
     packIdRef.current = null;
@@ -151,7 +152,7 @@ export function usePackCreation(options?: PackCreationOptions): UsePackCreationR
         const result = await api.facebook.startAdsJob(params);
 
         if (!result.job_id) {
-          throw new Error("Falha ao iniciar job de busca de anúncios");
+          throw new Error(translate("packs.creation.startFailed"));
         }
 
         if (cancelledRef.current) {
@@ -213,7 +214,7 @@ export function usePackCreation(options?: PackCreationOptions): UsePackCreationR
             }
 
             if (progress.status === "failed") {
-              const error = new Error(progress.message || `Erro ao criar pack "${packName}"`);
+              const error = new Error(progress.message || translate("packs.creation.createError", { name: packName }));
               logger.error(error);
               finishProgressToast(toastId, false, error.message);
               optionsRef.current?.onError?.(error);
@@ -235,9 +236,9 @@ export function usePackCreation(options?: PackCreationOptions): UsePackCreationR
               toastId, packName, 1, 5,
               undefined, handleCancel, metaToastIcon,
               {
-                stageLabel: "Etapa 1 de 5",
-                stageTitle: "Verificando...",
-                dynamicLine: `Erro ao verificar progresso (tentativa ${consecutiveErrors})...`,
+                stageLabel: translate("packs.creation.stageLabel"),
+                stageTitle: translate("packs.creation.verifying"),
+                dynamicLine: translate("packs.creation.checkError", { attempt: consecutiveErrors }),
               },
               lastPercent,
               true,
@@ -245,7 +246,7 @@ export function usePackCreation(options?: PackCreationOptions): UsePackCreationR
           },
 
           onTimeout: () => {
-            finishProgressToast(toastId, false, `Timeout ao criar "${packName}" (demorou mais de 20 minutos)`);
+            finishProgressToast(toastId, false, translate("packs.creation.timeout", { name: packName }));
             optionsRef.current?.onError?.(new Error("Timeout"));
             cleanup(jobId);
             return { completed: false, adsCount: 0 };
@@ -259,7 +260,7 @@ export function usePackCreation(options?: PackCreationOptions): UsePackCreationR
             return { completed: false, adsCount: 0 };
           },
           onMaxConsecutiveErrors: () => {
-            finishProgressToast(toastId, false, `Erro persistente ao criar "${packName}". Tente novamente.`);
+            finishProgressToast(toastId, false, translate("packs.creation.persistentError", { name: packName }));
             optionsRef.current?.onError?.(new Error("Erros consecutivos"));
             cleanup(jobId);
             return { completed: false, adsCount: 0 };
@@ -303,9 +304,9 @@ export function usePackCreation(options?: PackCreationOptions): UsePackCreationR
       if (!packId) {
         const resultCount = progress.result_count || 0;
         if (resultCount === 0) {
-          finishProgressToast(toastId, false, "Nenhum anúncio encontrado para os parâmetros selecionados.");
+          finishProgressToast(toastId, false, translate("packs.creation.noAds"));
         } else {
-          finishProgressToast(toastId, false, "Erro: Pack ID não retornado pelo backend.");
+          finishProgressToast(toastId, false, translate("packs.creation.noPackId"));
         }
         cleanup(jobId);
         return;
@@ -323,7 +324,7 @@ export function usePackCreation(options?: PackCreationOptions): UsePackCreationR
 
       if (!packResponse.success || !packResponse.pack) {
         logger.error("usePackCreation: getPack retornou falha após criação", { packId });
-        finishProgressToast(toastId, false, "Erro ao carregar pack criado.");
+        finishProgressToast(toastId, false, translate("packs.creation.loadFailed"));
         cleanup(jobId);
         return;
       }
@@ -333,7 +334,7 @@ export function usePackCreation(options?: PackCreationOptions): UsePackCreationR
       const videoAds = filterVideoAds(formattedAds);
 
       if (!videoAds || videoAds.length === 0) {
-        finishProgressToast(toastId, false, "Nenhum anúncio de vídeo retornado para os parâmetros selecionados.");
+        finishProgressToast(toastId, false, translate("packs.creation.noVideoAds"));
         cleanup(jobId);
         return;
       }
@@ -408,19 +409,19 @@ export function usePackCreation(options?: PackCreationOptions): UsePackCreationR
       const videoAdsCount = videoAds.length;
       const elapsedSec = Math.round((Date.now() - startTime) / 1000);
       const elapsedStr = elapsedSec >= 60
-        ? `${Math.floor(elapsedSec / 60)}min e ${elapsedSec % 60}s`
+        ? translate("packs.creation.elapsedMin", { min: Math.floor(elapsedSec / 60), sec: elapsedSec % 60 })
         : `${elapsedSec}s`;
 
       const message = totalAds === videoAdsCount
-        ? `Pack "${packName}" criado com ${videoAdsCount} anúncios de vídeo (${elapsedStr}).`
-        : `Pack "${packName}" criado com ${videoAdsCount} anúncios de vídeo de ${totalAds} total (${elapsedStr}).`;
+        ? translate("packs.creation.createdAll", { name: packName, count: videoAdsCount, elapsed: elapsedStr })
+        : translate("packs.creation.createdSome", { name: packName, count: videoAdsCount, total: totalAds, elapsed: elapsedStr });
 
       finishProgressToast(toastId, true, message, { durationSeconds: 5, context: "meta", packName });
 
       optionsRef.current?.onComplete?.({ packId, packName, adsCount: totalAds });
     } catch (error) {
       logger.error("usePackCreation: erro no handleCreationCompleted:", error);
-      finishProgressToast(toastId, false, error instanceof Error ? error.message : "Erro ao finalizar criação do pack");
+      finishProgressToast(toastId, false, error instanceof Error ? error.message : translate("packs.creation.finalizeError"));
       optionsRef.current?.onError?.(error instanceof Error ? error : new Error(String(error)));
     } finally {
       cleanup(jobId);

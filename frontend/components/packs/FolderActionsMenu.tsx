@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import React from "react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { IconFolderOpen, IconFolderPlus, IconLogout, IconPencil, IconRefresh, IconTrash, IconUsers } from "@tabler/icons-react";
@@ -80,7 +81,7 @@ export function FolderActionsMenu({
   onLeave,
   getPackActions,
 }: FolderActionsMenuProps) {
-  const noun = packCount === 1 ? "pack" : "packs";
+  const t = useTranslations("packs.folderActions");
   const packActions = getPackActions ? getPackActions(folder) : [];
   // Pasta compartilhada (181): convidar é do dono; editar, de quem edita; sair, de
   // quem recebeu (na pasta compartilhada com ele, não numa subpasta dela).
@@ -93,14 +94,14 @@ export function FolderActionsMenu({
       <DropdownMenuTrigger asChild>{children}</DropdownMenuTrigger>
       <DropdownMenuContent align={align} side={side} className="w-60">
         <DropdownMenuItem icon={<IconFolderOpen />} onClick={() => onOpen(folder.id)}>
-          Abrir
+          {t("open")}
         </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuLabel className="text-2xs font-medium uppercase tracking-wide text-muted-foreground">
-          {packCount} {noun} {hasSubfolders ? "com as subpastas" : "desta pasta"}
+          {t("groupLabel", { count: packCount, scope: hasSubfolders ? "sub" : "here" })}
         </DropdownMenuLabel>
         <DropdownMenuItem icon={<IconRefresh />} onClick={() => onRefreshAll(folder)} disabled={packCount === 0}>
-          Atualizar todos
+          {t("refreshAll")}
         </DropdownMenuItem>
         {packActions.map((action) => (
           <DropdownMenuItem
@@ -118,19 +119,19 @@ export function FolderActionsMenu({
         {onShare && isOwn && (
           <DropdownMenuItem
             icon={<IconUsers />}
-            description={sharedWith > 0 ? `Com ${sharedWith} ${sharedWith === 1 ? "pessoa" : "pessoas"}` : "Packs de hoje e de depois"}
+            description={sharedWith > 0 ? t("sharedWith", { count: sharedWith }) : t("shareHint")}
             onClick={() => onShare(folder)}
           >
-            Compartilhar pasta
+            {t("share")}
           </DropdownMenuItem>
         )}
         {canEdit && (
           <>
             <DropdownMenuItem icon={<IconFolderPlus />} onClick={() => onCreateSubfolder(folder)}>
-              Nova subpasta
+              {t("newSubfolder")}
             </DropdownMenuItem>
             <DropdownMenuItem icon={<IconPencil />} onClick={() => onRename(folder)}>
-              Renomear
+              {t("rename")}
             </DropdownMenuItem>
           </>
         )}
@@ -138,21 +139,21 @@ export function FolderActionsMenu({
         {canRestructure && (
           <DropdownMenuItem
             icon={<IconTrash />}
-            description="O conteúdo sobe um nível"
+            description={t("dissolveHint")}
             onClick={() => onDelete(folder)}
             className="text-destructive focus:bg-destructive-10 focus:text-destructive"
           >
-            Desfazer pasta
+            {t("dissolve")}
           </DropdownMenuItem>
         )}
         {canLeave && (
           <DropdownMenuItem
             icon={<IconLogout />}
-            description={folder.owner_name ? `Compartilhada por ${folder.owner_name}` : "Você deixa de ver os packs dela"}
+            description={folder.owner_name ? t("sharedBy", { name: folder.owner_name }) : t("leaveHint")}
             onClick={() => onLeave!(folder)}
             className="text-destructive focus:bg-destructive-10 focus:text-destructive"
           >
-            Sair da pasta
+            {t("leave")}
           </DropdownMenuItem>
         )}
       </DropdownMenuContent>

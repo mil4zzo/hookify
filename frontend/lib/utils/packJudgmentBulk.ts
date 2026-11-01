@@ -17,6 +17,8 @@
  * dos eventos que só alguns têm. O backend funde com o mapa atual de cada pack.
  */
 
+import { getAppLocale } from "@/lib/i18n/locale";
+import { translate } from "@/lib/i18n/translate";
 import { normalizeMqlLeadscoreMin, resolveJudgment } from "@/lib/judgment/resolveJudgment";
 import type { AdsPack } from "@/lib/types";
 import { normalizeLeadEconomics, type LeadEconomics } from "./leadEconomics";
@@ -80,11 +82,13 @@ export function seedBulkJudgment(packs: readonly AdsPack[]): BulkJudgmentSeed {
   };
 }
 
+const msg = (key: string, values?: Record<string, string | number>) => translate(`packs.judgmentMsg.${key}`, values);
+
 /** "70, 80 e não definido" — os cortes que os packs têm hoje, para explicar a divergência. */
 export function describeMqlValues(values: ReadonlyArray<number | null>): string {
-  const parts = values.map((value) => (value === null ? "não definido" : String(value)));
+  const parts = values.map((value) => (value === null ? msg("notDefined") : String(value)));
   if (parts.length <= 1) return parts[0] ?? "";
-  return `${parts.slice(0, -1).join(", ")} e ${parts[parts.length - 1]}`;
+  return new Intl.ListFormat(getAppLocale(), { type: "conjunction" }).format(parts);
 }
 
 // ── O que o save faz com cada campo ──────────────────────────────────────────
@@ -132,7 +136,7 @@ export function buildBulkPackJudgmentPayload(
     if (form.mql.trim()) {
       const parsed = parseJudgmentNumber(form.mql);
       if (parsed === null || parsed < 0) {
-        return { kind: "error", field: "mql", message: "Informe um leadscore mínimo válido (número maior ou igual a zero)." };
+        return { kind: "error", field: "mql", message: msg("mqlInvalid") };
       }
       payload.mql_leadscore_min = parsed;
     } else {
@@ -149,14 +153,14 @@ export function buildBulkPackJudgmentPayload(
     }
     const parsed = parseJudgmentNumber(raw);
     if (parsed === null || parsed <= 0) {
-      return { kind: "error", field: "target", message: `O CPR alvo de "${formatActionTypeLabel(type)}" precisa ser maior que zero.` };
+      return { kind: "error", field: "target", message: msg("targetPositive", { event: formatActionTypeLabel(type) }) };
     }
     targetPatch[type] = parsed;
   }
   if (Object.keys(targetPatch).length > 0) payload.target_cpr = targetPatch;
 
   if (economics.kind === "invalid") {
-    return { kind: "error", field: "economics", message: economics.errors[0] ?? "Revise a economia do lead." };
+    return { kind: "error", field: "economics", message: economics.errors[0] ?? msg("reviewEconomics") };
   }
   if (economics.kind === "set") payload.lead_economics = economics.value;
 
@@ -223,23 +227,21 @@ export interface BulkJudgmentSummary {
   headline: string;
 }
 
-const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
-
 export function summarizeBulkJudgment(
   results: ReadonlyArray<BulkPackJudgmentResult>,
   packNames: Readonly<Record<string, string>>,
 ): BulkJudgmentSummary {
-  const nameOf = (r: BulkPackJudgmentResult) => packNames[r.pack_id] || "Pack";
+  const nameOf = (r: BulkPackJudgmentResult) => packNames[r.pack_id] || msg("packFallback");
   const updated: string[] = [];
   const skipped: string[] = [];
   const failed: Array<{ name: string; error: string }> = [];
   for (const r of results) {
     if (r.status === "updated") updated.push(nameOf(r));
     else if (r.status === "skipped") skipped.push(nameOf(r));
-    else failed.push({ name: nameOf(r), error: r.error || "Erro ao salvar os critérios." });
+    else failed.push({ name: nameOf(r), error: r.error || msg("saveError") });
   }
-  const parts = [plural(updated.length, "pack atualizado", "packs atualizados")];
-  if (skipped.length) parts.push(`${skipped.length} sem permissão`);
-  if (failed.length) parts.push(plural(failed.length, "falhou", "falharam"));
+  const parts = [msg("updated", { count: updated.length })];
+  if (skipped.length) parts.push(msg("noPermission", { count: skipped.length }));
+  if (failed.length) parts.push(msg("failed", { count: failed.length }));
   return { updated, skipped, failed, headline: parts.join(" · ") };
 }

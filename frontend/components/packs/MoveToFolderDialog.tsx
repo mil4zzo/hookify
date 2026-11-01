@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import React from "react";
 import { IconArrowBackUp, IconFolder, IconFolderPlus } from "@tabler/icons-react";
 import { AppDialog } from "@/components/common/AppDialog";
@@ -43,6 +44,8 @@ export interface MoveToFolderDialogProps {
  * adiciona um clique. A exceção é a pasta nova, que precisa do nome antes.
  */
 export function MoveToFolderDialog({ isOpen, packIds, singlePackName, rootBuckets, folderIdByPack, onClose, onMove, onCreateAndMove, canMoveTo = () => true }: MoveToFolderDialogProps) {
+  const t = useTranslations("packs.moveToFolder");
+  const tc = useTranslations("packs.common");
   const [isNaming, setIsNaming] = React.useState(false);
   const [name, setName] = React.useState("");
 
@@ -65,7 +68,7 @@ export function MoveToFolderDialog({ isOpen, packIds, singlePackName, rootBucket
   const isDuplicate = trimmed.length > 0 && siblingNames.some((n) => n.toLocaleLowerCase("pt-BR") === trimmed.toLocaleLowerCase("pt-BR"));
   const canCreate = trimmed.length > 0 && trimmed.length <= MAX_NAME_LEN && !isDuplicate;
 
-  const subject = count === 1 ? (singlePackName ? `“${singlePackName}”` : "1 pack") : `${count} packs`;
+  const subject = t("subject", { hasName: count === 1 && singlePackName ? "yes" : "no", name: singlePackName ?? "", count });
 
   const handleMove = (folderId: string | null) => {
     onMove(folderId);
@@ -98,7 +101,7 @@ export function MoveToFolderDialog({ isOpen, packIds, singlePackName, rootBucket
           <IconFolder className="h-4 w-4 shrink-0 text-muted-foreground" />
           <span className="truncate font-medium text-foreground">{bucket.folder.name}</span>
           <span className="ml-auto shrink-0 text-xs tabular-nums text-muted-foreground">
-            {isCurrent ? "atual" : blocked ? (bucket.folder.access === "viewer" ? "só leitura" : "não cabe aqui") : `${total} ${total === 1 ? "pack" : "packs"}`}
+            {isCurrent ? t("current") : blocked ? (bucket.folder.access === "viewer" ? t("readOnly") : t("cannotFit")) : tc("packCount", { count: total })}
           </span>
         </button>
         {bucket.children.length > 0 ? <div className="ml-4 flex flex-col gap-1.5 border-l border-border pl-3">{bucket.children.map(renderBucket)}</div> : null}
@@ -107,27 +110,27 @@ export function MoveToFolderDialog({ isOpen, packIds, singlePackName, rootBucket
   };
 
   return (
-    <AppDialog isOpen={isOpen} onClose={onClose} title="Mover para pasta" size="md" padding="md" closeOnOverlayClick closeOnEscape showCloseButton>
+    <AppDialog isOpen={isOpen} onClose={onClose} title={t("title")} size="md" padding="md" closeOnOverlayClick closeOnEscape showCloseButton>
       <div className="flex flex-col gap-6">
         {/* O `title` do AppDialog é só para leitor de tela — o título visível é este. */}
         <header className="space-y-1">
-          <h2 className="text-lg font-semibold text-foreground">Mover para pasta</h2>
+          <h2 className="text-lg font-semibold text-foreground">{t("title")}</h2>
           <p className="text-sm text-muted-foreground">
-            {subject} {count === 1 ? "vai" : "vão"} para a pasta que você escolher. Um pack mora em uma pasta só — mover para cá o tira de onde estava.
+            {t("description", { subject, count })}
           </p>
         </header>
 
         {isNaming ? (
           <div className="flex flex-col gap-2">
             <label htmlFor="move-new-folder" className="text-xs font-medium text-foreground">
-              Nome da pasta
+              {t("nameLabel")}
             </label>
             <Input
               id="move-new-folder"
               value={name}
               autoFocus
               maxLength={MAX_NAME_LEN}
-              placeholder="Ex.: Cliente · Lançamento"
+              placeholder={t("placeholder")}
               onChange={(e) => setName(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === "Enter") {
@@ -137,10 +140,10 @@ export function MoveToFolderDialog({ isOpen, packIds, singlePackName, rootBucket
               }}
               aria-invalid={isDuplicate}
             />
-            {isDuplicate ? <span className="text-xs text-destructive">Já existe uma pasta com esse nome na raiz.</span> : <span className="text-xs text-muted-foreground">A pasta nasce na raiz da Biblioteca.</span>}
+            {isDuplicate ? <span className="text-xs text-destructive">{t("duplicateRoot")}</span> : <span className="text-xs text-muted-foreground">{t("bornInRoot")}</span>}
           </div>
         ) : rootBuckets.length === 0 ? (
-          <StatePanel kind="empty" title="Nenhuma pasta ainda" message="Crie a primeira e os packs selecionados já entram nela." icon={IconFolder} frame="none" density="compact" />
+          <StatePanel kind="empty" title={t("emptyTitle")} message={t("emptyMessage")} icon={IconFolder} frame="none" density="compact" />
         ) : (
           /* Lista de opções dentro do diálogo: nível 2 da escada ("opção não escolhida"),
              com rolagem quando a árvore passa de umas seis pastas. */
@@ -153,27 +156,27 @@ export function MoveToFolderDialog({ isOpen, packIds, singlePackName, rootBucket
           {!isNaming && someInFolder && canMoveTo(null) ? (
             <Button variant="outline" className="mr-auto" onClick={() => handleMove(null)}>
               <IconArrowBackUp />
-              Tirar da pasta
+              {t("removeFromFolder")}
             </Button>
           ) : null}
 
           {isNaming ? (
             <>
               <Button variant="outline" onClick={() => setIsNaming(false)}>
-                Voltar
+                {tc("back")}
               </Button>
               <Button onClick={handleCreate} disabled={!canCreate}>
-                {`Criar e mover ${count}`}
+                {t("createAndMove", { count })}
               </Button>
             </>
           ) : (
             <>
               <Button variant="outline" onClick={onClose}>
-                Cancelar
+                {tc("cancel")}
               </Button>
               <Button onClick={() => setIsNaming(true)}>
                 <IconFolderPlus />
-                Nova pasta
+                {t("newFolder")}
               </Button>
             </>
           )}

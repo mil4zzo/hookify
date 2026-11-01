@@ -41,6 +41,7 @@ import {
   buildMetaToastContent,
 } from "@/lib/utils/toast";
 import { parseError, normalizeJobErrorMessage } from "@/lib/utils/errors";
+import { translate } from "@/lib/i18n/translate";
 import { AdsPack } from "@/lib/types";
 import { MetaIcon } from "@/components/icons/MetaIcon";
 import { GoogleSheetsIcon } from "@/components/icons/GoogleSheetsIcon";
@@ -234,9 +235,7 @@ export function cancelQueuedPackRefreshes(): number {
   }
 
   showWarning(
-    dropped.length === 1
-      ? `Atualização de "${dropped[0].packName}" cancelada antes de começar.`
-      : `${dropped.length} atualizações canceladas antes de começar.`
+    translate("packs.refresh.cancelledBeforeStart", { count: dropped.length, name: dropped[0]?.packName ?? "" })
   );
   return dropped.length;
 }
@@ -423,14 +422,14 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
             // Batch 100% sem-áudio: constatação, não falha — mensagem dedicada.
             let summary: string;
             if (successCount === 0 && failCount === 0 && noAudioCount > 0) {
-              summary = `Transcrição de "${packName}" concluída: ${noAudioCount === 1 ? "1 vídeo não tem" : `${noAudioCount} vídeos não têm`} áudio detectável para transcrever.`;
+              summary = translate("packs.refresh.transcriptionNoAudio", { name: packName, count: noAudioCount });
             } else {
               const summaryParts: string[] = [];
-              summaryParts.push(`${successCount} sucesso(s)`);
-              if (failCount > 0) summaryParts.push(`${failCount} falha(s)`);
-              if (noAudioCount > 0) summaryParts.push(`${noAudioCount} sem áudio`);
-              if (skippedExisting > 0) summaryParts.push(`${skippedExisting} já existente(s)`);
-              summary = `Transcrição de "${packName}" concluída (${summaryParts.join(", ")}).`;
+              summaryParts.push(translate("packs.refresh.successCount", { count: successCount }));
+              if (failCount > 0) summaryParts.push(translate("packs.refresh.failCount", { count: failCount }));
+              if (noAudioCount > 0) summaryParts.push(translate("packs.refresh.noAudioCount", { count: noAudioCount }));
+              if (skippedExisting > 0) summaryParts.push(translate("packs.refresh.skippedCount", { count: skippedExisting }));
+              summary = translate("packs.refresh.transcriptionDone", { name: packName, parts: summaryParts.join(", ") });
             }
 
             finishProgressToast(
@@ -451,17 +450,17 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
 
           if (progress.status === "cancelled") {
             if (getCancelled()) {
-              return { done: true, result: { success: false, error: progress.message || "Cancelado pelo usuário" } };
+              return { done: true, result: { success: false, error: progress.message || translate("packs.refresh.cancelledByUser") } };
             }
             dismissToast(toastId);
             showProcessCancelledWarning("transcription", packName);
-            return { done: true, result: { success: false, error: progress.message || "Cancelado pelo usuário" } };
+            return { done: true, result: { success: false, error: progress.message || translate("packs.refresh.cancelledByUser") } };
           }
 
           if (progress.status === "failed") {
             const { message: userMessage, diagnostic } = normalizeJobErrorMessage(
               progress.message,
-              `Não foi possível concluir a transcrição de "${packName}".`,
+              translate("packs.refresh.transcriptionCouldNotFinish", { name: packName }),
             );
             logger.error(new Error(`Transcrição falhou: ${progress.message || "sem mensagem"}`));
             const lastError = (details as any)?.last_error_message;
@@ -473,7 +472,7 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
               packName,
               diagnosticLine,
             });
-            return { done: true, result: { success: false, error: progress.message || "Falha na transcrição" } };
+            return { done: true, result: { success: false, error: progress.message || translate("packs.refresh.transcriptionFailed") } };
           }
 
           return {
@@ -488,7 +487,7 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
           updateProgressToast(
             toastId, packName, 1, TRANSCRIPTION_TOAST_TOTAL_STEPS,
             undefined, onCancel, metaToastIcon,
-            buildTranscriptionToastContent("processing", {}, `Erro ao verificar progresso (tentativa ${consecutiveErrors})...`),
+            buildTranscriptionToastContent("processing", {}, translate("packs.creation.checkError", { attempt: consecutiveErrors })),
             lastPercent,
             true,
           );
@@ -499,19 +498,19 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
           // morte real do processo (restart/crash), não lentidão.
           finishProgressToast(
             toastId, false,
-            `A transcrição de "${packName}" foi interrompida no servidor.`,
+            translate("packs.refresh.transcriptionInterrupted", { name: packName }),
             {
               context: "transcription",
               packName,
-              diagnosticLine: "Transcrições já concluídas estão salvas. Rode novamente para retomar as pendentes.",
+              diagnosticLine: translate("packs.refresh.transcriptionInterruptedHint"),
             }
           );
           return { success: false, error: "Backend sem resposta (sem heartbeat por 5 min)" };
         },
-        onCancelled: () => ({ success: false, error: "Cancelado pelo usuário" }),
+        onCancelled: () => ({ success: false, error: translate("packs.refresh.cancelledByUser") }),
         onUnmounted: () => ({ success: false, error: "Componente desmontado" }),
         onMaxConsecutiveErrors: () => {
-          finishProgressToast(toastId, false, `Erro persistente ao transcrever vídeos. Tente novamente.`, { context: "transcription", packName });
+          finishProgressToast(toastId, false, translate("packs.refresh.transcriptionPersistentError"), { context: "transcription", packName });
           return { success: false, error: "Erros consecutivos" };
         },
       });
@@ -578,15 +577,15 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
             // técnico (repr de exceção) vai para a linha de diagnóstico.
             const normalized = normalizeJobErrorMessage(
               progress.message,
-              `Não foi possível concluir a atualização de "${packName}".`,
+              translate("packs.refresh.refreshCouldNotFinish", { name: packName }),
             );
             // GK transitório (classificado no backend pelos scopes concedidos):
             // as tentativas esgotaram — é instabilidade da Meta, não permissão.
             const transientMeta = metaError?.transient === true;
             const userMessage = scopeError
-              ? `Esta conta de anúncios exige uma permissão que não está autorizada na conexão Facebook. Vá em "Configurações → Conexões" e clique em "Atualizar permissões".`
+              ? translate("packs.refresh.scopeMissing")
               : transientMeta
-                ? "Instabilidade na Meta. Tente de novo em alguns minutos."
+                ? translate("packs.refresh.metaUnstable")
                 : normalized.message;
             const diagnosticLine = buildMetaErrorDiagnosticLine(metaError) ?? normalized.diagnostic;
 
@@ -612,9 +611,9 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
             toastId, packName, 1, 5,
             undefined, onCancel, metaToastIcon,
             {
-              stageLabel: "Etapa 1 de 5",
-              stageTitle: "Verificando...",
-              dynamicLine: `Erro ao verificar progresso (tentativa ${consecutiveErrors})...`,
+              stageLabel: translate("packs.creation.stageLabel"),
+              stageTitle: translate("packs.creation.verifying"),
+              dynamicLine: translate("packs.creation.checkError", { attempt: consecutiveErrors }),
             },
             lastPercent,
             true,
@@ -624,11 +623,11 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
         onTimeout: () => {
           finishProgressToast(
             toastId, false,
-            `A atualização de "${packName}" passou de 15 minutos e o acompanhamento foi encerrado.`,
+            translate("packs.refresh.refreshTimeout", { name: packName }),
             {
               context: "meta",
               packName,
-              diagnosticLine: "O processamento pode continuar no servidor. Recarregue a página para reacompanhar.",
+              diagnosticLine: translate("packs.refresh.keepsOnServer"),
             }
           );
           if (mountedRef.current) {
@@ -641,11 +640,11 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
         onMaxConsecutiveErrors: () => {
           finishProgressToast(
             toastId, false,
-            "Não foi possível verificar o progresso da atualização. Verifique sua conexão e tente novamente.",
+            translate("packs.refresh.progressCheckFailed"),
             {
               context: "meta",
               packName,
-              diagnosticLine: "O processamento pode continuar no servidor. Recarregue a página para reacompanhar.",
+              diagnosticLine: translate("packs.refresh.keepsOnServer"),
             }
           );
           if (mountedRef.current) {
@@ -661,13 +660,13 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
 
         const elapsedSec = Math.round((Date.now() - startTime) / 1000);
         const elapsedStr = elapsedSec >= 60
-          ? `${Math.floor(elapsedSec / 60)}min e ${elapsedSec % 60}s`
+          ? translate("packs.refresh.elapsedMin", { min: Math.floor(elapsedSec / 60), sec: elapsedSec % 60 })
           : `${elapsedSec}s`;
         const metaSuccessMessage = windowEdit
-          ? `Período de "${packName}" alterado (${elapsedStr}).`
+          ? translate("packs.refresh.periodChangedIn", { name: packName, elapsed: elapsedStr })
           : metaResult.adsCount > 0
-            ? `Pack "${packName}" atualizado com ${metaResult.adsCount} anúncios (${elapsedStr}).`
-            : `Pack "${packName}" atualizado com sucesso (${elapsedStr}).`;
+            ? translate("packs.refresh.refreshedWithAds", { name: packName, count: metaResult.adsCount, elapsed: elapsedStr })
+            : translate("packs.refresh.refreshedOk", { name: packName, elapsed: elapsedStr });
         finishProgressToast(
           toastId, true, metaSuccessMessage,
           { durationSeconds: 5, context: "meta", packName }
@@ -740,10 +739,10 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
         queuedToastId, packName, 1, TRANSCRIPTION_TOAST_TOTAL_STEPS,
         undefined, handleCancelQueued, metaToastIcon,
         {
-          stageLabel: "Na fila",
-          stageTitle: "Aguardando transcrição em andamento",
-          dynamicLine: "Começa assim que a atual terminar",
-          stageContext: "Transcrevendo",
+          stageLabel: translate("packs.refresh.queuedLabel"),
+          stageTitle: translate("packs.refresh.queuedTitle"),
+          dynamicLine: translate("packs.refresh.queuedLine"),
+          stageContext: translate("packs.refresh.ctxTranscribing"),
         }, 0
       );
 
@@ -857,13 +856,13 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
           // Não é sucesso nem falha: nada para transcrever. Toast neutro informativo
           // (calado quando é a reexecução da fila: o job anterior já terminou o trabalho).
           dismissToast(toastId);
-          if (!options?.fromQueue) showInfo(res.message || "Todos anúncios já estão transcritos.");
+          if (!options?.fromQueue) showInfo(res.message || translate("packs.refresh.allTranscribed"));
         }
       } catch (error) {
         logger.error("Erro ao iniciar transcrição:", error);
         const { message, diagnostic } = normalizeJobErrorMessage(
           parseError(error).message,
-          "Não foi possível iniciar a transcrição.",
+          translate("packs.refresh.couldNotStartTranscription"),
         );
         finishProgressToast(toastId, false, message, { context: "transcription", packName, diagnosticLine: diagnostic });
       }
@@ -903,10 +902,10 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
         toastId, packName, 1, TRANSCRIPTION_TOAST_TOTAL_STEPS,
         undefined, handleCancel, metaToastIcon,
         {
-          stageLabel: "Reconectando",
-          stageTitle: "Transcrição em andamento",
-          dynamicLine: "Verificando progresso atual…",
-          stageContext: "Transcrevendo",
+          stageLabel: translate("packs.refresh.reconnecting"),
+          stageTitle: translate("packs.refresh.transcriptionRunning"),
+          dynamicLine: translate("packs.refresh.checkingProgress"),
+          stageContext: translate("packs.refresh.ctxTranscribing"),
         }, initialProgress
       );
 
@@ -950,10 +949,10 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
         toastId, packName, 1, SHEETS_TOAST_TOTAL_STEPS,
         undefined, handleCancel, sheetsToastIcon,
         {
-          stageLabel: "Reconectando",
-          stageTitle: "Sincronização em andamento",
-          dynamicLine: "Verificando progresso atual…",
-          stageContext: "Leadscore",
+          stageLabel: translate("packs.refresh.reconnecting"),
+          stageTitle: translate("packs.refresh.syncRunning"),
+          dynamicLine: translate("packs.refresh.checkingProgress"),
+          stageContext: translate("packs.refresh.ctxLeadscore"),
         }, 0
       );
 
@@ -991,7 +990,7 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
           logger.error("Erro ao cancelar refresh re-anexado:", error);
           finishProgressToast(
             toastId, false,
-            "Não foi possível cancelar a atualização. Ela pode continuar rodando no servidor.",
+            translate("packs.refresh.couldNotCancelRefresh"),
             { context: "meta", packName }
           );
         }
@@ -1003,10 +1002,10 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
         toastId, packName, 1, 5,
         undefined, handleCancel, metaToastIcon,
         {
-          stageLabel: "Reconectando",
-          stageTitle: "Atualização em andamento",
-          dynamicLine: "Verificando progresso atual…",
-          stageContext: "Meta",
+          stageLabel: translate("packs.refresh.reconnecting"),
+          stageTitle: translate("packs.refresh.refreshRunning"),
+          dynamicLine: translate("packs.refresh.checkingProgress"),
+          stageContext: translate("packs.refresh.ctxMeta"),
         }, 0
       );
 
@@ -1157,7 +1156,7 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
             // Falha real ao chamar a API de cancelamento — mostra erro persistente.
             finishProgressToast(
               ar.toastId, false,
-              "Não foi possível cancelar a atualização. Ela pode continuar rodando no servidor.",
+              translate("packs.refresh.couldNotCancelRefresh"),
               { context: "meta", packName: ar.packName }
             );
           }
@@ -1210,7 +1209,7 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
       // do pack, como se o Meta tivesse concluído.
       if (refreshResult.status === "completed" && !refreshResult.job_id) {
         finishProgressToast(
-          toastId, true, `Período de "${packName}" alterado.`,
+          toastId, true, translate("packs.refresh.periodChanged", { name: packName }),
           { durationSeconds: 5, context: "meta", packName }
         );
         try {
@@ -1249,7 +1248,7 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
       if (!jobId) {
         finishProgressToast(
           toastId, false,
-          `Não foi possível iniciar a atualização de "${packName}". Tente novamente.`,
+          translate("packs.refresh.couldNotStartRefresh", { name: packName }),
           { context: "meta", packName }
         );
         return { completed: false, adsCount: 0 };
@@ -1272,7 +1271,7 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
       if (!dateRange) {
         finishProgressToast(
           toastId, false,
-          `Intervalo de datas não disponível para "${packName}".`,
+          translate("packs.refresh.dateRangeUnavailable", { name: packName }),
           { context: "meta", packName }
         );
         return { completed: false, adsCount: 0 };
@@ -1324,7 +1323,7 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
             // Falha real ao chamar a API de cancelamento — mostra erro persistente.
             finishProgressToast(
               ar.sheetSyncToastId, false,
-              "Não foi possível cancelar a importação. Ela pode continuar rodando no servidor.",
+              translate("packs.refresh.couldNotCancelImport"),
               { context: "sheets", packName: ar.packName }
             );
           }
@@ -1349,7 +1348,7 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
         if (!syncJobId) {
           finishProgressToast(
             toastId, false,
-            "Não foi possível iniciar a importação da planilha. Tente novamente.",
+            translate("packs.refresh.couldNotStartImportRetry"),
             { context: "sheets", packName }
           );
           return { success: false };
@@ -1379,7 +1378,7 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
         logger.error("Erro ao iniciar sync do Leadscore:", error);
         const { message, diagnostic } = normalizeJobErrorMessage(
           parseError(error).message,
-          "Não foi possível iniciar a importação da planilha.",
+          translate("packs.refresh.couldNotStartImport"),
         );
         finishProgressToast(toastId, false, message, {
           context: "sheets",
@@ -1443,10 +1442,10 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
             toastId, packName, 1, TRANSCRIPTION_TOAST_TOTAL_STEPS,
             undefined, handleCancelTranscription, metaToastIcon,
             {
-              stageLabel: "Na fila",
-              stageTitle: "Aguardando transcrição em andamento",
-              dynamicLine: "Começa assim que a atual terminar",
-              stageContext: "Transcrevendo",
+              stageLabel: translate("packs.refresh.queuedLabel"),
+              stageTitle: translate("packs.refresh.queuedTitle"),
+              dynamicLine: translate("packs.refresh.queuedLine"),
+              stageContext: translate("packs.refresh.ctxTranscribing"),
             }, 0
           );
           await waitForTranscriptionJobEnd({
@@ -1471,7 +1470,7 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
         if (res.already_running) {
           // Job vivo persistente depois das tentativas: segue por conta dele.
           dismissToast(toastId);
-          showInfo("Este pack já está sendo transcrito.");
+          showInfo(translate("packs.refresh.alreadyTranscribing"));
           return { success: true };
         }
 
@@ -1487,14 +1486,14 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
         } else {
           // Não é sucesso nem falha: nada para transcrever. Toast neutro informativo.
           dismissToast(toastId);
-          showInfo(res.message || "Todos anúncios já estão transcritos.");
+          showInfo(res.message || translate("packs.refresh.allTranscribed"));
           return { success: true };
         }
       } catch (error) {
         logger.error("Erro ao iniciar transcrição:", error);
         const { message, diagnostic } = normalizeJobErrorMessage(
           parseError(error).message,
-          "Não foi possível iniciar a transcrição.",
+          translate("packs.refresh.couldNotStartTranscription"),
         );
         finishProgressToast(toastId, false, message, { context: "transcription", packName, diagnosticLine: diagnostic });
         return { success: false };
@@ -1556,7 +1555,7 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
 
       const promises: Promise<any>[] = [];
       let leadscoreStarted = false;
-      let leadscoreResult: { success: boolean; paused?: boolean; error?: string } = { success: false, error: "Leadscore não executado" };
+      let leadscoreResult: { success: boolean; paused?: boolean; error?: string } = { success: false, error: translate("packs.refresh.leadscoreNotRun") };
 
       // Quem espera na fila NÃO emite toast: N cards repetindo "Aguardando outras
       // atualizações · 0%" enchiam a tela sem informar nada, e com a pilha fechada
@@ -1622,7 +1621,7 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
                 logger.error(`Erro ao atualizar pack ${packId} (Meta): ${message}`, error);
                 finishProgressToast(
                   toastId, false,
-                  `Erro ao atualizar "${packName}": ${message}`
+                  translate("packs.refresh.refreshError", { name: packName, message })
                 );
                 if (mountedRef.current) {
                   optionsRef.current?.onError?.(error instanceof Error ? error : new Error(message));
@@ -1656,10 +1655,10 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
               });
               dependents.push(
                 reattachSheetSyncJob(syncJobId, packId, packName, sheetIntegrationId).then((result) => {
-                  leadscoreResult = result ?? { success: false, error: "Sync encadeado não pôde ser acompanhado" };
+                  leadscoreResult = result ?? { success: false, error: translate("packs.refresh.chainedSyncUnwatched") };
                   if (result && !result.success && !result.paused && !activeRefresh.sheetsCancelled && mountedRef.current) {
                     optionsRef.current?.onError?.(
-                      new Error(result.error || `Falha na sincronização de Leadscore para "${packName}"`)
+                      new Error(result.error || translate("packs.refresh.leadscoreSyncFailed", { name: packName }))
                     );
                   }
                 })
@@ -1677,7 +1676,7 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
                     leadscoreResult = result;
                     if (!result.success && !result.paused && !activeRefresh.sheetsCancelled && mountedRef.current) {
                       optionsRef.current?.onError?.(
-                        new Error(result.error || `Falha na sincronização de Leadscore para "${packName}"`)
+                        new Error(result.error || translate("packs.refresh.leadscoreSyncFailed", { name: packName }))
                       );
                     }
                   })

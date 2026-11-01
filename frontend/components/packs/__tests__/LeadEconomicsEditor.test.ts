@@ -2,6 +2,9 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import * as React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+import { NextIntlClientProvider } from "next-intl";
+import { DEFAULT_LOCALE } from "@/lib/i18n/config";
+import { getMessages } from "@/lib/i18n/messages";
 
 import {
   LeadEconomicsEditor,
@@ -15,7 +18,7 @@ import {
 import { LEAD_ECONOMICS_MESSAGES as M } from "@/lib/utils/leadEconomics";
 import {
   LEAD_ECONOMICS_FIELD_MESSAGES as F,
-  LEAD_ECONOMICS_UNREADABLE_CUT_MESSAGE,
+  leadEconomicsUnreadableCutMessage,
   parseMoneyInput,
   type LeadEconomicsDraft,
 } from "@/lib/utils/leadEconomicsDraft";
@@ -37,8 +40,13 @@ import {
 const NBSP = "\u00a0"; // espaço que o Intl põe entre o símbolo e o número
 
 function render(props: Partial<LeadEconomicsEditorProps> & { value: LeadEconomicsDraft }): string {
+  // O editor usa useTranslations: precisa do provider (idioma padrão = português, o texto que os testes conferem).
   return renderToStaticMarkup(
-    React.createElement(LeadEconomicsEditor, { onChange: () => {}, mqlLeadscoreMin: 70, currency: "BRL", ...props }),
+    React.createElement(
+      NextIntlClientProvider as React.ComponentType<Record<string, unknown>>,
+      { locale: DEFAULT_LOCALE, messages: getMessages(DEFAULT_LOCALE) as never, timeZone: "UTC", onError: () => {} },
+      React.createElement(LeadEconomicsEditor, { onChange: () => {}, mqlLeadscoreMin: 70, currency: "BRL", ...props }),
+    ),
   );
 }
 
@@ -374,6 +382,6 @@ test("corte \"7O\" depois de tentar salvar: resumo diz \"não é um número\", c
   draft.bands[2].min = "7O";
   const html = render({ value: draft, showAllErrors: true });
   assertFieldIssue(html, "Nota de corte da faixa 3", F.notANumber);
-  assert.ok(html.includes(LEAD_ECONOMICS_UNREADABLE_CUT_MESSAGE), "a frase da tela no resumo das faixas");
+  assert.ok(html.includes(leadEconomicsUnreadableCutMessage()), "a frase da tela no resumo das faixas");
   assert.ok(!html.includes(M.bandMinMissing), "nunca \"precisa de uma nota de corte\" com o campo preenchido");
 });

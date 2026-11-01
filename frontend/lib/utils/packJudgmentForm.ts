@@ -4,6 +4,7 @@
  * o save manda. Funções puras, para o teste cobrir o que o diálogo decide.
  */
 
+import { translate } from "@/lib/i18n/translate";
 import type { AdsPack } from "@/lib/types";
 import type { LeadEconomics } from "./leadEconomics";
 import type { LeadEconomicsPayloadDecision } from "./leadEconomicsDraft";
@@ -120,7 +121,7 @@ export function buildPackJudgmentPayload(
   if (form.mql.trim()) {
     const parsed = parseJudgmentNumber(form.mql);
     if (parsed === null || parsed < 0) {
-      return { kind: "error", field: "mql", message: "Informe um leadscore mínimo válido (número maior ou igual a zero)." };
+      return { kind: "error", field: "mql", message: translate("packs.judgmentMsg.mqlInvalid") };
     }
     mql = parsed;
   }
@@ -130,13 +131,13 @@ export function buildPackJudgmentPayload(
     const parsed = parseJudgmentNumber(raw);
     if (parsed === null) continue; // vazio = sem meta para esse evento
     if (parsed <= 0) {
-      return { kind: "error", field: "target", message: `O CPR alvo de "${formatActionTypeLabel(type)}" precisa ser maior que zero.` };
+      return { kind: "error", field: "target", message: translate("packs.judgmentMsg.targetPositive", { event: formatActionTypeLabel(type) }) };
     }
     targets[type] = parsed;
   }
 
   if (economics.kind === "invalid") {
-    return { kind: "error", field: "economics", message: economics.errors[0] ?? "Revise a economia do lead." };
+    return { kind: "error", field: "economics", message: economics.errors[0] ?? translate("packs.judgmentMsg.reviewEconomics") };
   }
 
   const payload: PackJudgmentPayload = {

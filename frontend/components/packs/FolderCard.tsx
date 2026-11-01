@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import React, { useState } from "react";
 import { IconDots } from "@tabler/icons-react";
 import { FolderActionsMenu, type FolderPackAction } from "./FolderActionsMenu";
@@ -84,7 +85,8 @@ export function FolderCard({
   isDraggingSelf = false,
 }: FolderCardProps) {
   const [menuOpen, setMenuOpen] = useState(false);
-  const noun = packCount === 1 ? "pack" : "packs";
+  const t = useTranslations("packs.folderCard");
+  const tc = useTranslations("packs.common");
 
   return (
     <div
@@ -119,7 +121,7 @@ export function FolderCard({
       <button
         type="button"
         onClick={() => onOpen(folder.id)}
-        aria-label={`Abrir pasta ${folder.name}`}
+        aria-label={t("open", { name: folder.name })}
         className={cn(
           // Respiro igual nos quatro lados: o desenho já não traz margem própria.
           "folder-tile focus-inset flex w-full flex-col items-center gap-2 rounded-lg p-2 text-center transition-colors",
@@ -141,10 +143,10 @@ export function FolderCard({
         <span className="flex w-full min-w-0 flex-col gap-0.5 px-1">
           <span className="truncate text-sm font-semibold text-foreground">{folder.name}</span>
           <span className="text-xs text-muted-foreground tabular-nums">
-            {packCount} {noun} · {formatCurrency(totalSpend)}
+            {tc("packCount", { count: packCount })} · {formatCurrency(totalSpend)}
           </span>
           {/* De quem é: a pasta compartilhada com o usuário mora na árvore de outra pessoa. */}
-          {folder.shared_root && folder.owner_name && <span className="truncate text-xs text-muted-foreground">de {folder.owner_name}</span>}
+          {folder.shared_root && folder.owner_name && <span className="truncate text-xs text-muted-foreground">{t("ownedBy", { name: folder.owner_name })}</span>}
         </span>
       </button>
 
@@ -166,7 +168,7 @@ export function FolderCard({
       >
         <button
           type="button"
-          aria-label={`Ações da pasta ${folder.name}`}
+          aria-label={t("actions", { name: folder.name })}
           className={cn(
             "focus-inset absolute right-1.5 top-1.5 grid h-7 w-7 place-items-center rounded-md text-muted-foreground opacity-0 transition-opacity hover:bg-accent hover:text-foreground focus-visible:opacity-100 group-hover/folder:opacity-100",
             menuOpen && "opacity-100",

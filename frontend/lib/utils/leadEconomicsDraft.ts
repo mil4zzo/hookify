@@ -8,7 +8,7 @@
  * (`leadEconomics.ts`), nunca uma versão paralela daqui. Duas exceções: o rótulo curto
  * AO LADO do campo (`leadEconomicsDraftFieldIssues`: mesmas regras, e um teste de
  * propriedade prende "campo com erro" a "o contrato recusa"), e a frase do corte que
- * não é número (`LEAD_ECONOMICS_UNREADABLE_CUT_MESSAGE`), que o contrato não tem como
+ * não é número (`leadEconomicsUnreadableCutMessage`), que o contrato não tem como
  * distinguir de corte em branco.
  *
  * Unidades: a tela mostra PORCENTAGEM ("55" = 55%) e o documento guarda FRAÇÃO
@@ -22,6 +22,7 @@
  * Plano: documentation/plano-economia-do-lead.md (seções 6 e 13).
  */
 
+import { translate } from "@/lib/i18n/translate";
 import {
   LEAD_ECONOMICS_MAX_PRODUCTS,
   LEAD_ECONOMICS_MESSAGES,
@@ -270,7 +271,7 @@ export function validateLeadEconomicsDraft(draft: LeadEconomicsDraft): LeadEcono
  * dele é "Toda faixa depois da primeira precisa de uma nota de corte." — que, com
  * "7O" no campo, contradizia o "Não é um número." ao lado dele.
  */
-export const LEAD_ECONOMICS_UNREADABLE_CUT_MESSAGE = "Uma nota de corte não é um número.";
+export const leadEconomicsUnreadableCutMessage = (): string => translate("packs.economicsMsg.unreadableCut");
 
 /**
  * Troca a frase de "falta corte" do contrato pelo que há de fato nos campos de corte
@@ -290,7 +291,7 @@ function phraseCutErrors(errors: string[], draft: LeadEconomicsDraft, countBlank
     if (message !== LEAD_ECONOMICS_MESSAGES.bandMinMissing) return [message];
     const phrased: string[] = [];
     if (blank && countBlank) phrased.push(message);
-    if (unreadable) phrased.push(LEAD_ECONOMICS_UNREADABLE_CUT_MESSAGE);
+    if (unreadable) phrased.push(leadEconomicsUnreadableCutMessage());
     return phrased;
   });
 }
@@ -341,19 +342,43 @@ export function leadEconomicsDraftLiveErrors(draft: LeadEconomicsDraft): string[
  * dele). A lista completa continua com as frases do contrato; aqui o campo já diz
  * de quem é o erro, então a frase não precisa repetir o produto ou a faixa.
  */
+const fieldMsg = (key: string, values?: Record<string, string | number>) => translate(`packs.economicsField.${key}`, values);
+
 export const LEAD_ECONOMICS_FIELD_MESSAGES = {
-  required: "Obrigatório.",
-  notANumber: "Não é um número.",
-  positive: "Maior que zero.",
-  contributionRange: "Maior que 0% e até 100%.",
-  targetRange: "De 0% a menos de 100%.",
-  targetNotBelowContribution: "Menor que o quanto sobra.",
-  conversionRange: "Entre 0% e 100%.",
-  cutNotIncreasing: "Maior que o corte anterior.",
-  nameTooLong: `Até ${LEAD_ECONOMICS_PRODUCT_NAME_MAX} caracteres.`,
-  nameDuplicate: "Nome repetido.",
-  productMissing: "Escolha um produto.",
-} as const;
+  get required() {
+    return fieldMsg("required");
+  },
+  get notANumber() {
+    return fieldMsg("notANumber");
+  },
+  get positive() {
+    return fieldMsg("positive");
+  },
+  get contributionRange() {
+    return fieldMsg("contributionRange");
+  },
+  get targetRange() {
+    return fieldMsg("targetRange");
+  },
+  get targetNotBelowContribution() {
+    return fieldMsg("targetNotBelowContribution");
+  },
+  get conversionRange() {
+    return fieldMsg("conversionRange");
+  },
+  get cutNotIncreasing() {
+    return fieldMsg("cutNotIncreasing");
+  },
+  get nameTooLong() {
+    return fieldMsg("nameTooLong", { max: LEAD_ECONOMICS_PRODUCT_NAME_MAX });
+  },
+  get nameDuplicate() {
+    return fieldMsg("nameDuplicate");
+  },
+  get productMissing() {
+    return fieldMsg("productMissing");
+  },
+};
 
 export interface LeadEconomicsProductFieldIssues {
   name?: string;
@@ -525,15 +550,16 @@ export function draftBandMins(draft: LeadEconomicsDraft): (number | null)[] {
  * uma só para o rótulo de uma faixa e o de todas, para elas nunca divergirem.
  */
 function bandLabelFromMins(mins: readonly (number | null)[], index: number): string {
-  if (mins.length <= 1) return "todas as notas";
+  const label = (key: string, values?: Record<string, string | number>) => translate(`packs.economicsLabel.${key}`, values);
+  if (mins.length <= 1) return label("allScores");
   const own = mins[index] ?? null;
   const next = index + 1 < mins.length ? mins[index + 1] : null;
   const isLast = index === mins.length - 1;
-  if (index === 0) return next === null ? "abaixo do próximo corte" : `abaixo de ${formatLeadScore(next)}`;
-  if (own === null) return `faixa ${index + 1}`;
-  if (isLast) return `${formatLeadScore(own)} ou mais`;
-  if (next === null) return `a partir de ${formatLeadScore(own)}`;
-  return `${formatLeadScore(own)} a menos de ${formatLeadScore(next)}`;
+  if (index === 0) return next === null ? label("belowNextCut") : label("below", { value: formatLeadScore(next) });
+  if (own === null) return label("band", { n: index + 1 });
+  if (isLast) return label("orMore", { value: formatLeadScore(own) });
+  if (next === null) return label("from", { value: formatLeadScore(own) });
+  return label("range", { from: formatLeadScore(own), to: formatLeadScore(next) });
 }
 
 /**
@@ -596,18 +622,17 @@ export function bandsUsingProduct(draft: LeadEconomicsDraft, productId: string):
 }
 
 /** Separa as mensagens do contrato por bloco da tela: faixas × produtos. */
-const BAND_MESSAGES = new Set<string>([
-  LEAD_ECONOMICS_MESSAGES.noBands,
-  LEAD_ECONOMICS_MESSAGES.firstBandHasMin,
-  LEAD_ECONOMICS_MESSAGES.bandMinMissing,
-  LEAD_ECONOMICS_UNREADABLE_CUT_MESSAGE,
-  LEAD_ECONOMICS_MESSAGES.bandMinNotIncreasing,
-  LEAD_ECONOMICS_MESSAGES.bandProductMissing,
-  LEAD_ECONOMICS_MESSAGES.bandConversion,
-]);
-
 export function isLeadEconomicsBandMessage(message: string): boolean {
-  return BAND_MESSAGES.has(message);
+  // Montado a cada chamada: o texto muda com o idioma, e a lista é de 7 itens.
+  return [
+    LEAD_ECONOMICS_MESSAGES.noBands,
+    LEAD_ECONOMICS_MESSAGES.firstBandHasMin,
+    LEAD_ECONOMICS_MESSAGES.bandMinMissing,
+    leadEconomicsUnreadableCutMessage(),
+    LEAD_ECONOMICS_MESSAGES.bandMinNotIncreasing,
+    LEAD_ECONOMICS_MESSAGES.bandProductMissing,
+    LEAD_ECONOMICS_MESSAGES.bandConversion,
+  ].includes(message);
 }
 
 // ── Edição (funções puras: rascunho → rascunho) ──────────────────────────────

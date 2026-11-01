@@ -17,6 +17,8 @@
  * indisponíveis — zero diria "esse lead não vale nada".
  */
 
+import { translate } from "@/lib/i18n/translate";
+
 // ── Tipos do cadastro (packs.lead_economics, migration 179) ──────────────────
 
 export interface LeadEconomicsProduct {
@@ -53,26 +55,50 @@ export const LEAD_ECONOMICS_MIN_SAMPLE = 20;
 
 // ── Mensagens (idênticas às do backend) ──────────────────────────────────────
 
+// Getters (e não strings fixas): o texto acompanha o idioma na hora da leitura. As telas
+// comparam por igualdade com o que o próprio validador emitiu, então os dois lados mudam juntos.
+const economicsMsg = (key: string, values?: Record<string, string | number>) => translate(`packs.economicsMsg.${key}`, values);
+
 export const LEAD_ECONOMICS_MESSAGES = {
-  invalidShape: "O cadastro da economia do lead está em um formato inválido.",
-  noProducts: "Cadastre ao menos um produto.",
-  tooManyProducts: `Cadastre no máximo ${LEAD_ECONOMICS_MAX_PRODUCTS} produtos.`,
-  noBands: "Cadastre ao menos uma faixa de nota.",
-  productNameMissing: "Dê um nome a cada produto.",
-  productNameTooLong: `O nome do produto pode ter no máximo ${LEAD_ECONOMICS_PRODUCT_NAME_MAX} caracteres.`,
-  productNameDuplicate: (name: string) => `Dois produtos com o nome "${name}".`,
-  ticket: (name: string) => `O ticket de "${name}" precisa ser maior que zero.`,
-  contributionMargin: (name: string) =>
-    `Quanto sobra de cada venda de "${name}" precisa ser maior que 0% e no máximo 100%.`,
-  targetMargin: (name: string) => `A margem desejada de "${name}" precisa ser de 0% a menos de 100%.`,
-  targetNotBelowContribution: (name: string) =>
-    `Nenhum lead de "${name}" se paga: a margem desejada precisa ser menor do que o que sobra de cada venda.`,
-  firstBandHasMin: "A primeira faixa não tem nota mínima.",
-  bandMinMissing: "Toda faixa depois da primeira precisa de uma nota de corte.",
-  bandMinNotIncreasing: "As notas de corte precisam ser crescentes, sem repetir.",
-  bandProductMissing: "Toda faixa precisa apontar para um produto cadastrado.",
-  bandConversion: "A conversão de cada faixa precisa estar entre 0% e 100%.",
-} as const;
+  get invalidShape() {
+    return economicsMsg("invalidShape");
+  },
+  get noProducts() {
+    return economicsMsg("noProducts");
+  },
+  get tooManyProducts() {
+    return economicsMsg("tooManyProducts", { max: LEAD_ECONOMICS_MAX_PRODUCTS });
+  },
+  get noBands() {
+    return economicsMsg("noBands");
+  },
+  get productNameMissing() {
+    return economicsMsg("productNameMissing");
+  },
+  get productNameTooLong() {
+    return economicsMsg("productNameTooLong", { max: LEAD_ECONOMICS_PRODUCT_NAME_MAX });
+  },
+  productNameDuplicate: (name: string) => economicsMsg("productNameDuplicate", { name }),
+  ticket: (name: string) => economicsMsg("ticket", { name }),
+  contributionMargin: (name: string) => economicsMsg("contributionMargin", { name }),
+  targetMargin: (name: string) => economicsMsg("targetMargin", { name }),
+  targetNotBelowContribution: (name: string) => economicsMsg("targetNotBelowContribution", { name }),
+  get firstBandHasMin() {
+    return economicsMsg("firstBandHasMin");
+  },
+  get bandMinMissing() {
+    return economicsMsg("bandMinMissing");
+  },
+  get bandMinNotIncreasing() {
+    return economicsMsg("bandMinNotIncreasing");
+  },
+  get bandProductMissing() {
+    return economicsMsg("bandProductMissing");
+  },
+  get bandConversion() {
+    return economicsMsg("bandConversion");
+  },
+};
 
 // ── Validação e normalização ─────────────────────────────────────────────────
 
@@ -166,7 +192,7 @@ function checkLeadEconomics(raw: unknown, mode: LeadEconomicsCheckMode): LeadEco
     }
 
     const name = typeof item.name === "string" ? sanitizeText(item.name).trim().replace(/\s+/g, " ") : "";
-    const displayName = name || `produto ${index + 1}`;
+    const displayName = name || economicsMsg("productFallback", { n: index + 1 });
     if (mode === "write") {
       if (!name) push(M.productNameMissing);
       else if (name.length > LEAD_ECONOMICS_PRODUCT_NAME_MAX) push(M.productNameTooLong);
@@ -332,13 +358,14 @@ export function formatLeadScore(score: number): string {
  * "60 a 79" mentiria para uma nota 79,5.
  */
 export function formatBandLabel(bands: ReadonlyArray<Pick<LeadEconomicsBand, "min">>, index: number): string {
-  if (bands.length <= 1) return "todas as notas";
+  const label = (key: string, values?: Record<string, string | number>) => translate(`packs.economicsLabel.${key}`, values);
+  if (bands.length <= 1) return label("allScores");
   const next = bands[index + 1]?.min ?? null;
   const own = bands[index]?.min ?? null;
-  if (index === 0) return next === null ? "todas as notas" : `abaixo de ${formatLeadScore(next)}`;
+  if (index === 0) return next === null ? label("allScores") : label("below", { value: formatLeadScore(next) });
   if (own === null) return "";
-  if (next === null) return `${formatLeadScore(own)} ou mais`;
-  return `${formatLeadScore(own)} a menos de ${formatLeadScore(next)}`;
+  if (next === null) return label("orMore", { value: formatLeadScore(own) });
+  return label("range", { from: formatLeadScore(own), to: formatLeadScore(next) });
 }
 
 // ── Resultado da conta por anúncio (implementação abaixo) ────────────────────

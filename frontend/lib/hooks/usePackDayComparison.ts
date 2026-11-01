@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import { useMemo } from "react";
 import {
   buildPackDaySeries,
@@ -174,6 +175,7 @@ export function usePackDayComparison(
   actionType: string,
   selectedDriver: DriverKey | null = null,
 ): UsePackDayComparisonResult {
+  const t = useTranslations("packs.diagnosticLabels");
   const { seriesData, snaps, decomposition, target, adMap, minVolumeOk } = diagnostic;
 
   // Per-day pack series (all days), then sliced to the last DISPLAY_WINDOW for the UI.
@@ -415,8 +417,8 @@ export function usePackDayComparison(
           spendSharePrev: a.spendSharePrev,
           spendShareLast: a.spendShareLast,
           parts: [
-            { key: "desempenho", label: "Desempenho", currency: a.rateCurrency },
-            { key: "verba", label: "Verba", currency: a.mixCurrency },
+            { key: "desempenho", label: t("performance"), currency: a.rateCurrency },
+            { key: "verba", label: t("budget"), currency: a.mixCurrency },
           ],
         });
       });
@@ -427,7 +429,7 @@ export function usePackDayComparison(
     // colored Impacto of each row.
     const movers = cutImpactBucket(mapped, (it) => it.total);
     return { driver, label, movers, packMetricToday };
-  }, [decomposition, snaps, adMap, selectedDriver, target, window]);
+  }, [decomposition, snaps, adMap, selectedDriver, target, window, t]);
 
   const ready = snaps.length > 0 && decomposition != null;
   const hasComparison =

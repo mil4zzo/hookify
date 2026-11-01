@@ -10,6 +10,7 @@ import * as adsCache from '@/lib/storage/adsCache'
 import { queryKeys } from '@/lib/api/hooks'
 import { AdsPack } from '@/lib/types'
 import { filterVideoAds } from '@/lib/utils/filterVideoAds'
+import { translate } from '@/lib/i18n/translate'
 
 /**
  * Hook para buscar ads de todos os packs fornecidos
@@ -50,7 +51,7 @@ export function usePacksAds(packs: AdsPack[] | undefined | null) {
         const response = await api.analytics.getPack(pack.id, true)
         
         if (!response.success) {
-          throw new Error('Falha ao buscar ads do pack')
+          throw new Error(translate('packs.packAds.fetchFailed'))
         }
 
         const ads = Array.isArray(response.pack?.ads) ? response.pack.ads : []

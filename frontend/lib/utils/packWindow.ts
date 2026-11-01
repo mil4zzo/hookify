@@ -12,6 +12,7 @@
  * menos o início do pack, que é onde o Gerenciador também começa.
  */
 import { addDays, subDays } from "date-fns";
+import { translate } from "@/lib/i18n/translate";
 import { formatDateLocal } from "./dateFilters";
 import { lookbackDaysForPack, type RefreshWindowSource } from "./refreshWindow";
 
@@ -111,14 +112,14 @@ export function planWindowEdit(
 export function windowEditErrorMessage(error: WindowEditError): string {
   switch (error) {
     case "datas_invalidas":
-      return "Escolha as duas datas.";
+      return translate("packs.windowError.invalidDates");
     case "inicio_depois_do_fim":
-      return "A data inicial não pode ser depois da data final.";
+      return translate("packs.windowError.startAfterEnd");
     case "fim_no_futuro":
-      return "A data final não pode estar no futuro.";
+      return translate("packs.windowError.endInFuture");
     case "mesmo_periodo":
-      return "Este já é o período do pack.";
+      return translate("packs.windowError.samePeriod");
     case "pack_sem_periodo":
-      return "Este pack não tem período definido.";
+      return translate("packs.windowError.noPeriod");
   }
 }

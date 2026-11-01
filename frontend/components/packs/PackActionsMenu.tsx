@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import React, { useState } from "react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { IconRotateClockwise, IconFolderSymlink, IconCalendarEvent, IconMicrophone, IconTargetArrow, IconTableExport, IconPencil, IconTrash, IconUsers, IconHistory, IconLogout } from "@tabler/icons-react";
@@ -62,6 +63,7 @@ export function PackActionsMenu({
   onEditSheetIntegration,
   onDeleteSheetIntegration,
 }: PackActionsMenuProps) {
+  const t = useTranslations("packs.actionsMenu");
   const { removePack } = useClientPacks();
   const [isShareDialogOpen, setIsShareDialogOpen] = useState(false);
   const [isActivityDialogOpen, setIsActivityDialogOpen] = useState(false);
@@ -76,15 +78,15 @@ export function PackActionsMenu({
     (pack.lead_economics !== null && pack.lead_economics !== undefined);
 
   const spreadsheetRenamedFrom = pack.sheet_integration?.spreadsheet_renamed_from || null;
-  const renameNotice = spreadsheetRenamedFrom ? `Renomeada: antes era ${spreadsheetRenamedFrom}.` : null;
+  const renameNotice = spreadsheetRenamedFrom ? t("renamedFrom", { name: spreadsheetRenamedFrom }) : null;
 
   const handleLeavePack = async () => {
-    if (!confirm(`Sair do pack "${pack.name}"? Você deixará de ver os dados dele.`)) return;
+    if (!confirm(t("leaveConfirm", { name: pack.name }))) return;
     setIsLeaving(true);
     try {
       await api.packShares.leave(pack.id);
       removePack(pack.id);
-      showSuccess(`Você saiu do pack "${pack.name}".`);
+      showSuccess(t("leftOk", { name: pack.name }));
     } catch (e: any) {
       showError(e);
     } finally {
@@ -98,35 +100,35 @@ export function PackActionsMenu({
         <DropdownMenuTrigger asChild>{children}</DropdownMenuTrigger>
         <DropdownMenuContent align={align} side={side}>
           <DropdownMenuItem icon={<IconRotateClockwise />} onClick={() => onRefresh(pack.id)} disabled={isUpdating}>
-            Atualizar pack
+            {t("refresh")}
           </DropdownMenuItem>
           {onMove && (
             <DropdownMenuItem icon={<IconFolderSymlink />} onClick={() => onMove(pack)}>
-              Mover para pasta…
+              {t("moveTo")}
             </DropdownMenuItem>
           )}
           {onEditDateRange && canRedefinePack(pack) && (
             <DropdownMenuItem icon={<IconCalendarEvent />} onClick={() => onEditDateRange(pack)} disabled={isUpdating}>
-              Editar período
+              {t("editPeriod")}
             </DropdownMenuItem>
           )}
           {onTranscribeAds && !isSharedGuest && (
             <DropdownMenuItem icon={<IconMicrophone />} onClick={() => onTranscribeAds(pack.id, pack.name)} disabled={isUpdating}>
-              Transcrever anúncios
+              {t("transcribe")}
             </DropdownMenuItem>
           )}
           {onEditJudgment && !isViewer && (
-            <DropdownMenuItem icon={<IconTargetArrow />} description={hasJudgmentOverride ? "Este pack usa critérios próprios" : undefined} onClick={() => onEditJudgment(pack)}>
-              Critérios de julgamento
+            <DropdownMenuItem icon={<IconTargetArrow />} description={hasJudgmentOverride ? t("judgmentOwn") : undefined} onClick={() => onEditJudgment(pack)}>
+              {t("judgment")}
             </DropdownMenuItem>
           )}
           {pack.sheet_integration ? (
             <>
               <DropdownMenuItem icon={<IconTableExport className="text-success" />} disabled className="opacity-100">
                 <div className="flex flex-col items-start">
-                  <span className="text-xs font-medium text-success">Planilha conectada</span>
+                  <span className="text-xs font-medium text-success">{t("sheetConnected")}</span>
                   <span className="text-xs text-muted-foreground">
-                    {pack.sheet_integration.spreadsheet_name || "Planilha"} • {pack.sheet_integration.worksheet_title || "Aba"}
+                    {pack.sheet_integration.spreadsheet_name || t("sheetFallback")} • {pack.sheet_integration.worksheet_title || t("tabFallback")}
                   </span>
                   {/* Largura travada: o nome antigo é texto do usuário e pode ser
                       longo — sem isto ele esticaria o menu inteiro. */}
@@ -139,45 +141,45 @@ export function PackActionsMenu({
               </DropdownMenuItem>
               {onEditSheetIntegration && !isSharedGuest && (
                 <DropdownMenuItem icon={<IconPencil />} onClick={() => onEditSheetIntegration(pack)}>
-                  Editar integração
+                  {t("editIntegration")}
                 </DropdownMenuItem>
               )}
               {onDeleteSheetIntegration && !isSharedGuest && (
                 <DropdownMenuItem icon={<IconTrash />} onClick={() => onDeleteSheetIntegration(pack)} className="text-destructive focus:text-destructive focus:bg-destructive-10">
-                  Desconectar planilha
+                  {t("disconnectSheet")}
                 </DropdownMenuItem>
               )}
             </>
           ) : null}
           {!isSharedGuest && (
             <DropdownMenuItem icon={<IconUsers />} onClick={() => setIsShareDialogOpen(true)}>
-              Compartilhar
+              {t("share")}
             </DropdownMenuItem>
           )}
           {/* Qualquer membro lê o histórico, viewer inclusive: todos já veem os
               EFEITOS das ações, esconder o autor não protegeria nada. */}
           <DropdownMenuItem icon={<IconHistory />} onClick={() => setIsActivityDialogOpen(true)}>
-            Histórico
+            {t("history")}
           </DropdownMenuItem>
           <DropdownMenuSeparator />
           {isSharedGuest && pack.shared_via_folder && pack.shared_role === "editor" ? (
             // Editor de uma pasta compartilhada age como o dono (181), inclusive exclui.
             <DropdownMenuItem icon={<IconTrash />} onClick={() => onRemove(pack.id)} className="text-destructive focus:text-destructive focus:bg-destructive-10">
-              Remover pack
+              {t("removePack")}
             </DropdownMenuItem>
           ) : isSharedGuest && pack.shared_via_folder ? (
             // Vem pela pasta: sair só deste pack não dá — o acesso voltaria por ela.
-            <DropdownMenuItem icon={<IconLogout />} disabled description="Vem por uma pasta: saia pela pasta">
-              Sair do pack
+            <DropdownMenuItem icon={<IconLogout />} disabled description={t("leaveViaFolder")}>
+              {t("leavePack")}
             </DropdownMenuItem>
           ) : isSharedGuest ? (
             // Convidado não apaga o pack do dono — ele SAI (remove o próprio grant).
             <DropdownMenuItem icon={<IconLogout />} onClick={handleLeavePack} disabled={isLeaving} className="text-destructive focus:text-destructive focus:bg-destructive-10">
-              Sair do pack
+              {t("leavePack")}
             </DropdownMenuItem>
           ) : (
             <DropdownMenuItem icon={<IconTrash />} onClick={() => onRemove(pack.id)} className="text-destructive focus:text-destructive focus:bg-destructive-10">
-              Remover pack
+              {t("removePack")}
             </DropdownMenuItem>
           )}
         </DropdownMenuContent>

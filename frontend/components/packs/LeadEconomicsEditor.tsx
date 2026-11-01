@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import { forwardRef, useEffect, useId, useMemo, useRef, useState, type MutableRefObject, type ReactNode, type Ref } from "react";
 import { IconAlertTriangle, IconInfoCircle, IconPlus, IconTrash, IconUpload } from "@tabler/icons-react";
 
@@ -7,6 +8,8 @@ import { InlineNotice } from "@/components/common/States";
 import { Button } from "@/components/ui/button";
 import { Input, type InputProps } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { getAppLocale } from "@/lib/i18n/locale";
+import { translate } from "@/lib/i18n/translate";
 import { cn } from "@/lib/utils/cn";
 import { LEAD_ECONOMICS_PRODUCT_NAME_MAX, formatLeadScore } from "@/lib/utils/leadEconomics";
 import { LEAD_ECONOMICS_BANDS_CSV_TEMPLATE, decodeCsvBytes, importLeadEconomicsBandsCsv } from "@/lib/utils/leadEconomicsCsv";
@@ -66,12 +69,12 @@ export interface LeadEconomicsEditorProps {
  */
 export function productDisplayName(product: Pick<LeadEconomicsProductDraft, "name">, index: number): { text: string; unnamed: boolean } {
   const name = product.name.trim();
-  return name ? { text: name, unnamed: false } : { text: `Sem nome (produto ${index + 1})`, unnamed: true };
+  return name ? { text: name, unnamed: false } : { text: translate("packs.economics.unnamedProduct", { n: index + 1 }), unnamed: true };
 }
 
 /** O mesmo nome dentro de uma frase lida pelo leitor de tela ("Ticket de produto 2 (sem nome)"). */
 function productSpokenName(product: Pick<LeadEconomicsProductDraft, "name">, index: number): string {
-  return product.name.trim() || `produto ${index + 1} (sem nome)`;
+  return product.name.trim() || translate("packs.economics.spokenUnnamed", { n: index + 1 });
 }
 
 // `null` = código que o Intl recusa (vazio, malformado): cai no número puro com o código.
@@ -244,8 +247,6 @@ function ErrorSummary({ messages }: { messages: string[] }) {
   );
 }
 
-const listFormatter = new Intl.ListFormat("pt-BR", { type: "conjunction" });
-
 /**
  * Cadastro da economia do lead: o que você vende (produtos) → quem compra (faixas
  * de nota). Componente CONTROLADO — recebe o rascunho e devolve o próximo; toda a
@@ -272,6 +273,8 @@ export function LeadEconomicsEditor({
   showAllErrors = false,
   firstFieldRef,
 }: LeadEconomicsEditorProps) {
+  const t = useTranslations("packs.economics");
+  const tc = useTranslations("packs.common");
   // Apagar produto usado por faixas pede o destino delas antes (seção 6). Qualquer
   // outra mudança de estrutura (produto ou faixa que entra ou sai) fecha a pergunta:
   // ela descreve as faixas de ANTES, e guardada reaparecia sem ninguém pedir.
@@ -396,7 +399,7 @@ export function LeadEconomicsEditor({
       setPendingRemoval(null);
       setCsvNotice({ kind: "ok", fileName: file.name, count: result.bandCount, warnings: result.warnings, previous: value, imported: result.draft });
     } catch {
-      setCsvNotice({ kind: "error", fileName: file.name, message: "Não deu para ler o arquivo." });
+      setCsvNotice({ kind: "error", fileName: file.name, message: t("csvReadError") });
     }
   };
 
@@ -437,9 +440,9 @@ export function LeadEconomicsEditor({
 
   /** "ou mais" / "a menos de 80" ao lado do campo de corte. */
   const cutSuffix = (index: number): string => {
-    if (index === value.bands.length - 1) return "ou mais";
+    if (index === value.bands.length - 1) return t("cutOrMore");
     const next = mins[index + 1];
-    return next === null || next === undefined ? "" : `a menos de ${formatLeadScore(next)}`;
+    return next === null || next === undefined ? "" : t("cutLessThan", { value: formatLeadScore(next) });
   };
 
   // Largura mínima das colunas com texto (nome, nota): abaixo dela o rótulo da
@@ -456,22 +459,21 @@ export function LeadEconomicsEditor({
     <div className="space-y-6">
       {/* ── O que você vende ── */}
       <div className="space-y-2">
-        <p className="text-xs font-medium text-foreground">O que você vende</p>
+        <p className="text-xs font-medium text-foreground">{t("sellTitle")}</p>
 
         {/* Cada linha é um pequeno formulário: o grupo sobe um nível (surface-2). */}
         <div className="overflow-x-auto rounded-md border border-border bg-surface-2">
           <div className="min-w-[34rem] divide-y divide-border">
             <div className={cn("grid items-end gap-2 px-3 pb-2 pt-3 text-xs text-muted-foreground", productGrid)}>
-              <span>Produto</span>
-              <span className="text-right">Ticket</span>
-              <span className="text-right">De cada venda, quanto sobra?</span>
-              <span className="text-right">Margem de lucro desejada</span>
+              <span>{t("colProduct")}</span>
+              <span className="text-right">{t("colTicket")}</span>
+              <span className="text-right">{t("colContribution")}</span>
+              <span className="text-right">{t("colTarget")}</span>
               <span aria-hidden />
             </div>
 
             {value.products.map((product, index) => {
               const spoken = productSpokenName(product, index);
-              const of = ` de ${spoken}`;
               const productIssues = issues.products[index] ?? {};
               const ids = {
                 name: messageId("produto", index, "nome"),
@@ -499,8 +501,8 @@ export function LeadEconomicsEditor({
                         className={INVALID_INPUT}
                         value={product.name}
                         maxLength={LEAD_ECONOMICS_PRODUCT_NAME_MAX}
-                        placeholder="Nome do produto"
-                        aria-label={`Nome do produto ${index + 1}`}
+                        placeholder={t("productNamePlaceholder")}
+                        aria-label={t("productNameAria", { n: index + 1 })}
                         {...fieldErrorProps(productIssues.name, ids.name)}
                         onChange={(e) => onChange(updateDraftProduct(value, product.id, { name: e.target.value }))}
                         disabled={disabled}
@@ -510,7 +512,7 @@ export function LeadEconomicsEditor({
                       <UnitInput
                         prefix={currencySymbol}
                         value={product.ticket}
-                        aria-label={`Ticket${of}`}
+                        aria-label={t("ticketOf", { name: spoken })}
                         {...fieldErrorProps(productIssues.ticket, ids.ticket)}
                         onChange={(e) => onChange(updateDraftProduct(value, product.id, { ticket: e.target.value }))}
                         disabled={disabled}
@@ -520,7 +522,7 @@ export function LeadEconomicsEditor({
                       <UnitInput
                         suffix="%"
                         value={product.contribution}
-                        aria-label={`De cada venda de ${spoken}, quanto sobra`}
+                        aria-label={t("contributionOf", { name: spoken })}
                         {...fieldErrorProps(productIssues.contribution, ids.contribution)}
                         onChange={(e) => onChange(updateDraftProduct(value, product.id, { contribution: e.target.value }))}
                         disabled={disabled}
@@ -530,7 +532,7 @@ export function LeadEconomicsEditor({
                       <UnitInput
                         suffix="%"
                         value={product.target}
-                        aria-label={`Margem de lucro desejada${of}`}
+                        aria-label={t("targetOf", { name: spoken })}
                         {...fieldErrorProps(productIssues.target, ids.target)}
                         onChange={(e) => onChange(updateDraftProduct(value, product.id, { target: e.target.value }))}
                         disabled={disabled}
@@ -546,7 +548,7 @@ export function LeadEconomicsEditor({
                         size="icon"
                         variant="ghost"
                         className="text-muted-foreground hover:text-destructive"
-                        aria-label={`Remover ${spoken}`}
+                        aria-label={t("removeOf", { name: spoken })}
                         onClick={() => requestRemoveProduct(product.id)}
                         disabled={disabled}
                       >
@@ -556,17 +558,17 @@ export function LeadEconomicsEditor({
                   </div>
 
                   {removal && (
-                    <div role="group" aria-label={`Remover ${spoken}`} className="flex flex-wrap items-center gap-3 px-3 pb-3 text-xs text-foreground">
+                    <div role="group" aria-label={t("removeOf", { name: spoken })} className="flex flex-wrap items-center gap-3 px-3 pb-3 text-xs text-foreground">
                       <span className="min-w-0 flex-1">
                         {usedBy.length === 0
-                          ? "Nenhuma faixa usa mais este produto."
+                          ? t("noBandUsesProduct")
                           : usedBy.length === 1
-                            ? `A faixa ${usedBy[0]} usa este produto. Mover para:`
-                            : `As faixas ${listFormatter.format(usedBy)} usam este produto. Mover para:`}
+                            ? t("oneBandUsesProduct", { bands: usedBy[0] })
+                            : t("manyBandsUseProduct", { bands: new Intl.ListFormat(getAppLocale(), { type: "conjunction" }).format(usedBy) })}
                       </span>
                       {usedBy.length > 0 && (
                         <Select value={moveTo} onValueChange={(next) => setPendingRemoval({ productId: product.id, moveTo: next })} disabled={disabled}>
-                          <SelectTrigger ref={moveToRef} size="sm" className="w-40 text-left" aria-label="Produto que passa a receber essas faixas">
+                          <SelectTrigger ref={moveToRef} size="sm" className="w-40 text-left" aria-label={t("moveAria")}>
                             <SelectValue>{labelOfProduct(moveTo)}</SelectValue>
                           </SelectTrigger>
                           <SelectContent>
@@ -580,7 +582,7 @@ export function LeadEconomicsEditor({
                       )}
                       <div className="flex gap-3">
                         <Button size="sm" variant="outline" onClick={() => cancelRemoveProduct(product.id)} disabled={disabled}>
-                          Cancelar
+                          {tc("cancel")}
                         </Button>
                         <Button
                           ref={confirmRemovalRef}
@@ -589,7 +591,7 @@ export function LeadEconomicsEditor({
                           onClick={() => confirmRemoveProduct(product.id, moveTo)}
                           disabled={disabled || (usedBy.length > 0 && !moveTo)}
                         >
-                          {usedBy.length > 0 ? "Mover e remover" : "Remover"}
+                          {usedBy.length > 0 ? t("moveAndRemove") : t("remove")}
                         </Button>
                       </div>
                     </div>
@@ -604,18 +606,18 @@ export function LeadEconomicsEditor({
           {!currencyFromAccount && (
             <p className="flex items-start gap-2">
               <IconInfoCircle className="mt-0.5 h-3 w-3 shrink-0" />
-              Ticket em {currency}, a moeda da sua preferência: não deu para confirmar a moeda da conta deste pack.
+              {t("currencyNote", { currency })}
             </p>
           )}
-          <p>Quanto sobra: preço menos produto, imposto, comissão e taxas — tudo, menos o anúncio.</p>
+          <p>{t("hintContribution")}</p>
           {/* Sobre o preço (D15), não sobre o que sobra: é o que "margem de lucro" quer dizer numa DRE. */}
-          <p>Margem desejada: sobre o preço de venda.</p>
+          <p>{t("hintTarget")}</p>
         </div>
         {/* Resumo fora do space-y: vazio, ele não abre um vão embaixo do bloco. */}
         <div>
           <Button ref={addProductRef} variant="outline" size="sm" onClick={addProduct} disabled={disabled || !canAddDraftProduct(value)}>
             <IconPlus />
-            Adicionar produto
+            {t("addProduct")}
           </Button>
           <ErrorSummary messages={productErrors} />
         </div>
@@ -624,23 +626,23 @@ export function LeadEconomicsEditor({
       {/* ── Quem compra ── */}
       <div className="space-y-2">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <p className="text-xs font-medium text-foreground">Quem compra</p>
+          <p className="text-xs font-medium text-foreground">{t("buyTitle")}</p>
           {/* Faixas em lote: a análise do CRM costuma estar numa planilha. Substitui as
               faixas da tela (produtos ficam); nada é gravado antes do "Salvar". */}
           <div className="flex items-center gap-3">
             <Button variant="ghost" size="sm" onClick={downloadCsvTemplate} disabled={disabled}>
-              Baixar modelo
+              {t("downloadTemplate")}
             </Button>
             <Button variant="outline" size="sm" onClick={() => csvInputRef.current?.click()} disabled={disabled}>
               <IconUpload />
-              Importar CSV
+              {t("importCsv")}
             </Button>
             <input
               ref={csvInputRef}
               type="file"
               accept=".csv,.txt,text/csv"
               className="hidden"
-              aria-label="Arquivo CSV com as faixas"
+              aria-label={t("csvAria")}
               onChange={(event) => {
                 const file = event.target.files?.[0];
                 // Zera antes: escolher o MESMO arquivo de novo (depois de corrigir) tem de disparar.
@@ -652,13 +654,13 @@ export function LeadEconomicsEditor({
         </div>
 
         {csvNotice?.kind === "error" ? (
-          <InlineNotice tone="destructive" title={`Não importamos ${csvNotice.fileName}`}>
+          <InlineNotice tone="destructive" title={t("csvErrorTitle", { file: csvNotice.fileName })}>
             {csvNotice.message}
           </InlineNotice>
         ) : csvNotice?.kind === "ok" ? (
           <InlineNotice
             tone={csvNotice.warnings.length > 0 ? "warning" : "success"}
-            title={`${csvNotice.count} ${csvNotice.count === 1 ? "faixa importada" : "faixas importadas"} de ${csvNotice.fileName}`}
+            title={t("csvOkTitle", { count: csvNotice.count, file: csvNotice.fileName })}
             action={
               value === csvNotice.imported ? (
                 <Button
@@ -669,7 +671,7 @@ export function LeadEconomicsEditor({
                     setCsvNotice(null);
                   }}
                 >
-                  Desfazer
+                  {t("undo")}
                 </Button>
               ) : undefined
             }
@@ -681,7 +683,7 @@ export function LeadEconomicsEditor({
                 ))}
               </ul>
             ) : (
-              <span className="text-xs">Confira as faixas abaixo e salve.</span>
+              <span className="text-xs">{t("csvCheck")}</span>
             )}
           </InlineNotice>
         ) : null}
@@ -689,10 +691,10 @@ export function LeadEconomicsEditor({
         <div className="overflow-x-auto rounded-md border border-border bg-surface-2">
           <div className="min-w-[37.5rem] divide-y divide-border">
             <div className={cn("grid items-end gap-2 px-3 pb-2 pt-3 text-xs text-muted-foreground", bandGrid)}>
-              <span>Nota do lead</span>
-              <span>Produto</span>
-              <span className="text-right">Conversão</span>
-              <span className="text-right">Teto por lead</span>
+              <span>{t("colScore")}</span>
+              <span>{t("colProduct")}</span>
+              <span className="text-right">{t("colConversion")}</span>
+              <span className="text-right">{t("colCeiling")}</span>
               <span aria-hidden />
             </div>
 
@@ -727,8 +729,8 @@ export function LeadEconomicsEditor({
                           autoComplete="off"
                           className={cn("w-24 shrink-0 text-right tabular-nums", INVALID_INPUT)}
                           value={band.min}
-                          placeholder="nota"
-                          aria-label={`Nota de corte da faixa ${index + 1}`}
+                          placeholder={t("cutPlaceholder")}
+                          aria-label={t("cutAria", { n: index + 1 })}
                           {...fieldErrorProps(bandIssues.min, ids.min)}
                           onChange={(e) => onChange(updateDraftBand(value, index, { min: e.target.value }))}
                           disabled={disabled}
@@ -746,8 +748,8 @@ export function LeadEconomicsEditor({
                     {/* text-left: o gatilho é um <button>, que centraliza; nome longo
                         cortado com reticências ficava no meio, longe dos vizinhos. */}
                     <Select value={bandProduct} onValueChange={(product) => onChange(updateDraftBand(value, index, { product }))} disabled={disabled}>
-                      <SelectTrigger size="sm" className={cn("text-left", INVALID_TRIGGER)} aria-label={`Produto da faixa ${label}`} {...fieldErrorProps(bandIssues.product, ids.product)}>
-                        <SelectValue placeholder="Escolha">{labelOfProduct(bandProduct)}</SelectValue>
+                      <SelectTrigger size="sm" className={cn("text-left", INVALID_TRIGGER)} aria-label={t("bandProductAria", { label })} {...fieldErrorProps(bandIssues.product, ids.product)}>
+                        <SelectValue placeholder={t("choose")}>{labelOfProduct(bandProduct)}</SelectValue>
                       </SelectTrigger>
                       <SelectContent>
                         {value.products.map((product, i) => (
@@ -762,7 +764,7 @@ export function LeadEconomicsEditor({
                     <UnitInput
                       suffix="%"
                       value={band.conversion}
-                      aria-label={`Conversão da faixa ${label}`}
+                      aria-label={t("conversionAria", { label })}
                       {...fieldErrorProps(bandIssues.conversion, ids.conversion)}
                       onChange={(e) => onChange(updateDraftBand(value, index, { conversion: e.target.value }))}
                       disabled={disabled}
@@ -771,7 +773,7 @@ export function LeadEconomicsEditor({
                   {/* Resultado ao vivo: <output> com nome, anunciado quando muda. */}
                   <output
                     aria-live="polite"
-                    aria-label={`Teto por lead da faixa ${label}`}
+                    aria-label={t("ceilingAria", { label })}
                     className={cn(
                       "flex min-h-10 min-w-0 items-center justify-end text-sm tabular-nums",
                       ceiling === null ? "text-muted-foreground opacity-50" : "text-foreground",
@@ -780,7 +782,7 @@ export function LeadEconomicsEditor({
                     {ceiling === null ? (
                       <>
                         <span aria-hidden>—</span>
-                        <span className="sr-only">incompleto</span>
+                        <span className="sr-only">{t("incomplete")}</span>
                       </>
                     ) : (
                       <span className="truncate" title={formatLeadEconomicsMoney(ceiling, currency)}>
@@ -794,7 +796,7 @@ export function LeadEconomicsEditor({
                       size="icon"
                       variant="ghost"
                       className="text-muted-foreground hover:text-destructive"
-                      aria-label={`Remover a faixa ${label}`}
+                      aria-label={t("removeBand", { label })}
                       onClick={() => removeBand(index)}
                       disabled={disabled}
                     >
@@ -813,16 +815,13 @@ export function LeadEconomicsEditor({
         <div className="space-y-0.5 text-xs text-muted-foreground">
           {/* "Conversão" aqui é lead → venda. No mesmo diálogo, o CPR alvo fala de
               "eventos de conversão" da Meta — a frase desfaz a ambiguidade. */}
-          <p>Conversão: de cada 100 leads desta faixa, quantos viram venda.</p>
-          <p>
-            A nota exata do corte entra na faixa de cima.{" "}
-            {mqlLeadscoreMin !== null ? `Seu corte de MQL é ${formatLeadScore(mqlLeadscoreMin)}.` : "Este pack não tem corte de MQL."}
-          </p>
+          <p>{t("hintConversion")}</p>
+          <p>{t("hintCut", { hasMql: mqlLeadscoreMin !== null ? "yes" : "no", value: mqlLeadscoreMin !== null ? formatLeadScore(mqlLeadscoreMin) : "" })}</p>
         </div>
         <div>
           <Button ref={addBandRef} variant="outline" size="sm" onClick={addBand} disabled={disabled}>
             <IconPlus />
-            Adicionar faixa
+            {t("addBand")}
           </Button>
           <ErrorSummary messages={bandErrors} />
         </div>

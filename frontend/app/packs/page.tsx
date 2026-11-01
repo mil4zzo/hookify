@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import { Fragment, useState, useEffect, useMemo, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { PackCard } from "@/components/packs/PackCard";
@@ -37,6 +38,7 @@ import { usePackRefresh, type RefreshToggles } from "@/lib/hooks/usePackRefresh"
 import { usePackCreation } from "@/lib/hooks/usePackCreation";
 import { MetaIcon, GoogleSheetsIcon } from "@/components/icons";
 import { logger } from "@/lib/utils/logger";
+import { formatLocaleDate, formatLocaleNumber, getAppLocale } from "@/lib/i18n/locale";
 import { usePackSortStore } from "@/lib/store/packSort";
 import { PACK_SORT_OPTIONS, filterPacksBySearch, sortPacks, type PackSortKey, type PackSortDirection } from "@/lib/utils/packSort";
 import { useMultiSelect } from "@/lib/hooks/useMultiSelect";
@@ -86,13 +88,20 @@ const DEFAULT_REFRESH_TOGGLES: RefreshToggles = {
   transcription: false,
 };
 
+/** "2026-10-31" -> data no formato do idioma (31/10/2026 em pt-BR). */
+const formatIsoDate = (s: string) => {
+  const [y, m, d] = s.split("-");
+  return formatLocaleDate(new Date(Number(y), Number(m) - 1, Number(d)));
+};
+
 // Mesmas props de layout da página real, para o esqueleto ocupar o mesmo lugar.
 function PacksPageSkeleton() {
+  const t = useTranslations("packs.page");
   return (
     <PageContainer
       variant="standard"
-      title="Biblioteca"
-      description="Gerencie seus Packs de anúncios."
+      title={t("title")}
+      description={t("subtitle")}
       contentScroll
       className="lg:flex lg:min-h-0 lg:flex-1 lg:flex-col"
       contentClassName="lg:flex lg:min-h-0 lg:flex-1 lg:flex-col"
@@ -179,6 +188,11 @@ const FILTER_FIELDS = [
 const FILTER_OPERATORS = ["CONTAIN", "EQUAL", "NOT_EQUAL", "NOT_CONTAIN", "STARTS_WITH", "ENDS_WITH"];
 
 export default function PacksPage() {
+  const t = useTranslations("packs.page");
+  const ta = useTranslations("packs.access");
+  const ts = useTranslations("packs.share");
+  const tc = useTranslations("packs.common");
+  const strong = (c: React.ReactNode) => <strong>{c}</strong>;
   const formatCurrency = useFormatCurrency();
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -430,9 +444,7 @@ export default function PacksPage() {
     const owned = list.filter((p) => !p.shared_role);
     const guests = list.length - owned.length;
     if (guests > 0) {
-      showWarning(
-        `${guests} ${guests === 1 ? "pack compartilhado com você fica" : "packs compartilhados com você ficam"} de fora: só o dono configura a planilha.`,
-      );
+      showWarning(t("warnGuestsSheet", { count: guests }));
     }
     if (owned.length > 0) setBulkSheetPackIds(owned.map((p) => p.id));
   };
@@ -446,9 +458,7 @@ export default function PacksPage() {
     const writable = list.filter((p) => p.shared_role !== "viewer");
     const viewers = list.length - writable.length;
     if (viewers > 0) {
-      showWarning(
-        `${viewers} ${viewers === 1 ? "pack compartilhado só para leitura fica" : "packs compartilhados só para leitura ficam"} de fora: só dono ou editor mudam os critérios.`,
-      );
+      showWarning(t("warnViewersJudgment", { count: viewers }));
     }
     if (writable.length > 0) setBulkJudgmentPacks(writable);
   };
@@ -489,11 +499,12 @@ export default function PacksPage() {
     }
     if (failed.length === 0) {
       showSuccess(
-        `Planilha desconectada de ${targets.length} ${targets.length === 1 ? "pack" : "packs"}` +
-          (totalCleared > 0 ? `, com o leadscore apagado de ${totalCleared.toLocaleString()} dias.` : "."),
+        totalCleared > 0
+          ? t("sheetsDisconnectedCleared", { count: targets.length, days: formatLocaleNumber(totalCleared) })
+          : t("sheetsDisconnected", { count: targets.length }),
       );
     } else {
-      showError({ message: `Falha ao desconectar a planilha de: ${failed.join(", ")}.` });
+      showError({ message: t("sheetsDisconnectFailed", { names: failed.join(", ") }) });
     }
   };
 
@@ -615,13 +626,8 @@ export default function PacksPage() {
     const ids = returningPacks(after, afterShares, placements);
     if (ids.length === 0) return null;
     const owners = [...new Set(ids.map((id) => packs.find((p) => p.id === id)?.shared_owner_name).filter(Boolean))] as string[];
-    const who = owners.length === 1 ? owners[0] : owners.length > 1 ? `${owners.slice(0, -1).join(", ")} e ${owners[owners.length - 1]}` : "quem os criou";
-    return (
-      <span className="block">
-        {ids.length === 1 ? "1 pack criado" : `${ids.length} packs criados`} por <strong>{who}</strong> {ids.length === 1 ? "volta" : "voltam"} para{" "}
-        {owners.length > 1 ? "eles" : "a pessoa"}: um pack posto por um editor só fica onde ele vê a pasta, e você deixa de vê-{ids.length === 1 ? "lo" : "los"}.
-      </span>
-    );
+    const who = owners.length === 1 ? owners[0] : owners.length > 1 ? new Intl.ListFormat(getAppLocale(), { type: "conjunction" }).format(owners) : ta("returningWhoFallback");
+    return <span className="block">{ta.rich("returning", { count: ids.length, who, many: owners.length > 1 ? "yes" : "no", b: strong })}</span>;
   };
   /** Packs de outras pessoas que moram nesta pasta ou em alguma subpasta dela. */
   const foreignPlacementsUnder = (folderId: string) =>
@@ -661,19 +667,16 @@ export default function PacksPage() {
     });
     if (entering === 0 && leaving === 0) return null;
     const toRoot = sharedRootOf(toShared);
-    const n = (count: number) => (count === 1 ? "este pack" : `estes ${count} packs`);
-    const of = (root: PackFolder | null) => (root ? `«${root.name}»${root.owner_name ? `, de ${root.owner_name}` : ""}` : "compartilhada");
+    const of = (root: PackFolder | null) => ta("ofRoot", { hasRoot: root ? "yes" : "no", name: root?.name ?? "", hasOwner: root?.owner_name ? "yes" : "no", owner: root?.owner_name ?? "" });
     return (
       <span className="block space-y-2">
         {entering > 0 && (
-          <span className="block">
-            Quem tem a pasta {of(toRoot)} passa a ver {n(entering)}. {entering === 1 ? "Ele continua seu" : "Eles continuam seus"}, e você pode tirá-{entering === 1 ? "lo" : "los"} de lá quando quiser.
-          </span>
+          <span className="block">{ta("entering", { of: of(toRoot), these: ta("thesePacks", { count: entering }), count: entering })}</span>
         )}
         {leaving > 0 && (
           <span className="block">
-            {n(leaving).replace(/^e/, "E")} {leaving === 1 ? "sai" : "saem"} da pasta {of(fromRoot)}: quem tem a pasta deixa de {leaving === 1 ? "vê-lo" : "vê-los"}.
-            {losing > 0 && <> Você também perde o acesso a {losing === 1 ? "1 deles" : `${losing} deles`}, que {losing === 1 ? "é" : "são"} do dono da pasta.</>}
+            {ta("leaving", { these: ta("thesePacksCap", { count: leaving }), of: of(fromRoot), count: leaving })}
+            {losing > 0 && <> {ta("losing", { count: losing })}</>}
           </span>
         )}
       </span>
@@ -686,30 +689,35 @@ export default function PacksPage() {
 
   /** O texto do aviso: quem ganha e quem perde acesso, com o número de packs. */
   const describeAccess = (delta: AccessDelta, packCount: number, absorbed: AbsorbedDirect[] = []): React.ReactNode => {
-    const these = packCount === 1 ? "este pack" : `estes ${packCount} packs`;
+    const these = ta("thesePacks", { count: packCount });
     return (
       <span className="block space-y-2">
         {/* Dentro da pasta, tudo segue a pasta: o convite direto vira "via pasta" e sai
             junto quando a pessoa sair dela. */}
         {absorbed.map((a) => (
           <span key={a.grantee.grantee_id} className="block">
-            <strong>{describePeople([a.grantee])}</strong> já via {a.packCount === 1 ? "1 destes packs" : `${a.packCount} destes packs`} por convite direto: passa a valer pela pasta
-            {a.roleChanges ? <>, como <strong>{a.grantee.role === "editor" ? "Editor" : "Leitura"}</strong></> : null}. Tirar a pessoa da pasta tira também {a.packCount === 1 ? "esse" : "esses"}.
+            {ta.rich("absorbed", {
+              people: describePeople([a.grantee]),
+              count: a.packCount,
+              roleChanges: a.roleChanges ? "yes" : "no",
+              role: a.grantee.role === "editor" ? ts("roleEditor") : ts("roleViewer"),
+              b: strong,
+            })}
           </span>
         ))}
         {delta.granted.length > 0 && (
           <span className="block">
-            <strong>{describePeople(delta.granted)}</strong> {delta.granted.length === 1 ? "passa" : "passam"} a ver {these}.
+            {ta.rich("granted", { people: describePeople(delta.granted), count: delta.granted.length, these, b: strong })}
           </span>
         )}
         {delta.changed.length > 0 && (
           <span className="block">
-            <strong>{describePeople(delta.changed)}</strong> {delta.changed.length === 1 ? "muda" : "mudam"} de papel em {these}.
+            {ta.rich("changed", { people: describePeople(delta.changed), count: delta.changed.length, these, b: strong })}
           </span>
         )}
         {delta.revoked.length > 0 && (
           <span className="block">
-            <strong>{describePeople(delta.revoked)}</strong> {delta.revoked.length === 1 ? "perde" : "perdem"} o acesso a {these}.
+            {ta.rich("revoked", { people: describePeople(delta.revoked), count: delta.revoked.length, these, b: strong })}
           </span>
         )}
       </span>
@@ -755,13 +763,12 @@ export default function PacksPage() {
           {notice}
         </span>
       ),
-      confirmText: "Continuar",
+      confirmText: ta("continue"),
       run,
     });
   };
 
-  const MOVE_FORBIDDEN =
-    "Algum pack não pode ir para lá. Numa pasta compartilhada com você só entram os packs que são seus, e os do dono só circulam dentro dela.";
+  const MOVE_FORBIDDEN = ta("moveForbidden");
 
   /**
    * O ÚNICO caminho de escrita de "mover": arrastar, a barra de ações e o menu do pack
@@ -782,7 +789,7 @@ export default function PacksPage() {
     const notice = sharedTreeNotice(ids, folderId);
     if (affected > 0 || notice) {
       const targetName = folderId ? bucketById.get(folderId)?.folder.name : null;
-      guardAccess(delta, affected, targetName ? `Mover para “${targetName}”?` : "Tirar da pasta?", () => void performMove(ids, folderId), absorbed, notice);
+      guardAccess(delta, affected, targetName ? t("moveTitle", { name: targetName }) : t("takeOutTitle"), () => void performMove(ids, folderId), absorbed, notice);
       return;
     }
     await performMove(ids, folderId);
@@ -794,9 +801,7 @@ export default function PacksPage() {
     clearPackSelection();
 
     const targetName = folderId ? bucketById.get(folderId)?.folder.name : null;
-    const label = targetName
-      ? `${ids.length} ${ids.length === 1 ? "pack movido" : "packs movidos"} para “${targetName}”`
-      : `${ids.length} ${ids.length === 1 ? "pack retirado" : "packs retirados"} da pasta`;
+    const label = targetName ? t("moved", { count: ids.length, name: targetName }) : t("takenOut", { count: ids.length });
 
     // Arrasto erra em silêncio — solta na pasta vizinha e ninguém percebe. O
     // "Desfazer" é o que torna o gesto seguro o bastante para existir.
@@ -804,7 +809,7 @@ export default function PacksPage() {
       <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
         {label}
         <button type="button" onClick={() => undoMove(result.packIds, result.before)} className="focus-inset rounded-sm font-semibold underline underline-offset-2">
-          Desfazer
+          {t("undo")}
         </button>
       </span>,
     );
@@ -828,14 +833,14 @@ export default function PacksPage() {
     const plan = planFolderMove(allFolders, folderId, targetId, edge);
     if (!plan) return;
     if (!canPlaceFolder(allFolders, folderId, plan.parentId)) {
-      showError({ message: "A pasta não pode ir para lá: numa pasta compartilhada com você, as pastas só circulam dentro dela." });
+      showError({ message: ta("folderMoveForbidden") });
       return;
     }
     const impact = folderMoveImpact(allFolders, folderShares, folderId, plan.parentId, ownedPacksIn);
-    const name = bucketById.get(folderId)?.folder.name ?? "a pasta";
+    const name = bucketById.get(folderId)?.folder.name ?? t("folderFallback");
     const after = allFolders.map((f) => (f.id === folderId ? { ...f, parent_id: plan.parentId } : f));
     const returning = returningNotice(foreignPlacementsUnder(folderId), after, folderShares);
-    guardAccess(impact.delta, impact.packCount, `Mover «${name}»?`, () => void moveFolderNow(folderId, targetId, edge), [], returning);
+    guardAccess(impact.delta, impact.packCount, t("moveFolderTitle", { name }), () => void moveFolderNow(folderId, targetId, edge), [], returning);
   };
 
   /** A pasta arrastada pode cair nesta borda deste alvo? (árvore e tiles) */
@@ -899,7 +904,7 @@ export default function PacksPage() {
     const deletable = selectedPacksList.filter(canDeletePack);
     const skipped = selectedPacksList.length - deletable.length;
     if (skipped > 0) {
-      showWarning(`${skipped} ${skipped === 1 ? "pack compartilhado com você fica" : "packs compartilhados com você ficam"} de fora: só o dono, ou quem edita a pasta onde ele está, exclui.`);
+      showWarning(t("warnGuestsDelete", { count: skipped }));
     }
     clearPackSelection();
     if (deletable.length > 0) await deletePacks(deletable.map((p) => ({ id: p.id, name: p.name })));
@@ -915,31 +920,31 @@ export default function PacksPage() {
     return [
       {
         id: "judgment",
-        label: "Critérios de julgamento",
+        label: t("actJudgment"),
         icon: <IconTargetArrow />,
         disabled: !list.some((p) => p.shared_role !== "viewer"),
         onSelect: () => configureJudgmentFor(list),
       },
       {
         id: "configure-sheets",
-        label: "Configurar planilha",
+        label: t("actConfigureSheet"),
         icon: <GoogleSheetsIcon />,
         disabled: !list.some((p) => !p.shared_role),
         onSelect: () => configureSheetFor(list),
       },
       {
         id: "remove-sheets",
-        label: "Desconectar planilha",
+        label: t("actDisconnectSheet"),
         icon: <GoogleSheetsIcon />,
-        description: withSheet.length > 0 ? `${withSheet.length} com planilha` : "Nenhum com planilha",
+        description: withSheet.length > 0 ? t("withSheet", { count: withSheet.length }) : t("noneWithSheet"),
         disabled: withSheet.length === 0,
         onSelect: () => setFolderPackConfirm({ kind: "remove-sheets", folder, packs: withSheet }),
       },
       {
         id: "delete",
-        label: "Deletar os packs",
+        label: t("actDeletePacks"),
         icon: <IconTrash />,
-        description: "A pasta continua",
+        description: t("folderStays"),
         destructive: true,
         // Só o que o usuário pode excluir: o dele e, numa pasta compartilhada que ele
         // edita, os que vêm por ela (decisão de produto: o editor age como o dono).
@@ -961,7 +966,7 @@ export default function PacksPage() {
   const packBulkActions: BulkAction[] = [
     {
       id: "refresh",
-      label: "Atualizar",
+      label: t("bulkRefresh"),
       icon: <IconRefresh className="h-3.5 w-3.5" />,
       // Azul (acento) porque é a ação DIÁRIA da Biblioteca: é o que se faz na maior
       // parte das vezes em que se marca um punhado de packs.
@@ -974,7 +979,7 @@ export default function PacksPage() {
     },
     {
       id: "move",
-      label: "Mover",
+      label: t("bulkMove"),
       icon: <IconFolderSymlink className="h-3.5 w-3.5" />,
       // Gatilho: abre a lista de pastas para escolher, então ganha o chevron.
       opensList: true,
@@ -982,7 +987,7 @@ export default function PacksPage() {
     },
     {
       id: "configure-judgment",
-      label: "Critérios de julgamento",
+      label: t("actJudgment"),
       icon: <IconTargetArrow className="h-3.5 w-3.5" />,
       // Ocasional (uma vez por lançamento): menu "Mais", ao lado da planilha.
       secondary: true,
@@ -991,7 +996,7 @@ export default function PacksPage() {
     },
     {
       id: "configure-sheets",
-      label: "Configurar planilha",
+      label: t("actConfigureSheet"),
       icon: <GoogleSheetsIcon className="h-3.5 w-3.5" />,
       // Ocasional (uma vez por lançamento), como desconectar: menu "Mais", lado a lado.
       secondary: true,
@@ -1000,17 +1005,17 @@ export default function PacksPage() {
     },
     {
       id: "remove-sheets",
-      label: "Desconectar planilha",
+      label: t("actDisconnectSheet"),
       icon: <GoogleSheetsIcon className="h-3.5 w-3.5" />,
       // Ocasional: vai para o menu "Mais" em vez de ocupar uma fatia da barra.
       secondary: true,
       disabled: selectedPacksWithSheets.length === 0,
       confirm: {
-        title: () => `Desconectar a planilha de ${selectedPacksWithSheets.length} ${selectedPacksWithSheets.length === 1 ? "pack" : "packs"}?`,
+        title: () => t("disconnectTitle", { count: selectedPacksWithSheets.length }),
         // Em massa não há prévia por pack (seriam N idas ao servidor antes de
         // abrir o diálogo): o texto diz o que vai acontecer e o total sai depois.
-        message: () => "Os packs continuam existindo e a planilha no Google não é alterada. O leadscore já importado por essas planilhas é apagado junto, e não há como desfazer.",
-        confirmText: "Desconectar e apagar",
+        message: () => t("disconnectMessage"),
+        confirmText: t("disconnectConfirm"),
         variant: "destructive",
         icon: <GoogleSheetsIcon className="h-5 w-5" />,
       },
@@ -1018,15 +1023,14 @@ export default function PacksPage() {
     },
     {
       id: "delete",
-      label: "Deletar",
+      label: t("bulkDelete"),
       icon: <IconTrash className="h-3.5 w-3.5" />,
       tone: "danger",
       showsLoading: true,
       confirm: {
-        title: (count, noun) => `Deletar ${count} ${noun}?`,
-        message: (count, noun) =>
-          `Os anúncios e métricas exclusivos ${count === 1 ? "deste" : "destes"} ${noun} serão apagados, e a integração com o Google Sheets de cada um é removida junto (planilhas de outros packs não são afetadas). Os packs são deletados um de cada vez. Esta ação não pode ser desfeita.`,
-        confirmText: "Deletar",
+        title: (count, noun) => t("deleteTitle", { count, noun }),
+        message: (count, noun) => t("deleteMessage", { count, noun }),
+        confirmText: t("deleteConfirm"),
         variant: "destructive",
         icon: <IconTrash className="h-5 w-5" />,
       },
@@ -1114,22 +1118,22 @@ export default function PacksPage() {
 
   const validateForm = (): string | null => {
     if (!formData.name.trim()) {
-      return "Nome do pack é obrigatório";
+      return t("errNameRequired");
     }
     if (!formData.adaccount_id) {
-      return "Selecione uma conta de anúncios";
+      return t("errSelectAccount");
     }
     if (!formData.date_start || !formData.date_stop) {
-      return "Selecione o período de datas";
+      return t("errSelectPeriod");
     }
     if (new Date(formData.date_start) > new Date(formData.date_stop)) {
-      return "Data de início deve ser anterior à data de fim";
+      return t("errStartAfterEnd");
     }
 
     // Validate filters
     for (const filter of formData.filters) {
       if (!filter.value.trim()) {
-        return "Todos os filtros devem ter um valor";
+        return t("errFilterValue");
       }
     }
 
@@ -1149,7 +1153,7 @@ export default function PacksPage() {
     const existingPack = packs.find((p) => p.name.trim().toLowerCase() === packName.toLowerCase());
     if (existingPack) {
       setPackNameDuplicateError(true);
-      showError({ message: `Já existe um pack com o nome "${packName}"` });
+      showError({ message: t("nameExists", { name: packName }) });
       return;
     }
 
@@ -1215,7 +1219,7 @@ export default function PacksPage() {
       await invalidatePackAds(packToRemove.id);
       invalidateAdPerformance();
 
-      showSuccess(`Pack "${packToRemove.name}" removido com sucesso!`);
+      showSuccess(t("removedOk", { name: packToRemove.name }));
       setPackToRemove(null);
     } catch (error) {
       logger.error("Erro ao deletar pack do Supabase:", error);
@@ -1223,7 +1227,7 @@ export default function PacksPage() {
       await invalidatePackAds(packToRemove.id).catch(() => {});
       invalidateAdPerformance();
 
-      showError({ message: `Pack removido localmente, mas houve erro ao deletar do servidor: ${error}` });
+      showError({ message: t("removedLocalError", { error: String(error) }) });
       setPackToRemove(null);
     } finally {
       setIsDeleting(false);
@@ -1235,10 +1239,7 @@ export default function PacksPage() {
     setPackToRemove(null);
   };
 
-  const formatDate = (dateString: string) => {
-    const [year, month, day] = dateString.split("-");
-    return `${day}/${month}/${year}`;
-  };
+  const formatDate = formatIsoDate;
 
   const handleRefreshPack = (packId: string) => {
     const pack = packs.find((p) => p.id === packId);
@@ -1284,7 +1285,7 @@ export default function PacksPage() {
         auto_refresh: newValue,
       } as Partial<AdsPack>);
 
-      showSuccess(`Auto-refresh ${newValue ? "ativado" : "desativado"} para o pack "${pack.name}"`);
+      showSuccess(t("autoRefreshOk", { enabled: newValue ? "on" : "off", name: pack.name }));
 
       // Fechar modal se estiver aberto
       if (packToDisableAutoRefresh?.id === packId) {
@@ -1292,7 +1293,7 @@ export default function PacksPage() {
       }
     } catch (error) {
       logger.error("Erro ao atualizar auto_refresh:", error);
-      showError({ message: `Erro ao ${newValue ? "ativar" : "desativar"} auto-refresh: ${error}` });
+      showError({ message: t("autoRefreshError", { enabled: newValue ? "on" : "off", error: String(error) }) });
     } finally {
       setIsTogglingAutoRefresh(null);
     }
@@ -1397,12 +1398,12 @@ export default function PacksPage() {
         // servindo MQL/CPMQL calculados com o dado que acabou de ser apagado.
         invalidateAdPerformance();
         await invalidatePackAds(pack.id);
-        showSuccess(`Integração removida e leadscore apagado de ${cleared.toLocaleString()} ${cleared === 1 ? "dia" : "dias"}.`);
+        showSuccess(t("integrationRemovedCleared", { days: formatLocaleNumber(cleared), cleared }));
       } else {
-        showSuccess("Integração removida com sucesso!");
+        showSuccess(t("integrationRemoved"));
       }
     } catch (error) {
-      showError(error instanceof Error ? error : new Error("Erro ao remover integração"));
+      showError(error instanceof Error ? error : new Error(t("integrationRemoveError")));
     } finally {
       setIsRemovingIntegration(false);
     }
@@ -1425,8 +1426,8 @@ export default function PacksPage() {
     <>
       <PageContainer
         variant="standard"
-        title="Biblioteca"
-        description="Gerencie seus Packs de anúncios."
+        title={t("title")}
+        description={t("subtitle")}
         // A partir de `lg` quem rola é a grade de packs, não a página: cabeçalho,
         // ações e explorer ficam sempre visíveis. Abaixo disso a página rola normal.
         contentScroll
@@ -1441,12 +1442,12 @@ export default function PacksPage() {
               // inverter", que é o truque do Finder e que ninguém descobre sozinho.
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button variant="outline" size="icon" aria-label={`Ordenar packs: ${sortLabel}, ${packSortDirection === "asc" ? "crescente" : "decrescente"}`} title={`Ordenar: ${sortLabel}`}>
+                  <Button variant="outline" size="icon" aria-label={t("sortAria", { label: sortLabel, dir: packSortDirection })} title={t("sortTitle", { label: sortLabel })}>
                     {packSortDirection === "asc" ? <IconSortAscending className="h-4 w-4" /> : <IconSortDescending className="h-4 w-4" />}
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="w-56">
-                  <DropdownMenuLabel>Ordenar por</DropdownMenuLabel>
+                  <DropdownMenuLabel>{t("sortBy")}</DropdownMenuLabel>
                   <DropdownMenuRadioGroup value={packSortKey} onValueChange={(value) => setPackSortKey(value as PackSortKey)}>
                     {PACK_SORT_OPTIONS.map((option) => (
                       <DropdownMenuRadioItem key={option.value} value={option.value}>
@@ -1458,11 +1459,11 @@ export default function PacksPage() {
                   <DropdownMenuRadioGroup value={packSortDirection} onValueChange={(value) => setPackSortDirection(value as PackSortDirection)}>
                     <DropdownMenuRadioItem value="asc">
                       <IconSortAscending className="h-4 w-4" />
-                      Crescente
+                      {t("ascending")}
                     </DropdownMenuRadioItem>
                     <DropdownMenuRadioItem value="desc">
                       <IconSortDescending className="h-4 w-4" />
-                      Decrescente
+                      {t("descending")}
                     </DropdownMenuRadioItem>
                   </DropdownMenuRadioGroup>
                 </DropdownMenuContent>
@@ -1475,11 +1476,11 @@ export default function PacksPage() {
               onClick={() => setFolderDialog({ mode: "create", packIds: selectedPackIds, parentId: newFolderParentId })}
             >
               <IconFolderPlus className="w-4 h-4" />
-              Nova pasta
+              {t("newFolder")}
             </Button>
             <Button className="flex items-center gap-2" onClick={() => setIsDialogOpen(true)}>
               <IconPlus className="w-4 h-4" />
-              Novo Pack
+              {t("newPack")}
             </Button>
           </PageActions>
         }
@@ -1529,7 +1530,7 @@ export default function PacksPage() {
                   onEditSheetIntegration={handleEditSheetIntegration}
                   onDeleteSheetIntegration={handleDeleteSheetIntegration}
                 >
-                  <TreeRowMenuTrigger label="Ações do pack" />
+                  <TreeRowMenuTrigger label={t("packActions")} />
                 </PackActionsMenu>
               )}
               // Mesmo menu do tile de pasta. "Atualizar todos" age sobre TODOS os
@@ -1554,7 +1555,7 @@ export default function PacksPage() {
                   getPackActions={folderPackActions}
                   hasSubfolders={(bucketById.get(folder.id)?.children.length ?? 0) > 0}
                 >
-                  <TreeRowMenuTrigger label={`Ações da pasta ${folder.name}`} />
+                  <TreeRowMenuTrigger label={t("folderActions", { name: folder.name })} />
                 </FolderActionsMenu>
               )}
               onDropPacks={handleDropPacks}
@@ -1616,19 +1617,19 @@ export default function PacksPage() {
                 className={cn(back.isTarget && "bg-surface ring-1 ring-inset ring-primary")}
               >
                 <IconChevronLeft className="h-4 w-4" />
-                <span className="max-w-40 truncate">{currentPath.length > 1 ? currentPath[currentPath.length - 2].folder.name : "Biblioteca"}</span>
+                <span className="max-w-40 truncate">{currentPath.length > 1 ? currentPath[currentPath.length - 2].folder.name : t("title")}</span>
               </Button>
                 );
               })()}
               <div className="flex min-w-0 flex-col">
                 {/* Caminho completo só quando há de onde vir além da raiz. */}
                 {currentPath.length > 1 && (
-                  <nav aria-label="Caminho da pasta" className="flex min-w-0 flex-wrap items-center gap-1 text-xs text-muted-foreground">
+                  <nav aria-label={t("pathAria")} className="flex min-w-0 flex-wrap items-center gap-1 text-xs text-muted-foreground">
                     {(() => {
                       const root = levelDropProps(null);
                       return (
                         <button type="button" className={cn("focus-inset rounded-sm px-0.5 hover:text-foreground", root.isTarget && "bg-surface text-foreground ring-1 ring-inset ring-primary")} onClick={() => { setFolderView(null); clearPackSelection(); }} onDragOver={root.onDragOver} onDragLeave={root.onDragLeave} onDrop={root.onDrop}>
-                          Biblioteca
+                          {t("title")}
                         </button>
                       );
                     })()}
@@ -1650,37 +1651,35 @@ export default function PacksPage() {
                   <span className="text-xs text-muted-foreground">
                     {(() => {
                       const root = sharedRootOf(currentBucket.folder);
-                      const by = root?.owner_name ? ` por ${root.owner_name}` : "";
-                      return currentBucket.folder.access === "viewer" ? `Compartilhada com você${by} · só leitura` : `Compartilhada com você${by} · você edita`;
+                      return t("sharedAccess", { hasOwner: root?.owner_name ? "yes" : "no", owner: root?.owner_name ?? "", access: currentBucket.folder.access === "viewer" ? "viewer" : "editor" });
                     })()}
                   </span>
                 )}
                 <span className="text-xs text-muted-foreground tabular-nums">
-                  {currentBucket.allPacks.length} {currentBucket.allPacks.length === 1 ? "pack" : "packs"}
-                  {currentBucket.children.length > 0 && ` em ${flattenTree([currentBucket]).length} pastas`} · {formatCurrency(currentBucket.totalSpend)}
+                  {t("folderSummary", { packs: currentBucket.allPacks.length, folders: currentBucket.children.length > 0 ? flattenTree([currentBucket]).length : 0, spend: formatCurrency(currentBucket.totalSpend) })}
                 </span>
               </div>
               <div className="ml-auto flex flex-wrap items-center gap-3">
                 <Button variant="outline" size="sm" onClick={() => handleRefreshFolder(currentBucket.folder)} disabled={currentBucket.allPacks.length === 0}>
                   <IconRefresh className="h-4 w-4" />
-                  Atualizar todos
+                  {t("refreshAll")}
                 </Button>
                 {canEditFolder(currentBucket.folder) && (
                   <Button variant="outline" size="sm" onClick={() => setFolderDialog({ mode: "rename", folder: currentBucket.folder, packIds: [] })}>
                     <IconPencil className="h-4 w-4" />
-                    Renomear
+                    {t("rename")}
                   </Button>
                 )}
                 {canRestructureFolder(allFolders, currentBucket.folder) && (
                   <Button variant="destructiveOutline" size="sm" onClick={() => setFolderToDelete(currentBucket.folder)}>
                     <IconTrash className="h-4 w-4" />
-                    Desfazer pasta
+                    {t("dissolve")}
                   </Button>
                 )}
                 {currentBucket.folder.shared_root && !isOwnFolder(currentBucket.folder) && (
                   <Button variant="destructiveOutline" size="sm" onClick={() => setFolderToLeave(currentBucket.folder)}>
                     <IconLogout className="h-4 w-4" />
-                    Sair da pasta
+                    {t("leave")}
                   </Button>
                 )}
               </div>
@@ -1693,7 +1692,7 @@ export default function PacksPage() {
             <section className="flex flex-col gap-4">
               {/* Título de seção, como num gerenciador de arquivos: sem divisor e sem
                   contagem — o número de pastas está à vista logo abaixo. */}
-              <h2 className="text-lg font-semibold text-foreground">Pastas</h2>
+              <h2 className="text-lg font-semibold text-foreground">{t("foldersHeading")}</h2>
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5 xl:grid-cols-6">
                 {folderTiles.map(({ folder, allPacks, children: subfolders, totalSpend, hasSheet, hasShared }) => (
                   <FolderCard
@@ -1742,12 +1741,12 @@ export default function PacksPage() {
               frame="dashed"
               density="spacious"
               icon={IconChartBar}
-              title="Nenhum pack carregado"
-              message="Um pack reúne os anúncios de uma conta num período. Carregue o primeiro para começar a análise."
+              title={t("emptyTitle")}
+              message={t("emptyMessage")}
               action={
                 <Button onClick={() => setIsDialogOpen(true)}>
                   <IconPlus className="w-4 h-4" />
-                  Novo pack
+                  {t("newPackLower")}
                 </Button>
               }
             />
@@ -1765,16 +1764,16 @@ export default function PacksPage() {
               onDrop={(e) => { if (gridView === null) { e.preventDefault(); handleDropPacks(null); } }}
             >
               {isAllView && !isSearching ? (
-                <h2 className="text-lg font-semibold text-foreground">Todos os packs</h2>
+                <h2 className="text-lg font-semibold text-foreground">{t("allPacksHeading")}</h2>
               ) : (
                 folderTiles.length > 0 && packsInView.length > 0 && (
-                  <h2 className="text-lg font-semibold text-foreground">Packs</h2>
+                  <h2 className="text-lg font-semibold text-foreground">{t("packsHeading")}</h2>
                 )
               )}
 
               {packsInView.length === 0 ? (
                 isSearching ? (
-                  <StatePanel kind="empty" frame="dashed" icon={IconSearch} title="Nenhum pack encontrado" message={`Nenhum pack corresponde a "${packSearch.trim()}".`} action={<Button variant="outline" onClick={() => setPackSearch("")}>Limpar busca</Button>} />
+                  <StatePanel kind="empty" frame="dashed" icon={IconSearch} title={t("searchEmptyTitle")} message={t("searchEmptyMessage", { term: packSearch.trim() })} action={<Button variant="outline" onClick={() => setPackSearch("")}>{t("clearSearch")}</Button>} />
                 ) : (
                   // Só alcançável dentro de uma pasta: na raiz a seção inteira some. A área
                   // não recebe arrasto (daqui não há pack para arrastar) — por isso é
@@ -1782,12 +1781,12 @@ export default function PacksPage() {
                   <StatePanel
                     kind="empty"
                     frame="dashed"
-                    title="Esta pasta está vazia"
-                    message="Crie ou mova packs para cá."
+                    title={t("folderEmptyTitle")}
+                    message={t("folderEmptyMessage")}
                     action={
                       <Button variant="outline" onClick={() => setIsDialogOpen(true)}>
                         <IconPlus className="w-4 h-4" />
-                        Novo pack
+                        {t("newPackLower")}
                       </Button>
                     }
                   />
@@ -1817,7 +1816,7 @@ export default function PacksPage() {
                             onCheckedChange={(v) => togglePack(pack.id, !!v)}
                             onMouseDown={(e) => { if (e.shiftKey) e.preventDefault(); }}
                             onClick={(e) => handlePackCheckboxClick(e, pack.id)}
-                            aria-label={`Selecionar ${pack.name}`}
+                            aria-label={t("selectAria", { name: pack.name })}
                           />
                         </div>
                       )}
@@ -1840,7 +1839,7 @@ export default function PacksPage() {
           totalCount={visiblePackIds.length}
           isLoading={isBulkDeleting}
           allSelected={allPacksSelected}
-          entityNoun={{ singular: "pack", plural: "packs" }}
+          entityKind="pack"
           actions={packBulkActions}
           onToggleAll={toggleAllPacks}
           onClear={clearPackSelection}
@@ -1876,7 +1875,7 @@ export default function PacksPage() {
             return;
           }
           const { delta, affected, absorbed } = packsMoveImpact(ids, null);
-          guardAccess(delta, affected, `Criar “${name}” com estes packs?`, () => void create(), absorbed, sharedTreeNotice(ids, null));
+          guardAccess(delta, affected, t("createWithPacks", { name }), () => void create(), absorbed, sharedTreeNotice(ids, null));
         }}
       />
 
@@ -1908,7 +1907,7 @@ export default function PacksPage() {
               return;
             }
             const { delta, affected, absorbed } = packsMoveImpact(packIds, parentId);
-            guardAccess(delta, affected, `Criar “${name}” com estes packs?`, () => void create(), absorbed, sharedTreeNotice(packIds, parentId));
+            guardAccess(delta, affected, t("createWithPacks", { name }), () => void create(), absorbed, sharedTreeNotice(packIds, parentId));
           }
         }}
       />
@@ -1916,14 +1915,12 @@ export default function PacksPage() {
       <ConfirmDialog
         isOpen={!!folderToDelete}
         onClose={() => setFolderToDelete(null)}
-        title={`Desfazer a pasta "${folderToDelete?.name ?? ""}"?`}
+        title={t("dissolveTitle", { name: folderToDelete?.name ?? "" })}
         message={(() => {
           const parent = folderToDelete?.parent_id ? bucketById.get(folderToDelete.parent_id)?.folder.name : null;
           const hasSubfolders = (folderToDelete && bucketById.get(folderToDelete.id)?.children.length) || 0;
-          const what = hasSubfolders ? "As subpastas e os packs dela" : "Os packs dela";
-          const base = parent
-            ? `Nada é apagado. ${what} sobem para “${parent}”, no lugar desta pasta. Só este agrupamento desaparece.`
-            : `Nada é apagado. ${what} voltam para a Biblioteca${hasSubfolders ? " (os packs como soltos)" : " como packs soltos"}. Só este agrupamento desaparece.`;
+          const sub = hasSubfolders ? "yes" : "no";
+          const base = parent ? t("dissolveToParent", { sub, parent }) : t("dissolveToRoot", { sub });
           // A pasta compartilhada deixa de existir: quem tinha acesso por ela perde.
           const impact = folderToDelete ? folderDissolveImpact(allFolders, folderShares, folderToDelete.id, ownedPacksIn) : null;
           const lostAccess = !!impact && !isEmptyDelta(impact.delta) && impact.packCount > 0;
@@ -1942,14 +1939,14 @@ export default function PacksPage() {
               <span className="block">{base}</span>
               {lostAccess && (
                 <span className="block font-medium text-foreground">
-                  Atenção: {describePeople(impact!.delta.revoked)} {impact!.delta.revoked.length === 1 ? "perde" : "perdem"} o acesso a {impact!.packCount} {impact!.packCount === 1 ? "pack" : "packs"} que {impact!.delta.revoked.length === 1 ? "vinha" : "vinham"} por esta pasta.
+                  {t("dissolveAttention", { people: describePeople(impact!.delta.revoked), n: impact!.delta.revoked.length, packs: impact!.packCount })}
                 </span>
               )}
               {returning}
             </span>
           );
         })()}
-        confirmText="Desfazer pasta"
+        confirmText={t("dissolve")}
         variant="destructive"
         confirmIcon={<IconTrash className="h-5 w-5" />}
         onConfirm={handleConfirmDeleteFolder}
@@ -1958,13 +1955,9 @@ export default function PacksPage() {
       <ConfirmDialog
         isOpen={!!folderToLeave}
         onClose={() => setFolderToLeave(null)}
-        title={`Sair da pasta "${folderToLeave?.name ?? ""}"?`}
-        message={
-          folderToLeave?.owner_name
-            ? `Você deixa de ver esta pasta e os packs que vêm por ela. Os packs que você criou lá dentro voltam para a sua Biblioteca, e quem tem a pasta deixa de vê-los. Para voltar, ${folderToLeave.owner_name} precisa compartilhar de novo.`
-            : "Você deixa de ver esta pasta e os packs que vêm por ela. Os packs que você criou lá dentro voltam para a sua Biblioteca, e quem tem a pasta deixa de vê-los. Para voltar, o dono precisa compartilhar de novo."
-        }
-        confirmText="Sair da pasta"
+        title={t("leaveTitle", { name: folderToLeave?.name ?? "" })}
+        message={t("leaveMessage", { hasOwner: folderToLeave?.owner_name ? "yes" : "no", owner: folderToLeave?.owner_name ?? "" })}
+        confirmText={t("leave")}
         variant="destructive"
         confirmIcon={<IconLogout className="h-5 w-5" />}
         onConfirm={handleConfirmLeaveFolder}
@@ -1976,7 +1969,7 @@ export default function PacksPage() {
         onClose={() => setAccessGuard(null)}
         title={accessGuard?.title ?? ""}
         message={accessGuard?.message}
-        confirmText={accessGuard?.confirmText ?? "Continuar"}
+        confirmText={accessGuard?.confirmText ?? ta("continue")}
         onConfirm={() => {
           const pending = accessGuard;
           setAccessGuard(null);
@@ -1992,21 +1985,19 @@ export default function PacksPage() {
       />
 
       {/* Load Pack Modal */}
-      <AppDialog isOpen={isDialogOpen} onClose={() => setIsDialogOpen(false)} title="Carregar Pack de Anúncios" size="2xl" padding="md" closeOnOverlayClick closeOnEscape showCloseButton>
+      <AppDialog isOpen={isDialogOpen} onClose={() => setIsDialogOpen(false)} title={t("loadTitle")} size="2xl" padding="md" closeOnOverlayClick closeOnEscape showCloseButton>
         <div className="space-y-1.5 mb-6">
-          <h2 className="text-lg font-semibold leading-none tracking-tight">Carregar Pack de Anúncios</h2>
+          <h2 className="text-lg font-semibold leading-none tracking-tight">{t("loadTitle")}</h2>
           <p className="text-sm text-muted-foreground">
-            Configure os parâmetros para carregar um novo pack de anúncios
+            {t("loadSubtitle")}
             {creationFolder && (
               <>
-                {" "}· ele vai para a pasta <span className="font-medium text-foreground">{creationFolder.name}</span>
+                {" "}{t.rich("goesToFolder", { name: creationFolder.name, b: (c) => <span className="font-medium text-foreground">{c}</span> })}
                 {shareCountOf(creationFolder.id) > 0 && (
-                  <>, compartilhada com <span className="font-medium text-foreground">{describePeople([...effectiveGrantees(allFolders, folderShares, creationFolder.id).values()])}</span></>
+                  <>{t.rich("sharedWithPeople", { people: describePeople([...effectiveGrantees(allFolders, folderShares, creationFolder.id).values()]), b: (c) => <span className="font-medium text-foreground">{c}</span> })}</>
                 )}
                 {!isOwnFolder(creationFolder) && (
-                  <>
-                    , compartilhada com você{sharedRootOf(creationFolder)?.owner_name ? ` por ${sharedRootOf(creationFolder)!.owner_name}` : ""}: quem tem a pasta vai ver o pack, e ele continua seu
-                  </>
+                  <>{t("sharedWithYou", { hasOwner: sharedRootOf(creationFolder)?.owner_name ? "yes" : "no", owner: sharedRootOf(creationFolder)?.owner_name ?? "" })}</>
                 )}
               </>
             )}
@@ -2016,9 +2007,9 @@ export default function PacksPage() {
         <div className="space-y-6">
           {/* Pack Name */}
           <div className="space-y-2">
-            <label className="text-sm font-medium">Nome do Pack</label>
+            <label className="text-sm font-medium">{t("nameLabel")}</label>
             <Input
-              placeholder="Ex: Black Friday Campaign, Q4 Performance, etc."
+              placeholder={t("namePlaceholder")}
               value={formData.name}
               onChange={(e) => {
                 setPackNameDuplicateError(false);
@@ -2026,16 +2017,16 @@ export default function PacksPage() {
               }}
               className={packNameDuplicateError ? "border-destructive focus-visible:ring-destructive" : undefined}
             />
-            {packNameDuplicateError && <p className="text-xs text-destructive">Já existe um pack com esse nome. Escolha outro.</p>}
+            {packNameDuplicateError && <p className="text-xs text-destructive">{t("nameDuplicate")}</p>}
           </div>
 
           {/* Ad Account */}
           <div className="space-y-2">
             <label className="text-sm font-medium flex items-center gap-2">
-              Conta de Anúncios
+              {t("accountLabel")}
               {Array.isArray(adAccountsData) && adAccountsData.length > 0 && (
                 <span className="text-xs text-muted-foreground font-normal">
-                  ({adAccountsData.length} {adAccountsData.length === 1 ? "conta disponível" : "contas disponíveis"})
+                  {t("accountsAvailable", { count: adAccountsData.length })}
                 </span>
               )}
             </label>
@@ -2044,14 +2035,14 @@ export default function PacksPage() {
                 <SelectTrigger className="w-full">
                   <div className="flex items-center gap-2 text-muted-foreground">
                     <IconLoader2 className="w-4 h-4 animate-spin" />
-                    <span>Carregando contas de anúncios...</span>
+                    <span>{t("loadingAccounts")}</span>
                   </div>
                 </SelectTrigger>
               </Select>
             ) : Array.isArray(adAccountsData) && adAccountsData.length > 0 ? (
               <Select value={formData.adaccount_id} onValueChange={(value) => setFormData((prev) => ({ ...prev, adaccount_id: value }))}>
                 <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Selecione uma conta de anúncios" />
+                  <SelectValue placeholder={t("selectAccountPlaceholder")} />
                 </SelectTrigger>
                 <SelectContent>
                   {[...adAccountsData]
@@ -2115,7 +2106,7 @@ export default function PacksPage() {
             ) : (
               <InlineNotice
                 tone="warning"
-                title="Nenhuma conta de anúncios encontrada"
+                title={t("noAccountsTitle")}
                 action={
                   <Button
                     type="button"
@@ -2126,11 +2117,11 @@ export default function PacksPage() {
                       // Pode redirecionar para página de conexão se necessário
                     }}
                   >
-                    Conectar Facebook
+                    {t("connectFacebook")}
                   </Button>
                 }
               >
-                Conecte sua conta do Facebook primeiro.
+                {t("noAccountsBody")}
               </InlineNotice>
             )}
           </div>
@@ -2138,7 +2129,7 @@ export default function PacksPage() {
           {/* Date Range */}
           <div className="space-y-2">
             <div className="flex items-center justify-between">
-              <label className="text-sm font-medium">Período</label>
+              <label className="text-sm font-medium">{t("periodLabel")}</label>
               <div className="flex items-center gap-2">
                 <ToggleSwitch
                   id="auto-refresh-switch"
@@ -2152,7 +2143,7 @@ export default function PacksPage() {
                     }
                   }}
                   disabled={formData.date_stop !== getTodayLocal()}
-                  labelLeft="Manter atualizado"
+                  labelLeft={t("keepUpdated")}
                   variant="minimal"
                   size="md"
                   labelClassName={formData.date_stop !== getTodayLocal() ? "text-muted-foreground cursor-not-allowed" : "text-xs text-muted-foreground cursor-pointer"}
@@ -2191,11 +2182,11 @@ export default function PacksPage() {
             <div className="flex items-center justify-between">
               <label className="text-sm font-medium flex items-center gap-2">
                 <IconFilter className="w-4 h-4" />
-                Filtros
+                {t("filtersLabel")}
               </label>
               <Button type="button" variant="outline" size="sm" onClick={handleAddFilter}>
                 <IconPlus className="w-4 h-4 mr-1" />
-                Adicionar Filtro
+                {t("addFilter")}
               </Button>
             </div>
 
@@ -2204,7 +2195,7 @@ export default function PacksPage() {
                 <div className="col-span-4">
                   <Select value={filter.field} onValueChange={(value) => handleFilterChange(index, "field", value)}>
                     <SelectTrigger className="w-full">
-                      <SelectValue placeholder="Selecione o campo" />
+                      <SelectValue placeholder={t("selectField")} />
                     </SelectTrigger>
                     <SelectContent>
                       {FILTER_FIELDS.map((field) => (
@@ -2218,7 +2209,7 @@ export default function PacksPage() {
                 <div className="col-span-3">
                   <Select value={filter.operator} onValueChange={(value) => handleFilterChange(index, "operator", value)}>
                     <SelectTrigger className="w-full">
-                      <SelectValue placeholder="Selecione o operador" />
+                      <SelectValue placeholder={t("selectOperator")} />
                     </SelectTrigger>
                     <SelectContent>
                       {FILTER_OPERATORS.map((op) => (
@@ -2230,7 +2221,7 @@ export default function PacksPage() {
                   </Select>
                 </div>
                 <div className="col-span-4">
-                  <Input placeholder="Valor..." value={filter.value} onChange={(e) => handleFilterChange(index, "value", e.target.value)} />
+                  <Input placeholder={t("valuePlaceholder")} value={filter.value} onChange={(e) => handleFilterChange(index, "value", e.target.value)} />
                 </div>
                 <div className="col-span-1 flex">
                   <Button type="button" variant="outline" className="h-full w-full hover:border-destructive hover:text-destructive hover:bg-destructive-10" onClick={() => handleRemoveFilter(index)}>
@@ -2245,27 +2236,19 @@ export default function PacksPage() {
           <div className="flex gap-3">
             <Button onClick={handleLoadPack} disabled={!!validateForm() || isCreating} className="flex-1" size="lg">
               <IconChartBar className="w-4 h-4 mr-2" />
-              Carregar Pack
+              {t("loadPack")}
             </Button>
           </div>
         </div>
       </AppDialog>
 
       {/* Refresh Pack Confirmation Dialog */}
-      <AppDialog isOpen={refreshModalPacks.length > 0} onClose={cancelRefreshPack} title={isBulkRefresh ? "Atualizar Packs" : "Atualizar Pack"} size="md" padding="md" closeOnOverlayClick closeOnEscape showCloseButton>
+      <AppDialog isOpen={refreshModalPacks.length > 0} onClose={cancelRefreshPack} title={isBulkRefresh ? t("refreshTitleBulk") : t("refreshTitle")} size="md" padding="md" closeOnOverlayClick closeOnEscape showCloseButton>
         <div className="flex flex-col gap-5 py-4">
           <div>
-            <h2 className="text-xl font-semibold text-foreground mb-1">{isBulkRefresh ? `Atualizar ${refreshModalPacks.length} packs?` : "Atualizar Pack?"}</h2>
+            <h2 className="text-xl font-semibold text-foreground mb-1">{isBulkRefresh ? t("refreshHeadingBulk", { count: refreshModalPacks.length }) : t("refreshHeading")}</h2>
             <p className="text-sm text-muted-foreground">
-              {isBulkRefresh ? (
-                <>
-                  Os packs serão atualizados <strong>um de cada vez</strong>, na ordem da tela. Escolha o tipo de atualização:
-                </>
-              ) : (
-                <>
-                  Deseja atualizar o pack <strong>"{refreshModalPacks[0]?.name}"</strong>? Escolha o tipo de atualização:
-                </>
-              )}
+              {isBulkRefresh ? t.rich("refreshIntroBulk", { b: strong }) : t.rich("refreshIntro", { name: refreshModalPacks[0]?.name ?? "", b: strong })}
             </p>
           </div>
 
@@ -2277,14 +2260,14 @@ export default function PacksPage() {
                 <div className="flex flex-col gap-3">
                   <ToggleSwitch id="refresh-toggle-meta" checked={refreshToggles.meta} onCheckedChange={(checked) => setRefreshToggles((prev) => ({ ...prev, meta: checked }))} label="Meta" variant="minimal" icon={<MetaIcon className="h-4 w-4 flex-shrink-0" />} />
                   <div className="flex items-center gap-2">
-                    <ToggleSwitch id="refresh-toggle-leadscore" checked={hasSheetIntegration ? refreshToggles.leadscore : false} onCheckedChange={(checked) => setRefreshToggles((prev) => ({ ...prev, leadscore: checked }))} label="Leadscore (Google Sheets)" variant="minimal" icon={<GoogleSheetsIcon className="h-4 w-4 flex-shrink-0" />} disabled={!hasSheetIntegration} />
+                    <ToggleSwitch id="refresh-toggle-leadscore" checked={hasSheetIntegration ? refreshToggles.leadscore : false} onCheckedChange={(checked) => setRefreshToggles((prev) => ({ ...prev, leadscore: checked }))} label={t("leadscoreSheets")} variant="minimal" icon={<GoogleSheetsIcon className="h-4 w-4 flex-shrink-0" />} disabled={!hasSheetIntegration} />
                     {!hasSheetIntegration && (
                       <TooltipProvider>
                         <Tooltip>
                           <TooltipTrigger asChild>
                             <IconInfoCircle className="h-3.5 w-3.5 text-muted-foreground cursor-help flex-shrink-0" />
                           </TooltipTrigger>
-                          <TooltipContent>Ative o leadscore integrando uma planilha.</TooltipContent>
+                          <TooltipContent>{t("leadscoreTip")}</TooltipContent>
                         </Tooltip>
                       </TooltipProvider>
                     )}
@@ -2297,11 +2280,7 @@ export default function PacksPage() {
           {/* Opções de período */}
           {(() => {
             const pack = refreshModalPacks[0];
-            const formatDateDisplay = (s: string) => {
-              if (!s) return "";
-              const [y, m, d] = s.split("-");
-              return `${d}/${m}/${y}`;
-            };
+            const formatDateDisplay = (s: string) => (s ? formatIsoDate(s) : "");
             const today = getTodayLocal();
             // Mesma regra do backend: última atualização menos a janela de atribuição
             // do pack (nunca antes do início). É o que o refresh vai pedir de fato.
@@ -2312,20 +2291,20 @@ export default function PacksPage() {
             const until = refreshUntil(pack, today);
             // Em lote cada pack tem sua própria âncora e seu próprio período — um range
             // concreto seria mentira. Descreve a regra em vez de resumir datas.
-            const sinceLastRange = isBulkRefresh ? "Cada pack a partir da sua última atualização" : sinceLastStart ? `${formatDateDisplay(sinceLastStart)} → ${formatDateDisplay(until)}` : "—";
+            const sinceLastRange = isBulkRefresh ? t("sinceLastBulk") : sinceLastStart ? `${formatDateDisplay(sinceLastStart)} → ${formatDateDisplay(until)}` : "—";
             const sinceLastHint = isBulkRefresh
-              ? "Inclui a janela de atribuição de cada pack, para as conversões tardias entrarem."
+              ? t("sinceLastHintBulk")
               : sinceLastStart
-                ? `Inclui ${lookbackDays} ${lookbackDays === 1 ? "dia" : "dias"} de janela de atribuição, para as conversões tardias entrarem.`
+                ? t("sinceLastHint", { days: lookbackDays })
                 : null;
-            const fullPeriodRange = isBulkRefresh ? "O período completo de cada pack" : pack?.date_start && pack?.date_stop ? `${formatDateDisplay(pack.date_start)} → ${formatDateDisplay(until)}` : "—";
+            const fullPeriodRange = isBulkRefresh ? t("fullPeriodBulk") : pack?.date_start && pack?.date_stop ? `${formatDateDisplay(pack.date_start)} → ${formatDateDisplay(until)}` : "—";
             return (
               <div className="w-full space-y-2">
                 <button type="button" onClick={() => setRefreshType("since_last_refresh")} className={`w-full p-3 rounded-lg border-2 text-left transition-all cursor-pointer ${refreshType === "since_last_refresh" ? "border-primary bg-primary-10" : "border-border bg-surface-2 hover:bg-accent"}`}>
                   <div className="flex items-center gap-3">
                     <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${refreshType === "since_last_refresh" ? "border-primary" : "border-border"}`}>{refreshType === "since_last_refresh" && <div className="w-2 h-2 rounded-full bg-primary" />}</div>
                     <div>
-                      <div className="font-semibold text-foreground text-sm">Dados mais recentes</div>
+                      <div className="font-semibold text-foreground text-sm">{t("latestData")}</div>
                       <div className="text-xs text-muted-foreground mt-0.5">{sinceLastRange}</div>
                       {sinceLastHint && <div className="text-2xs text-muted-foreground mt-0.5">{sinceLastHint}</div>}
                     </div>
@@ -2336,7 +2315,7 @@ export default function PacksPage() {
                   <div className="flex items-center gap-3">
                     <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${refreshType === "full_period" ? "border-primary" : "border-border"}`}>{refreshType === "full_period" && <div className="w-2 h-2 rounded-full bg-primary" />}</div>
                     <div>
-                      <div className="font-semibold text-foreground text-sm">Todo o período</div>
+                      <div className="font-semibold text-foreground text-sm">{t("fullPeriod")}</div>
                       <div className="text-xs text-muted-foreground mt-0.5">{fullPeriodRange}</div>
                     </div>
                   </div>
@@ -2348,12 +2327,12 @@ export default function PacksPage() {
           <div className="flex gap-4 w-full">
             <Button onClick={cancelRefreshPack} variant="destructiveOutline" className="flex-1 flex items-center justify-center gap-2">
               <IconCircleX className="h-5 w-5" />
-              Cancelar
+              {tc("cancel")}
             </Button>
 
             <Button onClick={confirmRefreshPack} variant="success" className="flex-1 flex items-center justify-center gap-2" disabled={!canConfirmRefresh}>
               <IconCircleCheck className="h-5 w-5" />
-              Confirmar
+              {tc("confirm")}
             </Button>
           </div>
         </div>
@@ -2365,13 +2344,13 @@ export default function PacksPage() {
       <ConfirmDialog
         isOpen={!!packToRemoveIntegration}
         onClose={() => !isRemovingIntegration && setPackToRemoveIntegration(null)}
-        title="Desconectar planilha"
-        message={`O pack "${packToRemoveIntegration?.name}" continua existindo, e a planilha no Google não é alterada. O leadscore que veio dela é apagado: sem planilha conectada, o pack não guarda dados enriquecidos.`}
+        title={t("disconnectSheetTitle")}
+        message={t("disconnectSheetMessage", { name: packToRemoveIntegration?.name ?? "" })}
         onConfirm={confirmRemoveSheetIntegration}
         variant="destructive"
-        confirmText="Desconectar e apagar"
+        confirmText={t("disconnectConfirm")}
         isLoading={isRemovingIntegration}
-        loadingText="Desconectando..."
+        loadingText={t("disconnecting")}
         layout="left-aligned"
         confirmIcon={<GoogleSheetsIcon className="w-4 h-4" />}
       >
@@ -2380,19 +2359,19 @@ export default function PacksPage() {
             {isLoadingRemovePreview ? (
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
                 <IconLoader2 className="w-4 h-4 animate-spin" />
-                Conferindo o que foi importado...
+                {t("checkingImport")}
               </div>
             ) : removeIntegrationPreview && removeIntegrationPreview.rows_matched > 0 ? (
               <>
                 <div className="bg-background p-4 rounded-lg border border-border">
-                  <p className="text-sm text-muted-foreground mb-2">O leadscore importado sai junto:</p>
+                  <p className="text-sm text-muted-foreground mb-2">{t("importedLeaves")}</p>
                   <ul className="text-sm space-y-1">
                     <li>
-                      • <strong>{removeIntegrationPreview.rows_with_leadscore.toLocaleString()}</strong> dias com leadscore
+                      {t.rich("daysWithLeadscore", { count: formatLocaleNumber(removeIntegrationPreview.rows_with_leadscore), b: strong })}
                     </li>
                     {removeIntegrationPreview.rows_with_custom > 0 && (
                       <li>
-                        • <strong>{removeIntegrationPreview.rows_with_custom.toLocaleString()}</strong> dias com colunas adicionais
+                        {t.rich("daysWithCustom", { count: formatLocaleNumber(removeIntegrationPreview.rows_with_custom), b: strong })}
                       </li>
                     )}
                   </ul>
@@ -2400,36 +2379,30 @@ export default function PacksPage() {
                 {/* Leadscore é do anúncio-dia, não do pack: dia compartilhado sai dos dois. */}
                 {removeIntegrationPreview.rows_shared_with_other_packs > 0 && (
                   <InlineNotice tone="warning">
-                    <strong>{removeIntegrationPreview.rows_shared_with_other_packs.toLocaleString()}</strong> desses dias também
-                    estão em {removeIntegrationPreview.other_packs_affected === 1 ? "outro pack" : `outros ${removeIntegrationPreview.other_packs_affected} packs`},
-                    que vão perder esse leadscore junto.
+                    {t.rich("sharedDays", { count: formatLocaleNumber(removeIntegrationPreview.rows_shared_with_other_packs), others: removeIntegrationPreview.other_packs_affected, b: strong })}
                   </InlineNotice>
                 )}
                 <p className="text-xs text-muted-foreground">
-                  Não há como desfazer. Conectar a planilha de novo repovoa os dias que ela cobrir.
+                  {t("cannotUndo")}
                 </p>
               </>
             ) : (
-              <p className="text-sm text-muted-foreground">Nenhum leadscore foi importado por esta planilha.</p>
+              <p className="text-sm text-muted-foreground">{t("nothingImported")}</p>
             )}
           </div>
         )}
       </ConfirmDialog>
 
       {/* Confirmation Dialog */}
-      <ConfirmDialog isOpen={!!packToRemove} onClose={() => !isDeleting && setPackToRemove(null)} title={isDeleting ? "Deletando Pack..." : "Confirmar Remoção"} message={isDeleting ? `Excluindo os dados do pack "${packToRemove?.name}..."` : `Tem certeza que deseja remover o pack "${packToRemove?.name}"?`} onConfirm={confirmRemovePack} onCancel={cancelRemovePack} variant="destructive" confirmText="Remover Pack" isLoading={isDeleting} loadingText="Deletando..." layout="left-aligned" confirmIcon={<IconTrash className="w-4 h-4" />}>
+      <ConfirmDialog isOpen={!!packToRemove} onClose={() => !isDeleting && setPackToRemove(null)} title={isDeleting ? t("removeTitleDeleting") : t("removeTitle")} message={isDeleting ? t("removeMessageDeleting", { name: packToRemove?.name ?? "" }) : t("removeMessage", { name: packToRemove?.name ?? "" })} onConfirm={confirmRemovePack} onCancel={cancelRemovePack} variant="destructive" confirmText={t("removeConfirm")} isLoading={isDeleting} loadingText={t("deleting")} layout="left-aligned" confirmIcon={<IconTrash className="w-4 h-4" />}>
         {!isDeleting && (
           <div className="py-4">
             <div className="bg-background p-4 rounded-lg border border-border">
-              <p className="text-sm text-muted-foreground mb-2">Esta ação irá remover:</p>
+              <p className="text-sm text-muted-foreground mb-2">{t("willRemove")}</p>
               <ul className="text-sm space-y-1">
-                <li>
-                  • <strong>{packToRemove?.adsCount}</strong> anúncios
-                </li>
-                <li>• Todos os dados e métricas associados</li>
-                <li>
-                  • Esta ação <strong>não pode ser desfeita</strong>
-                </li>
+                <li>{t.rich("adsCountLine", { count: packToRemove?.adsCount ?? 0, b: strong })}</li>
+                <li>{t("allDataLine")}</li>
+                <li>{t.rich("cannotUndoLine", { b: strong })}</li>
               </ul>
             </div>
           </div>
@@ -2437,7 +2410,7 @@ export default function PacksPage() {
       </ConfirmDialog>
 
       {/* Disable Auto-Refresh Confirmation Dialog */}
-      <ConfirmDialog isOpen={!!packToDisableAutoRefresh} onClose={() => !isTogglingAutoRefresh && cancelDisableAutoRefresh()} title="Desativar atualização automática?" message="Ao desativar você precisará lembrar de atualizá-lo manualmente quando necessário." onConfirm={() => packToDisableAutoRefresh && confirmToggleAutoRefresh(packToDisableAutoRefresh.id, false)} onCancel={cancelDisableAutoRefresh} confirmText="Desativar" isLoading={!!isTogglingAutoRefresh} />
+      <ConfirmDialog isOpen={!!packToDisableAutoRefresh} onClose={() => !isTogglingAutoRefresh && cancelDisableAutoRefresh()} title={t("disableTitle")} message={t("disableMessage")} onConfirm={() => packToDisableAutoRefresh && confirmToggleAutoRefresh(packToDisableAutoRefresh.id, false)} onCancel={cancelDisableAutoRefresh} confirmText={t("disableConfirm")} isLoading={!!isTogglingAutoRefresh} />
 
       {/* Transcription Status Dialog */}
       <TranscriptionStatusDialog isOpen={!!transcriptionDialogPack} onClose={() => setTranscriptionDialogPack(null)} packId={transcriptionDialogPack?.id ?? ""} packName={transcriptionDialogPack?.name ?? ""} onConfirm={handleConfirmTranscription} onForce={handleForceTranscription} />
@@ -2461,15 +2434,15 @@ export default function PacksPage() {
         onClose={() => setFolderPackConfirm(null)}
         title={
           folderPackConfirm?.kind === "delete"
-            ? `Deletar ${folderPackConfirm.packs.length} ${folderPackConfirm.packs.length === 1 ? "pack" : "packs"} de "${folderPackConfirm.folder.name}"?`
-            : `Desconectar a planilha de ${folderPackConfirm?.packs.length ?? 0} ${folderPackConfirm?.packs.length === 1 ? "pack" : "packs"} de "${folderPackConfirm?.folder.name ?? ""}"?`
+            ? t("folderDeleteTitle", { count: folderPackConfirm.packs.length, folder: folderPackConfirm.folder.name })
+            : t("folderDisconnectTitle", { count: folderPackConfirm?.packs.length ?? 0, folder: folderPackConfirm?.folder.name ?? "" })
         }
         message={
           folderPackConfirm?.kind === "delete"
-            ? `Vale para os packs desta pasta e de todas as subpastas. Os anúncios e métricas exclusivos deles são apagados, junto com a integração com o Google Sheets de cada um. As pastas continuam existindo. Esta ação não pode ser desfeita.`
-            : "Vale para os packs desta pasta e de todas as subpastas. Os packs continuam existindo e a planilha no Google não é alterada. O leadscore já importado por essas planilhas é apagado junto, e não há como desfazer."
+            ? t("folderDeleteMessage")
+            : t("folderDisconnectMessage")
         }
-        confirmText={folderPackConfirm?.kind === "delete" ? "Deletar" : "Desconectar e apagar"}
+        confirmText={folderPackConfirm?.kind === "delete" ? t("deleteConfirm") : t("disconnectConfirm")}
         variant="destructive"
         onConfirm={() => void handleConfirmFolderPackAction()}
       />

@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import { IconPlus, IconTrash } from "@tabler/icons-react";
 
 import { Button } from "@/components/ui/button";
@@ -31,6 +32,7 @@ interface TargetCprRowsEditorProps {
  * outra. A lógica (o que cada linha vira no mapa do formulário) é `targetCprRows.ts`.
  */
 export function TargetCprRowsEditor({ rows, onChange, conversionTypes, disabled, eventNote }: TargetCprRowsEditorProps) {
+  const t = useTranslations("packs.targetCpr");
   return (
     <div className="space-y-2">
       <div className="space-y-1.5">
@@ -41,8 +43,8 @@ export function TargetCprRowsEditor({ rows, onChange, conversionTypes, disabled,
             <div key={row.key} className="flex items-center gap-2">
               <div className="min-w-0 flex-1">
                 <Select value={row.event} onValueChange={(event) => onChange(updateTargetCprRow(rows, row.key, { event }))} disabled={disabled}>
-                  <SelectTrigger size="sm" aria-label="Evento de conversão">
-                    <SelectValue placeholder="Escolha o evento" />
+                  <SelectTrigger size="sm" aria-label={t("conversionEvent")}>
+                    <SelectValue placeholder={t("chooseEvent")} />
                   </SelectTrigger>
                   <SelectContent>
                     {options.map((type) => {
@@ -65,8 +67,8 @@ export function TargetCprRowsEditor({ rows, onChange, conversionTypes, disabled,
                 className="w-36"
                 value={row.value}
                 onChange={(e) => onChange(updateTargetCprRow(rows, row.key, { value: e.target.value }))}
-                placeholder={row.event ? "sem meta" : "escolha o evento"}
-                aria-label={label ? `Meta de CPR de ${label}` : "Meta de CPR"}
+                placeholder={row.event ? t("noTarget") : t("chooseEventLower")}
+                aria-label={label ? t("goalFor", { label }) : t("goal")}
                 // Valor sem evento não vira meta de ninguém: o campo só abre com o evento escolhido.
                 disabled={disabled || !row.event}
               />
@@ -76,7 +78,7 @@ export function TargetCprRowsEditor({ rows, onChange, conversionTypes, disabled,
                 size="sm"
                 onClick={() => onChange(removeTargetCprRow(rows, row.key))}
                 disabled={disabled || (rows.length === 1 && !row.event && !row.value)}
-                aria-label={label ? `Remover a meta de ${label}` : "Remover linha"}
+                aria-label={label ? t("removeFor", { label }) : t("removeRow")}
               >
                 <IconTrash className="h-4 w-4 text-destructive" />
               </Button>
@@ -92,7 +94,7 @@ export function TargetCprRowsEditor({ rows, onChange, conversionTypes, disabled,
         disabled={disabled || !canAddTargetCprRow(rows, conversionTypes)}
       >
         <IconPlus className="mr-1 h-3.5 w-3.5" />
-        Meta
+        {t("add")}
       </Button>
     </div>
   );

@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { IconLoader2, IconInfoCircle, IconAlertTriangle, IconCalculator, IconTrash } from "@tabler/icons-react";
 
@@ -99,6 +100,8 @@ const TAB_OF_FIELD: Record<"mql" | "target" | "economics", JudgmentTab> = { mql:
  * `packJudgmentBulk.ts` — mexido e vazio limpa em todos).
  */
 export function PackJudgmentDialog({ pack, open, onOpenChange, accountCurrency, bulkPacks, accountCurrencies }: PackJudgmentDialogProps) {
+  const t = useTranslations("packs.judgment");
+  const tc = useTranslations("packs.common");
   const { updatePack } = useClientPacks();
   const isBulk = !!bulkPacks && bulkPacks.length > 0;
   // Preferência só como reserva: ela acompanha a conta apenas quando todas as contas
@@ -298,7 +301,7 @@ export function PackJudgmentDialog({ pack, open, onOpenChange, accountCurrency, 
       return;
     }
     if (built.kind === "empty") {
-      showWarning("Nenhum critério foi alterado. Mexa no que deve valer para todos os packs.");
+      showWarning(t("noChange"));
       return;
     }
     // Sobrescreve algo que algum pack tinha: mostra o resumo antes de gravar.
@@ -321,11 +324,11 @@ export function PackJudgmentDialog({ pack, open, onOpenChange, accountCurrency, 
       const names = Object.fromEntries(bulkPacks.map((p) => [p.id, p.name]));
       const summary = summarizeBulkJudgment(response.results, names);
       if (summary.failed.length > 0) {
-        showError(new Error(`${summary.headline}. Falhou em: ${summary.failed.map((f) => `${f.name} (${f.error})`).join("; ")}`));
+        showError(new Error(t("bulkFailed", { headline: summary.headline, failures: summary.failed.map((f) => `${f.name} (${f.error})`).join("; ") })));
       } else if (summary.skipped.length > 0) {
-        showWarning(`${summary.headline}. Sem permissão em: ${listNames(summary.skipped)}.`);
+        showWarning(t("bulkSkipped", { headline: summary.headline, names: listNames(summary.skipped) }));
       } else {
-        showSuccess(`Critérios aplicados: ${summary.headline}.`);
+        showSuccess(t("bulkApplied", { headline: summary.headline }));
       }
       onOpenChange(false);
     } catch (err) {
@@ -365,7 +368,7 @@ export function PackJudgmentDialog({ pack, open, onOpenChange, accountCurrency, 
         patch.lead_economics = returned === undefined ? sent : (normalizeLeadEconomics(returned) ?? sent);
       }
       updatePack(pack.id, patch);
-      showSuccess("Configuração do pack salva.");
+      showSuccess(t("saved"));
       onOpenChange(false);
     } catch (err) {
       showError(err as Error);
@@ -376,7 +379,6 @@ export function PackJudgmentDialog({ pack, open, onOpenChange, accountCurrency, 
 
   if (!pack && !isBulk) return null;
 
-  const packsNoun = packCount === 1 ? "pack" : "packs";
   const mqlEffect = isBulk ? bulkFieldEffect(initialForm.mql, mqlValue) : null;
   const changedTargets = isBulk ? changedBulkTargets(initialForm, { mql: mqlValue, targets }) : [];
   // Ponto na aba com alteração não salva: com as seções escondidas, é o que lembra
@@ -391,7 +393,7 @@ export function PackJudgmentDialog({ pack, open, onOpenChange, accountCurrency, 
   const tabTrigger = (value: JudgmentTab, label: string) => (
     <TabsTrigger value={value} className="flex-1 gap-2">
       {label}
-      {tabChanged[value] ? <span className="h-1.5 w-1.5 rounded-full bg-current" aria-label="alterado" /> : null}
+      {tabChanged[value] ? <span className="h-1.5 w-1.5 rounded-full bg-current" aria-label={t("changed")} /> : null}
     </TabsTrigger>
   );
 
@@ -402,43 +404,36 @@ export function PackJudgmentDialog({ pack, open, onOpenChange, accountCurrency, 
       isOpen={open}
       onClose={requestClose}
       size="2xl"
-      title={isBulk ? "Configuração dos packs" : "Configuração do pack"}
+      title={isBulk ? t("titleBulk") : t("title")}
       closeOnEscape={!hasUnsavedChanges}
       closeOnOverlayClick={!hasUnsavedChanges}
     >
       <div className="space-y-6">
         <header className="space-y-1">
-          <h2 className="text-lg font-semibold text-foreground">{isBulk ? "Configuração dos packs" : "Configuração do pack"}</h2>
+          <h2 className="text-lg font-semibold text-foreground">{isBulk ? t("titleBulk") : t("title")}</h2>
           {isBulk ? (
             <p className="text-sm text-muted-foreground">
-              Os mesmos critérios para{" "}
-              <span className="font-medium text-foreground">
-                {packCount} {packsNoun}
-              </span>{" "}
-              ({listNames(bulkPacks!.map((p) => p.name))}). O que você mexer aqui vale para todos; o que não mexer fica
-              como está em cada pack.
+              {t.rich("introBulk", { count: packCount, names: listNames(bulkPacks!.map((p) => p.name)), b: (c) => <span className="font-medium text-foreground">{c}</span> })}
             </p>
           ) : (
             <p className="text-sm text-muted-foreground">
-              Define como o pack <span className="font-medium text-foreground">{pack!.name}</span> julga os
-              anúncios. Estes critérios pertencem ao pack e acompanham quem tiver acesso a ele.
+              {t.rich("intro", { name: pack!.name, b: (c) => <span className="font-medium text-foreground">{c}</span> })}
             </p>
           )}
         </header>
 
         <Tabs value={tab} onValueChange={(value) => setTab(value as JudgmentTab)}>
           <TabsList className="w-full">
-            {tabTrigger("mql", "Leadscore")}
-            {tabTrigger("cpr", "CPR alvo")}
-            {tabTrigger("economics", "Economia do lead")}
+            {tabTrigger("mql", t("tabLeadscore"))}
+            {tabTrigger("cpr", t("tabCpr"))}
+            {tabTrigger("economics", t("tabEconomics"))}
           </TabsList>
 
           {/* ── Leadscore mínimo para MQL ── */}
           <TabsContent value="mql" className="pt-4">
           <section className="space-y-2">
             <p className="text-xs text-muted-foreground">
-              Leadscore mínimo para MQL: leads com nota maior ou igual a este valor contam como MQL. A
-              escala vem da planilha integrada.
+              {t("mqlIntro")}
             </p>
 
             {hasSheetIntegration ? (
@@ -450,46 +445,41 @@ export function PackJudgmentDialog({ pack, open, onOpenChange, accountCurrency, 
                   size="sm"
                   value={mqlValue}
                   onChange={(e) => handleMqlChange(e.target.value)}
-                  placeholder={isBulk && bulkSeed?.divergent.mql ? "os packs discordam" : "não definido"}
+                  placeholder={isBulk && bulkSeed?.divergent.mql ? t("divergent") : t("notDefined")}
                   disabled={isSaving}
                 />
                 {isBulk && bulkSeed?.divergent.mql && mqlEffect === "keep" ? (
                   <p className="flex items-start gap-2 text-xs text-muted-foreground">
                     <IconInfoCircle className="mt-0.5 h-3 w-3 shrink-0" />
-                    Hoje os packs têm cortes diferentes ({describeMqlValues(bulkSeed.mqlValues)}). Sem mexer aqui,
-                    cada um mantém o seu.
+                    {t("mqlDiverge", { values: describeMqlValues(bulkSeed.mqlValues) })}
                   </p>
                 ) : null}
                 {isBulk && packsWithSheet < packCount ? (
                   <p className="flex items-start gap-2 text-xs text-muted-foreground">
                     <IconInfoCircle className="mt-0.5 h-3 w-3 shrink-0" />
-                    {packCount - packsWithSheet} {packCount - packsWithSheet === 1 ? "pack ainda não tem" : "packs ainda não têm"}{" "}
-                    planilha: {packCount - packsWithSheet === 1 ? "recebe" : "recebem"} o critério mesmo assim, e ele
-                    passa a valer quando a planilha for conectada.
+                    {t("packsNoSheet", { missing: packCount - packsWithSheet })}
                   </p>
                 ) : null}
                 {mqlEffect === "set" ? (
                   <p className="text-xs text-muted-foreground">
-                    Define o corte {parsedMql ?? mqlValue} nos {packCount} {packsNoun}.
+                    {t("mqlSet", { value: parsedMql ?? mqlValue, count: packCount })}
                   </p>
                 ) : mqlEffect === "clear" ? (
                   <p className="flex items-start gap-2 text-xs text-warning">
                     <IconAlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
-                    Limpa o corte nos {packCount} {packsNoun}: MQL e CPMQL ficam indisponíveis em todos.
+                    {t("mqlClear", { count: packCount })}
                   </p>
                 ) : parsedMql === null && !(isBulk && bulkSeed?.divergent.mql) ? (
                   <p className="flex items-start gap-2 text-xs text-warning">
                     <IconAlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
-                    Sem corte definido, MQL e CPMQL ficam indisponíveis nas telas {isBulk ? "destes packs" : "deste pack"}.
+                    {t("mqlUnset", { bulk: isBulk ? "yes" : "no" })}
                   </p>
                 ) : null}
               </>
             ) : (
               <p className="flex items-start gap-2 text-xs text-muted-foreground">
                 <IconInfoCircle className="mt-0.5 h-3 w-3 shrink-0" />
-                {isBulk
-                  ? "Nenhum destes packs tem planilha integrada, então não há leadscore para qualificar."
-                  : "Este pack não tem planilha integrada, então não há leadscore para qualificar."}
+                {t("noSheetMql", { bulk: isBulk ? "yes" : "no" })}
               </p>
             )}
           </section>
@@ -499,17 +489,13 @@ export function PackJudgmentDialog({ pack, open, onOpenChange, accountCurrency, 
           <TabsContent value="cpr" className="pt-4">
           <section className="space-y-3">
             <p className="text-xs text-muted-foreground">
-              Opcional. A meta de custo por evento de conversão, usada pelo plano de ação para comparar o
-              custo real com o que você quer pagar.
-              {isBulk ? " Só os eventos que você mexer mudam nos packs; os outros ficam como estão em cada um." : ""}
+              {t("cprIntro", { bulk: isBulk ? "yes" : "no" })}
             </p>
 
             {conversionTypes.length === 0 ? (
               <p className="flex items-start gap-2 text-xs text-muted-foreground">
                 <IconInfoCircle className="mt-0.5 h-3 w-3 shrink-0" />
-                {isBulk
-                  ? "Estes packs ainda não têm eventos de conversão registrados. Atualize os packs para que os eventos apareçam aqui."
-                  : "Este pack ainda não tem eventos de conversão registrados. Atualize o pack para que os eventos apareçam aqui."}
+                {t("noEvents", { bulk: isBulk ? "yes" : "no" })}
               </p>
             ) : (
               <div className="space-y-2">
@@ -518,21 +504,17 @@ export function PackJudgmentDialog({ pack, open, onOpenChange, accountCurrency, 
                   onChange={setTargetRows}
                   conversionTypes={conversionTypes}
                   disabled={isSaving}
-                  eventNote={isBulk ? (event) => (bulkSeed?.divergent.targetKeys.includes(event) ? "os packs discordam" : undefined) : undefined}
+                  eventNote={isBulk ? (event) => (bulkSeed?.divergent.targetKeys.includes(event) ? t("divergent") : undefined) : undefined}
                 />
                 {divergentHiddenTargets.length > 0 ? (
                   <p className="flex items-start gap-2 text-xs text-muted-foreground">
                     <IconInfoCircle className="mt-0.5 h-3 w-3 shrink-0" />
-                    {divergentHiddenTargets.length === 1 ? "1 evento tem" : `${divergentHiddenTargets.length} eventos têm`} metas
-                    diferentes entre os packs e {divergentHiddenTargets.length === 1 ? "fica" : "ficam"} como{" "}
-                    {divergentHiddenTargets.length === 1 ? "está" : "estão"}{" "}
-                    {`(${divergentHiddenTargets.map(formatActionTypeLabel).join(", ")}).`} Para definir igual em todos, adicione o evento.
+                    {t("divergentHidden", { count: divergentHiddenTargets.length, events: divergentHiddenTargets.map(formatActionTypeLabel).join(", ") })}
                   </p>
                 ) : null}
                 {changedTargets.length > 0 ? (
                   <p className="text-xs text-muted-foreground">
-                    {changedTargets.length === 1 ? "1 evento alterado" : `${changedTargets.length} eventos alterados`}: a meta vale
-                    para os {packCount} {packsNoun} (linha removida ou vazia tira a meta desse evento de todos).
+                    {t("changedTargets", { count: changedTargets.length, packs: packCount })}
                   </p>
                 ) : null}
               </div>
@@ -548,8 +530,7 @@ export function PackJudgmentDialog({ pack, open, onOpenChange, accountCurrency, 
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div className="min-w-[12rem] flex-1">
                 <p className="text-xs text-muted-foreground">
-                  Dá o teto de CPL e a margem de cada anúncio, a partir do que você vende e de quem compra.
-                  {isBulk && economicsSaved ? ` Os ${packCount} ${packsNoun} têm o mesmo cadastro; o que você salvar vale para todos.` : ""}
+                  {t("economicsIntro", { same: isBulk && economicsSaved ? "yes" : "no", count: packCount })}
                 </p>
               </div>
               {hasSheetIntegration && economics.draft ? (
@@ -557,12 +538,12 @@ export function PackJudgmentDialog({ pack, open, onOpenChange, accountCurrency, 
                   variant="ghost"
                   size="sm"
                   className="text-destructive hover:text-destructive"
-                  aria-label="Remover economia do lead"
+                  aria-label={t("removeAria")}
                   onClick={removeEconomics}
                   disabled={isSaving}
                 >
                   <IconTrash />
-                  Remover
+                  {t("remove")}
                 </Button>
               ) : null}
             </div>
@@ -570,17 +551,14 @@ export function PackJudgmentDialog({ pack, open, onOpenChange, accountCurrency, 
             {bulkCurrency && bulkCurrency.mixed.length > 1 && hasSheetIntegration ? (
               <p className="flex items-start gap-2 text-xs text-warning">
                 <IconAlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
-                Os packs estão em contas com moedas diferentes ({bulkCurrency.mixed.join(", ")}). O ticket é um número só,
-                lido na moeda de cada conta: confira se o mesmo valor faz sentido para todos.
+                {t("mixedCurrencies", { currencies: bulkCurrency.mixed.join(", ") })}
               </p>
             ) : null}
 
             {!hasSheetIntegration ? (
               <p className="flex items-start gap-2 text-xs text-muted-foreground">
                 <IconInfoCircle className="mt-0.5 h-3 w-3 shrink-0" />
-                {isBulk
-                  ? "Nenhum destes packs tem planilha integrada. Sem leadscore não há como calcular o teto de CPL nem a margem."
-                  : "Este pack não tem planilha integrada. Sem leadscore não há como calcular o teto de CPL nem a margem."}
+                {t("noSheetEconomics", { bulk: isBulk ? "yes" : "no" })}
               </p>
             ) : economicsPanel === "editor" && economics.draft ? (
               <LeadEconomicsEditor
@@ -600,17 +578,17 @@ export function PackJudgmentDialog({ pack, open, onOpenChange, accountCurrency, 
                 kind="empty"
                 density="compact"
                 icon={IconCalculator}
-                title="Economia do lead removida"
+                title={t("removedTitle")}
                 message={
                   economicsRawExists
                     ? isBulk
-                      ? "O cadastro será apagado de todos os packs que o têm quando você salvar."
-                      : "O cadastro deste pack será apagado quando você salvar."
-                    : "O que foi preenchido aqui não será salvo."
+                      ? t("removedBulk")
+                      : t("removedSingle")
+                    : t("removedUnsaved")
                 }
                 action={
                   <Button ref={focusRefs.removed} variant="outline" size="sm" onClick={undoRemoveEconomics} disabled={isSaving}>
-                    Desfazer
+                    {t("undo")}
                   </Button>
                 }
               />
@@ -620,20 +598,16 @@ export function PackJudgmentDialog({ pack, open, onOpenChange, accountCurrency, 
               <StatePanel
                 kind="warning"
                 density="compact"
-                title="Cadastro gravado inválido"
-                message={
-                  isBulk
-                    ? "Algum destes packs tem uma economia do lead gravada que não é válida e está sendo ignorada: teto de CPL e margem ficam indisponíveis nele. Remova de todos ou configure de novo para todos."
-                    : "A economia do lead gravada neste pack não é válida e está sendo ignorada: teto de CPL e margem ficam indisponíveis. Remova o cadastro ou configure de novo."
-                }
+                title={t("invalidTitle")}
+                message={t("invalidMessage", { bulk: isBulk ? "yes" : "no" })}
                 action={
                   <div className="flex flex-wrap justify-center gap-3">
                     <Button ref={focusRefs.invalid} variant="outline" size="sm" onClick={removeEconomics} disabled={isSaving}>
                       <IconTrash />
-                      Remover cadastro
+                      {t("removeRegistry")}
                     </Button>
                     <Button variant="outline" size="sm" onClick={startEconomics} disabled={isSaving}>
-                      Configurar de novo
+                      {t("configureAgain")}
                     </Button>
                   </div>
                 }
@@ -646,16 +620,16 @@ export function PackJudgmentDialog({ pack, open, onOpenChange, accountCurrency, 
                 kind="empty"
                 density="compact"
                 icon={IconCalculator}
-                title="Os packs discordam na economia do lead"
-                message="Cada pack tem um cadastro diferente, ou alguns não têm. Configurar aqui substitui o cadastro em todos; remover apaga de todos. Sem mexer, cada pack mantém o seu."
+                title={t("divergentTitle")}
+                message={t("divergentMessage")}
                 action={
                   <div className="flex flex-wrap justify-center gap-3">
                     <Button ref={focusRefs.empty} variant="outline" size="sm" onClick={startEconomics} disabled={isSaving}>
-                      Configurar para todos
+                      {t("configureAll")}
                     </Button>
                     <Button variant="outline" size="sm" onClick={removeEconomics} disabled={isSaving}>
                       <IconTrash />
-                      Remover de todos
+                      {t("removeAll")}
                     </Button>
                   </div>
                 }
@@ -665,11 +639,11 @@ export function PackJudgmentDialog({ pack, open, onOpenChange, accountCurrency, 
                 kind="empty"
                 density="compact"
                 icon={IconCalculator}
-                title="Economia do lead não configurada"
-                message="Cadastre o que você vende e quanto cada faixa de nota vira venda. Com isso, cada anúncio ganha um teto de quanto você pode pagar por lead."
+                title={t("unconfiguredTitle")}
+                message={t("unconfiguredMessage")}
                 action={
                   <Button ref={focusRefs.empty} variant="outline" size="sm" onClick={startEconomics} disabled={isSaving}>
-                    Configurar economia do lead
+                    {t("configure")}
                   </Button>
                 }
               />
@@ -680,18 +654,18 @@ export function PackJudgmentDialog({ pack, open, onOpenChange, accountCurrency, 
 
         <footer className="flex justify-end gap-3 border-t border-border pt-4">
           <Button variant="outline" onClick={requestClose} disabled={isSaving}>
-            Cancelar
+            {tc("cancel")}
           </Button>
           <Button onClick={handleSave} disabled={isSaving}>
             {isSaving ? (
               <>
                 <IconLoader2 className="mr-2 h-4 w-4 animate-spin" />
-                Salvando...
+                {t("saving")}
               </>
             ) : isBulk ? (
-              `Aplicar aos ${packCount} ${packsNoun}`
+              t("applyAll", { count: packCount })
             ) : (
-              "Salvar configuração"
+              t("saveConfig")
             )}
           </Button>
         </footer>
@@ -711,14 +685,10 @@ export function PackJudgmentDialog({ pack, open, onOpenChange, accountCurrency, 
       <ConfirmDialog
         isOpen={confirmingDiscard}
         onClose={() => setConfirmingDiscard(false)}
-        title="Descartar alterações?"
-        message={
-          isBulk
-            ? "O que você mudou na configuração destes packs ainda não foi salvo e vai se perder."
-            : "O que você mudou na configuração deste pack ainda não foi salvo e vai se perder."
-        }
-        cancelText="Continuar editando"
-        confirmText="Descartar"
+        title={t("discardTitle")}
+        message={t("discardMessage", { bulk: isBulk ? "yes" : "no" })}
+        cancelText={t("keepEditing")}
+        confirmText={t("discard")}
         variant="destructive"
         size="sm"
         nested

@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import { getAppLocale } from "@/lib/i18n/locale";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { IconInfoCircle, IconLoader2 } from "@tabler/icons-react";
@@ -42,6 +43,8 @@ interface Previa {
  * fora do período novo, não o que a janela declarada diz (há linhas fora dela).
  */
 export function PackDateRangeDialog({ pack, open, onOpenChange, onConfirm }: PackDateRangeDialogProps) {
+  const t = useTranslations("packs.dateRange");
+  const tc = useTranslations("packs.common");
   const [range, setRange] = useState<DateRangeValue>({});
   const [previa, setPrevia] = useState<Previa | null>(null);
   const [carregandoPrevia, setCarregandoPrevia] = useState(false);
@@ -97,11 +100,11 @@ export function PackDateRangeDialog({ pack, open, onOpenChange, onConfirm }: Pac
   }, [pack, plan?.reduces, plan?.newStart, plan?.newStop]);
 
   return (
-    <AppDialog isOpen={open} onClose={() => onOpenChange(false)} title="Editar período" size="sm">
+    <AppDialog isOpen={open} onClose={() => onOpenChange(false)} title={t("title")} size="sm">
       <div className="space-y-4">
         {pack && (
           <p className="text-xs text-muted-foreground">
-            Período atual de <span className="font-medium text-foreground">{pack.name}</span>:{" "}
+            {t.rich("current", { name: pack.name, b: (c) => <span className="font-medium text-foreground">{c}</span> })}{" "}
             {pack.date_start && pack.date_stop ? `${fmt(pack.date_start)} → ${fmt(pack.date_stop)}` : "—"}
           </p>
         )}
@@ -117,28 +120,25 @@ export function PackDateRangeDialog({ pack, open, onOpenChange, onConfirm }: Pac
         {errorMessage && <p className="text-xs text-destructive">{errorMessage}</p>}
 
         {reduces && (
-          <InlineNotice tone="warning" title="Este período apaga dados do pack">
+          <InlineNotice tone="warning" title={t("reducesTitle")}>
             <div className="space-y-1">
               {carregandoPrevia || !previa ? (
                 <p className="text-xs text-muted-foreground flex items-center gap-1.5">
-                  <IconLoader2 className="w-3 h-3 animate-spin" /> Calculando o que sai do pack...
+                  <IconLoader2 className="w-3 h-3 animate-spin" /> {t("calculating")}
                 </p>
               ) : previa.dias === 0 ? (
-                <p className="text-xs">Nenhum dia com dados sai deste pack.</p>
+                <p className="text-xs">{t("noneLeave")}</p>
               ) : (
                 <p className="text-xs">
-                  <span className="font-medium">
-                    {previa.dias} {previa.dias === 1 ? "dia sai" : "dias saem"}
-                  </span>{" "}
-                  deste pack, somando{" "}
-                  <span className="font-medium">
-                    {previa.investimento.toLocaleString(getAppLocale(), { style: "currency", currency: "BRL" })}
-                  </span>{" "}
-                  de investimento.
+                  {t.rich("daysLeave", {
+                    days: previa.dias,
+                    amount: previa.investimento.toLocaleString(getAppLocale(), { style: "currency", currency: "BRL" }),
+                    b: (c) => <span className="font-medium">{c}</span>,
+                  })}
                 </p>
               )}
               <p className="text-xs text-muted-foreground">
-                Para trazer de volta, amplie o período e atualize o pack.
+                {t("restoreHint")}
               </p>
             </div>
           </InlineNotice>
@@ -147,19 +147,17 @@ export function PackDateRangeDialog({ pack, open, onOpenChange, onConfirm }: Pac
         {plan && plan.fetch && (
           <div className="rounded-md border border-border bg-background p-3 space-y-1">
             <p className="text-xs text-foreground">
-              Vai buscar na Meta <span className="font-medium">{fmt(plan.fetch[0])} → {fmt(plan.fetch[1])}</span>.
+              {t.rich("willFetch", { start: fmt(plan.fetch[0]), end: fmt(plan.fetch[1]), b: (c) => <span className="font-medium">{c}</span> })}
             </p>
             <p className="text-xs text-muted-foreground flex items-start gap-1">
               <IconInfoCircle className="w-3 h-3 mt-0.5 flex-shrink-0" />
               <span>
-                Inclui {plan.lookbackDays} {plan.lookbackDays === 1 ? "dia" : "dias"} de janela de atribuição na
-                emenda, para as conversões tardias entrarem. O período só muda quando os dados chegarem
-                completos; se a busca falhar, nada é alterado.
+                {t("lookback", { days: plan.lookbackDays })}
               </span>
             </p>
             {plan.autoRefreshOff && pack?.auto_refresh && (
               <p className="text-xs text-muted-foreground">
-                A data final é anterior a hoje: o «manter atualizado» será desligado.
+                {t("autoOff")}
               </p>
             )}
           </div>
@@ -167,7 +165,7 @@ export function PackDateRangeDialog({ pack, open, onOpenChange, onConfirm }: Pac
 
         <div className="flex justify-end gap-3">
           <Button variant="ghost" size="sm" onClick={() => onOpenChange(false)}>
-            Cancelar
+            {tc("cancel")}
           </Button>
           <Button
             size="sm"
@@ -178,7 +176,7 @@ export function PackDateRangeDialog({ pack, open, onOpenChange, onConfirm }: Pac
               onConfirm(pack, { date_start: plan.newStart, date_stop: plan.newStop });
             }}
           >
-            {reduces && (previa?.dias ?? 0) > 0 ? "Alterar e apagar" : "Alterar período"}
+            {reduces && (previa?.dias ?? 0) > 0 ? t("confirmDelete") : t("confirm")}
           </Button>
         </div>
       </div>

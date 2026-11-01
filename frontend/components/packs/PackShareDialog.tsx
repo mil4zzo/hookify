@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import { getAppLocale } from "@/lib/i18n/locale";
 import { useCallback, useEffect, useState } from "react";
 import { IconLoader2, IconTrash, IconUsers } from "@tabler/icons-react";
@@ -36,6 +37,7 @@ interface ShareRow {
  * Neutro de propósito: um círculo de cor sólida por membro pesaria mais que o conteúdo.
  */
 export function MemberIdentity({ name, fallback, since }: { name: string | null; fallback: string; since?: string }) {
+  const ts = useTranslations("packs.share");
   const label = name?.trim() || fallback;
   const words = label.split(/\s+/).filter(Boolean);
   const initials = (words.length > 1 ? `${words[0][0]}${words[words.length - 1][0]}` : label.slice(0, 2)).toUpperCase();
@@ -49,16 +51,11 @@ export function MemberIdentity({ name, fallback, since }: { name: string | null;
       </span>
       <div className="min-w-0">
         <div className="truncate text-sm font-medium text-foreground">{label}</div>
-        {sinceLabel && <div className="text-2xs text-muted-foreground">Acesso desde {sinceLabel}</div>}
+        {sinceLabel && <div className="text-2xs text-muted-foreground">{ts("accessSince", { date: sinceLabel })}</div>}
       </div>
     </div>
   );
 }
-
-const ROLE_LABEL: Record<"editor" | "viewer", string> = {
-  editor: "Editor",
-  viewer: "Leitura",
-};
 
 /**
  * Convite e membros de um pack — SÓ O DONO abre isto (decisão travada: sem
@@ -69,6 +66,10 @@ const ROLE_LABEL: Record<"editor" | "viewer", string> = {
  * copiado — o convidado lê o silo do dono ao vivo, com a credencial do dono.
  */
 export function PackShareDialog({ pack, open, onOpenChange }: PackShareDialogProps) {
+  const t = useTranslations("packs.packShare");
+  const ts = useTranslations("packs.share");
+  const tc = useTranslations("packs.common");
+  const roleLabel = { editor: ts("roleEditor"), viewer: ts("roleViewer") };
   const [email, setEmail] = useState("");
   const [inviteRole, setInviteRole] = useState<"editor" | "viewer">("editor");
   const [isLookingUp, setIsLookingUp] = useState(false);
@@ -102,7 +103,7 @@ export function PackShareDialog({ pack, open, onOpenChange }: PackShareDialogPro
   const handleLookup = async () => {
     const normalized = email.trim().toLowerCase();
     if (!normalized.includes("@")) {
-      showError({ message: "Informe um e-mail válido." });
+      showError({ message: ts("invalidEmail") });
       return;
     }
     setIsLookingUp(true);
@@ -126,7 +127,7 @@ export function PackShareDialog({ pack, open, onOpenChange }: PackShareDialogPro
     setIsInviting(true);
     try {
       await api.packShares.create(pack.id, lookupResult.user_id, inviteRole);
-      showSuccess(`Pack compartilhado com ${lookupResult.display_name || email.trim()}.`);
+      showSuccess(t("shared", { who: lookupResult.display_name || email.trim() }));
       setEmail("");
       setLookupResult(null);
       await loadShares();
@@ -150,13 +151,13 @@ export function PackShareDialog({ pack, open, onOpenChange }: PackShareDialogPro
   };
 
   const handleRevoke = async (share: ShareRow) => {
-    const who = share.display_name || "este membro";
-    if (!confirm(`Revogar o acesso de ${who} ao pack "${pack.name}"?`)) return;
+    const who = share.display_name || ts("thisMember");
+    if (!confirm(t("revokeConfirm", { who, pack: pack.name }))) return;
     setBusyGranteeId(share.grantee_id);
     try {
       await api.packShares.revoke(pack.id, share.grantee_id);
       setShares((prev) => prev.filter((s) => s.grantee_id !== share.grantee_id));
-      showSuccess("Acesso revogado.");
+      showSuccess(ts("revoked"));
     } catch (e) {
       showError(e as Error);
     } finally {
@@ -165,24 +166,21 @@ export function PackShareDialog({ pack, open, onOpenChange }: PackShareDialogPro
   };
 
   return (
-    <AppDialog isOpen={open} onClose={() => onOpenChange(false)} size="lg" title="Compartilhar pack">
+    <AppDialog isOpen={open} onClose={() => onOpenChange(false)} size="lg" title={t("title")}>
       <div className="space-y-6">
         <header className="space-y-1">
           <h2 className="flex items-center gap-2 text-lg font-semibold text-foreground">
             <IconUsers className="h-5 w-5" />
-            Compartilhar «{pack.name}»
+            {t("heading", { name: pack.name })}
           </h2>
           <p className="text-sm text-muted-foreground">
-            O convidado vê e analisa este pack ao vivo — sem copiar dados e sem precisar
-            conectar o Facebook. <span className="font-medium text-foreground">Editor</span> também
-            atualiza e calibra os critérios; <span className="font-medium text-foreground">Leitura</span> só
-            consulta.
+            {t.rich("intro", { b: (c) => <span className="font-medium text-foreground">{c}</span> })}
           </p>
         </header>
 
         {/* ── Convite ── */}
         <section className="space-y-2">
-          <label className="text-sm font-medium text-foreground">Convidar por e-mail</label>
+          <label className="text-sm font-medium text-foreground">{ts("inviteByEmail")}</label>
           <div className="flex gap-2">
             <Input
               type="email"
@@ -195,20 +193,20 @@ export function PackShareDialog({ pack, open, onOpenChange }: PackShareDialogPro
               onKeyDown={(e) => {
                 if (e.key === "Enter") void handleLookup();
               }}
-              placeholder="email@exemplo.com"
+              placeholder={ts("emailPlaceholder")}
               disabled={isLookingUp || isInviting}
             />
             <Button size="sm" variant="outline" onClick={handleLookup} disabled={isLookingUp || !email.trim()}>
-              {isLookingUp ? <IconLoader2 className="h-4 w-4 animate-spin" /> : "Buscar"}
+              {isLookingUp ? <IconLoader2 className="h-4 w-4 animate-spin" /> : ts("search")}
             </Button>
           </div>
           <p className="text-xs text-muted-foreground">
-            E-mail exato de quem já tem conta no Hookify.
+            {ts("exactEmail")}
           </p>
 
           {lookupResult === "not_found" && (
-            <InlineNotice tone="info" title="Nenhuma conta com este e-mail">
-              A pessoa precisa criar uma conta no Hookify primeiro.
+            <InlineNotice tone="info" title={ts("notFoundTitle")}>
+              {ts("notFoundBody")}
             </InlineNotice>
           )}
 
@@ -221,12 +219,12 @@ export function PackShareDialog({ pack, open, onOpenChange }: PackShareDialogPro
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="editor">Editor</SelectItem>
-                    <SelectItem value="viewer">Leitura</SelectItem>
+                    <SelectItem value="editor">{ts("roleEditor")}</SelectItem>
+                    <SelectItem value="viewer">{ts("roleViewer")}</SelectItem>
                   </SelectContent>
                 </Select>
                 <Button size="sm" onClick={handleInvite} disabled={isInviting}>
-                  {isInviting ? <IconLoader2 className="h-4 w-4 animate-spin" /> : "Convidar"}
+                  {isInviting ? <IconLoader2 className="h-4 w-4 animate-spin" /> : ts("invite")}
                 </Button>
               </div>
             </div>
@@ -235,13 +233,13 @@ export function PackShareDialog({ pack, open, onOpenChange }: PackShareDialogPro
 
         {/* ── Membros ── */}
         <section className="space-y-2">
-          <label className="text-sm font-medium text-foreground">Membros</label>
+          <label className="text-sm font-medium text-foreground">{t("members")}</label>
           {isLoadingShares ? (
             <div className="flex items-center justify-center py-6">
               <IconLoader2 className="h-5 w-5 animate-spin text-muted-foreground" />
             </div>
           ) : shares.length === 0 ? (
-            <p className="text-xs text-muted-foreground">Ninguém ainda — só você vê este pack.</p>
+            <p className="text-xs text-muted-foreground">{t("noMembers")}</p>
           ) : (
             <div className="divide-y divide-border rounded-md border border-border bg-surface-2">
               {shares.map((share) => (
@@ -250,8 +248,8 @@ export function PackShareDialog({ pack, open, onOpenChange }: PackShareDialogPro
                   {share.source_folder_id ? (
                     // Mantido pelo banco a partir da pasta: mexer aqui seria desfeito na próxima
                     // mudança dela. O caminho para tirar é a pasta (ou o pack sair dela).
-                    <span className="text-xs text-muted-foreground" title="Para tirar este acesso, remova a pessoa da pasta ou tire o pack dela.">
-                      {ROLE_LABEL[share.role]} · via pasta «{share.source_folder_name ?? "compartilhada"}»
+                    <span className="text-xs text-muted-foreground" title={t("viaFolderTitle")}>
+                      {t("viaFolder", { role: roleLabel[share.role], folder: share.source_folder_name ?? t("folderFallback") })}
                     </span>
                   ) : (
                     <div className="flex items-center gap-2">
@@ -261,11 +259,11 @@ export function PackShareDialog({ pack, open, onOpenChange }: PackShareDialogPro
                         disabled={busyGranteeId === share.grantee_id}
                       >
                         <SelectTrigger size="sm" className="w-28">
-                          <SelectValue>{ROLE_LABEL[share.role]}</SelectValue>
+                          <SelectValue>{roleLabel[share.role]}</SelectValue>
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="editor">Editor</SelectItem>
-                          <SelectItem value="viewer">Leitura</SelectItem>
+                          <SelectItem value="editor">{ts("roleEditor")}</SelectItem>
+                          <SelectItem value="viewer">{ts("roleViewer")}</SelectItem>
                         </SelectContent>
                       </Select>
                       <Button
@@ -274,7 +272,7 @@ export function PackShareDialog({ pack, open, onOpenChange }: PackShareDialogPro
                         className="text-destructive hover:text-destructive"
                         onClick={() => void handleRevoke(share)}
                         disabled={busyGranteeId === share.grantee_id}
-                        aria-label={`Revogar acesso de ${share.display_name || "membro"}`}
+                        aria-label={t("revokeAria", { name: share.display_name || ts("member") })}
                       >
                         <IconTrash className="h-4 w-4" />
                       </Button>
@@ -288,7 +286,7 @@ export function PackShareDialog({ pack, open, onOpenChange }: PackShareDialogPro
 
         <footer className="flex justify-end border-t border-border pt-4">
           <Button variant="outline" onClick={() => onOpenChange(false)}>
-            Fechar
+            {tc("close")}
           </Button>
         </footer>
       </div>

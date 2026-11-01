@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import React from "react";
 // design-system-exception: direct-skeleton-import - esqueleto replica o explorer e os tiles de pasta com formato real, fora do escopo dos variants de StateSkeleton
 import { Skeleton } from "@/components/ui/skeleton";
@@ -49,8 +50,9 @@ function FolderTileSkeleton() {
 }
 
 export function PacksLibrarySkeleton() {
+  const t = useTranslations("packs.librarySkeleton");
   return (
-    <div className="flex flex-col items-stretch gap-6 lg:min-h-0 lg:flex-1 lg:flex-row lg:gap-10 xl:gap-12" aria-busy="true" aria-label="Carregando Biblioteca">
+    <div className="flex flex-col items-stretch gap-6 lg:min-h-0 lg:flex-1 lg:flex-row lg:gap-10 xl:gap-12" aria-busy="true" aria-label={t("loading")}>
       {/* Explorer: mesma coluna do PackFolderTree (busca + árvore). */}
       <div className="flex w-full shrink-0 flex-col gap-4 self-start lg:w-56 xl:w-64">
         <Skeleton className="h-control-default w-full" />

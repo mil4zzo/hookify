@@ -1,3 +1,4 @@
+import { translate } from "@/lib/i18n/translate";
 import type { AdsPack, DirectShareEntry, FolderShareEntry, PackFolder } from "@/lib/types";
 
 /**
@@ -171,10 +172,10 @@ export function folderDissolveImpact(
 export function describePeople(people: Pick<EffectiveGrantee, "display_name">[]): string {
   if (people.length === 0) return "";
   const names = people.map((p) => p.display_name?.trim()).filter((n): n is string => !!n);
-  if (names.length !== people.length) return `${people.length} ${people.length === 1 ? "pessoa" : "pessoas"}`;
+  if (names.length !== people.length) return translate("packs.people.count", { count: people.length });
   if (names.length === 1) return names[0];
-  if (names.length === 2) return `${names[0]} e ${names[1]}`;
-  return `${names[0]}, ${names[1]} e mais ${names.length - 2}`;
+  if (names.length === 2) return translate("packs.people.two", { a: names[0], b: names[1] });
+  return translate("packs.people.more", { a: names[0], b: names[1], count: names.length - 2 });
 }
 
 /** Quantas pessoas têm acesso por esta pasta (a própria + as de cima), para o selo na árvore. */

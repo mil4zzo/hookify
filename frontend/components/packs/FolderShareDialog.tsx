@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import { useCallback, useEffect, useState } from "react";
 import { IconLoader2, IconTrash, IconUsers } from "@tabler/icons-react";
 
@@ -23,10 +24,6 @@ interface FolderShareDialogProps {
 
 type Role = "editor" | "viewer";
 
-const ROLE_LABEL: Record<Role, string> = { editor: "Editor", viewer: "Leitura" };
-
-const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
-
 /**
  * Compartilhar uma PASTA (migration 181), como no Drive: a pessoa vê a mesma pasta do
  * dono, com as subpastas e os packs de hoje e de depois. Só o dono da pasta abre isto.
@@ -37,6 +34,10 @@ const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one :
  * pack para dentro de uma pasta assim — o silêncio que a Decisão 3 da 168 temia.
  */
 export function FolderShareDialog({ folder, open, onOpenChange, onChanged }: FolderShareDialogProps) {
+  const t = useTranslations("packs.folderShare");
+  const ts = useTranslations("packs.share");
+  const tc = useTranslations("packs.common");
+  const roleLabel: Record<Role, string> = { editor: ts("roleEditor"), viewer: ts("roleViewer") };
   const [detail, setDetail] = useState<FolderShareDetail | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [email, setEmail] = useState("");
@@ -72,7 +73,7 @@ export function FolderShareDialog({ folder, open, onOpenChange, onChanged }: Fol
   const handleLookup = async () => {
     const normalized = email.trim().toLowerCase();
     if (!normalized.includes("@")) {
-      showError({ message: "Informe um e-mail válido." });
+      showError({ message: ts("invalidEmail") });
       return;
     }
     setIsLookingUp(true);
@@ -93,11 +94,9 @@ export function FolderShareDialog({ folder, open, onOpenChange, onChanged }: Fol
     try {
       const res = await api.folderShares.create(folderId, lookupResult.user_id, inviteRole);
       const who = lookupResult.display_name || email.trim();
-      const parts = [`Pasta compartilhada com ${who}.`];
-      if (res.access_changes.granted > 0) parts.push(`${plural(res.access_changes.granted, "pack liberado", "packs liberados")}.`);
-      if (res.absorbed > 0) {
-        parts.push(`${plural(res.absorbed, "pack que já era", "packs que já eram")} compartilhado${res.absorbed === 1 ? "" : "s"} direto ${res.absorbed === 1 ? "passa" : "passam"} a valer pela pasta.`);
-      }
+      const parts = [t("shared", { who })];
+      if (res.access_changes.granted > 0) parts.push(t("granted", { count: res.access_changes.granted }));
+      if (res.absorbed > 0) parts.push(t("absorbed", { count: res.absorbed }));
       showSuccess(parts.join(" "));
       setEmail("");
       setLookupResult(null);
@@ -126,18 +125,15 @@ export function FolderShareDialog({ folder, open, onOpenChange, onChanged }: Fol
 
   const handleRevoke = async (member: FolderShareMember) => {
     if (!folderId || !folder) return;
-    const who = member.display_name || "este membro";
+    const who = member.display_name || ts("thisMember");
     const covered = detail?.scope.owned_packs ?? 0;
     // Dentro da pasta tudo segue a pasta (181): o que era convite direto foi absorvido e sai junto.
-    const effect =
-      covered > 0
-        ? ` ${who} perde o acesso aos ${covered} ${covered === 1 ? "pack" : "packs"} da pasta, inclusive os que tinha recebido direto. Os packs que a pessoa criou lá dentro voltam para ela, e você deixa de vê-los.`
-        : "";
-    if (!confirm(`Tirar ${who} da pasta "${folder.name}"?${effect}`)) return;
+    const effect = covered > 0 ? t("revokeEffect", { who, covered }) : "";
+    if (!confirm(`${t("revokeConfirm", { who, folder: folder.name })}${effect}`)) return;
     setBusyGranteeId(member.grantee_id);
     try {
       await api.folderShares.revoke(folderId, member.grantee_id);
-      showSuccess("Acesso revogado.");
+      showSuccess(ts("revoked"));
       await load();
       onChanged();
     } catch (e) {
@@ -150,36 +146,28 @@ export function FolderShareDialog({ folder, open, onOpenChange, onChanged }: Fol
   const scope = detail?.scope;
 
   return (
-    <AppDialog isOpen={open} onClose={() => onOpenChange(false)} size="lg" title="Compartilhar pasta">
+    <AppDialog isOpen={open} onClose={() => onOpenChange(false)} size="lg" title={t("title")}>
       <div className="space-y-6">
         <header className="space-y-1">
           <h2 className="flex items-center gap-2 text-lg font-semibold text-foreground">
             <IconUsers className="h-5 w-5" />
-            Compartilhar «{folder?.name ?? ""}»
+            {t("heading", { name: folder?.name ?? "" })}
           </h2>
           <p className="text-sm text-muted-foreground">
-            Quem você convidar vê esta pasta como você: <span className="font-medium text-foreground">as subpastas e todos os packs</span>, os de
-            hoje e os que entrarem depois. Quando um pack sai da pasta, o acesso a ele por aqui termina junto.{" "}
-            <span className="font-medium text-foreground">Editor</span> mexe na pasta como você: renomeia, cria e desfaz subpastas, move,
-            cria, renomeia e exclui packs, muda o período, atualiza e calibra. Pack que o editor cria aqui é dele e fica na pasta enquanto
-            ele estiver nela.{" "}
-            <span className="font-medium text-foreground">Leitura</span> só consulta.
+            {t.rich("intro", { b: (c) => <span className="font-medium text-foreground">{c}</span> })}
           </p>
         </header>
 
         {scope && (
-          <InlineNotice tone="info" title="O que esta pasta cobre hoje">
-            {plural(scope.owned_packs, "pack seu", "packs seus")}
-            {scope.subfolders > 0 ? ` e ${plural(scope.subfolders, "subpasta", "subpastas")}` : ""}.
-            {scope.foreign_packs > 0 && (
-              <> {plural(scope.foreign_packs, "pack desta pasta não é seu", "packs desta pasta não são seus")} (foram compartilhados com você) e {scope.foreign_packs === 1 ? "fica" : "ficam"} de fora.</>
-            )}
+          <InlineNotice tone="info" title={t("coverTitle")}>
+            {t("cover", { owned: scope.owned_packs, subfolders: scope.subfolders })}
+            {scope.foreign_packs > 0 && <> {t("coverForeign", { count: scope.foreign_packs })}</>}
           </InlineNotice>
         )}
 
         {/* ── Convite ── */}
         <section className="space-y-2">
-          <label className="text-sm font-medium text-foreground">Convidar por e-mail</label>
+          <label className="text-sm font-medium text-foreground">{ts("inviteByEmail")}</label>
           <div className="flex gap-2">
             <Input
               type="email"
@@ -192,18 +180,18 @@ export function FolderShareDialog({ folder, open, onOpenChange, onChanged }: Fol
               onKeyDown={(e) => {
                 if (e.key === "Enter") void handleLookup();
               }}
-              placeholder="email@exemplo.com"
+              placeholder={ts("emailPlaceholder")}
               disabled={isLookingUp || isInviting}
             />
             <Button size="sm" variant="outline" onClick={handleLookup} disabled={isLookingUp || !email.trim()}>
-              {isLookingUp ? <IconLoader2 className="h-4 w-4 animate-spin" /> : "Buscar"}
+              {isLookingUp ? <IconLoader2 className="h-4 w-4 animate-spin" /> : ts("search")}
             </Button>
           </div>
-          <p className="text-xs text-muted-foreground">E-mail exato de quem já tem conta no Hookify.</p>
+          <p className="text-xs text-muted-foreground">{ts("exactEmail")}</p>
 
           {lookupResult === "not_found" && (
-            <InlineNotice tone="info" title="Nenhuma conta com este e-mail">
-              A pessoa precisa criar uma conta no Hookify primeiro.
+            <InlineNotice tone="info" title={ts("notFoundTitle")}>
+              {ts("notFoundBody")}
             </InlineNotice>
           )}
 
@@ -216,12 +204,12 @@ export function FolderShareDialog({ folder, open, onOpenChange, onChanged }: Fol
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="editor">Editor</SelectItem>
-                    <SelectItem value="viewer">Leitura</SelectItem>
+                    <SelectItem value="editor">{ts("roleEditor")}</SelectItem>
+                    <SelectItem value="viewer">{ts("roleViewer")}</SelectItem>
                   </SelectContent>
                 </Select>
                 <Button size="sm" onClick={handleInvite} disabled={isInviting}>
-                  {isInviting ? <IconLoader2 className="h-4 w-4 animate-spin" /> : "Compartilhar pasta"}
+                  {isInviting ? <IconLoader2 className="h-4 w-4 animate-spin" /> : t("shareButton")}
                 </Button>
               </div>
             </div>
@@ -230,13 +218,13 @@ export function FolderShareDialog({ folder, open, onOpenChange, onChanged }: Fol
 
         {/* ── Quem tem a pasta ── */}
         <section className="space-y-2">
-          <label className="text-sm font-medium text-foreground">Membros da pasta</label>
+          <label className="text-sm font-medium text-foreground">{t("members")}</label>
           {isLoading && !detail ? (
             <div className="flex items-center justify-center py-6">
               <IconLoader2 className="h-5 w-5 animate-spin text-muted-foreground" />
             </div>
           ) : !detail || detail.shares.length === 0 ? (
-            <p className="text-xs text-muted-foreground">Ninguém ainda — só você vê os packs desta pasta.</p>
+            <p className="text-xs text-muted-foreground">{t("noMembers")}</p>
           ) : (
             <div className="divide-y divide-border rounded-md border border-border bg-surface-2">
               {detail.shares.map((member) => (
@@ -249,11 +237,11 @@ export function FolderShareDialog({ folder, open, onOpenChange, onChanged }: Fol
                       disabled={busyGranteeId === member.grantee_id}
                     >
                       <SelectTrigger size="sm" className="w-28">
-                        <SelectValue>{ROLE_LABEL[member.role]}</SelectValue>
+                        <SelectValue>{roleLabel[member.role]}</SelectValue>
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="editor">Editor</SelectItem>
-                        <SelectItem value="viewer">Leitura</SelectItem>
+                        <SelectItem value="editor">{ts("roleEditor")}</SelectItem>
+                        <SelectItem value="viewer">{ts("roleViewer")}</SelectItem>
                       </SelectContent>
                     </Select>
                     <Button
@@ -262,7 +250,7 @@ export function FolderShareDialog({ folder, open, onOpenChange, onChanged }: Fol
                       className="text-destructive hover:text-destructive"
                       onClick={() => void handleRevoke(member)}
                       disabled={busyGranteeId === member.grantee_id}
-                      aria-label={`Tirar ${member.display_name || "membro"} da pasta`}
+                      aria-label={t("removeAria", { name: member.display_name || ts("member") })}
                     >
                       <IconTrash className="h-4 w-4" />
                     </Button>
@@ -276,27 +264,26 @@ export function FolderShareDialog({ folder, open, onOpenChange, onChanged }: Fol
         {/* ── Herdado das pastas de cima: vale aqui, só muda lá ── */}
         {detail && detail.inherited.length > 0 && (
           <section className="space-y-2">
-            <label className="text-sm font-medium text-foreground">Herdado das pastas de cima</label>
+            <label className="text-sm font-medium text-foreground">{t("inherited")}</label>
             <div className="divide-y divide-border rounded-md border border-border bg-surface-2">
               {detail.inherited.map((member) => (
                 <div key={member.id} className="flex flex-wrap items-center justify-between gap-2 p-3">
                   <MemberIdentity name={member.display_name} fallback={member.grantee_id.slice(0, 8)} />
                   <span className="text-xs text-muted-foreground">
-                    {ROLE_LABEL[member.role]} · via «{member.folder_name ?? "pasta"}»
+                    {t("viaFolder", { role: roleLabel[member.role], folder: member.folder_name ?? t("folderFallback") })}
                   </span>
                 </div>
               ))}
             </div>
             <p className="text-xs text-muted-foreground">
-              Estes acessos valem para esta pasta também e só mudam na pasta de onde vêm. Compartilhar esta subpasta com a mesma pessoa
-              troca o papel dela só aqui dentro.
+              {t("inheritedNote")}
             </p>
           </section>
         )}
 
         <footer className="flex justify-end border-t border-border pt-4">
           <Button variant="outline" onClick={() => onOpenChange(false)}>
-            Fechar
+            {tc("close")}
           </Button>
         </footer>
       </div>
