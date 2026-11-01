@@ -16,7 +16,7 @@ import { buildManagerBulkActions } from "@/components/manager/managerBulkActions
 import { useMultiSelect } from "@/lib/hooks/useMultiSelect";
 import { FilterBar } from "@/components/manager/FilterBar";
 import { StatusCell } from "@/components/manager/StatusCell";
-import { BULK_ENTITY_NOUN, isTerminalEntityStatus, useBulkEntityStatusControl, type AdEntityType } from "@/lib/hooks/useAdStatusControl";
+import { isTerminalEntityStatus, useBulkEntityStatusControl, type AdEntityType } from "@/lib/hooks/useAdStatusControl";
 import { getVisibleManagerColumns } from "@/components/manager/managerColumnPreferences";
 import { getAdThumbnail } from "@/lib/utils/thumbnailFallback";
 import { countRestrictiveConditions, getFilteredFieldIds } from "@/lib/manager/managerRules";
@@ -197,6 +197,7 @@ export function ManagerChildrenTable({
     [activeColumns, columnOrder, hasSheetIntegration, hasLeadEconomics, customColumnsVersion],
   );
   const t = useTranslations("manager.children");
+  const tBulk = useTranslations("manager.bulk");
   const tItems = useTranslations("manager.items");
   const childrenLabel = tItems(config.itemKind);
   const entityKey = resolvedEntity;
@@ -300,10 +301,11 @@ export function ManagerChildrenTable({
   const bulkActions = useMemo(
     () =>
       buildManagerBulkActions({
+        t: tBulk,
         onPause: () => { bulk.bulkPause(Array.from(selectedKeys)); clearSelection(); },
         onActivate: () => { bulk.bulkActivate(Array.from(selectedKeys)); clearSelection(); },
       }),
-    [bulk, selectedKeys, clearSelection],
+    [tBulk, bulk, selectedKeys, clearSelection],
   );
 
   // Campos com condição EFETIVA — sinalizados com funil no header. Condições sobre
@@ -554,7 +556,7 @@ export function ManagerChildrenTable({
         totalCount={orderedSelectableKeys.length}
         isLoading={bulk.isLoading}
         allSelected={allSelected}
-        entityNoun={BULK_ENTITY_NOUN[config.bulkEntityType]}
+        entityKind={config.bulkEntityType}
         actions={bulkActions}
         onToggleAll={toggleAll}
         onClear={clearSelection}

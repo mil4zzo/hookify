@@ -2,6 +2,8 @@ import { IconArrowBarToUp, IconCoin, IconPlayerPause, IconPlayerPlay, IconShare2
 import type { BulkAction } from "@/components/common/BulkActionsBar";
 
 interface BuildManagerBulkActionsParams {
+  /** Tradutor do namespace `manager.bulk` (a lista é montada fora de componente). */
+  t: (key: string, values?: Record<string, string | number>) => string;
   /** Pausar/ativar. Ausentes na aba Criativos, onde a seleção existe para compartilhar. */
   onPause?: () => void;
   onActivate?: () => void;
@@ -32,7 +34,7 @@ interface BuildManagerBulkActionsParams {
  * ManagerChildrenTable renderizam a mesma barra: a copy dos dialogs precisa
  * existir em um lugar só, senão as duas superfícies divergem com o tempo.
  */
-export function buildManagerBulkActions({ onPause, onActivate, onShare, onTags, onBudget, onTogglePin, isPinned = false }: BuildManagerBulkActionsParams): BulkAction[] {
+export function buildManagerBulkActions({ t, onPause, onActivate, onShare, onTags, onBudget, onTogglePin, isPinned = false }: BuildManagerBulkActionsParams): BulkAction[] {
   const actions: BulkAction[] = [];
 
   if (onTogglePin) {
@@ -41,7 +43,7 @@ export function buildManagerBulkActions({ onPause, onActivate, onShare, onTags, 
       // Primeira ação da barra: é a única que serve para LER (juntar as linhas para
       // comparar), e é o passo natural depois de marcar os checkboxes. As de escrita
       // (pausar/ativar) vêm depois, longe do gesto de conferir.
-      label: isPinned ? "Desafixar" : "Fixar no topo",
+      label: isPinned ? t("unpin") : t("pin"),
       icon: <IconArrowBarToUp className="h-3.5 w-3.5" />,
       active: isPinned,
       onSelect: onTogglePin,
@@ -51,7 +53,7 @@ export function buildManagerBulkActions({ onPause, onActivate, onShare, onTags, 
   if (onTags) {
     actions.push({
       id: "tags",
-      label: "Tags",
+      label: t("tags"),
       icon: <IconTag className="h-3.5 w-3.5" />,
       // Sem confirm: o diálogo já é a confirmação, e marcar é reversível num clique.
       onSelect: onTags,
@@ -61,7 +63,7 @@ export function buildManagerBulkActions({ onPause, onActivate, onShare, onTags, 
   if (onBudget) {
     actions.push({
       id: "budget",
-      label: "Orçamento",
+      label: t("budget"),
       icon: <IconCoin className="h-3.5 w-3.5" />,
       // Sem confirm da barra: o diálogo já mostra a prévia e pede o "Aplicar".
       onSelect: onBudget,
@@ -71,14 +73,14 @@ export function buildManagerBulkActions({ onPause, onActivate, onShare, onTags, 
   if (onPause && onActivate) {
     actions.push({
       id: "pause",
-      label: "Pausar",
+      label: t("pause"),
       icon: <IconPlayerPause className="h-3.5 w-3.5" />,
       tone: "danger",
       showsLoading: true,
       confirm: {
-        title: (count, noun) => `Pausar ${count} ${noun}?`,
-        message: (count, noun) => `A veiculação ${count === 1 ? "deste" : "destes"} ${noun} será interrompida no Meta imediatamente.`,
-        confirmText: "Pausar",
+        title: (count, noun) => t("pauseTitle", { count, noun }),
+        message: (count, noun, kind) => t("pauseMessage", { count, noun, kind }),
+        confirmText: t("pause"),
         variant: "destructive",
         icon: <IconPlayerPause className="h-5 w-5" />,
       },
@@ -87,14 +89,14 @@ export function buildManagerBulkActions({ onPause, onActivate, onShare, onTags, 
 
     actions.push({
       id: "activate",
-      label: "Ativar",
+      label: t("activate"),
       icon: <IconPlayerPlay className="h-3.5 w-3.5" />,
       tone: "success",
       showsLoading: true,
       confirm: {
-        title: (count, noun) => `Ativar ${count} ${noun}?`,
-        message: (count, noun) => `${count === 1 ? "Este" : "Estes"} ${noun} ${count === 1 ? "voltará" : "voltarão"} a veicular no Meta (exceto os bloqueados por campanha/conjunto pausado).`,
-        confirmText: "Ativar",
+        title: (count, noun) => t("activateTitle", { count, noun }),
+        message: (count, noun, kind) => t("activateMessage", { count, noun, kind }),
+        confirmText: t("activate"),
         variant: "success",
         icon: <IconPlayerPlay className="h-5 w-5" />,
       },
@@ -105,7 +107,7 @@ export function buildManagerBulkActions({ onPause, onActivate, onShare, onTags, 
   if (onShare) {
     actions.push({
       id: "share",
-      label: "Compartilhar",
+      label: t("share"),
       icon: <IconShare2 className="h-3.5 w-3.5" />,
       // Na aba Criativos a seleção existe PARA compartilhar — é ela que leva o acento.
       tone: "accent",

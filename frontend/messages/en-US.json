@@ -247,6 +247,52 @@
       "noRevenue": "None of this ad's leads fall in a band that buys: there is no revenue to divide.",
       "noSpendCompare": "No spend in the period: there is no cost per lead to compare.",
       "noSpendShow": "No spend in the period: there is no cost per lead to show."
+    },
+    "bulk": {
+      "pin": "Pin to top",
+      "unpin": "Unpin",
+      "tags": "Tags",
+      "budget": "Budget",
+      "pause": "Pause",
+      "activate": "Activate",
+      "share": "Share",
+      "pauseTitle": "Pause {count} {noun}?",
+      "pauseMessage": "Delivery of {count, plural, one {this} other {these}} {noun} will be stopped on Meta immediately.",
+      "activateTitle": "Activate {count} {noun}?",
+      "activateMessage": "{count, plural, one {This} other {These}} {noun} will resume delivering on Meta (except those blocked by a paused campaign/ad set)."
+    }
+  },
+  "bulk": {
+    "noun": "{kind, select, ad {{count, plural, one {ad} other {ads}}} adset {{count, plural, one {ad set} other {ad sets}}} campaign {{count, plural, one {campaign} other {campaigns}}} creative {{count, plural, one {creative} other {creatives}}} pack {{count, plural, one {pack} other {packs}}} other {{count, plural, one {item} other {items}}}}",
+    "selected": "selected",
+    "of": " of ",
+    "selectAll": "Select all",
+    "deselectAll": "Deselect all",
+    "more": "More",
+    "clear": "Clear selection",
+    "confirm": "Confirm",
+    "parentHint": "{kind, select, ad {the campaign/ad set} adset {the campaign} other {}}",
+    "parentFallback": "a parent",
+    "loading": "{action, select, pause {Pausing} other {Activating}} {subject}…",
+    "done": "{count} {noun} {action, select, pause {paused} other {activated}}.",
+    "partialDone": "{count} {action, select, pause {paused} other {activated}}",
+    "partialBlocked": "{count} blocked (parent paused)",
+    "partialFailed": "{count} failed",
+    "allBlocked": "None activated: {count} blocked because {parent} is paused. Activate {parent} first.",
+    "failedCount": "Failed to update {count} {noun}.",
+    "bulkFailed": "Failed to update status in bulk.",
+    "rateLimit": "Meta request limit reached. Wait a few seconds and try again.",
+    "pausedOk": "Paused successfully.",
+    "activatedOk": "Activated successfully.",
+    "singleFailed": "Failed to update status.",
+    "tooManyInSequence": "Too many status actions in a row. Wait a few seconds and try again — or select several ads and use “Pause/Activate in bulk”.",
+    "delivery": {
+      "PENDING_REVIEW": "Activated. The {noun} is under review on Meta and will start delivering after approval.",
+      "PREAPPROVED": "Activated. The {noun} was pre-approved and will start delivering shortly.",
+      "WITH_ISSUES": "Activated, but Meta reports a delivery error. Check the {noun} in Ads Manager to see what to fix.",
+      "DISAPPROVED": "Activated, but the {noun} was disapproved by Meta and will not deliver. See the reason in Ads Manager.",
+      "PENDING_BILLING_INFO": "Activated, but the account has a pending payment issue on Meta. The {noun} will resume delivering once it is resolved.",
+      "other": "Activated, but the {noun} is not delivering on Meta yet."
     }
   }
 }

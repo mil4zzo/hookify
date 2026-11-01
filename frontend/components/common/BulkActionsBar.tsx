@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import React from "react";
 import { IconChevronDown, IconDots, IconLoader2, IconX } from "@tabler/icons-react";
 import { ConfirmDialog } from "@/components/common/ConfirmDialog";
@@ -7,9 +8,9 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { cn } from "@/lib/utils/cn";
 
 export interface BulkActionConfirm {
-  /** Recebem a contagem e o substantivo já flexionado, para a copy concordar. */
-  title: (count: number, noun: string) => string;
-  message: (count: number, noun: string) => string;
+  /** Recebem a contagem, o substantivo já flexionado e a espécie da entidade (gênero/número por idioma). */
+  title: (count: number, noun: string, kind: string) => string;
+  message: (count: number, noun: string, kind: string) => string;
   confirmText: string;
   variant?: "default" | "destructive" | "success";
   /** Ícone do botão de confirmação do dialog (maior que o da barra). */
@@ -56,8 +57,10 @@ export interface BulkActionsBarProps {
   isLoading: boolean;
   /** True quando todas as linhas selecionáveis (pós-filtro) já estão selecionadas. */
   allSelected: boolean;
-  /** Substantivo da entidade para a copy do dialog (ex.: anúncio/anúncios). */
-  entityNoun: { singular: string; plural: string };
+  /** Espécie da entidade (ad, adset, campaign, creative, pack): o substantivo vem do idioma. */
+  entityKind?: string;
+  /** Legado (telas ainda não traduzidas): substantivo já pronto. Prefira `entityKind`. */
+  entityNoun?: { singular: string; plural: string };
   actions: BulkAction[];
   /** Selecionar todos (true) / desmarcar todos (false) — sobre as linhas visíveis pós-filtro. */
   onToggleAll: (checked: boolean) => void;
@@ -94,15 +97,17 @@ const SEGMENT_QUIET = "text-background-60 hover:text-background";
  * de anúncios já aconteceu. O dialog vive aqui dentro para que toda superfície que renderize
  * a barra ganhe a proteção sem duplicar estado.
  */
-export function BulkActionsBar({ selectedCount, totalCount, isLoading, allSelected, entityNoun, actions, onToggleAll, onClear, className }: BulkActionsBarProps) {
+export function BulkActionsBar({ selectedCount, totalCount, isLoading, allSelected, entityKind, entityNoun, actions, onToggleAll, onClear, className }: BulkActionsBarProps) {
   const [pendingActionId, setPendingActionId] = React.useState<string | null>(null);
   // O menu devolve o foco ao gatilho ao fechar. Quando o item escolhido abre um dialog,
   // essa devolução acontece DEPOIS do dialog montar e rouba o foco dele.
   const confirmFromMenuRef = React.useRef(false);
+  const t = useTranslations("bulk");
 
   if (selectedCount === 0) return null;
 
-  const noun = selectedCount === 1 ? entityNoun.singular : entityNoun.plural;
+  const kind = entityKind ?? "other";
+  const noun = entityKind ? t("noun", { kind, count: selectedCount }) : selectedCount === 1 ? entityNoun?.singular ?? "" : entityNoun?.plural ?? "";
   const pendingAction = actions.find((action) => action.id === pendingActionId) ?? null;
   const inlineActions = actions.filter((action) => !action.secondary);
   const menuActions = actions.filter((action) => action.secondary);
@@ -124,15 +129,15 @@ export function BulkActionsBar({ selectedCount, totalCount, isLoading, allSelect
           <b className="font-semibold text-background">{selectedCount}</b>
           {totalCount !== undefined ? (
             <>
-              {" de "}
+              {t("of")}
               <b className="font-semibold text-background">{totalCount}</b>
             </>
           ) : null}
-          {` ${selectedCount === 1 ? "selecionado" : "selecionados"}`}
+          {` ${t("selected", { count: selectedCount })}`}
         </span>
 
         <button type="button" className={cn(SEGMENT, SEGMENT_NEUTRAL, SEGMENT_QUIET)} disabled={isLoading} onClick={() => onToggleAll(!allSelected)}>
-          {allSelected ? "Desmarcar todos" : "Selecionar todos"}
+          {allSelected ? t("deselectAll") : t("selectAll")}
         </button>
 
         {inlineActions.map((action) => (
@@ -155,7 +160,7 @@ export function BulkActionsBar({ selectedCount, totalCount, isLoading, allSelect
             <DropdownMenuTrigger asChild>
               <button type="button" className={cn(SEGMENT, SEGMENT_NEUTRAL, "data-[state=open]:bg-background-10")} disabled={isLoading}>
                 <IconDots />
-                Mais
+                {t("more")}
                 <IconChevronDown className="opacity-60" />
               </button>
             </DropdownMenuTrigger>
@@ -188,7 +193,7 @@ export function BulkActionsBar({ selectedCount, totalCount, isLoading, allSelect
           </DropdownMenu>
         ) : null}
 
-        <button type="button" className={cn(SEGMENT, SEGMENT_NEUTRAL, SEGMENT_QUIET, "px-3.5")} disabled={isLoading} onClick={onClear} aria-label="Limpar seleção">
+        <button type="button" className={cn(SEGMENT, SEGMENT_NEUTRAL, SEGMENT_QUIET, "px-3.5")} disabled={isLoading} onClick={onClear} aria-label={t("clear")}>
           <IconX />
         </button>
       </div>
@@ -197,9 +202,9 @@ export function BulkActionsBar({ selectedCount, totalCount, isLoading, allSelect
       <ConfirmDialog
         isOpen={pendingAction !== null}
         onClose={() => setPendingActionId(null)}
-        title={pendingAction?.confirm ? pendingAction.confirm.title(selectedCount, noun) : ""}
-        message={pendingAction?.confirm ? pendingAction.confirm.message(selectedCount, noun) : ""}
-        confirmText={pendingAction?.confirm?.confirmText ?? "Confirmar"}
+        title={pendingAction?.confirm ? pendingAction.confirm.title(selectedCount, noun, kind) : ""}
+        message={pendingAction?.confirm ? pendingAction.confirm.message(selectedCount, noun, kind) : ""}
+        confirmText={pendingAction?.confirm?.confirmText ?? t("confirm")}
         variant={pendingAction?.confirm?.variant ?? "default"}
         confirmIcon={pendingAction?.confirm?.icon}
         onConfirm={handleConfirm}

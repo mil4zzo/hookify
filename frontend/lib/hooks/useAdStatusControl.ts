@@ -4,6 +4,7 @@ import { api } from "@/lib/api/endpoints";
 import { markAnalyticsChanged } from "@/lib/api/analyticsPersister";
 import { showError } from "@/lib/utils/toast";
 import { toast } from "sonner";
+import { translate } from "@/lib/i18n/translate";
 
 export type AdEntityType = "ad" | "adset" | "campaign";
 export type AdEntityStatus = "PAUSED" | "ACTIVE";
@@ -147,25 +148,11 @@ function isPausedStatus(status?: string | null): boolean {
  * Em análise/pré-aprovado é o caminho normal de um anúncio novo — informa, não alerta.
  */
 function activatedWithoutDeliveryMessage(status: string, entityType: AdEntityType): { tone: "info" | "warning"; message: string } {
-  const noun = BULK_ENTITY_NOUN[entityType].singular;
-  // campanha é feminino: "a campanha … reprovada"; anúncio/conjunto, masculino.
-  const f = entityType === "campaign";
-  const art = f ? "a" : "o";
-  const ativ = f ? "Ativada" : "Ativado";
-  switch (String(status).toUpperCase()) {
-    case "PENDING_REVIEW":
-      return { tone: "info", message: `${ativ}. ${art.toUpperCase()} ${noun} está em análise no Meta e começa a veicular depois da aprovação.` };
-    case "PREAPPROVED":
-      return { tone: "info", message: `${ativ}. ${art.toUpperCase()} ${noun} foi pré-aprovad${art} e começa a veicular em instantes.` };
-    case "WITH_ISSUES":
-      return { tone: "warning", message: `${ativ}, mas o Meta aponta um erro de veiculação. Confira ${art} ${noun} no Gerenciador de Anúncios para ver o que corrigir.` };
-    case "DISAPPROVED":
-      return { tone: "warning", message: `${ativ}, mas ${art} ${noun} foi reprovad${art} pelo Meta e não vai veicular. Veja o motivo no Gerenciador de Anúncios.` };
-    case "PENDING_BILLING_INFO":
-      return { tone: "warning", message: `${ativ}, mas a conta tem uma pendência de pagamento no Meta. ${art.toUpperCase()} ${noun} volta a veicular quando ela for resolvida.` };
-    default:
-      return { tone: "warning", message: `${ativ}, mas ${art} ${noun} ainda não está veiculando no Meta.` };
-  }
+  const noun = bulkNoun(entityType, 1);
+  const upper = String(status).toUpperCase();
+  const known = ["PENDING_REVIEW", "PREAPPROVED", "WITH_ISSUES", "DISAPPROVED", "PENDING_BILLING_INFO"].includes(upper);
+  const tone = upper === "PENDING_REVIEW" || upper === "PREAPPROVED" ? "info" : "warning";
+  return { tone, message: translate(`bulk.delivery.${known ? upper : "other"}`, { kind: entityType, noun }) };
 }
 
 /**
@@ -200,11 +187,10 @@ export interface UseBulkEntityStatusControlReturn {
 // Retrocompat: o call-site antigo importa este nome.
 export type UseBulkAdStatusControlReturn = UseBulkEntityStatusControlReturn;
 
-export const BULK_ENTITY_NOUN: Record<AdEntityType, { singular: string; plural: string; parentHint: string }> = {
-  ad: { singular: "anúncio", plural: "anúncios", parentHint: "a campanha/conjunto" },
-  adset: { singular: "conjunto", plural: "conjuntos", parentHint: "a campanha" },
-  campaign: { singular: "campanha", plural: "campanhas", parentHint: "" },
-};
+/** Substantivo da entidade no idioma do app ("anúncio"/"ad", plural pela contagem). */
+function bulkNoun(entityType: AdEntityType, count: number): string {
+  return translate("bulk.noun", { kind: entityType, count });
+}
 
 /**
  * O write+verify no Meta leva segundos (e até ~5s extras quando o verify precisa de retry
@@ -212,7 +198,7 @@ export const BULK_ENTITY_NOUN: Record<AdEntityType, { singular: string; plural: 
  * resposta voltar ("nem vi toast"). O toast terminal atualiza o MESMO id in-place.
  */
 function showStatusLoadingToast(toastId: string, status: AdEntityStatus, subject: string): void {
-  toast.loading(`${status === "PAUSED" ? "Pausando" : "Ativando"} ${subject}…`, { id: toastId });
+  toast.loading(translate("bulk.loading", { action: status === "PAUSED" ? "pause" : "activate", subject }), { id: toastId });
 }
 
 /** Fecha o loading e delega ao showError (card persistente com botão de fechar). */
@@ -229,7 +215,6 @@ function failStatusToast(toastId: string, message: string): void {
  */
 export function useBulkEntityStatusControl(entityType: AdEntityType = "ad", packIds?: string[]): UseBulkEntityStatusControlReturn {
   const qc = useQueryClient();
-  const noun = BULK_ENTITY_NOUN[entityType];
   const toastId = `bulk-status-${entityType}`;
 
   const mutation = useMutation({
@@ -239,7 +224,7 @@ export function useBulkEntityStatusControl(entityType: AdEntityType = "ad", pack
       return api.facebook.batchUpdateAdStatus(ids, status, packIds);
     },
     onMutate: ({ ids, status }) => {
-      showStatusLoadingToast(toastId, status, `${ids.length} ${ids.length === 1 ? noun.singular : noun.plural}`);
+      showStatusLoadingToast(toastId, status, `${ids.length} ${bulkNoun(entityType, ids.length)}`);
     },
     onSuccess: async (data, variables) => {
       const { status } = variables;
@@ -263,20 +248,18 @@ export function useBulkEntityStatusControl(entityType: AdEntityType = "ad", pack
         await qc.invalidateQueries({ queryKey: ["facebook", "me"] });
       }
 
-      const plural = (n: number) => (n !== 1 ? "s" : "");
-      const verb = (n: number) => `${status === "PAUSED" ? "pausad" : "ativad"}o${plural(n)}`;
-      const nounFor = (n: number) => (n === 1 ? noun.singular : noun.plural);
+      const action = status === "PAUSED" ? "pause" : "activate";
 
       if (blockedIds.length === 0 && failed_ids.length === 0) {
-        toast.success(`${updated_ids.length} ${nounFor(updated_ids.length)} ${verb(updated_ids.length)}.`, { id: toastId });
+        toast.success(translate("bulk.done", { count: updated_ids.length, noun: bulkNoun(entityType, updated_ids.length), action, kind: entityType }), { id: toastId });
         return;
       }
 
       if (updated_ids.length > 0) {
         // Parcial: aplicou alguns, mas houve bloqueio (pai pausado) e/ou falha.
-        const segments = [`${updated_ids.length} ${verb(updated_ids.length)}`];
-        if (blockedIds.length > 0) segments.push(`${blockedIds.length} bloqueado${plural(blockedIds.length)} (pai pausado)`);
-        if (failed_ids.length > 0) segments.push(`${failed_ids.length} com falha`);
+        const segments = [translate("bulk.partialDone", { count: updated_ids.length, action, kind: entityType })];
+        if (blockedIds.length > 0) segments.push(translate("bulk.partialBlocked", { count: blockedIds.length }));
+        if (failed_ids.length > 0) segments.push(translate("bulk.partialFailed", { count: failed_ids.length }));
         toast.warning(`${segments.join(", ")}.`, { id: toastId, duration: 6000 });
         return;
       }
@@ -284,19 +267,17 @@ export function useBulkEntityStatusControl(entityType: AdEntityType = "ad", pack
       // Nada aplicado.
       if (blockedIds.length > 0 && failed_ids.length === 0) {
         // Todos bloqueados por pausa herdada: é orientação, não falha do Meta.
-        toast.warning(
-          `Nenhum ativado: ${blockedIds.length} bloqueado${plural(blockedIds.length)} porque ${noun.parentHint || "um pai"} está pausado(a). Ative ${noun.parentHint || "a campanha/conjunto"} primeiro.`,
-          { id: toastId, duration: 7000 },
-        );
+        const parent = translate("bulk.parentHint", { kind: entityType }) || translate("bulk.parentFallback");
+        toast.warning(translate("bulk.allBlocked", { count: blockedIds.length, parent }), { id: toastId, duration: 7000 });
         return;
       }
 
-      failStatusToast(toastId, `Falha ao atualizar ${failed_ids.length} ${nounFor(failed_ids.length)}.`);
+      failStatusToast(toastId, translate("bulk.failedCount", { count: failed_ids.length, noun: bulkNoun(entityType, failed_ids.length) }));
     },
     onError: (e: any) => {
-      const msg = e?.message || "Falha ao atualizar status em lote.";
+      const msg = e?.message || translate("bulk.bulkFailed");
       if (isMetaRateLimitMessage(msg)) {
-        toast.warning("Limite de requisições do Meta atingido. Aguarde alguns segundos e tente novamente.", { id: toastId, duration: 7000 });
+        toast.warning(translate("bulk.rateLimit"), { id: toastId, duration: 7000 });
         return;
       }
       failStatusToast(toastId, msg);
@@ -347,7 +328,7 @@ export function useAdStatusControl(options: UseAdStatusControlOptions): UseAdSta
       return api.facebook.updateCampaignStatus(entityId, nextStatus, packIds);
     },
     onMutate: (nextStatus) => {
-      showStatusLoadingToast(toastId, nextStatus, BULK_ENTITY_NOUN[entityType].singular);
+      showStatusLoadingToast(toastId, nextStatus, bulkNoun(entityType, 1));
     },
     onSuccess: async (data) => {
       // Refletir o effective_status REAL relido do Meta (verify), não o status pedido.
@@ -363,7 +344,7 @@ export function useAdStatusControl(options: UseAdStatusControlOptions): UseAdSta
         const { tone, message } = activatedWithoutDeliveryMessage(realStatus, entityType);
         toast[tone](message, { id: toastId, duration: 7000 });
       } else {
-        toast.success(data.status === "PAUSED" ? "Pausado com sucesso." : "Ativado com sucesso.", { id: toastId });
+        toast.success(data.status === "PAUSED" ? translate("bulk.pausedOk") : translate("bulk.activatedOk"), { id: toastId });
       }
 
       if (entityType === "ad") {
@@ -379,7 +360,7 @@ export function useAdStatusControl(options: UseAdStatusControlOptions): UseAdSta
       await qc.invalidateQueries({ queryKey: ["facebook", "me"] });
     },
     onError: (e: any) => {
-      const msg = e?.message || "Falha ao atualizar status.";
+      const msg = e?.message || translate("bulk.singleFailed");
       // Pausa herdada de um pai ou entidade já ativa: é orientação ao usuário, não uma falha.
       if (e?.code === "PARENT_PAUSED" || e?.code === "ALREADY_ACTIVE") {
         // Self-heal: o backend acabou de ler (e persistir) o estado REAL no Meta — refletir
@@ -403,7 +384,7 @@ export function useAdStatusControl(options: UseAdStatusControlOptions): UseAdSta
       // de mostrar o "(#17) User request limit reached" cru.
       if (isMetaRateLimitMessage(msg)) {
         toast.warning(
-          "Muitas ações de status em sequência. Aguarde alguns segundos e tente de novo — ou selecione vários anúncios e use “Pausar/Ativar em massa”.",
+          translate("bulk.tooManyInSequence"),
           { id: toastId, duration: 7000 },
         );
         return;

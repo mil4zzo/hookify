@@ -69,7 +69,7 @@ import { useProvenanceIndex } from "@/lib/manager/provenance";
 import { computeBudgetTotals, EMPTY_MANAGER_BUDGET_TOTALS, type BudgetSubsetTotals, type ManagerBudgetTotals } from "@/lib/manager/budget";
 import { buildRuleDimensionOptions } from "@/lib/rules/dimensionOptions";
 import { useAdAccountsDb } from "@/lib/api/hooks";
-import { BULK_ENTITY_NOUN, isTerminalEntityStatus, useBulkEntityStatusControl, type AdEntityType } from "@/lib/hooks/useAdStatusControl";
+import { isTerminalEntityStatus, useBulkEntityStatusControl, type AdEntityType } from "@/lib/hooks/useAdStatusControl";
 import { cn } from "@/lib/utils/cn";
 
 type Ad = RankingsItem;
@@ -174,6 +174,7 @@ const MANAGER_TABS = [
 
 export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange, adsIndividual, isLoadingIndividual, adsAdset, isLoadingAdset, adsCampaign, isLoadingCampaign, actionType = "", selectedPackIds = [], endDate, dateStart, dateStop, availableConversionTypes = [], cellMode = "trend", onCellModeChange, averagesOverride, hasSheetIntegration = false, customColumns = EMPTY_CUSTOM_COLUMNS, names, isLoading = false, isError = false, initialFilters, onVisibleGroupKeysChange, serverTotal }: ManagerTableProps) {
   const t = useTranslations("manager");
+  const tBulk = useTranslations("manager.bulk");
   const tTabs = useTranslations("manager.tabs");
   const cellModeOptions = useMemo(
     () => MANAGER_CELL_MODES.map((value) => ({ value, label: t(`cellMode.${value}.label`), hint: t(`cellMode.${value}.hint`) })) as unknown as readonly [TriStateToggleOption<ManagerCellMode>, TriStateToggleOption<ManagerCellMode>, TriStateToggleOption<ManagerCellMode>],
@@ -1398,6 +1399,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
   const bulkActions = useMemo(
     () =>
       buildManagerBulkActions({
+        t: tBulk,
         onPause: isCreativesTab ? undefined : () => { bulkPause(selectedIds); setRowSelection({}); },
         onActivate: isCreativesTab ? undefined : () => { bulkActivate(selectedIds); setRowSelection({}); },
         onShare: isCreativesTab ? openShareFromSelection : undefined,
@@ -1406,7 +1408,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
         onTogglePin: () => setPinSelectionToTop((prev) => !prev),
         isPinned: pinSelectionToTop,
       }),
-    [isCreativesTab, bulkPause, bulkActivate, openShareFromSelection, selectedIds, canBulkTag, canBulkBudget, handleOpenBulkBudget, pinSelectionToTop],
+    [tBulk, isCreativesTab, bulkPause, bulkActivate, openShareFromSelection, selectedIds, canBulkTag, canBulkBudget, handleOpenBulkBudget, pinSelectionToTop],
   );
 
   // Toolbar única compartilhada pelas 4 abas: busca (leadingSlot) + contagem + botão Filtros.
@@ -1501,7 +1503,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
         totalCount={table.getRowModel().rows.length}
         isLoading={isBulkLoading}
         allSelected={table.getIsAllPageRowsSelected()}
-        entityNoun={isCreativesTab ? { singular: "criativo", plural: "criativos" } : BULK_ENTITY_NOUN[bulkEntityType]}
+        entityKind={isCreativesTab ? "creative" : bulkEntityType}
         actions={bulkActions}
         onToggleAll={(checked) => table.toggleAllPageRowsSelected(checked)}
         onClear={() => setRowSelection({})}

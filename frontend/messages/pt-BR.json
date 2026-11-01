@@ -247,6 +247,52 @@
       "noRevenue": "Nenhum lead deste anúncio está numa faixa que compra: não há faturamento para dividir.",
       "noSpendCompare": "Sem gasto no período: não há custo por lead para comparar.",
       "noSpendShow": "Sem gasto no período: não há custo por lead para mostrar."
+    },
+    "bulk": {
+      "pin": "Fixar no topo",
+      "unpin": "Desafixar",
+      "tags": "Tags",
+      "budget": "Orçamento",
+      "pause": "Pausar",
+      "activate": "Ativar",
+      "share": "Compartilhar",
+      "pauseTitle": "Pausar {count} {noun}?",
+      "pauseMessage": "A veiculação {kind, select, campaign {{count, plural, one {desta} other {destas}}} other {{count, plural, one {deste} other {destes}}}} {noun} será interrompida no Meta imediatamente.",
+      "activateTitle": "Ativar {count} {noun}?",
+      "activateMessage": "{kind, select, campaign {{count, plural, one {Esta} other {Estas}}} other {{count, plural, one {Este} other {Estes}}}} {noun} {count, plural, one {voltará} other {voltarão}} a veicular no Meta (exceto os bloqueados por campanha/conjunto pausado)."
+    }
+  },
+  "bulk": {
+    "noun": "{kind, select, ad {{count, plural, one {anúncio} other {anúncios}}} adset {{count, plural, one {conjunto} other {conjuntos}}} campaign {{count, plural, one {campanha} other {campanhas}}} creative {{count, plural, one {criativo} other {criativos}}} pack {{count, plural, one {pack} other {packs}}} other {{count, plural, one {item} other {itens}}}}",
+    "selected": "{count, plural, one {selecionado} other {selecionados}}",
+    "of": " de ",
+    "selectAll": "Selecionar todos",
+    "deselectAll": "Desmarcar todos",
+    "more": "Mais",
+    "clear": "Limpar seleção",
+    "confirm": "Confirmar",
+    "parentHint": "{kind, select, ad {a campanha/conjunto} adset {a campanha} other {}}",
+    "parentFallback": "um pai",
+    "loading": "{action, select, pause {Pausando} other {Ativando}} {subject}…",
+    "done": "{count} {noun} {action, select, pause {{kind, select, campaign {{count, plural, one {pausada} other {pausadas}}} other {{count, plural, one {pausado} other {pausados}}}}} other {{kind, select, campaign {{count, plural, one {ativada} other {ativadas}}} other {{count, plural, one {ativado} other {ativados}}}}}}.",
+    "partialDone": "{count} {action, select, pause {{kind, select, campaign {{count, plural, one {pausada} other {pausadas}}} other {{count, plural, one {pausado} other {pausados}}}}} other {{kind, select, campaign {{count, plural, one {ativada} other {ativadas}}} other {{count, plural, one {ativado} other {ativados}}}}}}",
+    "partialBlocked": "{count, plural, one {# bloqueado} other {# bloqueados}} (pai pausado)",
+    "partialFailed": "{count} com falha",
+    "allBlocked": "Nenhum ativado: {count, plural, one {# bloqueado} other {# bloqueados}} porque {parent} está pausado(a). Ative {parent} primeiro.",
+    "failedCount": "Falha ao atualizar {count} {noun}.",
+    "bulkFailed": "Falha ao atualizar status em lote.",
+    "rateLimit": "Limite de requisições do Meta atingido. Aguarde alguns segundos e tente novamente.",
+    "pausedOk": "Pausado com sucesso.",
+    "activatedOk": "Ativado com sucesso.",
+    "singleFailed": "Falha ao atualizar status.",
+    "tooManyInSequence": "Muitas ações de status em sequência. Aguarde alguns segundos e tente de novo — ou selecione vários anúncios e use “Pausar/Ativar em massa”.",
+    "delivery": {
+      "PENDING_REVIEW": "{kind, select, campaign {Ativada. A campanha está} adset {Ativado. O conjunto está} other {Ativado. O anúncio está}} em análise no Meta e começa a veicular depois da aprovação.",
+      "PREAPPROVED": "{kind, select, campaign {Ativada. A campanha foi pré-aprovada} adset {Ativado. O conjunto foi pré-aprovado} other {Ativado. O anúncio foi pré-aprovado}} e começa a veicular em instantes.",
+      "WITH_ISSUES": "{kind, select, campaign {Ativada} other {Ativado}}, mas o Meta aponta um erro de veiculação. Confira {kind, select, campaign {a campanha} adset {o conjunto} other {o anúncio}} no Gerenciador de Anúncios para ver o que corrigir.",
+      "DISAPPROVED": "{kind, select, campaign {Ativada, mas a campanha foi reprovada} adset {Ativado, mas o conjunto foi reprovado} other {Ativado, mas o anúncio foi reprovado}} pelo Meta e não vai veicular. Veja o motivo no Gerenciador de Anúncios.",
+      "PENDING_BILLING_INFO": "{kind, select, campaign {Ativada} other {Ativado}}, mas a conta tem uma pendência de pagamento no Meta. {kind, select, campaign {A campanha volta} adset {O conjunto volta} other {O anúncio volta}} a veicular quando ela for resolvida.",
+      "other": "{kind, select, campaign {Ativada, mas a campanha ainda não está} adset {Ativado, mas o conjunto ainda não está} other {Ativado, mas o anúncio ainda não está}} veiculando no Meta."
     }
   }
 }
