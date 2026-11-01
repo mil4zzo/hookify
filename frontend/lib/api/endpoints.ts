@@ -2,6 +2,7 @@ import { apiClient } from './client'
 import type { DirectShareEntry, FolderAccessChanges, FolderShareDetail, FolderShareEntry, FolderShareScope, PackFolder, PackFolderMembers } from '@/lib/types'
 import { getActiveCustomColumns } from '@/lib/metrics/customColumnsRegistry'
 import { asRowPayload, type ColumnarPayload } from './managerColumns'
+import type { DriveFile, LaunchProgress, LaunchRequest, LaunchTemplate, LibraryMedia } from '@/lib/campaignLaunch/types'
 import { ANALYTICS_REQUEST_TIMEOUT_MS } from './limits'
 import {
   GetMeResponse,
@@ -39,14 +40,7 @@ import {
   BatchBudgetResponse,
   BatchStatusResponse,
   StatusSyncResponse,
-  AdsTreeResponse,
   AdsSearchResponse,
-  AdCreativeDetailResponse,
-  BulkAdConfig,
-  BulkAdProgressResponse,
-  CampaignTemplateResponse,
-  CampaignBulkConfig,
-  CampaignBulkProgressResponse,
   AdTranscriptionResponse,
   PackTranscriptionStatus,
   MetaUsageSummaryResponse,
@@ -244,8 +238,6 @@ export const api = {
   },
 
   bulkAds: {
-    getAdsTree: (): Promise<AdsTreeResponse> =>
-      apiClient.get('/facebook/ads/tree'),
     searchAds: (params: {
       q?: string
       q_adset?: string
@@ -264,53 +256,75 @@ export const api = {
       const query = qs.toString()
       return apiClient.get(`/facebook/ads/search${query ? `?${query}` : ''}`)
     },
-    getAdCreative: (adId: string): Promise<AdCreativeDetailResponse> =>
-      apiClient.get(`/facebook/ads/${encodeURIComponent(adId)}/creative`),
-    start: (
-      files: File[],
-      config: BulkAdConfig,
-    ): Promise<{ job_id: string; status: string; message: string; total_items: number }> => {
-      const formData = new FormData()
-      files.forEach((file) => formData.append('files', file))
-      formData.append('config', JSON.stringify(config))
-      return apiClient.postMultipart('/facebook/bulk-ads', formData)
-    },
-    getProgress: (jobId: string): Promise<BulkAdProgressResponse> =>
-      apiClient.getWithTimeout(`/facebook/bulk-ads/${encodeURIComponent(jobId)}`, 60000),
-    retry: (
-      jobId: string,
-      itemIds: string[],
-    ): Promise<{ job_id: string; status: string; message: string; total_items: number }> =>
-      apiClient.post(`/facebook/bulk-ads/${encodeURIComponent(jobId)}/retry`, {
-        job_id: jobId,
-        item_ids: itemIds,
-      }),
   },
 
-  campaignBulk: {
-    getCampaignTemplate: (adId: string): Promise<CampaignTemplateResponse> =>
-      apiClient.get(`/facebook/campaign-template/${encodeURIComponent(adId)}`),
+  // Duplicação de campanha com criativos novos (backend/app/routes/campaign_launch.py)
+  campaignLaunch: {
+    getTemplate: (adId: string): Promise<LaunchTemplate> =>
+      apiClient.getWithTimeout(`/campaign-launch/template/${encodeURIComponent(adId)}`, 60000),
 
-    start: (
-      files: File[],
-      config: CampaignBulkConfig,
-    ): Promise<{ job_id: string; status: string; message: string; total_items: number }> => {
+    launch: (request: LaunchRequest): Promise<{ job_id: string; total_items: number }> =>
+      apiClient.post('/campaign-launch', request, { timeout: 120000 }),
+
+    getLatest: (): Promise<{ launch: LaunchProgress | null }> => apiClient.get('/campaign-launch/latest'),
+
+    getProgress: (jobId: string): Promise<LaunchProgress> =>
+      apiClient.getWithTimeout(`/campaign-launch/${encodeURIComponent(jobId)}`, 60000),
+
+    retry: (jobId: string, itemIds?: string[]): Promise<{ job_id: string; retried: number }> =>
+      apiClient.post(`/campaign-launch/${encodeURIComponent(jobId)}/retry`, { item_ids: itemIds ?? null }),
+
+    uploadImage: (
+      file: File,
+      fields: { account_id: string; fingerprint: string; width?: number | null; height?: number | null },
+      signal?: AbortSignal,
+    ): Promise<LibraryMedia> => {
       const formData = new FormData()
-      files.forEach((file) => formData.append('files', file))
-      formData.append('config', JSON.stringify(config))
-      return apiClient.postMultipart('/facebook/campaign-bulk', formData)
+      formData.append('file', file)
+      formData.append('account_id', fields.account_id)
+      formData.append('fingerprint', fields.fingerprint)
+      if (fields.width) formData.append('width', String(fields.width))
+      if (fields.height) formData.append('height', String(fields.height))
+      return apiClient.postMultipart('/campaign-launch/media/image', formData, { signal })
     },
 
-    getProgress: (jobId: string): Promise<CampaignBulkProgressResponse> =>
-      apiClient.getWithTimeout(`/facebook/campaign-bulk/${encodeURIComponent(jobId)}`, 60000),
+    startVideo: (body: {
+      account_id: string
+      fingerprint: string
+      file_name: string
+      content_type: string
+      size_bytes: number
+      width?: number | null
+      height?: number | null
+      duration_ms?: number | null
+    }): Promise<LibraryMedia> => apiClient.post('/campaign-launch/media/video/start', body, { timeout: 60000 }),
 
-    retry: (
-      jobId: string,
-      itemIds: string[],
-    ): Promise<{ job_id: string; status: string; message: string; total_items: number }> =>
-      apiClient.post(`/facebook/campaign-bulk/${encodeURIComponent(jobId)}/retry`, {
-        job_id: jobId,
-        item_ids: itemIds,
+    sendVideoChunk: (mediaId: string, startOffset: number, chunk: Blob, signal?: AbortSignal): Promise<LibraryMedia> => {
+      const formData = new FormData()
+      formData.append('start_offset', String(startOffset))
+      formData.append('chunk', chunk, 'chunk')
+      return apiClient.postMultipart(`/campaign-launch/media/video/${encodeURIComponent(mediaId)}/chunk`, formData, { signal })
+    },
+
+    getMedia: (ids: string[]): Promise<{ media: LibraryMedia[] }> =>
+      apiClient.get(`/campaign-launch/media?ids=${encodeURIComponent(ids.join(','))}`),
+
+    listDriveFolder: (url: string): Promise<{ folder: { id: string; name: string }; files: DriveFile[] }> =>
+      apiClient.getWithTimeout(`/campaign-launch/drive/folder?url=${encodeURIComponent(url)}`, 60000),
+
+    importFromDrive: (accountId: string, files: DriveFile[]): Promise<{ media: LibraryMedia[] }> =>
+      apiClient.post('/campaign-launch/drive/import', {
+        account_id: accountId,
+        files: files.map((f) => ({
+          id: f.id,
+          name: f.name,
+          mime_type: f.mime_type,
+          size_bytes: f.size_bytes,
+          md5: f.md5,
+          width: f.width,
+          height: f.height,
+          duration_ms: f.duration_ms,
+        })),
       }),
   },
 

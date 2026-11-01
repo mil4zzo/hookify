@@ -134,6 +134,10 @@ _TEMPLATE_REPLACEABLE_CODES = frozenset({
 # error_codes que sinalizam falha transitória (vale tentar novamente)
 _RETRYABLE_CODES = frozenset({
     "video_processing_timeout",
+    "media_not_ready",
+    # Códigos da Meta: erro desconhecido/temporário (1, 2) e limites de chamada
+    # (4 app, 17 usuário, 32 página, 613 genérico, 80004 conta de anúncios).
+    "1", "2", "4", "17", "32", "613", "80004",
 })
 
 # Subcodes da Meta que indicam que o template referencia entidades (Page/IG) sem

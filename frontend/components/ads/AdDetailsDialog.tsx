@@ -27,12 +27,15 @@ import { SurveyPanel } from "@/components/ads/SurveyPanel";
 import { getActiveCustomColumns, getActiveCustomColumnsVersion } from "@/lib/metrics/customColumnsRegistry";
 import type { SheetColumnMapping } from "@/lib/api/schemas";
 import { mergeColumnHistograms, type CustomColumnDef } from "@/lib/metrics/customColumns";
-import { IconAlignLeft, IconBrandParsinta, IconChartAreaLine, IconChartFunnel, IconCheck, IconCopy, IconCurrencyDollar, IconLayoutGrid, IconMicrophone, IconWorld } from "@tabler/icons-react";
+import { IconAlignLeft, IconBrandParsinta, IconChartAreaLine, IconChartFunnel, IconCheck, IconCopy, IconCurrencyDollar, IconLayoutGrid, IconMicrophone, IconRocket, IconWorld } from "@tabler/icons-react";
 import { retentionToColor, findHookBoundary, secondToRetentionIndex } from "@/lib/utils/retentionColor";
 import type { TimestampedWord } from "@/lib/api/schemas";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useSharedAdNameDetail } from "@/lib/ads/sharedAdDetail";
 import { useAdAccountsDb } from "@/lib/api/hooks";
+import Link from "next/link";
+import { useUserTier } from "@/lib/hooks/useUserTier";
+import { canAccess } from "@/lib/config/tierConfig";
 import { getRowAccountNames, getRowPackNames, useProvenanceIndex } from "@/lib/manager/provenance";
 import { ProvenanceBadge } from "@/components/common/ProvenanceBadge";
 import { extractActorIdFromCreative, extractInstagramMediaId, normalizeMediaType, resolvePrimaryVideoId } from "@/lib/ads/mediaDetection";
@@ -718,6 +721,9 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
   const provenanceIndex = useProvenanceIndex();
   const accountNames = getRowAccountNames(ad, provenanceIndex);
   const packNames = getRowPackNames(ad, provenanceIndex);
+  // Atalho para a duplicação de campanha (/upload, tier insider): este anúncio vira o modelo.
+  const { data: userTier } = useUserTier();
+  const canUseAsTemplate = !groupByAdName && Boolean(adId) && canAccess(userTier ?? "standard", "insider");
 
   return (
     <div className="h-full flex flex-col gap-4">
@@ -748,6 +754,13 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
             <ProvenanceBadge names={accountNames} noun="Conta" pluralNoun="Ad Accounts" />
           </div>
         </div>
+        {canUseAsTemplate && (
+          <Button asChild variant="outline" className="shrink-0">
+            <Link href={`/upload?ad=${encodeURIComponent(adId)}`}>
+              <IconRocket className="h-4 w-4" /> Usar como modelo
+            </Link>
+          </Button>
+        )}
         <DateRangeFilter label="Período do histórico" value={historyDateRange} onChange={setHistoryDateRange} className="w-auto shrink-0" showLabel={false} requireConfirmation={true} usePackDates={usePackDates} onUsePackDatesChange={setUsePackDates} showPackDatesSwitch={true} packDatesRange={{ start: dateStart, end: dateStop }} />
       </div>
 

@@ -180,8 +180,9 @@ def test_facebook_connection(access_token: str) -> Dict[str, Any]:
         return {'status': 'error', 'message': str(err)}
 
 class GraphAPI:
-    def __init__(self, access_token: str, user_id: Optional[str] = None):
-        self.base_url = META_GRAPH_BASE_URL
+    def __init__(self, access_token: str, user_id: Optional[str] = None, base_url: Optional[str] = None):
+        # base_url permite a uma feature rodar em outra versão da Graph API sem mexer no resto.
+        self.base_url = base_url or META_GRAPH_BASE_URL
         self.access_token = access_token
         self.user_token = f"?access_token={access_token}"
         self.user_id = user_id
@@ -2019,6 +2020,58 @@ class GraphAPI:
             path=ad_id,
             operation_name="GraphAPI.get_ad_creative_details",
             params={"fields": fields},
+            timeout=30,
+        )
+
+    def get_launch_template_ad(self, ad_id: str) -> Dict[str, Any]:
+        """Anúncio modelo da duplicação: hierarquia + campos de fidelidade (ad e criativo).
+
+        Nomes validados no SDK oficial v26 (ad.py / adcreative.py). O criativo inclui
+        degrees_of_freedom_spec e contextual_multi_ads para o fallback de criação
+        manual; o caminho principal (POST /{ad_id}/copies) herda tudo por construção.
+        """
+        fields = (
+            "id,name,campaign_id,adset_id,account_id,tracking_specs,conversion_domain,"
+            "creative{id,name,body,title,call_to_action_type,link_url,url_tags,object_type,"
+            "asset_feed_spec,image_hash,image_url,video_id,thumbnail_url,object_story_spec,"
+            "instagram_user_id,degrees_of_freedom_spec,contextual_multi_ads}"
+        )
+        return self._handle_graph_request(
+            method="GET",
+            path=ad_id,
+            operation_name="GraphAPI.get_launch_template_ad",
+            params={"fields": fields},
+            timeout=30,
+        )
+
+    def copy_ad(self, source_ad_id: str, params: Dict[str, Any]) -> Dict[str, Any]:
+        """POST /{ad_id}/copies — params: adset_id, status_option, rename_options,
+        creative_parameters (sobrescrita de nível de cima do criativo)."""
+        return self._handle_graph_request(
+            method="POST",
+            path=f"{source_ad_id}/copies",
+            operation_name="GraphAPI.copy_ad",
+            json_payload=params,
+            timeout=60,
+        )
+
+    def update_ad(self, ad_id: str, params: Dict[str, Any]) -> Dict[str, Any]:
+        """PATCH-like: POST /{ad_id} com os campos a alterar (name, status, ...)."""
+        return self._handle_graph_request(
+            method="POST",
+            path=ad_id,
+            operation_name="GraphAPI.update_ad",
+            json_payload=params,
+            timeout=30,
+        )
+
+    def get_video_thumbnails(self, video_id: str) -> Dict[str, Any]:
+        """Frames que a Meta gerou para o vídeo (is_preferred marca a capa sugerida)."""
+        return self._handle_graph_request(
+            method="GET",
+            path=f"{video_id}/thumbnails",
+            operation_name="GraphAPI.get_video_thumbnails",
+            params={"fields": "id,is_preferred,uri,width,height"},
             timeout=30,
         )
 

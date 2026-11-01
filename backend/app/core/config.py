@@ -41,6 +41,10 @@ if "*" in CORS_ORIGINS:
 # Meta Graph API – versão centralizada
 META_API_VERSION = os.getenv("META_API_VERSION", "v24.0")
 META_GRAPH_BASE_URL = f"https://graph.facebook.com/{META_API_VERSION}/"
+# Duplicação de campanha (/campaign-launch) já roda na versão nova; o resto do app
+# continua em META_API_VERSION até o upgrade geral.
+META_LAUNCH_API_VERSION = os.getenv("META_LAUNCH_API_VERSION", "v26.0")
+META_LAUNCH_GRAPH_BASE_URL = f"https://graph.facebook.com/{META_LAUNCH_API_VERSION}/"
 
 FACEBOOK_CLIENT_ID = os.getenv("FACEBOOK_CLIENT_ID")
 FACEBOOK_CLIENT_SECRET = os.getenv("FACEBOOK_CLIENT_SECRET")
