@@ -454,7 +454,9 @@ class CampaignLaunchProcessor:
                     "adset_id": adset_id,
                     "status_option": status,
                     "rename_options": {"rename_strategy": "NO_RENAME"},
-                    "creative_parameters": build_creative_parameters(item_view, template, bundle),
+                    "creative_parameters": build_creative_parameters(
+                        item_view, template, bundle, template_creative=self._payload.get("template_creative") or {},
+                    ),
                 },
             )
             ad_id = _copied_id(data, "copied_ad_id", "id")

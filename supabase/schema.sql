@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict zJw9hshd92dUvemAc4HpBTsNSqoTOpnqB1vG3DoLzyhX9EgOn2XX7fU3Zh4ErRB
+\restrict iKnlZGCVbYD7oiTHDOTjqKie1rVMWkLk4Dw39Wtxb5juL93GShWHHDkloQrhDjp
 
 -- Dumped from database version 17.6
 -- Dumped by pg_dump version 17.6
@@ -1456,6 +1456,59 @@ COMMENT ON FUNCTION public.clear_ad_metrics_enrichment(p_user_id uuid, p_pack_id
 
 
 --
+-- Name: create_folder(text, uuid); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION public.create_folder(p_name text, p_parent_id uuid) RETURNS jsonb
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO ''
+    AS $$
+DECLARE
+  v_uid uuid := (SELECT auth.uid());
+  v_owner uuid;
+  v_role text;
+  v_count integer;
+  v_next integer;
+  v_row public.folders;
+BEGIN
+  IF v_uid IS NULL THEN
+    RAISE EXCEPTION 'not_authenticated' USING ERRCODE = 'P0001';
+  END IF;
+
+  IF p_parent_id IS NULL THEN
+    v_owner := v_uid;
+  ELSE
+    v_role := public.folder_access_role(p_parent_id, v_uid);
+    IF v_role IS NULL THEN
+      RAISE EXCEPTION 'folder_parent_not_found' USING ERRCODE = 'P0001';
+    ELSIF v_role NOT IN ('dono', 'editor') THEN
+      RAISE EXCEPTION 'folder_forbidden' USING ERRCODE = 'P0001';
+    END IF;
+    SELECT user_id INTO v_owner FROM public.folders WHERE id = p_parent_id;
+  END IF;
+
+  -- O limite e a posição são da ÁRVORE (do dono), não de quem cria.
+  SELECT count(*)::integer, coalesce(max(position) + 1, 0)::integer INTO v_count, v_next
+  FROM public.folders WHERE user_id = v_owner;
+  IF v_count >= 100 THEN
+    RAISE EXCEPTION 'folder_limit' USING ERRCODE = 'P0001';
+  END IF;
+
+  INSERT INTO public.folders (user_id, name, parent_id, position)
+  VALUES (v_owner, p_name, p_parent_id, v_next)
+  RETURNING * INTO v_row;
+
+  RETURN jsonb_build_object(
+    'id', v_row.id, 'name', v_row.name, 'parent_id', v_row.parent_id, 'position', v_row.position,
+    'created_at', v_row.created_at, 'updated_at', v_row.updated_at, 'owner_id', v_row.user_id
+  );
+END;
+$$;
+
+
+ALTER FUNCTION public.create_folder(p_name text, p_parent_id uuid) OWNER TO postgres;
+
+--
 -- Name: detect_pack_conflicts(uuid[], uuid); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
@@ -1503,40 +1556,50 @@ COMMENT ON FUNCTION public.detect_pack_conflicts(p_pack_ids uuid[], p_actor_id u
 --
 
 CREATE FUNCTION public.dissolve_folder(p_folder_id uuid) RETURNS jsonb
-    LANGUAGE plpgsql
+    LANGUAGE plpgsql SECURITY DEFINER
     SET search_path TO ''
     AS $$
 DECLARE
   v_uid uuid := (SELECT auth.uid());
+  v_owner uuid;
   v_parent uuid;
   v_pos integer;
   v_folders integer;
   v_packs integer;
 BEGIN
-  -- Mesma trava da árvore que o trigger usa: sem ela, outra aba movendo uma pasta
+  SELECT user_id INTO v_owner FROM public.folders WHERE id = p_folder_id;
+  IF NOT FOUND OR public.folder_access_role(p_folder_id, v_uid) IS NULL THEN
+    RAISE EXCEPTION 'folder_not_found' USING ERRCODE = 'P0001', HINT = 'Pasta nao encontrada.';
+  END IF;
+
+  -- Mesma trava da árvore que o gatilho usa: sem ela, outra aba movendo uma pasta
   -- (ou um pack) para dentro desta DEPOIS da foto abaixo e ANTES do DELETE veria o
   -- conteúdo novo cair na raiz pela FK, em vez de subir um nível.
-  PERFORM pg_advisory_xact_lock(hashtextextended('folders_tree:' || v_uid::text, 0));
+  PERFORM pg_advisory_xact_lock(hashtextextended('folders_tree:' || v_owner::text, 0));
 
   SELECT parent_id, position INTO v_parent, v_pos
-  FROM public.folders WHERE id = p_folder_id AND user_id = v_uid
+  FROM public.folders WHERE id = p_folder_id
   FOR UPDATE;
   IF NOT FOUND THEN
     RAISE EXCEPTION 'folder_not_found' USING ERRCODE = 'P0001', HINT = 'Pasta nao encontrada.';
   END IF;
 
-  SELECT count(*)::integer INTO v_folders FROM public.folders WHERE parent_id = p_folder_id AND user_id = v_uid;
+  IF v_owner <> v_uid AND (v_parent IS NULL OR public.folder_access_role(v_parent, v_uid) IS DISTINCT FROM 'editor') THEN
+    RAISE EXCEPTION 'folder_forbidden' USING ERRCODE = 'P0001';
+  END IF;
+
+  SELECT count(*)::integer INTO v_folders FROM public.folders WHERE parent_id = p_folder_id AND user_id = v_owner;
 
   -- Nova ordem do grupo de cima: os irmãos como estavam, com as subpastas da
   -- desfeita entrando no lugar dela (mesma posição, e a ordem interna delas).
   WITH grp AS (
     SELECT id, position AS p1, 0 AS lvl, 0 AS p2, name
     FROM public.folders
-    WHERE user_id = v_uid AND parent_id IS NOT DISTINCT FROM v_parent AND id <> p_folder_id
+    WHERE user_id = v_owner AND parent_id IS NOT DISTINCT FROM v_parent AND id <> p_folder_id
     UNION ALL
     SELECT id, v_pos, 1, position, name
     FROM public.folders
-    WHERE user_id = v_uid AND parent_id = p_folder_id
+    WHERE user_id = v_owner AND parent_id = p_folder_id
   ),
   ranked AS (
     SELECT id, (row_number() OVER (ORDER BY p1, lvl, p2, name) - 1)::integer AS pos FROM grp
@@ -1548,13 +1611,13 @@ BEGIN
     AND (f.parent_id IS DISTINCT FROM v_parent OR f.position IS DISTINCT FROM r.pos);
 
   IF v_parent IS NULL THEN
-    DELETE FROM public.pack_folder_members WHERE folder_id = p_folder_id AND user_id = v_uid;
+    DELETE FROM public.pack_folder_members WHERE folder_id = p_folder_id AND user_id = v_owner;
   ELSE
-    UPDATE public.pack_folder_members SET folder_id = v_parent WHERE folder_id = p_folder_id AND user_id = v_uid;
+    UPDATE public.pack_folder_members SET folder_id = v_parent WHERE folder_id = p_folder_id AND user_id = v_owner;
   END IF;
   GET DIAGNOSTICS v_packs = ROW_COUNT;
 
-  DELETE FROM public.folders WHERE id = p_folder_id AND user_id = v_uid;
+  DELETE FROM public.folders WHERE id = p_folder_id AND user_id = v_owner;
 
   RETURN jsonb_build_object('parent_id', v_parent, 'folders_moved', v_folders, 'packs_moved', v_packs);
 END;
@@ -10891,6 +10954,84 @@ COMMENT ON FUNCTION public.fetch_manager_rankings_v170(p_user_id uuid, p_date_st
 
 
 --
+-- Name: folder_access_role(uuid, uuid); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION public.folder_access_role(p_folder_id uuid, p_actor uuid) RETURNS text
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO ''
+    AS $$
+  SELECT CASE
+    WHEN f.user_id = p_actor THEN 'dono'
+    ELSE (
+      WITH RECURSIVE up AS (
+        SELECT f.id, f.parent_id, 0 AS depth
+        UNION ALL
+        SELECT g.id, g.parent_id, up.depth + 1
+        FROM public.folders g JOIN up ON g.id = up.parent_id
+        WHERE g.user_id = f.user_id AND up.depth < 50
+      )
+      SELECT fs.role
+      FROM up JOIN public.folder_shares fs ON fs.folder_id = up.id AND fs.grantee_id = p_actor
+      ORDER BY up.depth
+      LIMIT 1
+    )
+  END
+  FROM public.folders f
+  WHERE f.id = p_folder_id AND p_actor IS NOT NULL
+$$;
+
+
+ALTER FUNCTION public.folder_access_role(p_folder_id uuid, p_actor uuid) OWNER TO postgres;
+
+--
+-- Name: folder_grants_desired(uuid[]); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION public.folder_grants_desired(p_pack_ids uuid[]) RETURNS TABLE(pack_id uuid, pack_owner uuid, grantee_id uuid, role text, source_folder_id uuid)
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO ''
+    AS $$
+  WITH RECURSIVE placed AS (
+    SELECT m.pack_id, m.user_id AS tree_owner, m.folder_id, p.user_id AS pack_owner
+    FROM public.pack_folder_members m
+    JOIN public.packs p ON p.id = m.pack_id
+    -- Conta da árvore sendo apagada: as pastas dela estão caindo em cascata.
+    JOIN auth.users tu ON tu.id = m.user_id
+    WHERE m.pack_id = ANY (p_pack_ids)
+      AND (p.user_id = m.user_id OR m.contributed)
+  ),
+  chain AS (
+    SELECT pl.pack_id, pl.tree_owner, pl.pack_owner, pl.folder_id, 0 AS depth FROM placed pl
+    UNION ALL
+    SELECT c.pack_id, c.tree_owner, c.pack_owner, f.parent_id, c.depth + 1
+    FROM chain c
+    JOIN public.folders f ON f.id = c.folder_id AND f.user_id = c.tree_owner
+    WHERE f.parent_id IS NOT NULL AND c.depth < 50
+  ),
+  candidates AS (
+    SELECT c.pack_id, c.pack_owner, fs.grantee_id, fs.role, fs.folder_id AS source_folder_id, 1 AS rank, c.depth
+    FROM chain c
+    JOIN public.folder_shares fs ON fs.folder_id = c.folder_id AND fs.owner_id = c.tree_owner
+    -- A pessoa tem de EXISTIR: apagar uma conta apaga os acessos dela em cascata, e um
+    -- gatilho rodando no meio disso recriaria o convite de quem acabou de sair.
+    JOIN auth.users u ON u.id = fs.grantee_id
+    UNION ALL
+    SELECT pl.pack_id, pl.pack_owner, pl.tree_owner, 'editor', pl.folder_id, 0, 0
+    FROM placed pl
+    WHERE pl.pack_owner <> pl.tree_owner
+  )
+  SELECT DISTINCT ON (x.pack_id, x.grantee_id)
+         x.pack_id, x.pack_owner, x.grantee_id, x.role, x.source_folder_id
+  FROM candidates x
+  WHERE x.grantee_id <> x.pack_owner
+  ORDER BY x.pack_id, x.grantee_id, x.rank, x.depth
+$$;
+
+
+ALTER FUNCTION public.folder_grants_desired(p_pack_ids uuid[]) OWNER TO postgres;
+
+--
 -- Name: folders_check_parent(); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
@@ -10991,6 +11132,61 @@ $$;
 
 
 ALTER FUNCTION public.handle_new_user_subscription() OWNER TO postgres;
+
+--
+-- Name: list_shared_folders(); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION public.list_shared_folders() RETURNS jsonb
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO ''
+    AS $$
+  WITH RECURSIVE sub AS (
+    SELECT f.id, f.user_id
+    FROM public.folder_shares fs JOIN public.folders f ON f.id = fs.folder_id
+    WHERE fs.grantee_id = (SELECT auth.uid())
+    UNION
+    SELECT c.id, c.user_id FROM public.folders c JOIN sub ON c.parent_id = sub.id AND c.user_id = sub.user_id
+  ),
+  visible AS (
+    SELECT f.id, f.user_id, f.name, f.parent_id, f.position, f.created_at, f.updated_at,
+           public.folder_access_role(f.id, (SELECT auth.uid())) AS role,
+           (f.parent_id IS NULL OR f.parent_id NOT IN (SELECT id FROM sub)) AS is_root
+    FROM public.folders f
+    WHERE f.id IN (SELECT id FROM sub)
+  )
+  SELECT jsonb_build_object(
+    'folders', coalesce((
+      SELECT jsonb_agg(jsonb_build_object(
+        'id', v.id, 'name', v.name,
+        'parent_id', CASE WHEN v.is_root THEN NULL ELSE v.parent_id END,
+        'position', v.position, 'created_at', v.created_at, 'updated_at', v.updated_at,
+        'owner_id', v.user_id, 'access', v.role, 'shared_root', v.is_root
+      ) ORDER BY v.position, v.name)
+      FROM visible v
+    ), '[]'::jsonb),
+    'members', coalesce((
+      SELECT jsonb_agg(jsonb_build_object('pack_id', m.pack_id, 'folder_id', m.folder_id))
+      FROM public.pack_folder_members m
+      JOIN visible v ON v.id = m.folder_id AND v.user_id = m.user_id
+      JOIN public.packs p ON p.id = m.pack_id
+      WHERE (p.user_id = m.user_id OR m.contributed)
+        AND (p.user_id = (SELECT auth.uid()) OR EXISTS (
+              SELECT 1 FROM public.pack_shares s WHERE s.pack_id = m.pack_id AND s.grantee_id = (SELECT auth.uid())
+            ))
+    ), '[]'::jsonb)
+  )
+$$;
+
+
+ALTER FUNCTION public.list_shared_folders() OWNER TO postgres;
+
+--
+-- Name: FUNCTION list_shared_folders(); Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON FUNCTION public.list_shared_folders() IS 'Pastas compartilhadas com o ator (papel em cada uma, raiz de cada ramo com parent_id NULL) e onde estao os packs que ele pode ver. Migration 181.';
+
 
 --
 -- Name: lookup_user_by_email(text); Type: FUNCTION; Schema: public; Owner: postgres
@@ -11126,6 +11322,153 @@ ALTER FUNCTION public.merge_ad_pack_inventory(p_user_id uuid, p_pack_id uuid, p_
 --
 
 COMMENT ON FUNCTION public.merge_ad_pack_inventory(p_user_id uuid, p_pack_id uuid, p_rows jsonb) IS 'F5: grava o inventário do pack a partir do refresh. Estende o intervalo (least/greatest), troca só a identidade não vazia que mudou e não regrava linha igual. Devolve linhas gravadas.';
+
+
+--
+-- Name: move_packs_to_folder(uuid[], uuid); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION public.move_packs_to_folder(p_pack_ids uuid[], p_folder_id uuid) RETURNS integer
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO ''
+    AS $$
+DECLARE
+  v_uid uuid := (SELECT auth.uid());
+  v_tree uuid;
+  v_role text;
+  r record;
+  v_sp_tree uuid;
+  v_sp_folder uuid;
+  v_sp_role text;
+  v_upd uuid[] := '{}';
+  v_ins uuid[] := '{}';
+  v_own uuid[] := '{}';
+  v_del_tree uuid[] := '{}';
+  v_del_pack uuid[] := '{}';
+  v_denied integer := 0;
+BEGIN
+  IF v_uid IS NULL THEN
+    RAISE EXCEPTION 'not_authenticated' USING ERRCODE = 'P0001';
+  END IF;
+
+  IF p_folder_id IS NOT NULL THEN
+    v_role := public.folder_access_role(p_folder_id, v_uid);
+    IF v_role IS NULL THEN
+      RAISE EXCEPTION 'folder_not_found' USING ERRCODE = 'P0001';
+    ELSIF v_role NOT IN ('dono', 'editor') THEN
+      RAISE EXCEPTION 'folder_forbidden' USING ERRCODE = 'P0001';
+    END IF;
+    SELECT user_id INTO v_tree FROM public.folders WHERE id = p_folder_id;
+    PERFORM pg_advisory_xact_lock(hashtextextended('folders_tree:' || v_tree::text, 0));
+  END IF;
+
+  FOR r IN
+    SELECT q.pack_id, p.user_id AS pack_owner,
+           (p.user_id = v_uid OR EXISTS (
+              SELECT 1 FROM public.pack_shares s WHERE s.pack_id = q.pack_id AND s.grantee_id = v_uid
+           )) AS has_access
+    FROM (SELECT DISTINCT unnest(p_pack_ids) AS pack_id) q
+    LEFT JOIN public.packs p ON p.id = q.pack_id
+  LOOP
+    IF r.pack_owner IS NULL OR NOT r.has_access THEN
+      v_denied := v_denied + 1;
+      CONTINUE;
+    END IF;
+
+    v_sp_tree := NULL; v_sp_folder := NULL; v_sp_role := NULL;
+    SELECT m.user_id, m.folder_id, public.folder_access_role(m.folder_id, v_uid)
+      INTO v_sp_tree, v_sp_folder, v_sp_role
+    FROM public.pack_folder_members m
+    WHERE m.pack_id = r.pack_id
+      AND m.user_id <> v_uid
+      AND (m.contributed OR m.user_id = r.pack_owner)
+      AND public.folder_access_role(m.folder_id, v_uid) IS NOT NULL
+    LIMIT 1;
+
+    IF p_folder_id IS NOT NULL THEN
+      IF v_sp_tree IS NOT NULL AND v_sp_tree = v_tree THEN
+        IF v_sp_role = 'editor' OR r.pack_owner = v_uid THEN v_upd := v_upd || r.pack_id; ELSE v_denied := v_denied + 1; END IF;
+      ELSIF r.pack_owner = v_uid THEN
+        v_own := v_own || r.pack_id;
+        v_ins := v_ins || r.pack_id;
+      ELSIF v_sp_tree IS NULL AND v_tree = v_uid THEN
+        v_ins := v_ins || r.pack_id;
+      ELSE
+        v_denied := v_denied + 1;
+      END IF;
+    ELSE
+      IF v_sp_tree IS NOT NULL THEN
+        IF v_sp_role = 'editor' OR r.pack_owner = v_uid THEN
+          v_del_tree := v_del_tree || v_sp_tree;
+          v_del_pack := v_del_pack || r.pack_id;
+        ELSE
+          v_denied := v_denied + 1;
+        END IF;
+      ELSE
+        v_del_tree := v_del_tree || v_uid;
+        v_del_pack := v_del_pack || r.pack_id;
+      END IF;
+    END IF;
+  END LOOP;
+
+  IF v_denied > 0 THEN
+    RAISE EXCEPTION 'pack_move_forbidden' USING ERRCODE = 'P0001', DETAIL = v_denied::text;
+  END IF;
+
+  -- Pack que o editor pôs na pasta só circula por onde ELE também vê: levá-lo para uma
+  -- pasta fora do alcance dele o devolveria na hora (ver sync_folder_pack_grants), e um
+  -- mover que "some com o pack" é pior que um mover recusado com o motivo.
+  IF p_folder_id IS NOT NULL AND EXISTS (
+    SELECT 1
+    FROM unnest(v_upd || v_ins) AS q(id)
+    JOIN public.pack_folder_members m ON m.pack_id = q.id AND m.user_id = v_tree AND m.contributed
+    JOIN public.packs p ON p.id = q.id
+    WHERE public.folder_access_role(p_folder_id, p.user_id) IS NULL
+  ) THEN
+    RAISE EXCEPTION 'pack_owner_outside' USING ERRCODE = 'P0001';
+  END IF;
+
+  IF p_folder_id IS NOT NULL THEN
+    IF cardinality(v_upd) > 0 THEN
+      UPDATE public.pack_folder_members SET folder_id = p_folder_id
+      WHERE user_id = v_tree AND pack_id = ANY (v_upd) AND folder_id IS DISTINCT FROM p_folder_id;
+    END IF;
+
+    -- Pack do ator: tira dos outros lugares dele antes de pôr no novo.
+    IF cardinality(v_own) > 0 THEN
+      DELETE FROM public.pack_folder_members
+      WHERE pack_id = ANY (v_own) AND user_id <> v_tree AND (user_id = v_uid OR contributed);
+    END IF;
+
+    IF cardinality(v_ins) > 0 THEN
+      INSERT INTO public.pack_folder_members (user_id, pack_id, folder_id, contributed)
+      SELECT v_tree, q.id, p_folder_id, (p.user_id = v_uid AND v_tree <> v_uid)
+      FROM unnest(v_ins) AS q(id) JOIN public.packs p ON p.id = q.id
+      ON CONFLICT (user_id, pack_id) DO UPDATE
+        SET folder_id = EXCLUDED.folder_id,
+            contributed = public.pack_folder_members.contributed OR EXCLUDED.contributed
+        -- Só escreve o que mudou: um UPDATE sem mudança dispararia a reconciliação à toa.
+        WHERE (public.pack_folder_members.folder_id, public.pack_folder_members.contributed)
+              IS DISTINCT FROM (EXCLUDED.folder_id, public.pack_folder_members.contributed OR EXCLUDED.contributed);
+    END IF;
+  ELSIF cardinality(v_del_pack) > 0 THEN
+    DELETE FROM public.pack_folder_members m
+    USING unnest(v_del_tree, v_del_pack) AS d(tree, pack)
+    WHERE m.user_id = d.tree AND m.pack_id = d.pack;
+  END IF;
+
+  RETURN cardinality(v_upd) + cardinality(v_ins) + cardinality(v_del_pack);
+END;
+$$;
+
+
+ALTER FUNCTION public.move_packs_to_folder(p_pack_ids uuid[], p_folder_id uuid) OWNER TO postgres;
+
+--
+-- Name: FUNCTION move_packs_to_folder(p_pack_ids uuid[], p_folder_id uuid); Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON FUNCTION public.move_packs_to_folder(p_pack_ids uuid[], p_folder_id uuid) IS 'Move packs para a pasta (NULL = tira da pasta), na arvore do dono da pasta. Confere papel por pack; um recusado recusa o lote (pack_move_forbidden). Migration 181.';
 
 
 --
@@ -11383,11 +11726,13 @@ COMMENT ON FUNCTION public.pack_trim_preview(p_owner uuid, p_pack uuid, p_start 
 --
 
 CREATE FUNCTION public.place_folder(p_folder_id uuid, p_parent_id uuid, p_sibling_ids uuid[]) RETURNS integer
-    LANGUAGE plpgsql
+    LANGUAGE plpgsql SECURITY DEFINER
     SET search_path TO ''
     AS $$
 DECLARE
   v_uid uuid := (SELECT auth.uid());
+  v_owner uuid;
+  v_cur_parent uuid;
   v_changed integer;
 BEGIN
   IF NOT (p_folder_id = ANY (p_sibling_ids)) THEN
@@ -11395,13 +11740,22 @@ BEGIN
       HINT = 'A lista de irmaos precisa conter a pasta movida.';
   END IF;
 
-  IF NOT EXISTS (SELECT 1 FROM public.folders WHERE id = p_folder_id AND user_id = v_uid) THEN
+  SELECT user_id, parent_id INTO v_owner, v_cur_parent FROM public.folders WHERE id = p_folder_id;
+  IF NOT FOUND OR public.folder_access_role(p_folder_id, v_uid) IS NULL THEN
     RAISE EXCEPTION 'folder_not_found' USING ERRCODE = 'P0001', HINT = 'Pasta nao encontrada.';
   END IF;
 
+  IF v_owner <> v_uid AND (
+       v_cur_parent IS NULL OR public.folder_access_role(v_cur_parent, v_uid) IS DISTINCT FROM 'editor'
+       OR p_parent_id IS NULL OR public.folder_access_role(p_parent_id, v_uid) IS DISTINCT FROM 'editor'
+     ) THEN
+    RAISE EXCEPTION 'folder_forbidden' USING ERRCODE = 'P0001';
+  END IF;
+
+  -- Pai em outra árvore: o gatilho folders_check_parent recusa (folder_parent_not_found).
   UPDATE public.folders
   SET parent_id = p_parent_id
-  WHERE id = p_folder_id AND user_id = v_uid AND parent_id IS DISTINCT FROM p_parent_id;
+  WHERE id = p_folder_id AND parent_id IS DISTINCT FROM p_parent_id;
 
   WITH wanted AS (
     SELECT t.id, (t.ord - 1)::integer AS pos
@@ -11412,7 +11766,7 @@ BEGIN
     SET position = w.pos
     FROM wanted w
     WHERE f.id = w.id
-      AND f.user_id = v_uid
+      AND f.user_id = v_owner
       -- Só quem está MESMO nesse grupo: id de outro nível na lista é ignorado.
       AND f.parent_id IS NOT DISTINCT FROM p_parent_id
       AND f.position IS DISTINCT FROM w.pos
@@ -11628,6 +11982,33 @@ COMMENT ON FUNCTION public.release_job_processing_lease(p_job_id text, p_user_id
 
 
 --
+-- Name: rename_folder(uuid, text); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION public.rename_folder(p_folder_id uuid, p_name text) RETURNS jsonb
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO ''
+    AS $$
+DECLARE
+  v_uid uuid := (SELECT auth.uid());
+  v_role text := public.folder_access_role(p_folder_id, (SELECT auth.uid()));
+  v_row public.folders;
+BEGIN
+  IF v_role IS NULL THEN
+    RAISE EXCEPTION 'folder_not_found' USING ERRCODE = 'P0001';
+  ELSIF v_role NOT IN ('dono', 'editor') THEN
+    RAISE EXCEPTION 'folder_forbidden' USING ERRCODE = 'P0001';
+  END IF;
+
+  UPDATE public.folders SET name = p_name WHERE id = p_folder_id RETURNING * INTO v_row;
+  RETURN jsonb_build_object('id', v_row.id, 'name', v_row.name, 'parent_id', v_row.parent_id, 'position', v_row.position);
+END;
+$$;
+
+
+ALTER FUNCTION public.rename_folder(p_folder_id uuid, p_name text) OWNER TO postgres;
+
+--
 -- Name: renew_job_processing_lease(text, uuid, text, integer); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
@@ -11742,7 +12123,7 @@ COMMENT ON FUNCTION public.renew_job_processing_lease(p_job_id text, p_user_id u
 --
 
 CREATE FUNCTION public.reorder_folders(p_folder_ids uuid[]) RETURNS integer
-    LANGUAGE sql
+    LANGUAGE sql SECURITY DEFINER
     SET search_path TO ''
     AS $$
   WITH wanted AS (
@@ -11754,8 +12135,11 @@ CREATE FUNCTION public.reorder_folders(p_folder_ids uuid[]) RETURNS integer
     SET position = w.pos
     FROM wanted w
     WHERE f.id = w.id
-      AND f.user_id = (SELECT auth.uid())
       AND f.position IS DISTINCT FROM w.pos
+      AND (
+        f.user_id = (SELECT auth.uid())
+        OR (f.parent_id IS NOT NULL AND public.folder_access_role(f.parent_id, (SELECT auth.uid())) = 'editor')
+      )
     RETURNING 1
   )
   SELECT count(*)::integer FROM changed;
@@ -11934,6 +12318,165 @@ ALTER FUNCTION public.sweep_stale_pack_refresh() OWNER TO postgres;
 
 COMMENT ON FUNCTION public.sweep_stale_pack_refresh() IS 'Marca como failed os packs presos em refresh_status=running cujo prazo (refresh_lock_until) venceu — job que morreu sem escrever o status final. Agendada por pg_cron; chamavel manualmente se o agendamento nao existir.';
 
+
+--
+-- Name: sync_folder_pack_grants(uuid[]); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION public.sync_folder_pack_grants(p_pack_ids uuid[]) RETURNS void
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO ''
+    AS $$
+BEGIN
+  IF p_pack_ids IS NULL OR cardinality(p_pack_ids) = 0 THEN
+    RETURN;
+  END IF;
+
+  -- Atalho: pack sem acesso por pasta, fora de árvore que compartilhe algo e que
+  -- ninguém pôs na árvore alheia não paga nada. É quase todo movimento de pack.
+  IF NOT EXISTS (
+       SELECT 1 FROM public.pack_shares
+       WHERE pack_id = ANY (p_pack_ids) AND source_folder_id IS NOT NULL
+     )
+     AND NOT EXISTS (
+       SELECT 1 FROM public.pack_folder_members m
+       WHERE m.pack_id = ANY (p_pack_ids)
+         AND (m.contributed OR EXISTS (SELECT 1 FROM public.folder_shares fs WHERE fs.owner_id = m.user_id))
+     ) THEN
+    RETURN;
+  END IF;
+
+  -- Pack posto na árvore alheia pelo próprio dono só fica enquanto ele ENXERGA a pasta
+  -- onde está. Saiu da pasta, foi tirado dela, ou a pasta foi levada para fora do que
+  -- ele vê: o pack volta para ele (solto). Sem isto a pasta seguiria puxando dados da
+  -- conta de anúncio de quem já saiu, com o token dele — e ele, dono, poderia apagar o
+  -- pack sem nem ver a pasta. Este DELETE dispara o gatilho de vínculo, que reconcilia
+  -- de novo os mesmos packs (já sem a linha); a conta abaixo sai igual.
+  DELETE FROM public.pack_folder_members m
+  USING public.packs p
+  WHERE m.pack_id = ANY (p_pack_ids)
+    AND m.contributed
+    AND p.id = m.pack_id
+    AND public.folder_access_role(m.folder_id, p.user_id) IS NULL;
+
+  WITH d AS MATERIALIZED (
+    SELECT * FROM public.folder_grants_desired(p_pack_ids)
+  ),
+  gone AS (
+    DELETE FROM public.pack_shares s
+    WHERE s.pack_id = ANY (p_pack_ids)
+      AND s.source_folder_id IS NOT NULL
+      AND NOT EXISTS (SELECT 1 FROM d WHERE d.pack_id = s.pack_id AND d.grantee_id = s.grantee_id)
+    RETURNING 1
+  )
+  INSERT INTO public.pack_shares (pack_id, owner_id, grantee_id, role, source_folder_id)
+  SELECT d.pack_id, d.pack_owner, d.grantee_id, d.role, d.source_folder_id FROM d
+  ON CONFLICT (pack_id, grantee_id) DO UPDATE
+    SET role = EXCLUDED.role, source_folder_id = EXCLUDED.source_folder_id
+    WHERE (public.pack_shares.role, public.pack_shares.source_folder_id)
+          IS DISTINCT FROM (EXCLUDED.role, EXCLUDED.source_folder_id);
+END;
+$$;
+
+
+ALTER FUNCTION public.sync_folder_pack_grants(p_pack_ids uuid[]) OWNER TO postgres;
+
+--
+-- Name: sync_folder_subtree_grants(uuid[]); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION public.sync_folder_subtree_grants(p_folder_ids uuid[]) RETURNS void
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO ''
+    AS $$
+DECLARE
+  v_packs uuid[];
+BEGIN
+  IF p_folder_ids IS NULL OR cardinality(p_folder_ids) = 0 THEN
+    RETURN;
+  END IF;
+
+  WITH RECURSIVE sub AS (
+    SELECT f.id, f.user_id FROM public.folders f WHERE f.id = ANY (p_folder_ids)
+    UNION
+    SELECT c.id, c.user_id FROM public.folders c JOIN sub ON c.parent_id = sub.id AND c.user_id = sub.user_id
+  ),
+  affected AS (
+    SELECT m.pack_id FROM public.pack_folder_members m JOIN sub ON m.folder_id = sub.id AND m.user_id = sub.user_id
+    UNION
+    SELECT s.pack_id FROM public.pack_shares s
+    WHERE s.source_folder_id = ANY (p_folder_ids) OR s.source_folder_id IN (SELECT id FROM sub)
+  )
+  SELECT array_agg(pack_id) INTO v_packs FROM affected;
+
+  PERFORM public.sync_folder_pack_grants(v_packs);
+END;
+$$;
+
+
+ALTER FUNCTION public.sync_folder_subtree_grants(p_folder_ids uuid[]) OWNER TO postgres;
+
+--
+-- Name: trg_folder_shares_sync(); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION public.trg_folder_shares_sync() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO ''
+    AS $$
+BEGIN
+  IF TG_OP = 'DELETE' THEN
+    PERFORM public.sync_folder_subtree_grants(ARRAY[OLD.folder_id]);
+  ELSE
+    PERFORM public.sync_folder_subtree_grants(ARRAY[NEW.folder_id]);
+  END IF;
+  RETURN NULL;
+END;
+$$;
+
+
+ALTER FUNCTION public.trg_folder_shares_sync() OWNER TO postgres;
+
+--
+-- Name: trg_folders_reparent_sync(); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION public.trg_folders_reparent_sync() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO ''
+    AS $$
+BEGIN
+  PERFORM public.sync_folder_subtree_grants(ARRAY[NEW.id]);
+  RETURN NULL;
+END;
+$$;
+
+
+ALTER FUNCTION public.trg_folders_reparent_sync() OWNER TO postgres;
+
+--
+-- Name: trg_pack_folder_members_sync(); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION public.trg_pack_folder_members_sync() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO ''
+    AS $$
+DECLARE
+  v_packs uuid[];
+BEGIN
+  IF TG_OP = 'DELETE' THEN
+    SELECT array_agg(DISTINCT pack_id) INTO v_packs FROM old_rows;
+  ELSE
+    SELECT array_agg(DISTINCT pack_id) INTO v_packs FROM new_rows;
+  END IF;
+  PERFORM public.sync_folder_pack_grants(v_packs);
+  RETURN NULL;
+END;
+$$;
+
+
+ALTER FUNCTION public.trg_pack_folder_members_sync() OWNER TO postgres;
 
 --
 -- Name: url_quote_path(text); Type: FUNCTION; Schema: public; Owner: postgres
@@ -12477,6 +13020,40 @@ COMMENT ON COLUMN public.tags.color IS 'Token da paleta de tags (chart1..chart5)
 
 
 --
+-- Name: ad_media_library; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.ad_media_library (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    user_id uuid NOT NULL,
+    account_id text NOT NULL,
+    source text NOT NULL,
+    fingerprint text NOT NULL,
+    file_name text NOT NULL,
+    media_type text NOT NULL,
+    size_bytes bigint,
+    width integer,
+    height integer,
+    duration_ms integer,
+    status text DEFAULT 'uploading'::text NOT NULL,
+    bytes_sent bigint DEFAULT 0 NOT NULL,
+    image_hash text,
+    video_id text,
+    thumbnail_hash text,
+    upload_session jsonb,
+    drive_file_id text,
+    error_message text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT ad_media_library_media_type_check CHECK ((media_type = ANY (ARRAY['image'::text, 'video'::text]))),
+    CONSTRAINT ad_media_library_source_check CHECK ((source = ANY (ARRAY['upload'::text, 'drive'::text]))),
+    CONSTRAINT ad_media_library_status_check CHECK ((status = ANY (ARRAY['uploading'::text, 'processing'::text, 'ready'::text, 'error'::text])))
+);
+
+
+ALTER TABLE public.ad_media_library OWNER TO postgres;
+
+--
 -- Name: ad_metric_pack_map; Type: TABLE; Schema: public; Owner: postgres
 --
 
@@ -12709,37 +13286,33 @@ COMMENT ON TABLE public.boards IS 'Board = lente de agrupamento de criativos. Na
 
 
 --
--- Name: bulk_ad_items; Type: TABLE; Schema: public; Owner: postgres
+-- Name: campaign_launch_items; Type: TABLE; Schema: public; Owner: postgres
 --
 
-CREATE TABLE public.bulk_ad_items (
+CREATE TABLE public.campaign_launch_items (
     id uuid DEFAULT gen_random_uuid() NOT NULL,
     job_id text NOT NULL,
     user_id uuid NOT NULL,
-    file_name text NOT NULL,
-    file_index integer NOT NULL,
-    adset_id text NOT NULL,
-    adset_name text,
+    "position" integer NOT NULL,
     ad_name text NOT NULL,
+    campaign_name text NOT NULL,
+    adset_name_template text NOT NULL,
+    media jsonb NOT NULL,
     status text DEFAULT 'pending'::text NOT NULL,
-    meta_ad_id text,
+    step text,
+    meta_campaign_id text,
     meta_creative_id text,
+    adsets jsonb DEFAULT '[]'::jsonb NOT NULL,
     error_message text,
     error_code text,
-    created_at timestamp with time zone DEFAULT now(),
-    updated_at timestamp with time zone DEFAULT now(),
-    bundle_id text,
-    bundle_name text,
-    slot_files jsonb,
-    is_multi_slot boolean DEFAULT false NOT NULL,
-    campaign_name text,
-    slot_media jsonb,
     error_details jsonb,
-    CONSTRAINT bulk_ad_items_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'uploading_media'::text, 'creating_creative'::text, 'creating_campaign'::text, 'creating_adsets'::text, 'creating_ad'::text, 'success'::text, 'error'::text, 'skipped'::text])))
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT campaign_launch_items_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'running'::text, 'success'::text, 'error'::text])))
 );
 
 
-ALTER TABLE public.bulk_ad_items OWNER TO postgres;
+ALTER TABLE public.campaign_launch_items OWNER TO postgres;
 
 --
 -- Name: chat_conversations; Type: TABLE; Schema: public; Owner: postgres
@@ -12875,6 +13448,32 @@ COMMENT ON COLUMN public.facebook_connections.picture_cached_at IS 'Quando a fot
 --
 
 COMMENT ON COLUMN public.facebook_connections.picture_source_url IS 'URL original do Meta usada para baixar/cachear a foto.';
+
+
+--
+-- Name: folder_shares; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.folder_shares (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    folder_id uuid NOT NULL,
+    owner_id uuid NOT NULL,
+    grantee_id uuid NOT NULL,
+    role text DEFAULT 'editor'::text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT folder_shares_not_self CHECK ((owner_id <> grantee_id)),
+    CONSTRAINT folder_shares_role_check CHECK ((role = ANY (ARRAY['editor'::text, 'viewer'::text])))
+);
+
+
+ALTER TABLE public.folder_shares OWNER TO postgres;
+
+--
+-- Name: TABLE folder_shares; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON TABLE public.folder_shares IS 'Quem tem a pasta (e tudo debaixo dela, hoje e depois). Gatilhos materializam em pack_shares (source_folder_id); as RPCs de pasta conferem o papel aqui (folder_access_role). Migration 181.';
 
 
 --
@@ -13034,7 +13633,8 @@ CREATE TABLE public.pack_folder_members (
     user_id uuid NOT NULL,
     pack_id uuid NOT NULL,
     folder_id uuid NOT NULL,
-    created_at timestamp with time zone DEFAULT now() NOT NULL
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    contributed boolean DEFAULT false NOT NULL
 );
 
 
@@ -13045,6 +13645,13 @@ ALTER TABLE public.pack_folder_members OWNER TO postgres;
 --
 
 COMMENT ON TABLE public.pack_folder_members IS 'Vinculo pack->pasta, por usuario. A PK (user_id, pack_id) e onde mora a EXCLUSIVIDADE: um pack tem uma pasta so, por pessoa. Mover = upsert nessa chave.';
+
+
+--
+-- Name: COLUMN pack_folder_members.contributed; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON COLUMN public.pack_folder_members.contributed IS 'true = o dono do pack o colocou na arvore de outra pessoa (pasta compartilhada): quem tem a pasta o recebe. So as RPCs da 181 escrevem true.';
 
 
 --
@@ -13059,6 +13666,7 @@ CREATE TABLE public.pack_shares (
     role text DEFAULT 'editor'::text NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    source_folder_id uuid,
     CONSTRAINT pack_shares_not_self CHECK ((owner_id <> grantee_id)),
     CONSTRAINT pack_shares_role_check CHECK ((role = ANY (ARRAY['editor'::text, 'viewer'::text])))
 );
@@ -13085,6 +13693,13 @@ COMMENT ON COLUMN public.pack_shares.owner_id IS 'Denormalizado de packs.user_id
 --
 
 COMMENT ON COLUMN public.pack_shares.role IS 'editor = le e escreve (refresh, pausar, budget). viewer = somente leitura. O papel "dono" nao e representado aqui.';
+
+
+--
+-- Name: COLUMN pack_shares.source_folder_id; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON COLUMN public.pack_shares.source_folder_id IS 'Pasta que originou este acesso (migration 181). NULL = concedido direto no pack. Linhas com origem sao mantidas pelos gatilhos; ninguem as edita pelo pack.';
 
 
 --
@@ -13300,6 +13915,22 @@ ALTER TABLE ONLY public.ad_accounts
 
 
 --
+-- Name: ad_media_library ad_media_library_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.ad_media_library
+    ADD CONSTRAINT ad_media_library_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: ad_media_library ad_media_library_unique_fingerprint; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.ad_media_library
+    ADD CONSTRAINT ad_media_library_unique_fingerprint UNIQUE (user_id, account_id, fingerprint);
+
+
+--
 -- Name: ad_metric_pack_map ad_metric_pack_map_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -13396,11 +14027,19 @@ ALTER TABLE ONLY public.boards
 
 
 --
--- Name: bulk_ad_items bulk_ad_items_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+-- Name: campaign_launch_items campaign_launch_items_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
-ALTER TABLE ONLY public.bulk_ad_items
-    ADD CONSTRAINT bulk_ad_items_pkey PRIMARY KEY (id);
+ALTER TABLE ONLY public.campaign_launch_items
+    ADD CONSTRAINT campaign_launch_items_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: campaign_launch_items campaign_launch_items_unique_position; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.campaign_launch_items
+    ADD CONSTRAINT campaign_launch_items_unique_position UNIQUE (job_id, "position");
 
 
 --
@@ -13457,6 +14096,30 @@ ALTER TABLE ONLY public.facebook_connections
 
 ALTER TABLE ONLY public.facebook_connections
     ADD CONSTRAINT facebook_connections_user_fb_unique UNIQUE (user_id, facebook_user_id);
+
+
+--
+-- Name: folder_shares folder_shares_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.folder_shares
+    ADD CONSTRAINT folder_shares_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: folder_shares folder_shares_unique_grant; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.folder_shares
+    ADD CONSTRAINT folder_shares_unique_grant UNIQUE (folder_id, grantee_id);
+
+
+--
+-- Name: folders folders_id_user_id_key; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.folders
+    ADD CONSTRAINT folders_id_user_id_key UNIQUE (id, user_id);
 
 
 --
@@ -13622,6 +14285,13 @@ CREATE INDEX ad_accounts_user_connection_idx ON public.ad_accounts USING btree (
 --
 
 CREATE INDEX ad_accounts_user_idx ON public.ad_accounts USING btree (user_id);
+
+
+--
+-- Name: ad_media_library_user_idx; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX ad_media_library_user_idx ON public.ad_media_library USING btree (user_id, updated_at DESC);
 
 
 --
@@ -13879,17 +14549,10 @@ CREATE INDEX boards_user_position_idx ON public.boards USING btree (user_id, "po
 
 
 --
--- Name: bulk_ad_items_bundle_idx; Type: INDEX; Schema: public; Owner: postgres
+-- Name: campaign_launch_items_user_idx; Type: INDEX; Schema: public; Owner: postgres
 --
 
-CREATE INDEX bulk_ad_items_bundle_idx ON public.bulk_ad_items USING btree (job_id, bundle_id);
-
-
---
--- Name: bulk_ad_items_job_idx; Type: INDEX; Schema: public; Owner: postgres
---
-
-CREATE INDEX bulk_ad_items_job_idx ON public.bulk_ad_items USING btree (job_id);
+CREATE INDEX campaign_launch_items_user_idx ON public.campaign_launch_items USING btree (user_id, created_at DESC);
 
 
 --
@@ -13939,6 +14602,20 @@ CREATE INDEX facebook_connections_status_idx ON public.facebook_connections USIN
 --
 
 CREATE INDEX facebook_connections_user_idx ON public.facebook_connections USING btree (user_id);
+
+
+--
+-- Name: folder_shares_grantee_idx; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX folder_shares_grantee_idx ON public.folder_shares USING btree (grantee_id);
+
+
+--
+-- Name: folder_shares_owner_idx; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX folder_shares_owner_idx ON public.folder_shares USING btree (owner_id);
 
 
 --
@@ -14040,6 +14717,13 @@ CREATE INDEX pack_folder_members_folder_idx ON public.pack_folder_members USING 
 
 
 --
+-- Name: pack_folder_members_pack_idx; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX pack_folder_members_pack_idx ON public.pack_folder_members USING btree (pack_id);
+
+
+--
 -- Name: pack_shares_grantee_idx; Type: INDEX; Schema: public; Owner: postgres
 --
 
@@ -14058,6 +14742,13 @@ CREATE INDEX pack_shares_owner_idx ON public.pack_shares USING btree (owner_id);
 --
 
 CREATE INDEX pack_shares_pack_idx ON public.pack_shares USING btree (pack_id);
+
+
+--
+-- Name: pack_shares_source_folder_idx; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX pack_shares_source_folder_idx ON public.pack_shares USING btree (source_folder_id) WHERE (source_folder_id IS NOT NULL);
 
 
 --
@@ -14159,6 +14850,13 @@ CREATE TRIGGER chat_conversations_set_updated_at BEFORE UPDATE ON public.chat_co
 
 
 --
+-- Name: folder_shares set_folder_shares_updated_at; Type: TRIGGER; Schema: public; Owner: postgres
+--
+
+CREATE TRIGGER set_folder_shares_updated_at BEFORE UPDATE ON public.folder_shares FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+
+--
 -- Name: pack_shares set_pack_shares_updated_at; Type: TRIGGER; Schema: public; Owner: postgres
 --
 
@@ -14194,10 +14892,24 @@ CREATE TRIGGER trg_facebook_connections_set_updated_at BEFORE UPDATE ON public.f
 
 
 --
+-- Name: folder_shares trg_folder_shares_sync; Type: TRIGGER; Schema: public; Owner: postgres
+--
+
+CREATE TRIGGER trg_folder_shares_sync AFTER INSERT OR DELETE OR UPDATE ON public.folder_shares FOR EACH ROW EXECUTE FUNCTION public.trg_folder_shares_sync();
+
+
+--
 -- Name: folders trg_folders_check_parent; Type: TRIGGER; Schema: public; Owner: postgres
 --
 
 CREATE TRIGGER trg_folders_check_parent BEFORE INSERT OR UPDATE OF parent_id ON public.folders FOR EACH ROW EXECUTE FUNCTION public.folders_check_parent();
+
+
+--
+-- Name: folders trg_folders_reparent_sync; Type: TRIGGER; Schema: public; Owner: postgres
+--
+
+CREATE TRIGGER trg_folders_reparent_sync AFTER UPDATE OF parent_id ON public.folders FOR EACH ROW WHEN ((old.parent_id IS DISTINCT FROM new.parent_id)) EXECUTE FUNCTION public.trg_folders_reparent_sync();
 
 
 --
@@ -14212,6 +14924,27 @@ CREATE TRIGGER trg_folders_set_updated_at BEFORE UPDATE ON public.folders FOR EA
 --
 
 CREATE TRIGGER trg_google_accounts_set_updated_at BEFORE UPDATE ON public.google_accounts FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+
+--
+-- Name: pack_folder_members trg_pfm_sync_del; Type: TRIGGER; Schema: public; Owner: postgres
+--
+
+CREATE TRIGGER trg_pfm_sync_del AFTER DELETE ON public.pack_folder_members REFERENCING OLD TABLE AS old_rows FOR EACH STATEMENT EXECUTE FUNCTION public.trg_pack_folder_members_sync();
+
+
+--
+-- Name: pack_folder_members trg_pfm_sync_ins; Type: TRIGGER; Schema: public; Owner: postgres
+--
+
+CREATE TRIGGER trg_pfm_sync_ins AFTER INSERT ON public.pack_folder_members REFERENCING NEW TABLE AS new_rows FOR EACH STATEMENT EXECUTE FUNCTION public.trg_pack_folder_members_sync();
+
+
+--
+-- Name: pack_folder_members trg_pfm_sync_upd; Type: TRIGGER; Schema: public; Owner: postgres
+--
+
+CREATE TRIGGER trg_pfm_sync_upd AFTER UPDATE ON public.pack_folder_members REFERENCING NEW TABLE AS new_rows FOR EACH STATEMENT EXECUTE FUNCTION public.trg_pack_folder_members_sync();
 
 
 --
@@ -14234,6 +14967,14 @@ CREATE TRIGGER trg_subscriptions_updated_at BEFORE UPDATE ON public.subscription
 
 ALTER TABLE ONLY public.ad_accounts
     ADD CONSTRAINT ad_accounts_connection_id_fkey FOREIGN KEY (connection_id) REFERENCES public.facebook_connections(id) ON DELETE SET NULL;
+
+
+--
+-- Name: ad_media_library ad_media_library_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.ad_media_library
+    ADD CONSTRAINT ad_media_library_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
 
 
 --
@@ -14285,6 +15026,14 @@ ALTER TABLE ONLY public.board_groups
 
 
 --
+-- Name: campaign_launch_items campaign_launch_items_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.campaign_launch_items
+    ADD CONSTRAINT campaign_launch_items_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
+
+
+--
 -- Name: chat_conversations chat_conversations_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -14322,6 +15071,30 @@ ALTER TABLE ONLY public.chat_user_leases
 
 ALTER TABLE ONLY public.facebook_connections
     ADD CONSTRAINT facebook_connections_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
+
+
+--
+-- Name: folder_shares folder_shares_folder_owner_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.folder_shares
+    ADD CONSTRAINT folder_shares_folder_owner_fkey FOREIGN KEY (folder_id, owner_id) REFERENCES public.folders(id, user_id) ON DELETE CASCADE;
+
+
+--
+-- Name: folder_shares folder_shares_grantee_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.folder_shares
+    ADD CONSTRAINT folder_shares_grantee_id_fkey FOREIGN KEY (grantee_id) REFERENCES auth.users(id) ON DELETE CASCADE;
+
+
+--
+-- Name: folder_shares folder_shares_owner_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.folder_shares
+    ADD CONSTRAINT folder_shares_owner_id_fkey FOREIGN KEY (owner_id) REFERENCES auth.users(id) ON DELETE CASCADE;
 
 
 --
@@ -14389,6 +15162,14 @@ ALTER TABLE ONLY public.pack_shares
 
 
 --
+-- Name: pack_shares pack_shares_source_folder_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.pack_shares
+    ADD CONSTRAINT pack_shares_source_folder_fkey FOREIGN KEY (source_folder_id) REFERENCES public.folders(id) ON DELETE CASCADE;
+
+
+--
 -- Name: packs packs_sheet_integration_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -14421,27 +15202,6 @@ ALTER TABLE ONLY public.subscriptions
 
 
 --
--- Name: bulk_ad_items Users insert own bulk_ad_items; Type: POLICY; Schema: public; Owner: postgres
---
-
-CREATE POLICY "Users insert own bulk_ad_items" ON public.bulk_ad_items FOR INSERT WITH CHECK ((user_id = ( SELECT auth.uid() AS uid)));
-
-
---
--- Name: bulk_ad_items Users read own bulk_ad_items; Type: POLICY; Schema: public; Owner: postgres
---
-
-CREATE POLICY "Users read own bulk_ad_items" ON public.bulk_ad_items FOR SELECT USING ((user_id = ( SELECT auth.uid() AS uid)));
-
-
---
--- Name: bulk_ad_items Users update own bulk_ad_items; Type: POLICY; Schema: public; Owner: postgres
---
-
-CREATE POLICY "Users update own bulk_ad_items" ON public.bulk_ad_items FOR UPDATE USING ((user_id = ( SELECT auth.uid() AS uid)));
-
-
---
 -- Name: ad_accounts; Type: ROW SECURITY; Schema: public; Owner: postgres
 --
 
@@ -14452,6 +15212,19 @@ ALTER TABLE public.ad_accounts ENABLE ROW LEVEL SECURITY;
 --
 
 CREATE POLICY ad_accounts_modify_own ON public.ad_accounts USING ((user_id = ( SELECT auth.uid() AS uid))) WITH CHECK ((user_id = ( SELECT auth.uid() AS uid)));
+
+
+--
+-- Name: ad_media_library; Type: ROW SECURITY; Schema: public; Owner: postgres
+--
+
+ALTER TABLE public.ad_media_library ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: ad_media_library ad_media_library_read_own; Type: POLICY; Schema: public; Owner: postgres
+--
+
+CREATE POLICY ad_media_library_read_own ON public.ad_media_library FOR SELECT USING ((user_id = ( SELECT auth.uid() AS uid)));
 
 
 --
@@ -14598,10 +15371,17 @@ CREATE POLICY boards_modify_own ON public.boards USING ((user_id = ( SELECT auth
 
 
 --
--- Name: bulk_ad_items; Type: ROW SECURITY; Schema: public; Owner: postgres
+-- Name: campaign_launch_items; Type: ROW SECURITY; Schema: public; Owner: postgres
 --
 
-ALTER TABLE public.bulk_ad_items ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.campaign_launch_items ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: campaign_launch_items campaign_launch_items_read_own; Type: POLICY; Schema: public; Owner: postgres
+--
+
+CREATE POLICY campaign_launch_items_read_own ON public.campaign_launch_items FOR SELECT USING ((user_id = ( SELECT auth.uid() AS uid)));
+
 
 --
 -- Name: chat_conversations; Type: ROW SECURITY; Schema: public; Owner: postgres
@@ -14666,6 +15446,33 @@ ALTER TABLE public.facebook_connections ENABLE ROW LEVEL SECURITY;
 --
 
 CREATE POLICY facebook_connections_modify_own ON public.facebook_connections USING ((user_id = ( SELECT auth.uid() AS uid))) WITH CHECK ((user_id = ( SELECT auth.uid() AS uid)));
+
+
+--
+-- Name: folder_shares; Type: ROW SECURITY; Schema: public; Owner: postgres
+--
+
+ALTER TABLE public.folder_shares ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: folder_shares folder_shares_grantee_leave; Type: POLICY; Schema: public; Owner: postgres
+--
+
+CREATE POLICY folder_shares_grantee_leave ON public.folder_shares FOR DELETE USING ((grantee_id = ( SELECT auth.uid() AS uid)));
+
+
+--
+-- Name: folder_shares folder_shares_grantee_read; Type: POLICY; Schema: public; Owner: postgres
+--
+
+CREATE POLICY folder_shares_grantee_read ON public.folder_shares FOR SELECT USING ((grantee_id = ( SELECT auth.uid() AS uid)));
+
+
+--
+-- Name: folder_shares folder_shares_owner_all; Type: POLICY; Schema: public; Owner: postgres
+--
+
+CREATE POLICY folder_shares_owner_all ON public.folder_shares USING ((owner_id = ( SELECT auth.uid() AS uid))) WITH CHECK ((owner_id = ( SELECT auth.uid() AS uid)));
 
 
 --
@@ -14736,7 +15543,7 @@ ALTER TABLE public.pack_folder_members ENABLE ROW LEVEL SECURITY;
 -- Name: pack_folder_members pack_folder_members_modify_own; Type: POLICY; Schema: public; Owner: postgres
 --
 
-CREATE POLICY pack_folder_members_modify_own ON public.pack_folder_members USING ((user_id = ( SELECT auth.uid() AS uid))) WITH CHECK ((user_id = ( SELECT auth.uid() AS uid)));
+CREATE POLICY pack_folder_members_modify_own ON public.pack_folder_members USING ((user_id = ( SELECT auth.uid() AS uid))) WITH CHECK (((user_id = ( SELECT auth.uid() AS uid)) AND (NOT contributed)));
 
 
 --
@@ -14749,7 +15556,7 @@ ALTER TABLE public.pack_shares ENABLE ROW LEVEL SECURITY;
 -- Name: pack_shares pack_shares_grantee_leave; Type: POLICY; Schema: public; Owner: postgres
 --
 
-CREATE POLICY pack_shares_grantee_leave ON public.pack_shares FOR DELETE USING ((grantee_id = ( SELECT auth.uid() AS uid)));
+CREATE POLICY pack_shares_grantee_leave ON public.pack_shares FOR DELETE USING (((grantee_id = ( SELECT auth.uid() AS uid)) AND (source_folder_id IS NULL)));
 
 
 --
@@ -14865,8 +15672,6 @@ GRANT USAGE ON SCHEMA public TO service_role;
 --
 
 REVOKE ALL ON FUNCTION public.ad_metrics_enrichment_targets(p_user_id uuid, p_pack_id uuid) FROM PUBLIC;
-GRANT ALL ON FUNCTION public.ad_metrics_enrichment_targets(p_user_id uuid, p_pack_id uuid) TO anon;
-GRANT ALL ON FUNCTION public.ad_metrics_enrichment_targets(p_user_id uuid, p_pack_id uuid) TO authenticated;
 GRANT ALL ON FUNCTION public.ad_metrics_enrichment_targets(p_user_id uuid, p_pack_id uuid) TO service_role;
 
 
@@ -14950,8 +15755,6 @@ GRANT ALL ON FUNCTION public.ad_performance_parse_value(p_raw text) TO service_r
 --
 
 REVOKE ALL ON FUNCTION public.ad_performance_rollup_apply(p_keys public.ad_metric_key[]) FROM PUBLIC;
-GRANT ALL ON FUNCTION public.ad_performance_rollup_apply(p_keys public.ad_metric_key[]) TO anon;
-GRANT ALL ON FUNCTION public.ad_performance_rollup_apply(p_keys public.ad_metric_key[]) TO authenticated;
 GRANT ALL ON FUNCTION public.ad_performance_rollup_apply(p_keys public.ad_metric_key[]) TO service_role;
 
 
@@ -14970,8 +15773,6 @@ GRANT ALL ON FUNCTION public.ad_performance_rollup_consistency_check(p_user_id u
 --
 
 REVOKE ALL ON FUNCTION public.ad_performance_rollup_rebuild(p_user_id uuid) FROM PUBLIC;
-GRANT ALL ON FUNCTION public.ad_performance_rollup_rebuild(p_user_id uuid) TO anon;
-GRANT ALL ON FUNCTION public.ad_performance_rollup_rebuild(p_user_id uuid) TO authenticated;
 GRANT ALL ON FUNCTION public.ad_performance_rollup_rebuild(p_user_id uuid) TO service_role;
 
 
@@ -14980,7 +15781,6 @@ GRANT ALL ON FUNCTION public.ad_performance_rollup_rebuild(p_user_id uuid) TO se
 --
 
 REVOKE ALL ON FUNCTION public.ad_performance_rollup_sync_ins() FROM PUBLIC;
-GRANT ALL ON FUNCTION public.ad_performance_rollup_sync_ins() TO anon;
 GRANT ALL ON FUNCTION public.ad_performance_rollup_sync_ins() TO authenticated;
 GRANT ALL ON FUNCTION public.ad_performance_rollup_sync_ins() TO service_role;
 
@@ -14990,7 +15790,6 @@ GRANT ALL ON FUNCTION public.ad_performance_rollup_sync_ins() TO service_role;
 --
 
 REVOKE ALL ON FUNCTION public.ad_performance_rollup_sync_upd() FROM PUBLIC;
-GRANT ALL ON FUNCTION public.ad_performance_rollup_sync_upd() TO anon;
 GRANT ALL ON FUNCTION public.ad_performance_rollup_sync_upd() TO authenticated;
 GRANT ALL ON FUNCTION public.ad_performance_rollup_sync_upd() TO service_role;
 
@@ -15078,9 +15877,17 @@ GRANT ALL ON FUNCTION public.claim_job_processing(p_job_id text, p_user_id uuid,
 --
 
 REVOKE ALL ON FUNCTION public.clear_ad_metrics_enrichment(p_user_id uuid, p_pack_id uuid, p_dry_run boolean) FROM PUBLIC;
-GRANT ALL ON FUNCTION public.clear_ad_metrics_enrichment(p_user_id uuid, p_pack_id uuid, p_dry_run boolean) TO anon;
 GRANT ALL ON FUNCTION public.clear_ad_metrics_enrichment(p_user_id uuid, p_pack_id uuid, p_dry_run boolean) TO authenticated;
 GRANT ALL ON FUNCTION public.clear_ad_metrics_enrichment(p_user_id uuid, p_pack_id uuid, p_dry_run boolean) TO service_role;
+
+
+--
+-- Name: FUNCTION create_folder(p_name text, p_parent_id uuid); Type: ACL; Schema: public; Owner: postgres
+--
+
+REVOKE ALL ON FUNCTION public.create_folder(p_name text, p_parent_id uuid) FROM PUBLIC;
+GRANT ALL ON FUNCTION public.create_folder(p_name text, p_parent_id uuid) TO authenticated;
+GRANT ALL ON FUNCTION public.create_folder(p_name text, p_parent_id uuid) TO service_role;
 
 
 --
@@ -15105,7 +15912,6 @@ GRANT ALL ON FUNCTION public.dissolve_folder(p_folder_id uuid) TO service_role;
 --
 
 REVOKE ALL ON FUNCTION public.fetch_entity_performance_v145(p_user_id uuid, p_date_start date, p_date_stop date, p_entity text, p_entity_id text, p_pack_ids uuid[], p_group_by text, p_include_curve boolean, p_series_days integer, p_include_custom boolean) FROM PUBLIC;
-GRANT ALL ON FUNCTION public.fetch_entity_performance_v145(p_user_id uuid, p_date_start date, p_date_stop date, p_entity text, p_entity_id text, p_pack_ids uuid[], p_group_by text, p_include_curve boolean, p_series_days integer, p_include_custom boolean) TO anon;
 GRANT ALL ON FUNCTION public.fetch_entity_performance_v145(p_user_id uuid, p_date_start date, p_date_stop date, p_entity text, p_entity_id text, p_pack_ids uuid[], p_group_by text, p_include_curve boolean, p_series_days integer, p_include_custom boolean) TO authenticated;
 GRANT ALL ON FUNCTION public.fetch_entity_performance_v145(p_user_id uuid, p_date_start date, p_date_stop date, p_entity text, p_entity_id text, p_pack_ids uuid[], p_group_by text, p_include_curve boolean, p_series_days integer, p_include_custom boolean) TO service_role;
 
@@ -15151,7 +15957,6 @@ GRANT ALL ON FUNCTION public.fetch_entity_performance_v171(p_user_id uuid, p_dat
 --
 
 REVOKE ALL ON FUNCTION public.fetch_manager_performance_base_v145(p_user_id uuid, p_date_start date, p_date_stop date, p_group_by text, p_pack_ids uuid[], p_account_ids text[], p_campaign_name_contains text, p_adset_name_contains text, p_ad_name_contains text, p_action_type text, p_include_leadscore boolean, p_include_available_conversion_types boolean, p_limit integer, p_offset integer, p_order_by text, p_campaign_id text, p_include_custom boolean) FROM PUBLIC;
-GRANT ALL ON FUNCTION public.fetch_manager_performance_base_v145(p_user_id uuid, p_date_start date, p_date_stop date, p_group_by text, p_pack_ids uuid[], p_account_ids text[], p_campaign_name_contains text, p_adset_name_contains text, p_ad_name_contains text, p_action_type text, p_include_leadscore boolean, p_include_available_conversion_types boolean, p_limit integer, p_offset integer, p_order_by text, p_campaign_id text, p_include_custom boolean) TO anon;
 GRANT ALL ON FUNCTION public.fetch_manager_performance_base_v145(p_user_id uuid, p_date_start date, p_date_stop date, p_group_by text, p_pack_ids uuid[], p_account_ids text[], p_campaign_name_contains text, p_adset_name_contains text, p_ad_name_contains text, p_action_type text, p_include_leadscore boolean, p_include_available_conversion_types boolean, p_limit integer, p_offset integer, p_order_by text, p_campaign_id text, p_include_custom boolean) TO authenticated;
 GRANT ALL ON FUNCTION public.fetch_manager_performance_base_v145(p_user_id uuid, p_date_start date, p_date_stop date, p_group_by text, p_pack_ids uuid[], p_account_ids text[], p_campaign_name_contains text, p_adset_name_contains text, p_ad_name_contains text, p_action_type text, p_include_leadscore boolean, p_include_available_conversion_types boolean, p_limit integer, p_offset integer, p_order_by text, p_campaign_id text, p_include_custom boolean) TO service_role;
 
@@ -15170,7 +15975,6 @@ GRANT ALL ON FUNCTION public.fetch_manager_performance_base_v155(p_user_id uuid,
 --
 
 REVOKE ALL ON FUNCTION public.fetch_manager_performance_series_v145(p_user_id uuid, p_date_start date, p_date_stop date, p_group_by text, p_pack_ids uuid[], p_account_ids text[], p_campaign_name_contains text, p_adset_name_contains text, p_ad_name_contains text, p_action_type text, p_group_keys text[], p_window integer) FROM PUBLIC;
-GRANT ALL ON FUNCTION public.fetch_manager_performance_series_v145(p_user_id uuid, p_date_start date, p_date_stop date, p_group_by text, p_pack_ids uuid[], p_account_ids text[], p_campaign_name_contains text, p_adset_name_contains text, p_ad_name_contains text, p_action_type text, p_group_keys text[], p_window integer) TO anon;
 GRANT ALL ON FUNCTION public.fetch_manager_performance_series_v145(p_user_id uuid, p_date_start date, p_date_stop date, p_group_by text, p_pack_ids uuid[], p_account_ids text[], p_campaign_name_contains text, p_adset_name_contains text, p_ad_name_contains text, p_action_type text, p_group_keys text[], p_window integer) TO authenticated;
 GRANT ALL ON FUNCTION public.fetch_manager_performance_series_v145(p_user_id uuid, p_date_start date, p_date_stop date, p_group_by text, p_pack_ids uuid[], p_account_ids text[], p_campaign_name_contains text, p_adset_name_contains text, p_ad_name_contains text, p_action_type text, p_group_keys text[], p_window integer) TO service_role;
 
@@ -15189,7 +15993,6 @@ GRANT ALL ON FUNCTION public.fetch_manager_performance_series_v171(p_user_id uui
 --
 
 REVOKE ALL ON FUNCTION public.fetch_manager_rankings_core_v2(p_user_id uuid, p_date_start date, p_date_stop date, p_group_by text, p_pack_ids uuid[], p_account_ids text[], p_campaign_name_contains text, p_adset_name_contains text, p_ad_name_contains text, p_action_type text, p_include_leadscore boolean, p_include_available_conversion_types boolean, p_limit integer, p_offset integer, p_order_by text, p_campaign_id text, p_include_custom boolean) FROM PUBLIC;
-GRANT ALL ON FUNCTION public.fetch_manager_rankings_core_v2(p_user_id uuid, p_date_start date, p_date_stop date, p_group_by text, p_pack_ids uuid[], p_account_ids text[], p_campaign_name_contains text, p_adset_name_contains text, p_ad_name_contains text, p_action_type text, p_include_leadscore boolean, p_include_available_conversion_types boolean, p_limit integer, p_offset integer, p_order_by text, p_campaign_id text, p_include_custom boolean) TO anon;
 GRANT ALL ON FUNCTION public.fetch_manager_rankings_core_v2(p_user_id uuid, p_date_start date, p_date_stop date, p_group_by text, p_pack_ids uuid[], p_account_ids text[], p_campaign_name_contains text, p_adset_name_contains text, p_ad_name_contains text, p_action_type text, p_include_leadscore boolean, p_include_available_conversion_types boolean, p_limit integer, p_offset integer, p_order_by text, p_campaign_id text, p_include_custom boolean) TO authenticated;
 GRANT ALL ON FUNCTION public.fetch_manager_rankings_core_v2(p_user_id uuid, p_date_start date, p_date_stop date, p_group_by text, p_pack_ids uuid[], p_account_ids text[], p_campaign_name_contains text, p_adset_name_contains text, p_ad_name_contains text, p_action_type text, p_include_leadscore boolean, p_include_available_conversion_types boolean, p_limit integer, p_offset integer, p_order_by text, p_campaign_id text, p_include_custom boolean) TO service_role;
 
@@ -15249,6 +16052,22 @@ GRANT ALL ON FUNCTION public.fetch_manager_rankings_v170(p_user_id uuid, p_date_
 
 
 --
+-- Name: FUNCTION folder_access_role(p_folder_id uuid, p_actor uuid); Type: ACL; Schema: public; Owner: postgres
+--
+
+REVOKE ALL ON FUNCTION public.folder_access_role(p_folder_id uuid, p_actor uuid) FROM PUBLIC;
+GRANT ALL ON FUNCTION public.folder_access_role(p_folder_id uuid, p_actor uuid) TO service_role;
+
+
+--
+-- Name: FUNCTION folder_grants_desired(p_pack_ids uuid[]); Type: ACL; Schema: public; Owner: postgres
+--
+
+REVOKE ALL ON FUNCTION public.folder_grants_desired(p_pack_ids uuid[]) FROM PUBLIC;
+GRANT ALL ON FUNCTION public.folder_grants_desired(p_pack_ids uuid[]) TO service_role;
+
+
+--
 -- Name: FUNCTION folders_check_parent(); Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -15275,6 +16094,15 @@ GRANT ALL ON FUNCTION public.handle_new_user_subscription() TO service_role;
 
 
 --
+-- Name: FUNCTION list_shared_folders(); Type: ACL; Schema: public; Owner: postgres
+--
+
+REVOKE ALL ON FUNCTION public.list_shared_folders() FROM PUBLIC;
+GRANT ALL ON FUNCTION public.list_shared_folders() TO authenticated;
+GRANT ALL ON FUNCTION public.list_shared_folders() TO service_role;
+
+
+--
 -- Name: FUNCTION lookup_user_by_email(p_email text); Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -15297,6 +16125,15 @@ GRANT ALL ON FUNCTION public.lookup_users_by_ids(p_user_ids uuid[]) TO service_r
 REVOKE ALL ON FUNCTION public.merge_ad_pack_inventory(p_user_id uuid, p_pack_id uuid, p_rows jsonb) FROM PUBLIC;
 GRANT ALL ON FUNCTION public.merge_ad_pack_inventory(p_user_id uuid, p_pack_id uuid, p_rows jsonb) TO authenticated;
 GRANT ALL ON FUNCTION public.merge_ad_pack_inventory(p_user_id uuid, p_pack_id uuid, p_rows jsonb) TO service_role;
+
+
+--
+-- Name: FUNCTION move_packs_to_folder(p_pack_ids uuid[], p_folder_id uuid); Type: ACL; Schema: public; Owner: postgres
+--
+
+REVOKE ALL ON FUNCTION public.move_packs_to_folder(p_pack_ids uuid[], p_folder_id uuid) FROM PUBLIC;
+GRANT ALL ON FUNCTION public.move_packs_to_folder(p_pack_ids uuid[], p_folder_id uuid) TO authenticated;
+GRANT ALL ON FUNCTION public.move_packs_to_folder(p_pack_ids uuid[], p_folder_id uuid) TO service_role;
 
 
 --
@@ -15394,6 +16231,15 @@ GRANT ALL ON FUNCTION public.release_job_processing_lease(p_job_id text, p_user_
 
 
 --
+-- Name: FUNCTION rename_folder(p_folder_id uuid, p_name text); Type: ACL; Schema: public; Owner: postgres
+--
+
+REVOKE ALL ON FUNCTION public.rename_folder(p_folder_id uuid, p_name text) FROM PUBLIC;
+GRANT ALL ON FUNCTION public.rename_folder(p_folder_id uuid, p_name text) TO authenticated;
+GRANT ALL ON FUNCTION public.rename_folder(p_folder_id uuid, p_name text) TO service_role;
+
+
+--
 -- Name: FUNCTION renew_job_processing_lease(p_job_id text, p_user_id uuid, p_owner text, p_lease_seconds integer); Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -15452,6 +16298,46 @@ GRANT ALL ON FUNCTION public.set_updated_at() TO service_role;
 
 REVOKE ALL ON FUNCTION public.sweep_stale_pack_refresh() FROM PUBLIC;
 GRANT ALL ON FUNCTION public.sweep_stale_pack_refresh() TO service_role;
+
+
+--
+-- Name: FUNCTION sync_folder_pack_grants(p_pack_ids uuid[]); Type: ACL; Schema: public; Owner: postgres
+--
+
+REVOKE ALL ON FUNCTION public.sync_folder_pack_grants(p_pack_ids uuid[]) FROM PUBLIC;
+GRANT ALL ON FUNCTION public.sync_folder_pack_grants(p_pack_ids uuid[]) TO service_role;
+
+
+--
+-- Name: FUNCTION sync_folder_subtree_grants(p_folder_ids uuid[]); Type: ACL; Schema: public; Owner: postgres
+--
+
+REVOKE ALL ON FUNCTION public.sync_folder_subtree_grants(p_folder_ids uuid[]) FROM PUBLIC;
+GRANT ALL ON FUNCTION public.sync_folder_subtree_grants(p_folder_ids uuid[]) TO service_role;
+
+
+--
+-- Name: FUNCTION trg_folder_shares_sync(); Type: ACL; Schema: public; Owner: postgres
+--
+
+REVOKE ALL ON FUNCTION public.trg_folder_shares_sync() FROM PUBLIC;
+GRANT ALL ON FUNCTION public.trg_folder_shares_sync() TO service_role;
+
+
+--
+-- Name: FUNCTION trg_folders_reparent_sync(); Type: ACL; Schema: public; Owner: postgres
+--
+
+REVOKE ALL ON FUNCTION public.trg_folders_reparent_sync() FROM PUBLIC;
+GRANT ALL ON FUNCTION public.trg_folders_reparent_sync() TO service_role;
+
+
+--
+-- Name: FUNCTION trg_pack_folder_members_sync(); Type: ACL; Schema: public; Owner: postgres
+--
+
+REVOKE ALL ON FUNCTION public.trg_pack_folder_members_sync() FROM PUBLIC;
+GRANT ALL ON FUNCTION public.trg_pack_folder_members_sync() TO service_role;
 
 
 --
@@ -15544,6 +16430,14 @@ GRANT ALL ON TABLE public.tags TO service_role;
 
 
 --
+-- Name: TABLE ad_media_library; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT SELECT,REFERENCES,TRIGGER,TRUNCATE,MAINTAIN ON TABLE public.ad_media_library TO authenticated;
+GRANT ALL ON TABLE public.ad_media_library TO service_role;
+
+
+--
 -- Name: TABLE ad_metric_pack_map; Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -15589,12 +16483,11 @@ GRANT ALL ON TABLE public.boards TO service_role;
 
 
 --
--- Name: TABLE bulk_ad_items; Type: ACL; Schema: public; Owner: postgres
+-- Name: TABLE campaign_launch_items; Type: ACL; Schema: public; Owner: postgres
 --
 
-GRANT ALL ON TABLE public.bulk_ad_items TO anon;
-GRANT ALL ON TABLE public.bulk_ad_items TO authenticated;
-GRANT ALL ON TABLE public.bulk_ad_items TO service_role;
+GRANT SELECT,REFERENCES,TRIGGER,TRUNCATE,MAINTAIN ON TABLE public.campaign_launch_items TO authenticated;
+GRANT ALL ON TABLE public.campaign_launch_items TO service_role;
 
 
 --
@@ -15637,6 +16530,15 @@ GRANT ALL ON SEQUENCE public.conversion_keys_id_seq TO service_role;
 GRANT ALL ON TABLE public.facebook_connections TO anon;
 GRANT ALL ON TABLE public.facebook_connections TO authenticated;
 GRANT ALL ON TABLE public.facebook_connections TO service_role;
+
+
+--
+-- Name: TABLE folder_shares; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.folder_shares TO anon;
+GRANT ALL ON TABLE public.folder_shares TO authenticated;
+GRANT ALL ON TABLE public.folder_shares TO service_role;
 
 
 --
@@ -15770,7 +16672,6 @@ ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA public GRANT ALL ON S
 --
 
 ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT ALL ON FUNCTIONS TO postgres;
-ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT ALL ON FUNCTIONS TO anon;
 ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT ALL ON FUNCTIONS TO authenticated;
 ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT ALL ON FUNCTIONS TO service_role;
 
@@ -15809,5 +16710,5 @@ ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA public GRANT ALL ON T
 -- PostgreSQL database dump complete
 --
 
-\unrestrict zJw9hshd92dUvemAc4HpBTsNSqoTOpnqB1vG3DoLzyhX9EgOn2XX7fU3Zh4ErRB
+\unrestrict iKnlZGCVbYD7oiTHDOTjqKie1rVMWkLk4Dw39Wtxb5juL93GShWHHDkloQrhDjp
 

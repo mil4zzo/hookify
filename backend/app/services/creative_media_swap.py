@@ -306,18 +306,62 @@ def _build_media_block(item: Dict[str, Any], template: CreativeTemplate, media: 
     )
 
 
-def build_creative_parameters(item: Dict[str, Any], template: CreativeTemplate, media: BundleMediaRef) -> Dict[str, Any]:
+# Por item de media_sourcing_spec: o que a Meta aceita de volta. O resto do lido
+# (original_video_id, thumbnail_url com URL assinada do CDN) é saída.
+_SOURCING_ITEM_KEYS = {"video_id", "hash", "image_hash", "source", "opt_in_status"}
+
+
+def swap_media_sourcing_spec(raw: Any, media: BundleMediaRef) -> Optional[Dict[str, Any]]:
+    """media_sourcing_spec (mídia flexível) do modelo com a mídia NOVA no lugar.
+
+    Sem isso a cópia herda a lista com a mídia antiga e a Meta recusa: subcode 4931013
+    "Video ID ... from object_story_spec.video_data is not present in
+    media_sourcing_spec.videos" (medido em v26, 2026-11-01). Cada item novo herda
+    `source`/`opt_in_status` do 1º item do mesmo tipo no modelo; tipo que o modelo não
+    tinha (troca imagem↔vídeo) não entra — a lista antiga sai.
+    """
+    if not isinstance(raw, dict) or not (raw.get("videos") or raw.get("images")):
+        return None
+    spec = {k: v for k, v in raw.items() if k not in ("videos", "images")}
+    for list_key, kind in (("videos", "video"), ("images", "image")):
+        base_items = raw.get(list_key) or []
+        refs = [r for r in media.slot_refs.values() if r.media_type == kind]
+        if not base_items or not refs:
+            continue
+        base = {k: v for k, v in base_items[0].items() if k in _SOURCING_ITEM_KEYS and k not in ("video_id", "hash", "image_hash")}
+        id_key = "video_id" if kind == "video" else ("image_hash" if "image_hash" in base_items[0] else "hash")
+        spec[list_key] = [{**base, id_key: r.video_id if kind == "video" else r.image_hash} for r in refs]
+    return spec
+
+
+def build_creative_parameters(
+    item: Dict[str, Any],
+    template: CreativeTemplate,
+    media: BundleMediaRef,
+    *,
+    template_creative: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
     """`creative_parameters` do `POST /{ad_id}/copies`: só o que muda.
 
     A Meta sobrescreve no nível de cima e herda o resto do criativo do anúncio de
     origem — por isso vai o bloco de mídia INTEIRO (object_story_spec ou
-    asset_feed_spec), e não url_tags/degrees_of_freedom_spec, que já vêm do modelo.
+    asset_feed_spec, e media_sourcing_spec quando o modelo usa mídia flexível) mais as
+    melhorias Advantage+ explícitas; url_tags e o resto vêm do modelo.
     """
     block = _build_media_block(item, template, media)
     params: Dict[str, Any] = {"name": block["name"]}
     for key in ("object_story_spec", "asset_feed_spec"):
         if key in block:
             params[key] = block[key]
+    sourcing = swap_media_sourcing_spec((template_creative or {}).get("media_sourcing_spec"), media)
+    if sourcing is not None:
+        params["media_sourcing_spec"] = sourcing
+    # A cópia NÃO herda tudo: recurso novo da Meta vem no padrão dela (medido em v26,
+    # 2026-11-01: video_filtering OPT_OUT no modelo nasceu OPT_IN na cópia). Por isso as
+    # escolhas do modelo vão explícitas — a Meta documenta que este campo substitui o antigo.
+    dof = sanitize_degrees_of_freedom_spec((template_creative or {}).get("degrees_of_freedom_spec"))
+    if dof:
+        params["degrees_of_freedom_spec"] = dof
     return params
 
 
@@ -360,6 +404,9 @@ def build_creative_create_params(
 ) -> Dict[str, Any]:
     """Params do `POST /act_X/adcreatives` (fallback): mídia nova + fidelidade explícita."""
     params = _build_media_block(item, template, media)
+    sourcing = swap_media_sourcing_spec(template_creative.get("media_sourcing_spec"), media)
+    if sourcing is not None:
+        params["media_sourcing_spec"] = sourcing
     dof = sanitize_degrees_of_freedom_spec(template_creative.get("degrees_of_freedom_spec"))
     if dof:
         params["degrees_of_freedom_spec"] = dof

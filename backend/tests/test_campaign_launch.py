@@ -404,3 +404,35 @@ class TestApiVersion:
         default = GraphAPI("tok")
         assert launch.base_url == META_LAUNCH_GRAPH_BASE_URL
         assert default.base_url == META_GRAPH_BASE_URL
+
+
+class TestFidelityMeasuredOnMeta:
+    """Dois achados do teste de escrita real em v26 (scripts/meta_write_smoke.py, 2026-11-01)."""
+
+    SOURCING = {"videos": [{"video_id": "video_tpl", "original_video_id": "video_tpl", "source": "multi_media",
+                            "opt_in_status": "opt_in", "thumbnail_url": "https://scontent.cdn/x.jpg"}]}
+
+    def _media(self, kind="video"):
+        ref = MediaRef(0, "n", kind, video_id="video_new", thumbnail_hash="t") if kind == "video" else MediaRef(0, "n", "image", image_hash="hash_new")
+        return BundleMediaRef("b", {"slot_1": ref})
+
+    def test_media_sourcing_spec_points_to_new_media(self):
+        # Sem isso: subcode 4931013 "video ... not present in media_sourcing_spec.videos".
+        template = parse_creative_template({"creative": VIDEO_TEMPLATE_CREATIVE})
+        params = build_creative_parameters({"ad_name": "AD"}, template, self._media(),
+                                           template_creative={**VIDEO_TEMPLATE_CREATIVE, "media_sourcing_spec": self.SOURCING})
+        assert params["media_sourcing_spec"] == {"videos": [{"video_id": "video_new", "source": "multi_media", "opt_in_status": "opt_in"}]}
+
+    def test_cross_type_drops_stale_sourcing_list(self):
+        template = parse_creative_template({"creative": VIDEO_TEMPLATE_CREATIVE})
+        params = build_creative_parameters({"ad_name": "AD"}, template, self._media("image"),
+                                           template_creative={**VIDEO_TEMPLATE_CREATIVE, "media_sourcing_spec": self.SOURCING})
+        assert "video_tpl" not in str(params["media_sourcing_spec"])
+
+    def test_copy_sends_template_enhancements_explicitly(self):
+        # Sem isso: video_filtering OPT_OUT no modelo nasceu OPT_IN na cópia.
+        template = parse_creative_template({"creative": VIDEO_TEMPLATE_CREATIVE})
+        params = build_creative_parameters({"ad_name": "AD"}, template, self._media(), template_creative=VIDEO_TEMPLATE_CREATIVE)
+        feats = params["degrees_of_freedom_spec"]["creative_features_spec"]
+        assert feats["image_touchups"] == {"enroll_status": "OPT_OUT"}
+        assert "standard_enhancements" not in feats

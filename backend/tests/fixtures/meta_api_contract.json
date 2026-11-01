@@ -1,0 +1,621 @@
+{
+  "batch_get_budget_configs": [
+    {
+      "body": [
+        "batch"
+      ],
+      "fields": null,
+      "files": [],
+      "host_versioned": true,
+      "method": "POST",
+      "params": [
+        "include_headers"
+      ],
+      "path": "/"
+    }
+  ],
+  "batch_get_effective_status": [
+    {
+      "body": [
+        "batch"
+      ],
+      "fields": null,
+      "files": [],
+      "host_versioned": true,
+      "method": "POST",
+      "params": [
+        "include_headers"
+      ],
+      "path": "/"
+    }
+  ],
+  "batch_update_ad_status": [
+    {
+      "body": [
+        "batch"
+      ],
+      "fields": null,
+      "files": [],
+      "host_versioned": true,
+      "method": "POST",
+      "params": [
+        "include_headers"
+      ],
+      "path": "/"
+    }
+  ],
+  "batch_update_entity_budget": [
+    {
+      "body": [
+        "batch"
+      ],
+      "fields": null,
+      "files": [],
+      "host_versioned": true,
+      "method": "POST",
+      "params": [
+        "include_headers"
+      ],
+      "path": "/"
+    }
+  ],
+  "copy_ad": [
+    {
+      "body": [],
+      "fields": null,
+      "files": [],
+      "host_versioned": true,
+      "method": "POST",
+      "params": [],
+      "path": "/123/copies"
+    }
+  ],
+  "copy_adset": [
+    {
+      "body": [],
+      "fields": null,
+      "files": [],
+      "host_versioned": true,
+      "method": "POST",
+      "params": [],
+      "path": "/123/copies"
+    }
+  ],
+  "copy_campaign": [
+    {
+      "body": [],
+      "fields": null,
+      "files": [],
+      "host_versioned": true,
+      "method": "POST",
+      "params": [],
+      "path": "/123/copies"
+    }
+  ],
+  "create_ad": [
+    {
+      "body": [],
+      "fields": null,
+      "files": [],
+      "host_versioned": true,
+      "method": "POST",
+      "params": [],
+      "path": "/act_123/ads"
+    }
+  ],
+  "create_ad_creative": [
+    {
+      "body": [],
+      "fields": null,
+      "files": [],
+      "host_versioned": true,
+      "method": "POST",
+      "params": [],
+      "path": "/act_123/adcreatives"
+    }
+  ],
+  "create_adset": [
+    {
+      "body": [],
+      "fields": null,
+      "files": [],
+      "host_versioned": true,
+      "method": "POST",
+      "params": [],
+      "path": "/act_123/adsets"
+    }
+  ],
+  "fetch_attribution_window": [
+    {
+      "body": [],
+      "fields": "adset_id,attribution_setting",
+      "files": [],
+      "host_versioned": true,
+      "method": "GET",
+      "params": [
+        "level",
+        "limit",
+        "time_range"
+      ],
+      "path": "/act_123/insights"
+    }
+  ],
+  "finish_chunked_video_upload": [
+    {
+      "body": [
+        "title",
+        "upload_phase",
+        "upload_session_id"
+      ],
+      "fields": null,
+      "files": [],
+      "host_versioned": true,
+      "method": "POST",
+      "params": [],
+      "path": "/act_123/advideos"
+    }
+  ],
+  "get_account_info": [
+    {
+      "body": [],
+      "fields": "id,email,name,picture{url},adaccounts{name,id,account_status,user_tasks,instagram_accounts{username,id}}",
+      "files": [],
+      "host_versioned": true,
+      "method": "GET",
+      "params": [],
+      "path": "/me"
+    }
+  ],
+  "get_ad_account": [
+    {
+      "body": [],
+      "fields": "id,name,account_status",
+      "files": [],
+      "host_versioned": true,
+      "method": "GET",
+      "params": [],
+      "path": "/act_123"
+    }
+  ],
+  "get_ad_images_by_hashes": [
+    {
+      "body": [],
+      "fields": "hash,permalink_url,url",
+      "files": [],
+      "host_versioned": true,
+      "method": "GET",
+      "params": [
+        "hashes",
+        "limit"
+      ],
+      "path": "/act_123/adimages"
+    }
+  ],
+  "get_ad_statuses_by_ids": [
+    {
+      "body": [],
+      "fields": "id,effective_status",
+      "files": [],
+      "host_versioned": true,
+      "method": "GET",
+      "params": [
+        "filtering",
+        "limit"
+      ],
+      "path": "/act_123/ads"
+    }
+  ],
+  "get_ad_statuses_by_parent": [
+    {
+      "body": [],
+      "fields": "id,effective_status",
+      "files": [],
+      "host_versioned": true,
+      "method": "GET",
+      "params": [
+        "filtering",
+        "limit"
+      ],
+      "path": "/act_123/ads"
+    }
+  ],
+  "get_adaccounts": [
+    {
+      "body": [],
+      "fields": "name,id,account_status,currency,user_tasks,instagram_accounts{username,id}",
+      "files": [],
+      "host_versioned": true,
+      "method": "GET",
+      "params": [
+        "limit"
+      ],
+      "path": "/me/adaccounts"
+    }
+  ],
+  "get_adset_fields": [
+    {
+      "body": [],
+      "fields": "123",
+      "files": [],
+      "host_versioned": true,
+      "method": "GET",
+      "params": [],
+      "path": "/123"
+    }
+  ],
+  "get_adsets_for_campaign": [
+    {
+      "body": [],
+      "fields": "id,name,status,targeting,optimization_goal,billing_event,bid_amount,daily_budget,lifetime_budget,promoted_object,attribution_spec,destination_type,frequency_control_specs,bid_constraints,pacing_type,start_time,end_time,bid_strategy,dsa_beneficiary,dsa_payor,regional_regulated_categories,regional_regulation_identities",
+      "files": [],
+      "host_versioned": true,
+      "method": "GET",
+      "params": [
+        "limit"
+      ],
+      "path": "/123/adsets"
+    }
+  ],
+  "get_campaign_config": [
+    {
+      "body": [],
+      "fields": "id,name,objective,status,buying_type,bid_strategy,daily_budget,lifetime_budget,special_ad_categories,special_ad_category_country,spend_cap,smart_promotion_type,advantage_state_info{advantage_state}",
+      "files": [],
+      "host_versioned": true,
+      "method": "GET",
+      "params": [],
+      "path": "/123"
+    }
+  ],
+  "get_entity_budget_config": [
+    {
+      "body": [],
+      "fields": "daily_budget,lifetime_budget,is_adset_budget_sharing_enabled",
+      "files": [],
+      "host_versioned": true,
+      "method": "GET",
+      "params": [],
+      "path": "/123"
+    }
+  ],
+  "get_entity_status": [
+    {
+      "body": [],
+      "fields": "status,effective_status",
+      "files": [],
+      "host_versioned": true,
+      "method": "GET",
+      "params": [],
+      "path": "/123"
+    }
+  ],
+  "get_entity_statuses_for_account": [
+    {
+      "body": [],
+      "fields": "id,effective_status",
+      "files": [],
+      "host_versioned": true,
+      "method": "GET",
+      "params": [
+        "limit"
+      ],
+      "path": "/act_123/ads"
+    }
+  ],
+  "get_image_source_url": [
+    {
+      "body": [],
+      "fields": "account_id,creative{id,effective_instagram_media_id,image_hash,image_url,asset_feed_spec,object_story_spec}",
+      "files": [],
+      "host_versioned": true,
+      "method": "GET",
+      "params": [],
+      "path": "/123"
+    }
+  ],
+  "get_launch_template_ad": [
+    {
+      "body": [],
+      "fields": "id,name,campaign_id,adset_id,account_id,tracking_specs,conversion_domain,creative{id,name,body,title,call_to_action_type,link_url,url_tags,object_type,asset_feed_spec,image_hash,image_url,video_id,thumbnail_url,object_story_spec,instagram_user_id,degrees_of_freedom_spec,contextual_multi_ads,media_sourcing_spec}",
+      "files": [],
+      "host_versioned": true,
+      "method": "GET",
+      "params": [],
+      "path": "/123"
+    }
+  ],
+  "get_page_access_token": [],
+  "get_video_owner_page_id": [
+    {
+      "body": [],
+      "fields": "from",
+      "files": [],
+      "host_versioned": true,
+      "method": "GET",
+      "params": [],
+      "path": "/123"
+    }
+  ],
+  "get_video_source": [
+    {
+      "body": [],
+      "fields": "source",
+      "files": [],
+      "host_versioned": true,
+      "method": "GET",
+      "params": [],
+      "path": "/123"
+    }
+  ],
+  "get_video_source_url": [
+    {
+      "body": [],
+      "fields": "source",
+      "files": [],
+      "host_versioned": true,
+      "method": "GET",
+      "params": [],
+      "path": "/123"
+    },
+    {
+      "body": [],
+      "fields": "source",
+      "files": [],
+      "host_versioned": true,
+      "method": "GET",
+      "params": [],
+      "path": "/123"
+    }
+  ],
+  "get_video_status": [
+    {
+      "body": [],
+      "fields": "status",
+      "files": [],
+      "host_versioned": true,
+      "method": "GET",
+      "params": [],
+      "path": "/123"
+    }
+  ],
+  "get_video_thumbnails": [
+    {
+      "body": [],
+      "fields": "id,is_preferred,uri,width,height",
+      "files": [],
+      "host_versioned": true,
+      "method": "GET",
+      "params": [],
+      "path": "/123/thumbnails"
+    }
+  ],
+  "start_ads_job": [
+    {
+      "body": [],
+      "fields": "actions,ad_id,ad_name,adset_id,adset_name,campaign_id,campaign_name,clicks,conversions,cost_per_conversion,cpm,ctr,frequency,impressions,inline_link_clicks,reach,spend,video_play_actions,video_thruplay_watched_actions,video_play_curve_actions,video_p50_watched_actions,video_p75_watched_actions,website_ctr",
+      "files": [],
+      "host_versioned": true,
+      "method": "POST",
+      "params": [
+        "action_attribution_windows",
+        "action_breakdowns",
+        "async",
+        "filtering",
+        "level",
+        "limit",
+        "time_increment",
+        "time_range",
+        "use_account_attribution_setting"
+      ],
+      "path": "/act_123/insights"
+    }
+  ],
+  "start_chunked_video_upload": [
+    {
+      "body": [
+        "file_size",
+        "upload_phase"
+      ],
+      "fields": null,
+      "files": [],
+      "host_versioned": true,
+      "method": "POST",
+      "params": [],
+      "path": "/act_123/advideos"
+    }
+  ],
+  "transfer_video_chunk": [
+    {
+      "body": [
+        "start_offset",
+        "upload_phase",
+        "upload_session_id"
+      ],
+      "fields": null,
+      "files": [
+        "video_file_chunk"
+      ],
+      "host_versioned": true,
+      "method": "POST",
+      "params": [],
+      "path": "/act_123/advideos"
+    }
+  ],
+  "update_ad": [
+    {
+      "body": [],
+      "fields": null,
+      "files": [],
+      "host_versioned": true,
+      "method": "POST",
+      "params": [],
+      "path": "/123"
+    }
+  ],
+  "update_ad_status": [
+    {
+      "body": [
+        "status"
+      ],
+      "fields": null,
+      "files": [],
+      "host_versioned": true,
+      "method": "POST",
+      "params": [],
+      "path": "/123"
+    },
+    {
+      "body": [],
+      "fields": "status,effective_status",
+      "files": [],
+      "host_versioned": true,
+      "method": "GET",
+      "params": [],
+      "path": "/123"
+    },
+    {
+      "body": [],
+      "fields": "status,effective_status",
+      "files": [],
+      "host_versioned": true,
+      "method": "GET",
+      "params": [],
+      "path": "/123"
+    },
+    {
+      "body": [],
+      "fields": "status,effective_status",
+      "files": [],
+      "host_versioned": true,
+      "method": "GET",
+      "params": [],
+      "path": "/123"
+    }
+  ],
+  "update_adset": [
+    {
+      "body": [],
+      "fields": null,
+      "files": [],
+      "host_versioned": true,
+      "method": "POST",
+      "params": [],
+      "path": "/123"
+    }
+  ],
+  "update_adset_status": [
+    {
+      "body": [
+        "status"
+      ],
+      "fields": null,
+      "files": [],
+      "host_versioned": true,
+      "method": "POST",
+      "params": [],
+      "path": "/123"
+    },
+    {
+      "body": [],
+      "fields": "status,effective_status",
+      "files": [],
+      "host_versioned": true,
+      "method": "GET",
+      "params": [],
+      "path": "/123"
+    },
+    {
+      "body": [],
+      "fields": "status,effective_status",
+      "files": [],
+      "host_versioned": true,
+      "method": "GET",
+      "params": [],
+      "path": "/123"
+    },
+    {
+      "body": [],
+      "fields": "status,effective_status",
+      "files": [],
+      "host_versioned": true,
+      "method": "GET",
+      "params": [],
+      "path": "/123"
+    }
+  ],
+  "update_campaign": [
+    {
+      "body": [],
+      "fields": null,
+      "files": [],
+      "host_versioned": true,
+      "method": "POST",
+      "params": [],
+      "path": "/123"
+    }
+  ],
+  "update_campaign_status": [
+    {
+      "body": [
+        "status"
+      ],
+      "fields": null,
+      "files": [],
+      "host_versioned": true,
+      "method": "POST",
+      "params": [],
+      "path": "/123"
+    },
+    {
+      "body": [],
+      "fields": "status,effective_status",
+      "files": [],
+      "host_versioned": true,
+      "method": "GET",
+      "params": [],
+      "path": "/123"
+    },
+    {
+      "body": [],
+      "fields": "status,effective_status",
+      "files": [],
+      "host_versioned": true,
+      "method": "GET",
+      "params": [],
+      "path": "/123"
+    },
+    {
+      "body": [],
+      "fields": "status,effective_status",
+      "files": [],
+      "host_versioned": true,
+      "method": "GET",
+      "params": [],
+      "path": "/123"
+    }
+  ],
+  "update_entity_budget": [
+    {
+      "body": [],
+      "fields": "daily_budget,lifetime_budget,is_adset_budget_sharing_enabled",
+      "files": [],
+      "host_versioned": true,
+      "method": "GET",
+      "params": [],
+      "path": "/123"
+    }
+  ],
+  "upload_ad_image": [
+    {
+      "body": [],
+      "fields": null,
+      "files": [
+        "filename"
+      ],
+      "host_versioned": true,
+      "method": "POST",
+      "params": [],
+      "path": "/act_123/adimages"
+    }
+  ]
+}

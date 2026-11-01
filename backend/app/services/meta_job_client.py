@@ -12,6 +12,7 @@ from typing import Any, Dict, List, Optional, Union
 import requests
 
 from app.core.config import META_GRAPH_BASE_URL
+from app.services.graph_api import AD_INSIGHTS_FIELDS
 from app.services.meta_usage_logger import log_meta_usage
 
 logger = logging.getLogger(__name__)
@@ -127,7 +128,7 @@ class MetaJobClient:
         json_filters = [json.dumps(f) for f in filters] if filters else []
         
         payload = {
-            "fields": "actions,ad_id,ad_name,adset_id,adset_name,campaign_id,campaign_name,clicks,conversions,cost_per_conversion,cpm,ctr,frequency,impressions,inline_link_clicks,reach,spend,video_play_actions,video_thruplay_watched_actions,video_play_curve_actions,video_p50_watched_actions,video_p75_watched_actions,website_ctr",
+            "fields": AD_INSIGHTS_FIELDS,
             "limit": limit,
             "level": level,
             "action_attribution_windows": "['7d_click','1d_view']",

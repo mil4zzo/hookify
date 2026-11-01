@@ -277,7 +277,7 @@ Roteiro (tudo **pausado**, numa conta de teste):
    tela → conferir que não nasceu campanha duplicada.
 7. Olhar nos logs `[CAMPAIGN_LAUNCH] ad_copy_fallback`: se a cópia de anúncio com
    `creative_parameters` cair sempre no fallback, entender o porquê antes do corte.
-8. Corte: remover o backend legado listado acima + `bulk_ad_items` (migration).
+8. Corte: backend legado **removido em 2026-11-01** (antecipado para reduzir a superfície do upgrade v26). Falta só decidir apagar a tabela `bulk_ad_items` (dado histórico).
 - Lançamento real pausado em conta de teste, cobrindo: modelo de 1 slot, modelo
   multi-slot, imagem em slot de vídeo, CBO e ABO, retomada após derrubar o backend.
 - Remover `/bulk-ads`, `/campaign-bulk` e componentes legados.

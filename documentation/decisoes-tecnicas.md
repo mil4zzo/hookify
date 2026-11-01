@@ -5334,3 +5334,15 @@ responde?").
 tem cadastro, e fica fora da ordenação dos Boards. Métrica nova que dependa de contexto
 próprio de uma tela segue o mesmo caminho. Memória: `rule_engine_offered_field_must_be_answerable.md`.
 
+
+## Meta `/copies` de anúncio com `creative_parameters` não herda tudo do criativo (2026-11-01)
+
+Medido em v26 com `backend/scripts/meta_write_smoke.py` (escrita real, tudo pausado e apagado):
+
+1. **`media_sourcing_spec`** (mídia flexível) é herdado com a mídia antiga e a Meta recusa
+   a cópia (subcode 4931013). Correção: `swap_media_sourcing_spec` troca a mídia também ali.
+2. **`degrees_of_freedom_spec`**: recurso Advantage+ novo nasce no padrão da Meta
+   (`video_filtering` OPT_OUT → OPT_IN). Correção: a cópia manda as escolhas do modelo explícitas.
+
+O smoke compara texto, CTA, mídia, multi-anunciante e os 83 recursos com o modelo; `--force-fallback`
+cobre o plano B (criativo + anúncio do zero).

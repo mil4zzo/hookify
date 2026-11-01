@@ -25,6 +25,16 @@ logger = logging.getLogger(__name__)
 
 BATCH_SIZE = 50
 REQUEST_TIMEOUT = 90
+
+
+def _ig_media_type(payload: Dict[str, Any]) -> Optional[str]:
+    """VIDEO/IMAGE da mídia do Instagram; álbum é classificado pelo primeiro filho
+    (consistente com GraphAPI._fetch_igm_media_url, que serve a media_url do 1º filho)."""
+    raw_type = str(payload.get("media_type") or "").upper()
+    if raw_type == "CAROUSEL_ALBUM":
+        children = (payload.get("children") or {}).get("data") or []
+        raw_type = str((children[0] if children else {}).get("media_type") or "").upper()
+    return {"VIDEO": "video", "IMAGE": "image"}.get(raw_type)
 MAX_RETRIES = 3
 RETRY_DELAYS = [2, 4, 8]
 BATCH_DELAY_S = 2
@@ -461,72 +471,38 @@ class AdsEnricher:
     def fetch_ig_media_types(self, igm_ids: List[str]) -> Dict[str, str]:
         """Batch GET effective_instagram_media_id -> normalized media_type ("video"/"image").
 
-        Best-effort: batch errors split-on-error per-chunk. Never raises.
+        Usa a Batch API (um GET por id dentro do lote): `GET /?ids=` na raiz dá erro #100
+        a partir da v26 ("The ids query parameter is deprecated in v26.0+", medido em
+        2026-11-01 com scripts/meta_version_diff.py). Best-effort: id com erro fica de fora.
+        Never raises.
         """
         if not igm_ids:
             return {}
+        from app.services.graph_api import GraphAPI  # local: graph_api não pode importar este módulo no topo
 
+        api = GraphAPI(self.access_token, base_url=self.base_url.rstrip("/") + "/")
         result: Dict[str, str] = {}
-        base = self.base_url.rstrip("/") + "/"
-
-        def _fetch_chunk(chunk: List[str], depth: int = 0) -> None:
-            if not chunk:
-                return
-            if not self._ensure_not_cancelled(f"igm batch {chunk[0][:8]}"):
-                return
-            try:
-                resp = requests.get(
-                    base,
-                    params={
-                        "ids": ",".join(chunk),
-                        "fields": "id,media_type,children{media_type}",
-                        "access_token": self.access_token,
-                    },
-                    timeout=REQUEST_TIMEOUT,
-                )
-                if resp.status_code >= 400 and len(chunk) > 1 and depth < 3:
-                    logger.warning(
-                        "[AdsEnricher] igm batch status=%s len=%d, splitting", resp.status_code, len(chunk)
-                    )
-                    mid = len(chunk) // 2
-                    _fetch_chunk(chunk[:mid], depth + 1)
-                    _fetch_chunk(chunk[mid:], depth + 1)
-                    return
-                resp.raise_for_status()
-                log_meta_usage(resp, "AdsEnricher.igm")
-                data = resp.json()
-                if not isinstance(data, dict):
-                    return
-                for igm_id, payload in data.items():
-                    if not isinstance(payload, dict) or "error" in payload:
-                        continue
-                    raw_type = str(payload.get("media_type") or "").upper()
-                    if raw_type == "VIDEO":
-                        result[igm_id] = "video"
-                    elif raw_type == "IMAGE":
-                        result[igm_id] = "image"
-                    elif raw_type == "CAROUSEL_ALBUM":
-                        # Categorizar pelo primeiro filho (consistente com _fetch_igm_media_url,
-                        # que serve a media_url do primeiro filho do álbum)
-                        children = (payload.get("children") or {}).get("data") or []
-                        child_type = str((children[0] if children else {}).get("media_type") or "").upper()
-                        if child_type == "VIDEO":
-                            result[igm_id] = "video"
-                        elif child_type == "IMAGE":
-                            result[igm_id] = "image"
-            except Exception as exc:
-                if len(chunk) > 1 and depth < 3:
-                    logger.warning("[AdsEnricher] igm fetch exception (%s), splitting chunk", exc)
-                    mid = len(chunk) // 2
-                    _fetch_chunk(chunk[:mid], depth + 1)
-                    _fetch_chunk(chunk[mid:], depth + 1)
-                else:
-                    logger.warning("[AdsEnricher] igm fetch failed for %d ids: %s", len(chunk), exc)
-
         total = len(igm_ids)
         logger.info("[AdsEnricher] fetch_ig_media_types: %d igm ids", total)
         for i in range(0, total, BATCH_SIZE):
-            _fetch_chunk(igm_ids[i:i + BATCH_SIZE])
+            chunk = igm_ids[i:i + BATCH_SIZE]
+            if not self._ensure_not_cancelled(f"igm batch {chunk[0][:8]}"):
+                break
+            try:
+                outcome = api._batch_graph(
+                    [(igm_id, {"method": "GET", "relative_url": f"{igm_id}?fields=id,media_type,children{{media_type}}"})
+                     for igm_id in chunk],
+                    "AdsEnricher.igm",
+                )
+            except Exception as exc:  # noqa: BLE001 — melhor esforço
+                logger.warning("[AdsEnricher] igm fetch failed for %d ids: %s", len(chunk), exc)
+                continue
+            for igm_id, item in (outcome.get("results") or {}).items():
+                if not item.get("ok"):
+                    continue
+                media_type = _ig_media_type(item.get("body") or {})
+                if media_type:
+                    result[igm_id] = media_type
             if i + BATCH_SIZE < total:
                 time.sleep(0.2)
 

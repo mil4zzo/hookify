@@ -13,13 +13,6 @@ SUPPORTED_CREATIVE_FAMILIES = {
 }
 
 
-class CreativeTemplateError(RuntimeError):
-    def __init__(self, message: str, error_code: str = "unsupported_template"):
-        super().__init__(message)
-        self.message = message
-        self.error_code = error_code
-
-
 @dataclass
 class CreativePreview:
     body: Optional[str] = None
@@ -206,20 +199,6 @@ def parse_creative_template(creative_payload: Dict[str, Any]) -> CreativeTemplat
         creative_id=str(creative.get("id") or "") or None,
         creative_name=creative_payload.get("name"),
     )
-
-
-def validate_template_for_bulk_clone(template: CreativeTemplate) -> CreativeTemplate:
-    if not template.capabilities.supports_bulk_clone:
-        raise CreativeTemplateError(
-            template.capabilities.blocking_reason or "Creative nao suportado para upload em massa",
-            error_code="unsupported_template",
-        )
-    if not template.capabilities.supports_media_swap:
-        raise CreativeTemplateError(
-            "Creative nao suporta troca automatica de midia",
-            error_code="unsupported_template",
-        )
-    return template
 
 
 def get_template_media_type(content_type: str) -> str:

@@ -434,3 +434,5 @@ certificates
 # CUSTOM (v1000)
 # ===========================================
 .agent/skills
+# Snapshot do contrato com a Meta (tests/test_meta_api_contract.py) precisa ir para o git
+!backend/tests/fixtures/*.json

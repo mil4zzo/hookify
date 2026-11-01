@@ -179,6 +179,10 @@ def test_facebook_connection(access_token: str) -> Dict[str, Any]:
         logger.exception("test_facebook_connection error: %s", err)
         return {'status': 'error', 'message': str(err)}
 
+# Campos do relatório de insights por anúncio (async). Fonte única: GraphAPI e MetaJobClient.
+AD_INSIGHTS_FIELDS = "actions,ad_id,ad_name,adset_id,adset_name,campaign_id,campaign_name,clicks,conversions,cost_per_conversion,cpm,ctr,frequency,impressions,inline_link_clicks,reach,spend,video_play_actions,video_thruplay_watched_actions,video_play_curve_actions,video_p50_watched_actions,video_p75_watched_actions,website_ctr"
+
+
 class GraphAPI:
     def __init__(self, access_token: str, user_id: Optional[str] = None, base_url: Optional[str] = None):
         # base_url permite a uma feature rodar em outra versão da Graph API sem mexer no resto.
@@ -319,7 +323,7 @@ class GraphAPI:
         json_filters = [json.dumps(f) for f in filters] if filters else []
 
         payload = {
-            'fields': 'actions,ad_id,ad_name,adset_id,adset_name,campaign_id,campaign_name,clicks,conversions,cost_per_conversion,cpm,ctr,frequency,impressions,inline_link_clicks,reach,spend,video_play_actions,video_thruplay_watched_actions,video_play_curve_actions,video_p50_watched_actions,video_p75_watched_actions,website_ctr',
+            'fields': AD_INSIGHTS_FIELDS,
             'limit': self.limit,
             'level': self.level,
             'action_attribution_windows': self.action_attribution_windows,
@@ -1821,16 +1825,6 @@ class GraphAPI:
 
     ## BULK CREATE ADS
 
-    def get_ad_parent_info(self, ad_id: str) -> Dict[str, Any]:
-        """Retorna campaign_id, adset_id e account_id de um anuncio."""
-        return self._handle_graph_request(
-            method="GET",
-            path=ad_id,
-            operation_name="GraphAPI.get_ad_parent_info",
-            params={"fields": "id,name,campaign_id,adset_id,account_id"},
-            timeout=30,
-        )
-
     def get_ad_account(self, act_id: str) -> Dict[str, Any]:
         """Valida se o token atual possui acesso a uma conta de anúncios."""
         return self._handle_graph_request(
@@ -1891,16 +1885,6 @@ class GraphAPI:
             timeout=30,
         )
 
-    def create_campaign(self, act_id: str, params: Dict[str, Any]) -> Dict[str, Any]:
-        """Cria uma nova campanha na conta de anuncios."""
-        return self._handle_graph_request(
-            method="POST",
-            path=f"{act_id}/campaigns",
-            operation_name="GraphAPI.create_campaign",
-            json_payload=params,
-            timeout=60,
-        )
-
     def copy_adset(self, source_adset_id: str, params: Dict[str, Any]) -> Dict[str, Any]:
         """Copia um adset existente para outra campanha via POST /{id}/copies."""
         return self._handle_graph_request(
@@ -1933,17 +1917,6 @@ class GraphAPI:
             timeout=60,
         )
 
-    def get_async_session(self, session_id: str) -> Dict[str, Any]:
-        """Le o estado de uma async session (usado para pollar deep copies)."""
-        fields = "id,status,percent_completed,result,error_code,exception,complete_time,start_time,method,uri"
-        return self._handle_graph_request(
-            method="GET",
-            path=session_id,
-            operation_name="GraphAPI.get_async_session",
-            params={"fields": fields},
-            timeout=15,
-        )
-
     def update_campaign(self, campaign_id: str, params: Dict[str, Any]) -> Dict[str, Any]:
         """PATCH-like: POST /{campaign_id} com os campos a alterar (name, daily_budget, status, ...)."""
         return self._handle_graph_request(
@@ -1964,40 +1937,6 @@ class GraphAPI:
             timeout=30,
         )
 
-    def delete_object(self, object_id: str) -> Dict[str, Any]:
-        """DELETE /{id} — usado para apagar adsets nao-selecionados e ads copiados."""
-        return self._handle_graph_request(
-            method="DELETE",
-            path=object_id,
-            operation_name="GraphAPI.delete_object",
-            timeout=30,
-        )
-
-    def list_campaign_adsets_with_source(self, campaign_id: str) -> Dict[str, Any]:
-        """
-        Lista adsets de uma campanha incluindo source_adset (entidade da qual foram copiados).
-        Usado apos /copies pra mapear source_adset_id -> copied_adset_id.
-        """
-        fields = "id,name,status,end_time,start_time,source_adset{id}"
-        return self._handle_graph_request(
-            method="GET",
-            path=f"{campaign_id}/adsets",
-            operation_name="GraphAPI.list_campaign_adsets_with_source",
-            params={"fields": fields, "limit": 100},
-            timeout=30,
-        )
-
-    def list_adset_ads_with_source(self, adset_id: str) -> Dict[str, Any]:
-        """Lista ads de um adset incluindo source_ad — usado pra DELETE em massa pos-copia."""
-        fields = "id,name,status,source_ad{id}"
-        return self._handle_graph_request(
-            method="GET",
-            path=f"{adset_id}/ads",
-            operation_name="GraphAPI.list_adset_ads_with_source",
-            params={"fields": fields, "limit": 100},
-            timeout=30,
-        )
-
     def create_adset(self, act_id: str, params: Dict[str, Any]) -> Dict[str, Any]:
         """Cria um novo conjunto de anuncios na conta."""
         return self._handle_graph_request(
@@ -2006,21 +1945,6 @@ class GraphAPI:
             operation_name="GraphAPI.create_adset",
             json_payload=params,
             timeout=60,
-        )
-
-    def get_ad_creative_details(self, ad_id: str) -> Dict[str, Any]:
-        # dsa_* nao sao campos do no AdCreative na Graph API (usar nivel de anuncio/conta se necessario).
-        fields = (
-            "id,name,creative{actor_id,body,title,call_to_action,call_to_action_type,"
-            "link_url,url_tags,object_type,asset_feed_spec,image_hash,"
-            "image_url,video_id,thumbnail_url,object_story_spec}"
-        )
-        return self._handle_graph_request(
-            method="GET",
-            path=ad_id,
-            operation_name="GraphAPI.get_ad_creative_details",
-            params={"fields": fields},
-            timeout=30,
         )
 
     def get_launch_template_ad(self, ad_id: str) -> Dict[str, Any]:
@@ -2034,7 +1958,7 @@ class GraphAPI:
             "id,name,campaign_id,adset_id,account_id,tracking_specs,conversion_domain,"
             "creative{id,name,body,title,call_to_action_type,link_url,url_tags,object_type,"
             "asset_feed_spec,image_hash,image_url,video_id,thumbnail_url,object_story_spec,"
-            "instagram_user_id,degrees_of_freedom_spec,contextual_multi_ads}"
+            "instagram_user_id,degrees_of_freedom_spec,contextual_multi_ads,media_sourcing_spec}"
         )
         return self._handle_graph_request(
             method="GET",

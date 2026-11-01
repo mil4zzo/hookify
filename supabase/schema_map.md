@@ -31,6 +31,34 @@ Contas de anúncios do Meta vinculadas a um usuário.
 
 ---
 
+### ad_media_library
+
+| Coluna | Tipo | Flags |
+|--------|------|-------|
+| id | uuid | NOT NULL, DEFAULT |
+| user_id | uuid | NOT NULL |
+| account_id | text | NOT NULL |
+| source | text | NOT NULL |
+| fingerprint | text | NOT NULL |
+| file_name | text | NOT NULL |
+| media_type | text | NOT NULL |
+| size_bytes | bigint |  |
+| width | integer |  |
+| height | integer |  |
+| duration_ms | integer |  |
+| status | text | NOT NULL, DEFAULT |
+| bytes_sent | bigint | NOT NULL, DEFAULT |
+| image_hash | text |  |
+| video_id | text |  |
+| thumbnail_hash | text |  |
+| upload_session | jsonb |  |
+| drive_file_id | text |  |
+| error_message | text |  |
+| created_at | timestamp | NOT NULL, DEFAULT |
+| updated_at | timestamp | NOT NULL, DEFAULT |
+
+---
+
 ### ad_pack_inventory
 
 | Coluna | Tipo | Flags |
@@ -161,33 +189,28 @@ Transcrições de áudio/vídeo dos criativos de anúncios via AssemblyAI.
 
 ---
 
-### bulk_ad_items
-Itens individuais de um job de criação em lote de anúncios no Meta.
+### campaign_launch_items
 
 | Coluna | Tipo | Flags |
 |--------|------|-------|
 | id | uuid | NOT NULL, DEFAULT |
 | job_id | text | NOT NULL |
 | user_id | uuid | NOT NULL |
-| file_name | text | NOT NULL |
-| file_index | integer | NOT NULL |
-| adset_id | text | NOT NULL |
-| adset_name | text |  |
+| "position" | integer | NOT NULL |
 | ad_name | text | NOT NULL |
+| campaign_name | text | NOT NULL |
+| adset_name_template | text | NOT NULL |
+| media | jsonb | NOT NULL |
 | status | text | NOT NULL, DEFAULT |
-| meta_ad_id | text |  |
+| step | text |  |
+| meta_campaign_id | text |  |
 | meta_creative_id | text |  |
+| adsets | jsonb | NOT NULL, DEFAULT |
 | error_message | text |  |
 | error_code | text |  |
-| created_at | timestamp | DEFAULT |
-| updated_at | timestamp | DEFAULT |
-| bundle_id | text |  |
-| bundle_name | text |  |
-| slot_files | jsonb |  |
-| is_multi_slot | boolean | NOT NULL, DEFAULT |
-| campaign_name | text |  |
-| slot_media | jsonb |  |
 | error_details | jsonb |  |
+| created_at | timestamp | NOT NULL, DEFAULT |
+| updated_at | timestamp | NOT NULL, DEFAULT |
 
 ---
 
@@ -274,6 +297,20 @@ Conexões OAuth do Facebook vinculadas a usuários.
 | picture_storage_path | text |  |
 | picture_cached_at | timestamp |  |
 | picture_source_url | text |  |
+
+---
+
+### folder_shares
+
+| Coluna | Tipo | Flags |
+|--------|------|-------|
+| id | uuid | NOT NULL, DEFAULT |
+| folder_id | uuid | NOT NULL |
+| owner_id | uuid | NOT NULL |
+| grantee_id | uuid | NOT NULL |
+| role | text | NOT NULL, DEFAULT |
+| created_at | timestamp | NOT NULL, DEFAULT |
+| updated_at | timestamp | NOT NULL, DEFAULT |
 
 ---
 
@@ -404,21 +441,6 @@ Jobs assíncronos de longa duração (ex: criação em lote de anúncios).
 | created_at | timestamp | NOT NULL, DEFAULT |
 | updated_at | timestamp | NOT NULL, DEFAULT |
 | source_folder_id | uuid |  |
-
----
-
-### folder_shares
-Quem tem a pasta (e tudo debaixo dela, hoje e depois) — migration 181. Gatilhos a materializam em `pack_shares.source_folder_id`; as RPCs de pasta conferem o papel aqui (`folder_access_role`). O convidado lê e apaga (sai) a própria linha.
-
-| Coluna | Tipo | Flags |
-|--------|------|-------|
-| id | uuid | NOT NULL, DEFAULT |
-| folder_id | uuid | NOT NULL |
-| owner_id | uuid | NOT NULL |
-| grantee_id | uuid | NOT NULL |
-| role | text | NOT NULL, DEFAULT |
-| created_at | timestamp | NOT NULL, DEFAULT |
-| updated_at | timestamp | NOT NULL, DEFAULT |
 
 ---
 
@@ -562,4 +584,4 @@ Preferências e configurações personalizadas por usuário.
 
 ---
 
-*Gerado em: 2026-09-24 — via `supabase/generate_schema_map.py`*
+*Gerado em: 2026-11-01 — via `supabase/generate_schema_map.py`*

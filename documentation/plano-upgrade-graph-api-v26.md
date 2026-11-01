@@ -19,6 +19,12 @@ chamadas que a gente acha que são v24.
 | 0 | Inventário do que o app usa (este documento, seções 2–3) | ✅ |
 | 1 | Cruzamento com changelog v25/v26 (seções 4–5) | ✅ feito em 2026-10-31 (fonte = resumos; ver ressalvas) |
 | 2 | Duplicação de campanha em v26 (já feita, falta validar na Meta real) | 🟡 código pronto, sem teste real |
+| 2.1 | Teste de contrato (`tests/test_meta_api_contract.py` + `fixtures/meta_api_contract.json`, 49 de 50 métodos do `GraphAPI`; sabotado 2×: campo removido e URL com versão à mão — ambos pegos) | ✅ 2026-11-01 |
+| 2.2 | Script de diferencial (`scripts/meta_version_diff.py`, só leitura) rodado na conta act_1088942488268239: 13 consultas; **12 idênticas** (login/permissões, contas, páginas, insights async 1226 linhas com totais iguais, atribuição, orçamento, status, enriquecimento, vídeo); **1 quebra só na v26**: `GET /?ids=` → #100 "ids query parameter is deprecated in v26.0+" (na v24 ainda funciona) | ✅ 2026-11-01 |
+| 2.4 | `fetch_ig_media_types` migrado para Batch API (`_batch_graph`); diferencial real v24 antigo × v26 novo em 158 mídias: 157/157 idênticas; `tests/test_ads_enricher_igm.py` (sabotado, pego) | ✅ 2026-11-01 |
+| 2.3 | `.env` da VPS: `FACEBOOK_AUTH_BASE_URL` / `FACEBOOK_TOKEN_URL` fixadas em v24 **removidas** pelo idealizador; entram no próximo deploy (comportamento idêntico até a virada) | ✅ 2026-11-01 |
+| 2.5 | Teste de ESCRITA real em v26 (`scripts/meta_write_smoke.py`, conta act_1088942488268239, tudo pausado e apagado no fim): duplicação (caminho cópia E plano B forçado), status, orçamento — **todos verdes** depois de 2 correções medidas: `media_sourcing_spec` (subcode 4931013) e melhorias Advantage+ explícitas na cópia (`video_filtering` nascia OPT_IN) | ✅ 2026-11-01 |
+| 2.6 | Migrations **182 e 183 aplicadas em produção** (2026-11-01); conferido: `bulk_ad_items` e 17 jobs legados fora, tabelas novas com RLS, anon sem leitura; `schema.sql`/`schema_map.md` regenerados | ✅ 2026-11-01 |
 | 3 | Troca "só o número" (seção 5, classe A) | ⏳ |
 | 4 | Itens com mudança de parâmetro/comportamento (classe B/C) | ⏳ |
 | 5 | Teste em conta real + virada da variável de ambiente em produção | ⏳ |
@@ -30,7 +36,7 @@ chamadas que a gente acha que são v24.
 Estas aparecem **só** quando a chamada vai em v26 e já valem para a feature nova
 (`META_LAUNCH_API_VERSION=v26.0`):
 
-1. **`advantage_audience` explícito na cópia de conjunto.** Na v26, `POST
+1. **`advantage_audience` explícito na cópia de conjunto.** _(2026-11-01: não apareceu no teste real — o modelo testado não é Habitação/Emprego/Financeiro; segue pendente para essas contas.)_ Na v26, `POST
    /{adset_id}/copies` de campanha com público restrito (HEF) exige o campo. Hoje
    `_copy_adset` (`campaign_launch_service.py`) não envia. Se aparecer no teste real o
    item falha com a mensagem da Meta. Correção provável: ler `targeting_automation`
@@ -234,3 +240,24 @@ Então:
 2. Testes 1 e 2 (contrato + diferencial de leitura): mostram se a virada é segura.
 3. Demais itens C, junto com o teste real da duplicação.
 4. Itens A + virada de `META_API_VERSION` antes de **10/11/2026**.
+
+---
+
+## 8. Oportunidades encontradas na revisão (medidas em 2026-11-01)
+
+Uso real da Meta, 7 dias (`meta_api_usage`, 6 usuários): **23.520 chamadas**.
+`AdsEnricher` = 15.756 (67%), das quais **13.189 são o sync de status on-focus**
+(`/facebook/packs/status-sync`, TTL 5 min por pack). Só a lista de conjuntos da conta
+(`/act_X/adsets`) = 8.131 chamadas (35% de tudo).
+
+| # | Oportunidade | Medido | Ganho estimado | Risco / o que provar antes |
+|---|---|---|---|---|
+| 1 | **Sync de status incremental**: `updated_since` (param oficial de `AdAccount.get_ad_sets`/`get_ads`, SDK v26) nos conjuntos; campanhas seguem lidas inteiras (1 página) e `CAMPAIGN_PAUSED` é derivado do pai | conta act_1088942488268239: 1.452 conjuntos/3 páginas/4,8 s → `updated_since` 1 h: 0; 24 h: 5; 7 d: 42 (1 página) | ~⅔ das chamadas de conjuntos ≈ **20–25% de todas as chamadas** do app; sync de status ~4× mais rápido | status efetivo pode mudar SEM `updated_time` (fim de agenda, cobrança, pai). Provar com diferencial: rodar incremental e completo lado a lado por alguns dias e comparar status por conjunto. Leitura completa continua no refresh do pack |
+| 2 | Filtrar conjuntos por pack | packs cobrem ~80% dos conjuntos da conta | ~20% de linhas, mas **mais chamadas**: filtro por id vai em lotes de ~50 → conta grande 3.862/50 ≈ 78 chamadas vs ~10 páginas de 500 hoje | **descartado** |
+| 3 | **Remover o backend legado do upload** (`/facebook/bulk-ads*`, `/campaign-template`, `/campaign-bulk*`, `bulk_ad_service.py`, `campaign_bulk_service.py` e testes) | sem tela que chame desde a duplicação nova; ~3.100 linhas | menos superfície para validar na v26 | ✅ **feito 2026-11-01**: 5 rotas + `/ads/{id}/creative` + `/ads/tree`, 2 serviços, 7 métodos Graph, 4 funções de banco, 7+28 esquemas, testes e script legados. Tabela `bulk_ad_items` mantida (apagar dado é decisão à parte) |
+| 4 | Duplicação: pré-voo do modelo lê anúncio + campanha + conjuntos em 3 GETs e roda 2× (prévia e lançamento) | — | 1 GET com expansão de campos (`campaign{…,adsets{…}}`) | baixo; feature de uso raro, prioridade baixa |
+| 5 | `MetaJobClient.get_status`: 2.396 polls para 333 relatórios (~7 por relatório) | — | backoff já existe; ganho marginal | não mexer |
+
+Classificação imagem×vídeo do Instagram (`fetch_ig_media_types`): Batch API é o substituto
+oficial recomendado pela Meta para `?ids=`. A função só roda para criativo SHARE de mídia
+única sem tipo estrutural — **0 chamadas em 7 dias**; não há o que otimizar.
