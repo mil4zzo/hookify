@@ -1,6 +1,7 @@
 import { useCallback } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api/endpoints";
+import { translate } from "@/lib/i18n/translate";
 import type { BatchBudgetResponse } from "@/lib/api/schemas";
 import { patchBudgetsInCaches, type VerifiedBudget } from "@/lib/hooks/useBudgetControl";
 import type { BulkBudgetEntityType } from "@/lib/manager/budget";
@@ -9,9 +10,9 @@ import { showError } from "@/lib/utils/toast";
 
 let nextBulkBudgetJobId = 1;
 
+/** "3 campanhas" / "1 ad set": contagem + substantivo, no idioma atual. */
 export function bulkBudgetCountText(n: number, entityType: BulkBudgetEntityType) {
-  if (entityType === "campaign") return `${n} ${n === 1 ? "campanha" : "campanhas"}`;
-  return `${n} ${n === 1 ? "conjunto" : "conjuntos"}`;
+  return translate("manager.bulkBudget.count", { kind: entityType, count: n });
 }
 
 /**
@@ -23,8 +24,8 @@ function describeBulkFailure(e: unknown): { message: string; maybeApplied: boole
   const err = (e ?? {}) as { status?: number; message?: string };
   const maybeApplied = !err.status || err.status >= 500;
   const message = maybeApplied
-    ? "A resposta não chegou (a conexão caiu ou demorou demais). As alterações podem ter sido aplicadas: confira os valores na tabela ou no histórico do pack antes de repetir."
-    : String(err.message || "Falha ao aplicar o orçamento.");
+    ? translate("manager.bulkBudget.job.describeFailure.maybeApplied")
+    : String(err.message || translate("manager.bulkBudget.job.describeFailure.default"));
   return { message, maybeApplied };
 }
 

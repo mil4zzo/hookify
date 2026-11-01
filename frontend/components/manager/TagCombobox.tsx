@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useMemo, useRef, useState } from "react";
+import { useTranslations } from "next-intl";
 import { IconChevronDown, IconLoader2, IconPlus } from "@tabler/icons-react";
 
 import { Button } from "@/components/ui/button";
@@ -51,10 +52,11 @@ export function TagCombobox({
   onSelect,
   onCreate,
   onCreateDraft,
-  placeholder = "Buscar ou criar tag...",
+  placeholder,
   disabled = false,
   className,
 }: TagComboboxProps) {
+  const t = useTranslations("manager.tags");
   // O vocabulario e do SILO do pack, nao do usuario: sem o escopo, o convidado
   // veria a propria lista vazia em vez das tags do pack compartilhado.
   const { packIds } = useTagScope();
@@ -136,7 +138,7 @@ export function TagCombobox({
           aria-expanded={open}
           className={cn("w-full justify-between font-normal text-muted-foreground", className)}
         >
-          <span className="truncate">{placeholder}</span>
+          <span className="truncate">{placeholder ?? t("searchPlaceholder")}</span>
           <IconChevronDown className="h-3.5 w-3.5 shrink-0 opacity-60" />
         </Button>
       </PopoverTrigger>
@@ -167,7 +169,7 @@ export function TagCombobox({
               }
               if (e.key === "Escape") setOpen(false);
             }}
-            placeholder="Buscar ou criar tag..."
+            placeholder={t("searchPlaceholder")}
           />
         </div>
 
@@ -185,16 +187,16 @@ export function TagCombobox({
                 <IconPlus className="h-3.5 w-3.5 shrink-0" />
               )}
               <span className="truncate">
-                {isCreating ? "Criando" : "Criar"} &quot;{trimmed}&quot;
+                {isCreating ? t("creating", { name: trimmed }) : t("create", { name: trimmed })}
               </span>
             </button>
           )}
 
-          {isLoading && <p className="px-2 py-2 text-xs text-muted-foreground">Carregando tags...</p>}
+          {isLoading && <p className="px-2 py-2 text-xs text-muted-foreground">{t("loading")}</p>}
 
           {!isLoading && visible.length === 0 && !canOfferCreate && (
             <p className="px-2 py-2 text-xs text-muted-foreground">
-              {trimmed ? "Nenhuma tag encontrada." : "Nenhuma tag disponível."}
+              {trimmed ? t("notFound") : t("noneAvailable")}
             </p>
           )}
 

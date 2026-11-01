@@ -1,6 +1,8 @@
 "use client";
 
 import React, { useMemo, useState } from "react";
+import { useTranslations } from "next-intl";
+import { formatLocaleNumber } from "@/lib/i18n/locale";
 import { IconAlertTriangle, IconArrowRight, IconArrowsMinimize, IconLoader2, IconRefresh } from "@tabler/icons-react";
 
 import { AppDialog } from "@/components/common/AppDialog";
@@ -27,11 +29,8 @@ import { isBulkBudgetJobBusy, useBulkBudgetJobStore, type BulkBudgetJob, type Bu
 import { getCurrencySymbol, useFormatCurrency } from "@/lib/utils/currency";
 import { cn } from "@/lib/utils/cn";
 
-/** Concordância: campanha é feminino, conjunto é masculino ("puladas" × "pulados"). */
-const NOUN: Record<BulkBudgetEntityType, { one: string; many: string; o: "a" | "o"; elsewhere: string }> = {
-  campaign: { one: "campanha", many: "campanhas", o: "a", elsewhere: "o orçamento nos conjuntos (ABO)" },
-  adset: { one: "conjunto", many: "conjuntos", o: "o", elsewhere: "o orçamento na campanha (CBO)" },
-};
+/** Frases inteiras no catálogo (`manager.bulkBudget`): campanha é feminino, conjunto masculino, e cada idioma ordena a sua. */
+type Translator = ReturnType<typeof useTranslations>;
 
 const MODES: BulkBudgetMode[] = ["percent", "delta", "fixed"];
 
@@ -39,40 +38,35 @@ const MODES: BulkBudgetMode[] = ["percent", "delta", "fixed"];
  * O que separa os modos é "a partir do valor de cada um" (os dois primeiros) × "todos iguais"
  * (o terceiro) — os nomes dizem isso, e a linha de exemplo embaixo das abas tira a dúvida.
  */
-function modeLabel(mode: BulkBudgetMode, entityType: BulkBudgetEntityType, currencySymbol: string) {
-  if (mode === "percent") return "Variar em %";
-  if (mode === "delta") return `Variar em ${currencySymbol}`;
-  return `Mesmo valor para tod${NOUN[entityType].o}s`;
+function modeLabel(t: Translator, mode: BulkBudgetMode, entityType: BulkBudgetEntityType, currencySymbol: string) {
+  if (mode === "percent") return t("mode.percent");
+  if (mode === "delta") return t("mode.delta", { symbol: currencySymbol });
+  return t("mode.fixed", { kind: entityType });
 }
 
-/** "pulada"/"pulados" etc. — particípio concordando com a entidade e o número. */
-function agree(stem: string, count: number, entityType: BulkBudgetEntityType) {
-  return `${stem}${NOUN[entityType].o}${count === 1 ? "" : "s"}`;
-}
-
-function capitalize(text: string) {
-  return text.charAt(0).toUpperCase() + text.slice(1);
+function formatDecimal(value: number) {
+  return formatLocaleNumber(value, { maximumFractionDigits: 1, useGrouping: false });
 }
 
 function formatPercent(change: number) {
   const pct = change * 100;
   const rounded = Math.abs(pct) >= 10 ? Math.round(pct) : Math.round(pct * 10) / 10;
-  return `${rounded > 0 ? "+" : ""}${String(rounded).replace(".", ",")}%`;
+  return `${rounded > 0 ? "+" : ""}${formatDecimal(rounded)}%`;
 }
 
-/** Motivo de cada linha não alterada, já em português. Os do backend chegam com `message`. */
-function reasonText(item: BatchBudgetItem, entityType: BulkBudgetEntityType): string {
+/** Motivo de cada linha não alterada. Os do backend chegam com `message`. */
+function reasonText(t: Translator, item: BatchBudgetItem, entityType: BulkBudgetEntityType): string {
   switch (item.reason) {
     case "no_own_budget":
-      return `Tem ${NOUN[entityType].elsewhere}.`;
+      return t("reason.noOwnBudget", { kind: entityType });
     case "not_synced":
-      return "Orçamento ainda não sincronizado — atualize o pack.";
+      return t("reason.notSynced");
     case "non_positive":
-      return "O valor ficaria zero ou negativo.";
+      return t("reason.nonPositive");
     case "type_mismatch":
-      return "O tipo de orçamento mudou na Meta (diário ↔ total) depois que a tela carregou.";
+      return t("reason.typeMismatch");
     default:
-      return item.message || "A Meta recusou a alteração.";
+      return item.message || t("reason.default");
   }
 }
 
@@ -93,6 +87,7 @@ const skippedItem = (id: string, reason: string): BatchBudgetItem => ({ id, outc
  * disponíveis quando a seleção mistura diário com total ou moedas.
  */
 export function BulkBudgetDialog() {
+  const t = useTranslations("manager.bulkBudget");
   const { job, draft, dialogOpen, closeDialog, minimize, acknowledge } = useBulkBudgetJobStore();
   const runner = useBulkBudgetRunner();
 
@@ -100,8 +95,8 @@ export function BulkBudgetDialog() {
   const showJob = !!job && (job.status === "running" || !job.seen);
   const entityType = showJob ? job!.entityType : draft?.entityType ?? "campaign";
   const title = showJob
-    ? `Orçamento de ${bulkBudgetCountText(new Set([...Object.keys(job!.items), ...job!.sentIds]).size, entityType)}`
-    : `Orçamento de ${bulkBudgetCountText(draft?.rows.length ?? 0, entityType)}`;
+    ? t("title", { items: bulkBudgetCountText(new Set([...Object.keys(job!.items), ...job!.sentIds]).size, entityType) })
+    : t("title", { items: bulkBudgetCountText(draft?.rows.length ?? 0, entityType) });
 
   // Esc e clique fora também minimizam enquanto o lote trabalha: fechar perderia o fio.
   const busy = showJob && isBulkBudgetJobBusy(job);
@@ -121,7 +116,7 @@ export function BulkBudgetDialog() {
           {busy ? (
             <Button variant="ghost" size="sm" onClick={minimize}>
               <IconArrowsMinimize className="h-3.5 w-3.5" />
-              Minimizar
+              {t("minimize")}
             </Button>
           ) : null}
         </div>
@@ -157,6 +152,7 @@ function FormView({
   onCancel: () => void;
   onApply: (init: Pick<BulkBudgetJob, "entityType" | "request" | "rowInfo" | "sentIds" | "items">) => void;
 }) {
+  const t = useTranslations("manager.bulkBudget");
   const formatCurrency = useFormatCurrency();
   const [mode, setMode] = useState<BulkBudgetMode>("percent");
   const [draft, setDraft] = useState("");
@@ -198,16 +194,19 @@ function FormView({
         ? { mode, amountMinor: budgetValueToMinor(50, selection.currency), kind: selection.kind }
         : null);
   const exampleText = (() => {
-    const noun = NOUN[entityType];
-    if (mode === "fixed") return `Tod${noun.o}s passam a ter o mesmo orçamento, não importa quanto cada ${noun.one} tem hoje.`;
-    const head = `Cada ${noun.one} muda a partir do próprio orçamento`;
-    if (!sample || !sampleAdjustment) return `${head}.`;
+    if (mode === "fixed") return t("example.fixed", { kind: entityType });
+    if (!sample || !sampleAdjustment) return t("example.base", { kind: entityType });
     const [result] = previewBulkBudget([sample], sampleAdjustment);
     const step =
       sampleAdjustment.mode === "percent"
-        ? `${sampleAdjustment.percent > 0 ? "+" : ""}${String(sampleAdjustment.percent).replace(".", ",")}%`
+        ? `${sampleAdjustment.percent > 0 ? "+" : ""}${formatDecimal(sampleAdjustment.percent)}%`
         : `${sampleAdjustment.amountMinor < 0 ? "−" : "+"} ${formatMinor(Math.abs(sampleAdjustment.amountMinor), sample.currency)}`;
-    return `${head}. Ex.: ${formatMinor(sample.currentMinor, sample.currency)} ${step} → ${result.status === "invalid" ? "inválido" : formatMinor(result.newMinor, sample.currency)}.`;
+    return t("example.withSample", {
+      kind: entityType,
+      current: formatMinor(sample.currentMinor, sample.currency),
+      step,
+      result: result.status === "invalid" ? t("example.invalid") : formatMinor(result.newMinor, sample.currency),
+    });
   })();
 
   const handleModeChange = (next: string) => {
@@ -242,12 +241,8 @@ function FormView({
     return (
       <StatePanel
         kind="empty"
-        title={`Nenhum${NOUN[entityType].o === "a" ? "a" : ""} ${NOUN[entityType].one} com orçamento próprio`}
-        message={
-          selection.elsewhere.length > 0
-            ? `${NOUN[entityType].o === "a" ? "As" : "Os"} ${NOUN[entityType].many} ${agree("selecionad", 2, entityType)} têm ${NOUN[entityType].elsewhere}. Edite pelo outro nível.`
-            : "O orçamento ainda não foi sincronizado. Atualize o pack e tente de novo."
-        }
+        title={t("empty.title", { kind: entityType })}
+        message={selection.elsewhere.length > 0 ? t("empty.elsewhere", { kind: entityType }) : t("empty.notSynced")}
       />
     );
   }
@@ -255,24 +250,19 @@ function FormView({
   if (confirming) {
     return (
       <>
-        <InlineNotice tone="warning" title="Confira antes de confirmar">
-          <p className="text-xs">
-            Depois de começar não dá para interromper: o pedido vai direto para a Meta e termina mesmo se você fechar a janela. O que for
-            aplicado não volta sozinho — para desfazer, é preciso um novo ajuste.
-          </p>
+        <InlineNotice tone="warning" title={t("confirm.title")}>
+          <p className="text-xs">{t("confirm.body")}</p>
         </InlineNotice>
         <PreviewList rows={[...toChange, ...preview.filter((r) => r.status !== "change")]} formatMinor={formatMinor} />
         {preview.length > toChange.length ? (
-          <p className="text-xs text-muted-foreground">
-            As linhas apagadas não mudam: já estão nesse valor ou ficariam zeradas.
-          </p>
+          <p className="text-xs text-muted-foreground">{t("confirm.dimmedRows")}</p>
         ) : null}
         <div className="flex items-center justify-end gap-3">
           <Button variant="ghost" size="sm" onClick={() => setConfirming(false)}>
-            Voltar
+            {t("confirm.back")}
           </Button>
           <Button size="sm" onClick={handleApply}>
-            Confirmar e aplicar em {bulkBudgetCountText(toChange.length, entityType)}
+            {t("confirm.apply", { items: bulkBudgetCountText(toChange.length, entityType) })}
           </Button>
         </div>
       </>
@@ -292,7 +282,7 @@ function FormView({
                 className="flex-1 disabled:pointer-events-none disabled:opacity-50"
                 disabled={option !== "percent" && moneyBlocked}
               >
-                {modeLabel(option, entityType, currencySymbol)}
+                {modeLabel(t, option, entityType, currencySymbol)}
               </TabsTrigger>
             ))}
           </TabsList>
@@ -300,20 +290,14 @@ function FormView({
         <p className="text-xs text-muted-foreground">{exampleText}</p>
         {moneyBlocked && (
           <p className="text-xs text-muted-foreground">
-            {selection.moneyBlockedReason === "mixed-kind"
-              ? "Os modos em dinheiro estão indisponíveis porque a seleção mistura orçamento diário e total: 50 por dia e 50 no total são coisas diferentes. O percentual vale para os dois."
-              : "Os modos em dinheiro estão indisponíveis porque a seleção mistura moedas diferentes. O percentual vale para todas."}
+            {selection.moneyBlockedReason === "mixed-kind" ? t("moneyBlocked.mixedKind") : t("moneyBlocked.mixedCurrency")}
           </p>
         )}
       </div>
 
       <div className="flex flex-col gap-1.5">
         <label htmlFor="bulk-budget-value" className="text-xs font-medium text-muted-foreground">
-          {mode === "percent"
-            ? "Variação sobre o orçamento atual de cada um"
-            : mode === "delta"
-              ? `Valor a somar ao orçamento ${selection.kind === "daily" ? "diário" : "total"} de cada um`
-              : `Novo orçamento ${selection.kind === "daily" ? "diário" : "total"} para todos`}
+          {t(mode === "percent" ? "field.percent" : mode === "delta" ? "field.delta" : "field.fixed", { kind: selection.kind === "daily" ? "daily" : "total" })}
         </label>
         <div className="flex items-center gap-2">
           {mode !== "percent" ? <span className="text-sm text-muted-foreground">{currencySymbol}</span> : null}
@@ -322,7 +306,7 @@ function FormView({
             inputMode="decimal"
             autoFocus
             value={draft}
-            placeholder={mode === "percent" ? "Ex.: 15 ou -20" : mode === "delta" ? "Ex.: 50 ou -30" : "Ex.: 150"}
+            placeholder={t(mode === "percent" ? "field.placeholderPercent" : mode === "delta" ? "field.placeholderDelta" : "field.placeholderFixed")}
             onChange={(e) => setDraft(maskDecimalInput(e.target.value, mode === "percent" ? 1 : 2, mode !== "fixed"))}
             onKeyDown={(e) => {
               if (e.key === "Enter" && canReview) setConfirming(true);
@@ -330,16 +314,14 @@ function FormView({
           />
           {mode === "percent" ? <span className="text-sm text-muted-foreground">%</span> : null}
         </div>
-        {mode !== "fixed" && <p className="text-xs text-muted-foreground">Use valor negativo para reduzir.</p>}
+        {mode !== "fixed" && <p className="text-xs text-muted-foreground">{t("field.negativeHint")}</p>}
       </div>
 
       <Notices entityType={entityType} elsewhere={selection.elsewhere.length} unknown={selection.unknown.length} invalid={invalid.length} big={big.length} />
 
       {tooMany && (
         <InlineNotice tone="warning">
-          <p className="text-xs">
-            Dá para ajustar até {BULK_BUDGET_MAX} de uma vez e {toChange.length} mudariam. Selecione menos e aplique em partes.
-          </p>
+          <p className="text-xs">{t("notice.tooMany", { max: BULK_BUDGET_MAX, count: toChange.length })}</p>
         </InlineNotice>
       )}
 
@@ -347,10 +329,10 @@ function FormView({
 
       <div className="flex items-center justify-end gap-3">
         <Button variant="ghost" size="sm" onClick={onCancel}>
-          Cancelar
+          {t("actions.cancel")}
         </Button>
         <Button size="sm" onClick={() => setConfirming(true)} disabled={!canReview}>
-          Revisar e aplicar
+          {t("actions.review")}
         </Button>
       </div>
     </>
@@ -358,11 +340,11 @@ function FormView({
 }
 
 function Notices({ entityType, elsewhere, unknown, invalid, big }: { entityType: BulkBudgetEntityType; elsewhere: number; unknown: number; invalid: number; big: number }) {
-  const will = (n: number) => (n === 1 ? "será" : "serão");
+  const t = useTranslations("manager.bulkBudget.notice");
   const skipped: string[] = [];
-  if (elsewhere > 0) skipped.push(`${bulkBudgetCountText(elsewhere, entityType)} ${elsewhere === 1 ? "tem" : "têm"} ${NOUN[entityType].elsewhere} e ${will(elsewhere)} ${agree("pulad", elsewhere, entityType)}.`);
-  if (unknown > 0) skipped.push(`${bulkBudgetCountText(unknown, entityType)} ainda sem orçamento sincronizado ${will(unknown)} ${agree("pulad", unknown, entityType)}.`);
-  if (invalid > 0) skipped.push(`${bulkBudgetCountText(invalid, entityType)} ${invalid === 1 ? "ficaria" : "ficariam"} com orçamento zero ou negativo e não ${will(invalid)} ${agree("alterad", invalid, entityType)}.`);
+  if (elsewhere > 0) skipped.push(t("elsewhere", { kind: entityType, count: elsewhere }));
+  if (unknown > 0) skipped.push(t("unknown", { kind: entityType, count: unknown }));
+  if (invalid > 0) skipped.push(t("invalid", { kind: entityType, count: invalid }));
 
   if (skipped.length === 0 && big === 0) return null;
   return (
@@ -378,9 +360,7 @@ function Notices({ entityType, elsewhere, unknown, invalid, big }: { entityType:
       )}
       {big > 0 && (
         <InlineNotice tone="warning">
-          <p className="text-xs">
-            {bulkBudgetCountText(big, entityType)} {big === 1 ? "vai" : "vão"} mudar mais de 25%. Mudanças grandes podem devolver a entrega à fase de aprendizado do Meta.
-          </p>
+          <p className="text-xs">{t("big", { kind: entityType, count: big })}</p>
         </InlineNotice>
       )}
     </div>
@@ -391,14 +371,15 @@ function Notices({ entityType, elsewhere, unknown, invalid, big }: { entityType:
 const PREVIEW_GRID = "grid grid-cols-[minmax(0,1fr)_6.5rem_8.5rem_3.5rem] items-center gap-3 px-3";
 
 function PreviewList({ rows, formatMinor }: { rows: BulkBudgetPreviewRow[]; formatMinor: (minor: number | null | undefined, currency: string | null) => string }) {
+  const t = useTranslations("manager.bulkBudget");
   return (
     // Região de LEITURA dentro do modal: desce ao nível 0.
     <div className="max-h-64 overflow-y-auto rounded-md border border-border bg-background">
       <div className={cn(PREVIEW_GRID, "sticky top-0 z-sticky border-b border-border bg-background py-1.5 text-2xs font-medium uppercase tracking-wide text-muted-foreground")}>
-        <span>Nome</span>
-        <span className="text-right">Atual</span>
-        <span className="text-right">Novo</span>
-        <span className="text-right">Variação</span>
+        <span>{t("preview.name")}</span>
+        <span className="text-right">{t("preview.current")}</span>
+        <span className="text-right">{t("preview.new")}</span>
+        <span className="text-right">{t("preview.change")}</span>
       </div>
       <ul className="divide-y divide-border">
         {rows.map((row) => (
@@ -408,8 +389,8 @@ function PreviewList({ rows, formatMinor }: { rows: BulkBudgetPreviewRow[]; form
             </span>
             <span className="text-right text-xs tabular-nums text-muted-foreground">{formatMinor(row.currentMinor, row.currency)}</span>
             <span className="text-right text-xs tabular-nums">
-              <span className="text-sm text-foreground">{row.status === "invalid" ? "inválido" : formatMinor(row.newMinor, row.currency)}</span>
-              <span className="text-muted-foreground"> {row.kind === "daily" ? "/dia" : "total"}</span>
+              <span className="text-sm text-foreground">{row.status === "invalid" ? t("example.invalid") : formatMinor(row.newMinor, row.currency)}</span>
+              <span className="text-muted-foreground"> {row.kind === "daily" ? t("preview.perDay") : t("preview.total")}</span>
             </span>
             {row.status === "change" ? (
               <span className={cn("inline-flex items-center justify-end gap-0.5 text-xs tabular-nums", row.change > 0 ? "text-success" : row.change < 0 ? "text-destructive" : "text-muted-foreground")}>
@@ -417,7 +398,7 @@ function PreviewList({ rows, formatMinor }: { rows: BulkBudgetPreviewRow[]; form
                 {formatPercent(row.change)}
               </span>
             ) : (
-              <span className="text-right text-xs text-muted-foreground">{row.status === "unchanged" ? "igual" : ""}</span>
+              <span className="text-right text-xs text-muted-foreground">{row.status === "unchanged" ? t("preview.same") : ""}</span>
             )}
           </li>
         ))}
@@ -442,6 +423,7 @@ function canRetryItem(item: BatchBudgetItem, job: BulkBudgetJob) {
 }
 
 function JobView({ job, onRetry, onConclude }: { job: BulkBudgetJob; onRetry: (ids: string[]) => void; onConclude: () => void }) {
+  const t = useTranslations("manager.bulkBudget");
   const formatCurrency = useFormatCurrency();
   const { entityType } = job;
   const formatMinor = (minor: number | null | undefined, currency: string | null) =>
@@ -451,8 +433,8 @@ function JobView({ job, onRetry, onConclude }: { job: BulkBudgetJob; onRetry: (i
     return (
       <StatePanel
         kind="loading"
-        title={`Aplicando em ${bulkBudgetCountText(job.sentIds.length, entityType)}…`}
-        message="Leva alguns segundos. Pode minimizar e seguir usando o app: o andamento fica no canto da tela e o resultado abre por lá."
+        title={t("job.applying", { items: bulkBudgetCountText(job.sentIds.length, entityType) })}
+        message={t("job.applyingHint")}
       />
     );
   }
@@ -469,16 +451,14 @@ function JobView({ job, onRetry, onConclude }: { job: BulkBudgetJob; onRetry: (i
   return (
     <>
       {job.status === "error" ? (
-        <InlineNotice tone="destructive" title="Não foi possível confirmar o resultado">
+        <InlineNotice tone="destructive" title={t("job.errorTitle")}>
           <p className="text-xs">{job.error?.message}</p>
         </InlineNotice>
       ) : (
         <InlineNotice tone={failed.length > 0 ? "warning" : "success"}>
           <p className="text-xs">
-            {updated > 0 ? `${capitalize(bulkBudgetCountText(updated, entityType))} ${agree("atualizad", updated, entityType)}. ` : "Nada foi alterado. "}
-            {failed.length > 0
-              ? `${failed.length} não ${failed.length === 1 ? "mudou" : "mudaram"} — o motivo está em cada linha. ${updated > 0 ? "As que deram certo continuam aplicadas." : ""}`
-              : ""}
+            {updated > 0 ? t("job.updatedSummary", { kind: entityType, count: updated }) : t("job.nothingChanged")}
+            {failed.length > 0 ? ` ${t("job.failedSummary", { count: failed.length, keep: updated > 0 ? "yes" : "no" })}` : ""}
           </p>
         </InlineNotice>
       )}
@@ -493,17 +473,17 @@ function JobView({ job, onRetry, onConclude }: { job: BulkBudgetJob; onRetry: (i
               <div className="flex items-center justify-between gap-3 px-3 py-2">
                 <span className="text-2xs font-medium uppercase tracking-wide text-muted-foreground">
                   {outcome === "failed"
-                    ? `Com erro (${group.length})`
+                    ? t("job.groupFailed", { count: group.length })
                     : outcome === "updated"
-                      ? `${capitalize(agree("atualizad", 2, entityType))} (${group.length})`
+                      ? t("job.groupUpdated", { kind: entityType, count: group.length })
                       : outcome === "skipped"
-                        ? `${capitalize(agree("pulad", 2, entityType))} (${group.length})`
-                        : `Já estavam nesse valor (${group.length})`}
+                        ? t("job.groupSkipped", { kind: entityType, count: group.length })
+                        : t("job.groupUnchanged", { count: group.length })}
                 </span>
                 {outcome === "failed" && retriable.length > 1 ? (
                   <Button variant="outline" size="sm" disabled={isRetrying} onClick={() => onRetry(retriable.map((it) => it.id))}>
                     {isRetrying && job.retrying.length > 1 ? <IconLoader2 className="h-3.5 w-3.5 animate-spin" /> : <IconRefresh className="h-3.5 w-3.5" />}
-                    Tentar todas de novo
+                    {t("actions.retryAll")}
                   </Button>
                 ) : null}
               </div>
@@ -529,11 +509,11 @@ function JobView({ job, onRetry, onConclude }: { job: BulkBudgetJob; onRetry: (i
         {canRetryWhole ? (
           <Button variant="outline" size="sm" disabled={isRetrying} onClick={() => onRetry(job.sentIds)}>
             {isRetrying ? <IconLoader2 className="h-3.5 w-3.5 animate-spin" /> : <IconRefresh className="h-3.5 w-3.5" />}
-            Tentar de novo
+            {t("actions.retry")}
           </Button>
         ) : null}
         <Button size="sm" onClick={onConclude} disabled={isRetrying}>
-          Concluir
+          {t("actions.conclude")}
         </Button>
       </div>
     </>
@@ -555,11 +535,12 @@ function ResultRow({
   retryState: "hidden" | "ready" | "disabled" | "spinning";
   onRetry: () => void;
 }) {
+  const t = useTranslations("manager.bulkBudget");
   const currency = info?.currency ?? null;
   const isDaily = item.before_daily != null || item.daily_budget != null;
   const before = isDaily ? item.before_daily : item.before_lifetime;
   const after = isDaily ? item.daily_budget : item.lifetime_budget;
-  const unit = isDaily ? "/dia" : "total";
+  const unit = isDaily ? t("preview.perDay") : t("preview.total");
 
   return (
     <li className="flex items-center gap-3 px-3 py-2">
@@ -578,7 +559,7 @@ function ResultRow({
                 {before && after ? <span>({formatPercent((after - before) / before)})</span> : null}
               </>
             ) : (
-              <span>enviado — o valor confirmado aparece em instantes</span>
+              <span>{t("job.sentUnverified")}</span>
             )}
           </div>
         ) : item.outcome === "unchanged" ? (
@@ -586,13 +567,13 @@ function ResultRow({
             {formatMinor(before, currency)} {unit}
           </div>
         ) : (
-          <div className={cn("text-xs", item.outcome === "failed" ? "text-destructive" : "text-muted-foreground")}>{reasonText(item, entityType)}</div>
+          <div className={cn("text-xs", item.outcome === "failed" ? "text-destructive" : "text-muted-foreground")}>{reasonText(t, item, entityType)}</div>
         )}
       </div>
       {item.outcome === "failed" && retryState !== "hidden" ? (
         <Button variant="outline" size="sm" disabled={retryState !== "ready"} onClick={onRetry}>
           {retryState === "spinning" ? <IconLoader2 className="h-3.5 w-3.5 animate-spin" /> : <IconRefresh className="h-3.5 w-3.5" />}
-          Tentar de novo
+          {t("actions.retry")}
         </Button>
       ) : null}
     </li>

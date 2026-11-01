@@ -1,22 +1,25 @@
 "use client";
 
 import React from "react";
+import { useTranslations } from "next-intl";
 import { IconAlertTriangle, IconArrowsMaximize, IconCircleCheck, IconLoader2, IconX } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 import { bulkBudgetCountText } from "@/lib/hooks/useBulkBudgetRunner";
 import { isBulkBudgetJobBusy, useBulkBudgetJobStore, type BulkBudgetJob } from "@/lib/store/bulkBudgetJob";
 import { cn } from "@/lib/utils/cn";
 
-function summarize(job: BulkBudgetJob): { tone: "busy" | "success" | "warning"; text: string } {
-  if (job.status === "running") return { tone: "busy", text: `Aplicando orçamento em ${bulkBudgetCountText(job.sentIds.length, job.entityType)}…` };
-  if (job.retrying.length > 0) return { tone: "busy", text: `Tentando de novo em ${bulkBudgetCountText(job.retrying.length, job.entityType)}…` };
-  if (job.status === "error") return { tone: "warning", text: "Orçamento: não foi possível confirmar o resultado." };
+type Translator = ReturnType<typeof useTranslations>;
+
+function summarize(job: BulkBudgetJob, t: Translator): { tone: "busy" | "success" | "warning"; text: string } {
+  if (job.status === "running") return { tone: "busy", text: t("applying", { items: bulkBudgetCountText(job.sentIds.length, job.entityType) }) };
+  if (job.retrying.length > 0) return { tone: "busy", text: t("retrying", { items: bulkBudgetCountText(job.retrying.length, job.entityType) }) };
+  if (job.status === "error") return { tone: "warning", text: t("error") };
   const items = Object.values(job.items);
   const updated = items.filter((it) => it.outcome === "updated").length;
   const failed = items.filter((it) => it.outcome === "failed").length;
-  if (failed > 0) return { tone: "warning", text: `Orçamento: ${updated} de ${updated + failed} mudaram, ${failed} com erro.` };
-  if (updated === 0) return { tone: "warning", text: "Orçamento: nada foi alterado." };
-  return { tone: "success", text: `Orçamento de ${bulkBudgetCountText(updated, job.entityType)} atualizado.` };
+  if (failed > 0) return { tone: "warning", text: t("partial", { updated, total: updated + failed, failed }) };
+  if (updated === 0) return { tone: "warning", text: t("none") };
+  return { tone: "success", text: t("done", { items: bulkBudgetCountText(updated, job.entityType) }) };
 }
 
 /**
@@ -25,6 +28,7 @@ function summarize(job: BulkBudgetJob): { tone: "busy" | "success" | "warning"; 
  * resultado. Terminado, fica até a pessoa abrir o resultado ou dispensar (o que conta como visto).
  */
 export function BulkBudgetMiniCard() {
+  const t = useTranslations("manager.bulkBudget.mini");
   const job = useBulkBudgetJobStore((s) => s.job);
   const dialogOpen = useBulkBudgetJobStore((s) => s.dialogOpen);
   const openDialog = useBulkBudgetJobStore((s) => s.openDialog);
@@ -34,7 +38,7 @@ export function BulkBudgetMiniCard() {
   const busy = isBulkBudgetJobBusy(job);
   if (!busy && job.seen) return null;
 
-  const { tone, text } = summarize(job);
+  const { tone, text } = summarize(job, t);
 
   return (
     <div
@@ -48,10 +52,10 @@ export function BulkBudgetMiniCard() {
       <span className="min-w-0 flex-1 text-xs font-medium text-foreground">{text}</span>
       <Button variant="outline" size="sm" onClick={openDialog}>
         {busy ? <IconArrowsMaximize className="h-3.5 w-3.5" /> : null}
-        {busy ? "Expandir" : "Ver resultado"}
+        {busy ? t("expand") : t("viewResult")}
       </Button>
       {!busy ? (
-        <Button variant="ghost" size="icon" aria-label="Dispensar" onClick={acknowledge}>
+        <Button variant="ghost" size="icon" aria-label={t("dismiss")} onClick={acknowledge}>
           <IconX className="h-4 w-4" />
         </Button>
       ) : null}

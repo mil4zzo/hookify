@@ -1,4 +1,5 @@
 import type { RankingsItem } from "@/lib/api/schemas";
+import { translate } from "@/lib/i18n/translate";
 
 // Moedas que a Meta trata SEM subunidade (offset 1) — nas demais o budget vem em
 // centésimos (offset 100). Fonte: doc oficial de currencies da Marketing API.
@@ -256,8 +257,8 @@ export const EMPTY_MANAGER_BUDGET_TOTALS: ManagerBudgetTotals = { base: null, su
 export function formatBudgetTotals(totals: BudgetTotals, formatCurrency: (value: number, currency?: string) => string): string {
   const groups = totals.byCurrency.map((group) => {
     const parts: string[] = [];
-    if (group.dailyCount > 0) parts.push(`${formatCurrency(group.daily, group.currency || undefined)}/dia`);
-    if (group.lifetimeCount > 0) parts.push(`${formatCurrency(group.lifetime, group.currency || undefined)} total`);
+    if (group.dailyCount > 0) parts.push(translate("manager.budget.perDay", { amount: formatCurrency(group.daily, group.currency || undefined) }));
+    if (group.lifetimeCount > 0) parts.push(translate("manager.budget.lifetimeAmount", { amount: formatCurrency(group.lifetime, group.currency || undefined) }));
     return parts.join(" + ");
   });
   return groups.filter(Boolean).join(" · ");

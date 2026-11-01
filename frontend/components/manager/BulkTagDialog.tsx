@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
+import { useTranslations } from "next-intl";
 import { IconLoader2, IconPlus, IconX } from "@tabler/icons-react";
 
 import { AppDialog } from "@/components/common/AppDialog";
@@ -47,6 +48,7 @@ interface BulkTagDialogProps {
  * um criativo que aparecer depois não herda nada.
  */
 export function BulkTagDialog({ open, onOpenChange, selection, onApplied }: BulkTagDialogProps) {
+  const t = useTranslations("manager.bulkTags");
   const assign = useAssignTags();
   const unassign = useUnassignTags();
   const createTag = useCreateTag();
@@ -93,8 +95,8 @@ export function BulkTagDialog({ open, onOpenChange, selection, onApplied }: Bulk
   const describeTag = (tag: TagItem) => {
     const count = usageInSelection.get(tag.id) ?? 0;
     if (count === 0) return null;
-    if (count === selection.length) return "em todos";
-    return `em ${count} de ${selection.length}`;
+    if (count === selection.length) return t("inAll");
+    return t("inSome", { count, total: selection.length });
   };
 
   const handleSubmit = async () => {
@@ -133,8 +135,8 @@ export function BulkTagDialog({ open, onOpenChange, selection, onApplied }: Bulk
     }
   };
 
-  const noun = selection.length === 1 ? "criativo" : "criativos";
-  const actionLabel = mode === "add" ? "Adicionar" : "Remover";
+  const title = t("title", { count: selection.length });
+  const actionLabel = mode === "add" ? t("add") : t("remove");
   const nothingToRemove = mode === "remove" && presentIds.size === 0;
 
   return (
@@ -142,12 +144,10 @@ export function BulkTagDialog({ open, onOpenChange, selection, onApplied }: Bulk
       isOpen={open}
       onClose={() => onOpenChange(false)}
       size="sm"
-      title={`Tags de ${selection.length} ${noun}`}
+      title={title}
     >
       <div className="flex flex-col gap-3">
-        <h2 className="text-sm font-semibold">
-          Tags de {selection.length} {noun}
-        </h2>
+        <h2 className="text-sm font-semibold">{title}</h2>
 
         {/* Seletor de ação. Sem ele, um checkbox teria significado diferente em
             cada linha da seleção — "marcado" não descreve N criativos. */}
@@ -164,7 +164,7 @@ export function BulkTagDialog({ open, onOpenChange, selection, onApplied }: Bulk
                 mode === option ? "state-pressed text-white" : "text-muted-foreground hover:text-foreground",
               )}
             >
-              {option === "add" ? "Adicionar tag" : "Remover tag"}
+              {option === "add" ? t("modeAdd") : t("modeRemove")}
             </button>
           ))}
         </div>
@@ -185,9 +185,7 @@ export function BulkTagDialog({ open, onOpenChange, selection, onApplied }: Bulk
         )}
 
         {nothingToRemove ? (
-          <p className="text-xs text-muted-foreground">
-            Nenhum dos criativos selecionados tem tag para remover.
-          </p>
+          <p className="text-xs text-muted-foreground">{t("nothingToRemove")}</p>
         ) : (
           <TagCombobox
             excludeIds={stagedIds}
@@ -204,14 +202,14 @@ export function BulkTagDialog({ open, onOpenChange, selection, onApplied }: Bulk
                   : [...prev, { draftName: name }],
               )
             }
-            placeholder={mode === "add" ? "Escolher ou criar tag..." : "Escolher tag para remover..."}
+            placeholder={mode === "add" ? t("placeholderAdd") : t("placeholderRemove")}
             disabled={isSubmitting}
           />
         )}
 
         <div className="flex items-center justify-end gap-2">
           <Button variant="ghost" size="sm" onClick={() => onOpenChange(false)} disabled={isSubmitting}>
-            Cancelar
+            {t("cancel")}
           </Button>
           <Button
             variant={mode === "remove" ? "destructive" : "default"}

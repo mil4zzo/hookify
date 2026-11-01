@@ -1,6 +1,7 @@
 "use client";
 
 import { getAppLocale } from "@/lib/i18n/locale";
+import { useTranslations } from "next-intl";
 import React, { useCallback, useMemo, useState } from "react";
 import { IconAlertTriangle, IconPencil, IconSquareCheck } from "@tabler/icons-react";
 import type { RankingsItem } from "@/lib/api/schemas";
@@ -32,12 +33,13 @@ function BudgetTotalLine({
 }: {
   totals: BudgetTotals;
   formatCurrency: (value: number, currency?: string) => string;
-  elsewhereHint: string;
+  elsewhereHint: "adsets" | "campaign";
   tooltipTitle: string;
   minimal: boolean;
   emphasis: boolean;
   icon?: React.ReactNode;
 }) {
+  const t = useTranslations("manager.budget");
   const text = formatBudgetTotals(totals, formatCurrency);
   if (!text) return null;
 
@@ -57,9 +59,7 @@ function BudgetTotalLine({
         <TooltipContent side="bottom">
           <p className="text-xs">{tooltipTitle}</p>
           {totals.withoutBudget > 0 && (
-            <p className="text-xs text-muted-foreground">
-              {totals.withoutBudget} {totals.withoutBudget === 1 ? "linha" : "linhas"} com orçamento {elsewhereHint} não entram na soma.
-            </p>
+            <p className="text-xs text-muted-foreground">{t("withoutBudget", { count: totals.withoutBudget, where: elsewhereHint })}</p>
           )}
         </TooltipContent>
       </Tooltip>
@@ -81,9 +81,10 @@ export function BudgetHeaderTotals({
   currentTab: "por-conjunto" | "por-campanha";
   minimal: boolean;
 }) {
+  const t = useTranslations("manager.budget");
   const formatCurrency = useFormatCurrency();
-  const entityPlural = currentTab === "por-campanha" ? "campanhas" : "conjuntos";
-  const elsewhereHint = currentTab === "por-campanha" ? "definido nos conjuntos" : "definido na campanha";
+  const kind = currentTab === "por-campanha" ? "campaign" : "adset";
+  const elsewhereHint = currentTab === "por-campanha" ? "adsets" : "campaign";
 
   return (
     <>
@@ -92,7 +93,7 @@ export function BudgetHeaderTotals({
           totals={totals.base}
           formatCurrency={formatCurrency}
           elsewhereHint={elsewhereHint}
-          tooltipTitle={`Soma dos orçamentos de ${totals.base.withBudget} ${entityPlural}`}
+          tooltipTitle={t("totalsBase", { kind, count: totals.base.withBudget })}
           minimal={minimal}
           emphasis={false}
         />
@@ -104,8 +105,8 @@ export function BudgetHeaderTotals({
           elsewhereHint={elsewhereHint}
           tooltipTitle={
             totals.subset.kind === "selection"
-              ? `Soma dos orçamentos de ${totals.subset.totals.withBudget} dos ${totals.subset.count} selecionados`
-              : `Soma dos orçamentos de ${totals.subset.totals.withBudget} ${entityPlural} filtrados`
+              ? t("totalsSelection", { withBudget: totals.subset.totals.withBudget, count: totals.subset.count })
+              : t("totalsFiltered", { kind, count: totals.subset.totals.withBudget })
           }
           minimal={minimal}
           emphasis
@@ -153,6 +154,7 @@ interface BudgetEditorProps {
  * (daily/lifetime), escreve e RELÊ do Meta — o cache recebe só a verdade verificada.
  */
 function BudgetEditor({ entityType, entityId, packIds, currentMinor, isDaily, currency, formatted, titleHint }: BudgetEditorProps) {
+  const t = useTranslations("manager.budget");
   const { updateBudget, isLoading } = useBudgetControl({ entityType, entityId, packIds });
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState("");
@@ -191,18 +193,18 @@ function BudgetEditor({ entityType, entityId, packIds, currentMinor, isDaily, cu
           className="group/budget mx-auto flex flex-col items-end justify-center gap-0 rounded-md px-2 py-0.5 tabular-nums transition-colors hover:bg-accent"
           title={titleHint}
           onClick={(e) => e.stopPropagation()}
-          aria-label={`Editar orçamento ${isDaily ? "diário" : "total"}`}
+          aria-label={t("editAria", { kind: isDaily ? "daily" : "total" })}
         >
           <span className="flex items-center gap-1">
             <IconPencil className="h-3 w-3 text-muted-foreground opacity-0 transition-opacity group-hover/budget:opacity-100" />
             <span className="text-sm">{formatted}</span>
           </span>
-          <span className="text-xs leading-none text-muted-foreground">{isDaily ? "Diário" : "Total"}</span>
+          <span className="text-xs leading-none text-muted-foreground">{isDaily ? t("labelDaily") : t("labelTotal")}</span>
         </button>
       </PopoverTrigger>
       <PopoverContent className="w-64 p-3" align="center" onClick={(e) => e.stopPropagation()}>
         <div className="space-y-3">
-          <div className="text-sm font-medium text-foreground">{isDaily ? "Orçamento diário" : "Orçamento total (lifetime)"}</div>
+          <div className="text-sm font-medium text-foreground">{isDaily ? t("popoverDaily") : t("popoverLifetime")}</div>
           <div className="flex items-center gap-2">
             {symbol ? <span className="text-sm text-muted-foreground">{symbol}</span> : null}
             <Input
@@ -216,21 +218,21 @@ function BudgetEditor({ entityType, entityId, packIds, currentMinor, isDaily, cu
                 if (e.key === "Escape") setOpen(false);
               }}
               disabled={isLoading}
-              aria-label="Novo valor do orçamento"
+              aria-label={t("inputAria")}
             />
           </div>
           {isBigChange && (
             <div className="flex items-start gap-1.5 text-xs text-muted-foreground">
               <IconAlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-              <span>Mudanças acima de 25% podem devolver a entrega à fase de aprendizado do Meta.</span>
+              <span>{t("bigChange")}</span>
             </div>
           )}
           <div className="flex justify-end gap-2">
             <Button variant="ghost" size="sm" onClick={() => setOpen(false)} disabled={isLoading}>
-              Cancelar
+              {t("cancel")}
             </Button>
             <Button size="sm" onClick={() => void handleSave()} disabled={isLoading || parsed === null || parsed === currentValue}>
-              {isLoading ? "Salvando..." : "Salvar"}
+              {isLoading ? t("saving") : t("save")}
             </Button>
           </div>
         </div>
@@ -245,6 +247,7 @@ function BudgetEditor({ entityType, entityId, packIds, currentMinor, isDaily, cu
  * conjuntos); tudo NULL (pré-backfill da migration 091) mostra "—".
  */
 export function BudgetCell({ original, currentTab, packIds }: BudgetCellProps) {
+  const t = useTranslations("manager.budget");
   const formatCurrency = useFormatCurrency();
   const daily = original.budget_daily ?? null;
   const lifetime = original.budget_lifetime ?? null;
@@ -266,10 +269,10 @@ export function BudgetCell({ original, currentTab, packIds }: BudgetCellProps) {
       : new Intl.NumberFormat(getAppLocale(), { maximumFractionDigits: 2 }).format(value);
     const isShared = currentTab === "por-conjunto" && mode === "abo_shared";
     const titleHint = isShared
-      ? "Orçamento do conjunto com compartilhamento ativo: a Meta pode mover até 20% entre conjuntos da campanha. Clique para editar."
+      ? t("hintShared")
       : daily !== null
-        ? "Orçamento diário — clique para editar"
-        : "Orçamento total (lifetime) — clique para editar";
+        ? t("hintDaily")
+        : t("hintLifetime");
 
     if (!entityId) {
       // Sem id da própria entidade não há o que editar — cai no display puro.
@@ -277,7 +280,7 @@ export function BudgetCell({ original, currentTab, packIds }: BudgetCellProps) {
         <div className="flex w-full justify-center" title={titleHint}>
           <div className="flex flex-col items-end gap-0 tabular-nums">
             <span className="text-sm">{formatted}</span>
-            <span className="text-xs leading-none text-muted-foreground">{daily !== null ? "Diário" : "Total"}</span>
+            <span className="text-xs leading-none text-muted-foreground">{daily !== null ? t("labelDaily") : t("labelTotal")}</span>
           </div>
         </div>
       );
@@ -303,9 +306,9 @@ export function BudgetCell({ original, currentTab, packIds }: BudgetCellProps) {
     return (
       <div
         className="flex w-full justify-center text-xs text-muted-foreground"
-        title="Orçamento definido na campanha (Advantage Campaign Budget / CBO)"
+        title={t("onCampaignTitle")}
       >
-        na campanha
+        {t("onCampaign")}
       </div>
     );
   }
@@ -314,13 +317,9 @@ export function BudgetCell({ original, currentTab, packIds }: BudgetCellProps) {
     return (
       <div
         className="flex w-full justify-center text-xs text-muted-foreground"
-        title={
-          mode === "abo_shared"
-            ? "Orçamento definido nos conjuntos, com compartilhamento de até 20% entre eles"
-            : "Orçamento definido nos conjuntos (ABO)"
-        }
+        title={mode === "abo_shared" ? t("onAdsetsShared") : t("onAdsetsTitle")}
       >
-        nos conjuntos
+        {t("onAdsets")}
       </div>
     );
   }

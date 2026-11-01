@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { useTranslations } from "next-intl";
 import type { Row, Table } from "@tanstack/react-table";
 import type { RankingsItem } from "@/lib/api/schemas";
 import type { ManagerColumnType } from "@/components/common/ManagerColumnFilter";
@@ -47,6 +48,7 @@ interface ManagerExportDialogProps {
 }
 
 export function ManagerExportDialog({ isOpen, onClose, table, activeColumns, columnOrder, hasSheetIntegration, currentTab, dateStart, dateStop, metricContext, packIds, customColumns = [], hasLeadEconomics = false }: ManagerExportDialogProps) {
+  const t = useTranslations("manager.export");
   const provenanceIndex = useProvenanceIndex();
   const packs = useSessionStore((state) => state.packs);
   const { startTranscriptionOnly } = usePackRefresh();
@@ -184,7 +186,7 @@ export function ManagerExportDialog({ isOpen, onClose, table, activeColumns, col
     setSelected(allSelected ? new Set() : new Set(availableColumns.map((c) => c.id)));
   };
 
-  const itemLabel = currentTab === "individual" ? "anúncios" : "criativos";
+  const itemKind = currentTab === "individual" ? "ads" : "creatives";
 
   // Transcrever daqui evita o desvio "sair do export → /packs → transcrever → voltar".
   // Um job (e um toast) por pack, como se o usuário tivesse clicado em cada card;
@@ -280,19 +282,19 @@ export function ManagerExportDialog({ isOpen, onClose, table, activeColumns, col
     const totalMedia = mediaUrlReview.resolved + mediaUrlReview.failedNames.length;
     const isBusy = isRetrying || isExporting;
     return (
-      <AppDialog isOpen={isOpen} onClose={onClose} title="Exportar CSV" size="lg" padding="md">
+      <AppDialog isOpen={isOpen} onClose={onClose} title={t("title")} size="lg" padding="md">
         <div className="flex flex-col gap-5">
           <div className="space-y-1">
-            <h2 className="text-lg font-semibold text-foreground">Exportar CSV</h2>
+            <h2 className="text-lg font-semibold text-foreground">{t("title")}</h2>
             <p className="text-sm text-muted-foreground">
-              {mediaUrlReview.resolved} de {totalMedia} URLs de mídia resolvidas — {mediaUrlReview.failedNames.length} falharam.
+              {t("review.summary", { resolved: mediaUrlReview.resolved, total: totalMedia, failed: mediaUrlReview.failedNames.length })}
             </p>
           </div>
 
           <div className="space-y-2 rounded-md border border-border bg-background px-3 py-2.5">
             <div className="flex items-center gap-2">
               <IconAlertTriangle className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
-              <span className="text-sm text-foreground">Motivos das falhas</span>
+              <span className="text-sm text-foreground">{t("review.reasonsTitle")}</span>
             </div>
             <ul className="max-h-60 space-y-2 overflow-y-auto">
               {Object.entries(mediaUrlReview.failuresByReason)
@@ -312,22 +314,20 @@ export function ManagerExportDialog({ isOpen, onClose, table, activeColumns, col
                   </li>
                 ))}
             </ul>
-            <p className="text-xs text-muted-foreground">
-              Ao exportar assim mesmo, os anúncios com falha saem com &quot;ERRO: motivo&quot; na coluna de URL.
-            </p>
+            <p className="text-xs text-muted-foreground">{t("review.note")}</p>
           </div>
 
           <div className="flex items-center justify-end gap-2 pt-1">
             <Button variant="ghost" onClick={() => setMediaUrlReview(null)} disabled={isBusy}>
-              Voltar
+              {t("review.back")}
             </Button>
             <Button variant="outline" onClick={handleExportAnyway} disabled={isBusy}>
               {isExporting ? <IconLoader2 className="h-4 w-4 mr-2 animate-spin" /> : <IconDownload className="h-4 w-4 mr-2" />}
-              Exportar assim mesmo
+              {t("review.exportAnyway")}
             </Button>
             <Button onClick={handleRetryFailed} disabled={isBusy}>
               {isRetrying ? <IconLoader2 className="h-4 w-4 mr-2 animate-spin" /> : <IconRefresh className="h-4 w-4 mr-2" />}
-              Tentar novamente ({mediaUrlReview.failedNames.length})
+              {t("review.retry", { count: mediaUrlReview.failedNames.length })}
             </Button>
           </div>
         </div>
@@ -336,20 +336,20 @@ export function ManagerExportDialog({ isOpen, onClose, table, activeColumns, col
   }
 
   return (
-    <AppDialog isOpen={isOpen} onClose={onClose} title="Exportar CSV" size="lg" padding="md">
+    <AppDialog isOpen={isOpen} onClose={onClose} title={t("title")} size="lg" padding="md">
       <div className="flex flex-col gap-5">
         <div className="space-y-1">
-          <h2 className="text-lg font-semibold text-foreground">Exportar CSV</h2>
-          <p className="text-sm text-muted-foreground">Escolha as colunas e as opções do arquivo. Nome e Status entram sempre.</p>
+          <h2 className="text-lg font-semibold text-foreground">{t("title")}</h2>
+          <p className="text-sm text-muted-foreground">{t("description")}</p>
           {/* Composição do recorte, UMA vez e no topo: é contexto do arquivo inteiro,
               não de um toggle. Antes vivia dentro do card de URLs, obrigando a somar
               de cabeça para conferir o total. */}
           {creativeStats && (
             <p className="text-xs text-muted-foreground">
-              {creativeStats.total} {itemLabel} no recorte
-              {creativeStats.videos > 0 && ` · ${creativeStats.videos} de vídeo`}
-              {creativeStats.images > 0 && ` · ${creativeStats.images} de imagem`}
-              {creativeStats.unknown > 0 && ` · ${creativeStats.unknown} sem mídia identificada`}
+              {t("composition.total", { count: creativeStats.total, kind: itemKind })}
+              {creativeStats.videos > 0 && ` · ${t("composition.videos", { count: creativeStats.videos })}`}
+              {creativeStats.images > 0 && ` · ${t("composition.images", { count: creativeStats.images })}`}
+              {creativeStats.unknown > 0 && ` · ${t("composition.unknown", { count: creativeStats.unknown })}`}
             </p>
           )}
         </div>
@@ -357,15 +357,15 @@ export function ManagerExportDialog({ isOpen, onClose, table, activeColumns, col
         {/* Colunas incluídas */}
         <div className="space-y-2">
           <div className="flex items-center justify-between gap-2">
-            <span className="text-sm font-medium text-foreground">Colunas incluídas ({activeList.length})</span>
+            <span className="text-sm font-medium text-foreground">{t("columns.included", { count: activeList.length })}</span>
             {availableColumns.length > 0 && (
               <Button variant="ghost" size="sm" onClick={toggleAllColumns}>
-                {allSelected ? "Desmarcar todas" : "Marcar todas"}
+                {allSelected ? t("columns.deselectAll") : t("columns.selectAll")}
               </Button>
             )}
           </div>
           {activeList.length === 0 ? (
-            <p className="text-xs text-muted-foreground">Nenhuma coluna selecionada — adicione abaixo.</p>
+            <p className="text-xs text-muted-foreground">{t("columns.none")}</p>
           ) : (
             <div className="flex flex-wrap gap-1.5">
               {activeList.map((c) => (
@@ -374,7 +374,7 @@ export function ManagerExportDialog({ isOpen, onClose, table, activeColumns, col
                   type="button"
                   onClick={() => toggleColumn(c.id)}
                   className="inline-flex items-center gap-1 rounded-md border border-primary-20 bg-primary-10 px-2 py-1 text-xs text-foreground transition-colors hover:bg-primary-20"
-                  aria-label={`Remover ${c.name} do export`}
+                  aria-label={t("columns.removeAria", { name: c.name })}
                 >
                   {c.name}
                   <IconX className="h-3 w-3 opacity-70" />
@@ -387,7 +387,7 @@ export function ManagerExportDialog({ isOpen, onClose, table, activeColumns, col
         {/* Colunas disponíveis */}
         {inactiveList.length > 0 && (
           <div className="space-y-2">
-            <span className="text-sm font-medium text-foreground">Disponíveis ({inactiveList.length})</span>
+            <span className="text-sm font-medium text-foreground">{t("columns.available", { count: inactiveList.length })}</span>
             <div className="flex flex-wrap gap-1.5">
               {inactiveList.map((c) => (
                 <button
@@ -395,7 +395,7 @@ export function ManagerExportDialog({ isOpen, onClose, table, activeColumns, col
                   type="button"
                   onClick={() => toggleColumn(c.id)}
                   className="inline-flex items-center gap-1 rounded-md border border-border bg-surface-2 px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-                  aria-label={`Adicionar ${c.name} ao export`}
+                  aria-label={t("columns.addAria", { name: c.name })}
                 >
                   <IconPlus className="h-3 w-3 opacity-70" />
                   {c.name}
@@ -412,17 +412,17 @@ export function ManagerExportDialog({ isOpen, onClose, table, activeColumns, col
               <div className="flex items-center gap-2 min-w-0">
                 <IconFileText className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
                 <div className="flex min-w-0 flex-col">
-                  <span className="text-sm text-foreground">Incluir transcrições</span>
+                  <span className="text-sm text-foreground">{t("transcriptions.label")}</span>
                   <span className="text-xs text-muted-foreground">
                     {creativeStats.videos === 0
-                      ? "Nenhum criativo de vídeo neste recorte"
+                      ? t("transcriptions.noVideos")
                       : creativeStats.videosTranscribed === creativeStats.videos
-                        ? `Todos os ${creativeStats.videos} vídeos estão transcritos`
-                        : `${creativeStats.videosTranscribed} de ${creativeStats.videos} vídeos transcritos`}
+                        ? t("transcriptions.allDone", { count: creativeStats.videos })
+                        : t("transcriptions.partial", { done: creativeStats.videosTranscribed, total: creativeStats.videos })}
                     {/* O "sem áudio" é o que faz a conta fechar: sem ele, 160 de 172 com
                         botão de "Transcrever 0" pareceria bug. */}
                     {creativeStats.videosNoAudio > 0 &&
-                      ` · ${creativeStats.videosNoAudio} sem áudio detectável`}
+                      ` · ${t("transcriptions.noAudio", { count: creativeStats.videosNoAudio })}`}
                   </span>
                 </div>
               </div>
@@ -431,7 +431,7 @@ export function ManagerExportDialog({ isOpen, onClose, table, activeColumns, col
                 checked={withTranscriptions}
                 onCheckedChange={setWithTranscriptions}
                 variant="minimal"
-                ariaLabel="Incluir transcrições"
+                ariaLabel={t("transcriptions.label")}
                 disabled={creativeStats.transcribedTotal === 0}
               />
             </div>
@@ -439,14 +439,13 @@ export function ManagerExportDialog({ isOpen, onClose, table, activeColumns, col
             {transcribePlan && (
               <div className="flex items-center justify-between gap-3 border-t border-border pt-2.5">
                 <p className="min-w-0 text-xs text-muted-foreground">
-                  {transcribePlan.count > 0 && "Transcreva sem sair daqui — a contagem acima sobe sozinha quando terminar. "}
-                  {transcribePlan.unreachable > 0 &&
-                    `${transcribePlan.unreachable} ${transcribePlan.unreachable === 1 ? "vídeo está" : "vídeos estão"} em pack compartilhado só para leitura — só o dono pode transcrever.`}
+                  {transcribePlan.count > 0 && `${t("transcriptions.hint")} `}
+                  {transcribePlan.unreachable > 0 && t("transcriptions.unreachable", { count: transcribePlan.unreachable })}
                 </p>
                 {transcribePlan.count > 0 && (
                   <Button variant="outline" size="sm" onClick={handleTranscribePending} disabled={isExporting}>
                     <IconMicrophone className="h-4 w-4" />
-                    Transcrever {transcribePlan.count}
+                    {t("transcriptions.transcribe", { count: transcribePlan.count })}
                   </Button>
                 )}
               </div>
@@ -460,10 +459,8 @@ export function ManagerExportDialog({ isOpen, onClose, table, activeColumns, col
             <div className="flex items-center gap-2 min-w-0">
               <IconVideo className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
               <div className="flex min-w-0 flex-col">
-                <span className="text-sm text-foreground">Incluir URLs das mídias</span>
-                <span className="text-xs text-muted-foreground">
-                  Link direto de cada vídeo e imagem, com a validade na coluna ao lado
-                </span>
+                <span className="text-sm text-foreground">{t("mediaUrls.label")}</span>
+                <span className="text-xs text-muted-foreground">{t("mediaUrls.description")}</span>
               </div>
             </div>
             <ToggleSwitch
@@ -471,7 +468,7 @@ export function ManagerExportDialog({ isOpen, onClose, table, activeColumns, col
               checked={withMediaUrls}
               onCheckedChange={setWithMediaUrls}
               variant="minimal"
-              ariaLabel="Incluir URLs das mídias"
+              ariaLabel={t("mediaUrls.label")}
               disabled={creativeStats.videos + creativeStats.images === 0}
             />
           </div>
@@ -480,11 +477,11 @@ export function ManagerExportDialog({ isOpen, onClose, table, activeColumns, col
         {/* Ações */}
         <div className="flex items-center justify-end gap-2 pt-1">
           <Button variant="ghost" onClick={onClose} disabled={isExporting}>
-            Cancelar
+            {t("cancel")}
           </Button>
           <Button onClick={handleExport} disabled={isExporting || selected.size === 0}>
             {isExporting ? <IconLoader2 className="h-4 w-4 mr-2 animate-spin" /> : <IconDownload className="h-4 w-4 mr-2" />}
-            Exportar
+            {t("export")}
           </Button>
         </div>
       </div>

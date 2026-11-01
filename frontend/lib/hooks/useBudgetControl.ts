@@ -4,6 +4,7 @@ import { api } from "@/lib/api/endpoints";
 import { markAnalyticsChanged } from "@/lib/api/analyticsPersister";
 import { showError, showSuccess } from "@/lib/utils/toast";
 import { toast } from "sonner";
+import { translate } from "@/lib/i18n/translate";
 
 export type BudgetEntityType = "adset" | "campaign";
 
@@ -94,20 +95,20 @@ export function useBudgetControl({ entityType, entityId, packIds }: UseBudgetCon
     },
     onSuccess: (data) => {
       if (data.noop) {
-        toast.info("O orçamento já estava nesse valor.", { duration: 4000 });
+        toast.info(translate("manager.budget.toast.noop"), { duration: 4000 });
         return;
       }
       if (!data.verified) {
         // Write ok, read-back falhou: sem verdade lida não patchamos cache — o sync
         // on-focus (≤5min) traz o valor real.
-        showSuccess("Orçamento enviado ao Meta. O valor atualizado aparece em instantes.");
+        showSuccess(translate("manager.budget.toast.sentUnverified"));
         return;
       }
-      showSuccess("Orçamento atualizado com sucesso.");
+      showSuccess(translate("manager.budget.toast.updated"));
       patchBudgetsInCaches(qc, new Map([[entityId, data]]));
     },
     onError: (e: any) => {
-      const msg = e?.message || "Falha ao atualizar o orçamento.";
+      const msg = e?.message || translate("manager.budget.toast.failed");
       // Modo errado (CBO/ABO) ou tipo errado (daily/lifetime): orientação, não falha.
       if (e?.code === "BUDGET_ON_CAMPAIGN" || e?.code === "BUDGET_ON_ADSETS" || e?.code === "BUDGET_TYPE_MISMATCH") {
         toast.warning(msg, { duration: 7000 });

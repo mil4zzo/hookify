@@ -1,3 +1,4 @@
+import { translate } from "@/lib/i18n/translate"
 import type { RankingsRowTag } from "@/lib/api/schemas"
 
 /**
@@ -15,13 +16,20 @@ export interface TagFilterValue {
   tagIds: string[]
 }
 
-export const TAG_FILTER_OPERATORS: { value: TagFilterOperator; label: string }[] = [
-  { value: "has_any", label: "Contém alguma" },
-  { value: "has_all", label: "Contém todas" },
-  { value: "has_none", label: "Não contém nenhuma" },
-  { value: "has_exact", label: "Contém exatamente" },
-  { value: "is_empty", label: "Sem tag" },
-  { value: "is_not_empty", label: "Tem alguma tag" },
+const tagOperator = (value: TagFilterOperator): { value: TagFilterOperator; readonly label: string } => ({
+  value,
+  get label() {
+    return translate(`manager.tags.operators.${value}`)
+  },
+})
+
+export const TAG_FILTER_OPERATORS: { value: TagFilterOperator; readonly label: string }[] = [
+  tagOperator("has_any"),
+  tagOperator("has_all"),
+  tagOperator("has_none"),
+  tagOperator("has_exact"),
+  tagOperator("is_empty"),
+  tagOperator("is_not_empty"),
 ]
 
 /** Operadores sem campo de valor — a pergunta não depende de quais tags. */

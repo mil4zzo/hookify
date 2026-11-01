@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useMemo, useState } from "react";
+import { useTranslations } from "next-intl";
 import { IconTag, IconX } from "@tabler/icons-react";
 
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -24,6 +25,7 @@ export function TagChip({
   onRemove?: () => void;
   className?: string;
 }) {
+  const t = useTranslations("manager.tags");
   return (
     <span
       className={cn(
@@ -41,7 +43,7 @@ export function TagChip({
             onRemove();
           }}
           className="shrink-0 opacity-60 transition-opacity hover:opacity-100"
-          aria-label={`Remover tag ${name}`}
+          aria-label={t("removeTagAria", { name })}
         >
           <IconX className="h-2.5 w-2.5" />
         </button>
@@ -60,6 +62,7 @@ export function TagChip({
  * O clique não pode subir: a linha inteira abre o drill do anúncio.
  */
 export function TagsCell({ adName, tags }: { adName: string; tags: RankingsRowTag[] }) {
+  const t = useTranslations("manager.tags");
   const [open, setOpen] = useState(false);
   const assign = useAssignTags();
   const unassign = useUnassignTags();
@@ -94,12 +97,12 @@ export function TagsCell({ adName, tags }: { adName: string; tags: RankingsRowTa
           type="button"
           onClick={(e) => e.stopPropagation()}
           className="flex w-full flex-wrap items-center gap-1 rounded-sm px-1 py-0.5 text-left transition-colors hover:bg-accent"
-          aria-label={`Editar tags de ${adName}`}
+          aria-label={t("editTagsAria", { name: adName })}
         >
           {tags.length === 0 ? (
             <span className="inline-flex items-center gap-1 text-2xs text-muted-foreground">
               <IconTag className="h-3 w-3" />
-              Marcar
+              {t("mark")}
             </span>
           ) : (
             tags.map((tag) => <TagChip key={tag.id} name={tag.name} color={tag.color} />)
@@ -121,7 +124,7 @@ export function TagsCell({ adName, tags }: { adName: string; tags: RankingsRowTa
           createMode="immediate"
           onSelect={handleSelect}
           onCreate={handleCreate}
-          placeholder="Adicionar tag..."
+          placeholder={t("addPlaceholder")}
         />
       </PopoverContent>
     </Popover>

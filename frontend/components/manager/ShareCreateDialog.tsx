@@ -4,6 +4,7 @@ import { getAppLocale } from "@/lib/i18n/locale";
 import { StatePanel } from "@/components/common/States";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
+import { useTranslations } from "next-intl";
 import { IconCopy, IconLink, IconLoader2, IconShare2, IconX } from "@tabler/icons-react";
 import { AppDialog } from "@/components/common/AppDialog";
 import { Button } from "@/components/ui/button";
@@ -59,6 +60,7 @@ function formatDatePt(iso: string): string {
  * a mídia é resolvida no backend na criação.
  */
 export function ShareCreateDialog({ isOpen, onClose, rows, dateStart, dateStop, actionType, mqlLeadscoreMin, leadEconomicsByPack, averages, packIds }: ShareCreateDialogProps) {
+  const t = useTranslations("manager.shareDialog");
   const formatCurrency = useFormatCurrency();
   const { settings } = useSettings();
 
@@ -70,12 +72,14 @@ export function ShareCreateDialog({ isOpen, onClose, rows, dateStart, dateStop, 
   useEffect(() => {
     if (!isOpen) return;
     if (rows.length > MAX_SHARE_ITEMS) {
-      toast.info(`Máximo de ${MAX_SHARE_ITEMS} criativos por link — mantivemos os ${MAX_SHARE_ITEMS} primeiros.`);
+      toast.info(t("maxItems", { max: MAX_SHARE_ITEMS }));
     }
     setItems(rows.filter((r) => !!r.ad_name).slice(0, MAX_SHARE_ITEMS));
     setHighlights(DEFAULT_HIGHLIGHTS);
     setResult(null);
     setIsCreating(false);
+    // `t` fora das dependências de propósito: trocar o idioma com o diálogo aberto não pode reiniciar a lista.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, rows]);
 
   /** Seleção circular: cheio + nova escolha descarta a mais antiga (sem beco sem saída). */
@@ -104,11 +108,11 @@ export function ShareCreateDialog({ isOpen, onClose, rows, dateStart, dateStop, 
     if (!shareUrl) return;
     try {
       await navigator.clipboard.writeText(shareUrl);
-      toast.success("Link copiado!", { description: "É só colar no WhatsApp da equipe." });
+      toast.success(t("copied"), { description: t("copiedHint") });
     } catch {
-      toast.error("Não foi possível copiar automaticamente", { description: "Selecione o link e copie manualmente." });
+      toast.error(t("copyFailed"), { description: t("copyFailedHint") });
     }
-  }, [shareUrl]);
+  }, [shareUrl, t]);
 
   const handleCreate = useCallback(async () => {
     if (items.length === 0 || isCreating) return;
@@ -130,18 +134,22 @@ export function ShareCreateDialog({ isOpen, onClose, rows, dateStart, dateStop, 
       const res = await api.shares.create(payload);
       setResult({ token: res.token, expires_at: res.expires_at });
     } catch (error) {
-      toast.error("Não foi possível gerar o link", { description: extractErrorDetail(error) });
+      toast.error(t("createFailed"), { description: extractErrorDetail(error) });
     } finally {
       setIsCreating(false);
     }
-  }, [items, itemsMetrics, highlightOptions, isCreating, dateStart, dateStop, settings.currency, averages, highlights, packIds]);
+  }, [items, itemsMetrics, highlightOptions, isCreating, dateStart, dateStop, settings.currency, averages, highlights, packIds, t]);
 
   return (
-    <AppDialog isOpen={isOpen} onClose={onClose} title="Compartilhar criativos" size="lg" padding="md">
+    <AppDialog isOpen={isOpen} onClose={onClose} title={t("title")} size="lg" padding="md">
       <div className="flex flex-col gap-4">
         <p className="text-sm text-muted-foreground">
-          Link público em formato stories com {items.length} criativo{items.length !== 1 ? "s" : ""} e as métricas do
-          período <span className="font-medium text-foreground">{formatDatePt(dateStart)} – {formatDatePt(dateStop)}</span>.
+          {t.rich("intro", {
+            count: items.length,
+            start: formatDatePt(dateStart),
+            end: formatDatePt(dateStop),
+            b: (chunks) => <span className="font-medium text-foreground">{chunks}</span>,
+          })}
         </p>
 
         <div className="max-h-72 divide-y divide-border overflow-y-auto rounded-md border border-border bg-background">
@@ -160,7 +168,7 @@ export function ShareCreateDialog({ isOpen, onClose, rows, dateStart, dateStop, 
                   variant="ghost"
                   size="sm"
                   className="h-auto px-1.5 py-1 text-muted-foreground"
-                  aria-label={`Remover ${row.ad_name}`}
+                  aria-label={t("removeAria", { name: String(row.ad_name) })}
                   disabled={isCreating}
                   onClick={() => handleRemove(String(row.ad_name))}
                 >
@@ -170,17 +178,15 @@ export function ShareCreateDialog({ isOpen, onClose, rows, dateStart, dateStop, 
             </div>
           ))}
           {items.length === 0 && (
-            <StatePanel kind="empty" density="compact" message="Nenhum criativo na lista." />
+            <StatePanel kind="empty" density="compact" message={t("empty")} />
           )}
         </div>
 
         {!result && (
           <div className="space-y-2">
             <div className="flex items-baseline justify-between gap-2">
-              <p className="text-sm font-medium">Métricas em destaque</p>
-              <p className="text-xs text-muted-foreground">
-                {highlights.length}/{MAX_HIGHLIGHT_METRICS} · aparecem sem precisar expandir
-              </p>
+              <p className="text-sm font-medium">{t("highlights")}</p>
+              <p className="text-xs text-muted-foreground">{t("highlightsHint", { count: highlights.length, max: MAX_HIGHLIGHT_METRICS })}</p>
             </div>
             <div className="flex flex-wrap gap-1.5">
               {highlightOptions.map((option) => {
@@ -211,27 +217,25 @@ export function ShareCreateDialog({ isOpen, onClose, rows, dateStart, dateStop, 
           <div className="space-y-2 rounded-md border border-success-30 bg-success-10 p-3">
             <div className="flex items-center gap-1.5 text-sm font-medium text-success">
               <IconLink className="h-4 w-4" />
-              Link gerado — válido até {formatDatePt(result.expires_at)}
+              {t("linkReady", { date: formatDatePt(result.expires_at) })}
             </div>
             <div className="flex items-center gap-2">
               <Input readOnly value={shareUrl} size="sm" className="font-mono text-xs" onFocus={(e) => e.currentTarget.select()} />
               <Button size="sm" className="gap-1.5" onClick={handleCopy}>
                 <IconCopy className="h-3.5 w-3.5" />
-                Copiar
+                {t("copy")}
               </Button>
             </div>
-            <p className="text-xs text-muted-foreground">
-              Vídeos usam a CDN da Meta e podem expirar antes do link — as métricas continuam visíveis.
-            </p>
+            <p className="text-xs text-muted-foreground">{t("cdnNote")}</p>
           </div>
         ) : (
           <div className="flex items-center justify-end gap-2">
             <Button variant="outline" size="sm" disabled={isCreating} onClick={onClose}>
-              Cancelar
+              {t("cancel")}
             </Button>
             <Button size="sm" className="gap-1.5" disabled={items.length === 0 || isCreating} onClick={handleCreate}>
               {isCreating ? <IconLoader2 className="h-3.5 w-3.5 animate-spin" /> : <IconShare2 className="h-3.5 w-3.5" />}
-              {isCreating ? "Gerando link…" : "Gerar link"}
+              {isCreating ? t("generating") : t("generate")}
             </Button>
           </div>
         )}
