@@ -10,6 +10,8 @@ import metricsPt from "../../messages/metrics.pt-BR.json";
 import metricsEn from "../../messages/metrics.en-US.json";
 import commonPt from "../../messages/common.pt-BR.json";
 import commonEn from "../../messages/common.en-US.json";
+import legalPt from "../../messages/legal.pt-BR.json";
+import legalEn from "../../messages/legal.en-US.json";
 import type { AppLocale } from "./config";
 
 /**
@@ -23,8 +25,8 @@ import type { AppLocale } from "./config";
  * núcleo; os demais entram aqui. Chaves de áreas diferentes se fundem (mesmo
  * namespace pode ser dividido), então o nome do arquivo não vira prefixo.
  */
-const PT_FILES: Record<string, unknown>[] = [ptBR, manager_morePt, packsPt, adsPt, metricsPt, commonPt];
-const EN_FILES: Record<string, unknown>[] = [enUS, manager_moreEn, packsEn, adsEn, metricsEn, commonEn];
+const PT_FILES: Record<string, unknown>[] = [ptBR, manager_morePt, packsPt, adsPt, metricsPt, commonPt, legalPt];
+const EN_FILES: Record<string, unknown>[] = [enUS, manager_moreEn, packsEn, adsEn, metricsEn, commonEn, legalEn];
 
 function mergeAll(files: Record<string, unknown>[]): Record<string, unknown> {
   return files.reduce<Record<string, unknown>>((acc, file) => mergeMessages(acc, file), {});

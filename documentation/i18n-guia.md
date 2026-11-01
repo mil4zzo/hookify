@@ -25,7 +25,7 @@ O idioma vem da preferência do usuário (`settings.language`) e de um cookie (`
 - O texto `pt-BR` é **exatamente o que já aparecia na tela** (a tela em português não pode mudar).
 - Termos que ficam em inglês nos dois idiomas: Hook, Hold Rate, Scroll Stop, 50% View, 75% View, Connect Rate, Plays, ThruPlays, Pack, CPL Max, CPL Real, Score, nomes de produto Meta (Ads Manager).
 - Vocabulário en-US: conjunto = "ad set", anúncio = "ad", campanha = "campaign", criativo = "creative", gasto = "spend", Otimize = "Optimize".
-- **Não traduzir**: mensagens vindas do backend, `logger.*`/`console.*`, comentários, ids/enums/chaves de storage, classes CSS, páginas legais (termos, privacidade, exclusão de dados — texto jurídico exige revisão humana), páginas de desenvolvimento (`docs`, `design-system`, `ui-demo`, `test-ui`, `api-test`).
+- **Não traduzir**: mensagens vindas do backend, `logger.*`/`console.*`, comentários, ids/enums/chaves de storage, classes CSS, páginas de desenvolvimento (`docs`, `design-system`, `ui-demo`, `test-ui`, `api-test`).
 - Teste existente que confere texto em português continua valendo (idioma padrão é pt-BR). Só mude teste se a API do código mudou.
 
 ## Link público de compartilhamento
@@ -39,7 +39,7 @@ viewer (escolha salva neste aparelho) e usa `setLocaleOverride` para os formatad
 
 - **Espanhol (es-ES):** catálogos vazios (caem no português) e o seletor não oferece. Traduzir os mesmos arquivos e liberar a opção.
 - **Telas legado / em mudança:** insights, boards, explorer, gold, plano, upload, duplicação de campanha (launch), admin, waitlist/pv. Traduzir quando a tela estabilizar.
-- **Páginas legais** (termos, privacidade, exclusão de dados): precisam de tradução revisada por humano; não traduzidas.
-- **Mensagens dinâmicas do backend** (f-string) e códigos de erro: hoje só 45 mensagens fixas têm tradução (`lib/i18n/backendMessages.ts`). Migrar para códigos de erro se a lista passar de ~100.
-- **Pequenos:** eixo do `MetricHistoryChart` com "R$" fixo; título/descrição do `/suporte` ainda em português; revisar o inglês de `scopeMissing` (palpite do agente); regra do filtro: grupo "Planilha" fora de `FIELD_GROUP_ORDER` (campos de planilha não aparecem no seletor — existente, não investigado).
+- **Páginas legais** (termos, privacidade, exclusão de dados): traduzidas em `legal.*.json` (tags `<b>` e `<f>` = negrito; `<f>` com `text-foreground`), idioma pelo cookie no servidor (`lib/i18n/legalPage.tsx`). **O inglês jurídico é RASCUNHO, pendente de revisão jurídica humana antes de ser tratado como definitivo.**
+- **Mensagens do backend:** ~85 mensagens (fixas e com valor dentro) têm tradução em `lib/i18n/backendMessages.ts`; o resto aparece como o backend manda (português). Migrar para códigos de erro se a lista passar de ~100.
+- **Revisar:** o inglês de `scopeMissing` cita "Settings → Connections" (copiado do português; conferir se esse caminho existe na tela).
 - **Revisão humana** do inglês na tela (onboarding, Manager, packs, modal do anúncio, Topbar).
