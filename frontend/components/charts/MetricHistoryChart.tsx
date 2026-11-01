@@ -1,6 +1,7 @@
 "use client";
 
 import { getAppLocale } from "@/lib/i18n/locale";
+import { useSettingsStore } from "@/lib/store/settings";
 import { useTranslations } from "next-intl";
 import { translate } from "@/lib/i18n/translate";
 import { StatePanel } from "@/components/common/States";
@@ -270,7 +271,8 @@ function MetricHistoryChartInner({ data, formatValue, actionType, availableMetri
     if (hasPercentage && !hasCurrency) {
       return (v: number) => `${(v * 100).toFixed(1)}%`;
     } else if (hasCurrency && !hasPercentage) {
-      return (v: number) => `R$ ${v.toFixed(0)}`;
+      const axisCurrency = new Intl.NumberFormat(getAppLocale(), { style: "currency", currency: useSettingsStore.getState().settings.currency || "BRL", maximumFractionDigits: 0 });
+      return (v: number) => axisCurrency.format(v);
     }
     // Se misturar tipos, usar formato numérico genérico
     return (v: number) => v.toLocaleString(getAppLocale());

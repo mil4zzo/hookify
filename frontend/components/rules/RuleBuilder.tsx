@@ -68,7 +68,7 @@ export interface RuleBuilderProps {
   tab?: RuleManagerTab;
 }
 
-const FIELD_GROUP_ORDER: RuleFieldGroup[] = ["Tags", "Criativo", "Procedência", "Métricas"];
+const FIELD_GROUP_ORDER: RuleFieldGroup[] = ["Tags", "Criativo", "Procedência", "Métricas", "Planilha"];
 
 /** O id do grupo é o texto antigo em português (testes e regras o citam); o rótulo vem do catálogo. */
 const FIELD_GROUP_KEY: Record<RuleFieldGroup, string> = {

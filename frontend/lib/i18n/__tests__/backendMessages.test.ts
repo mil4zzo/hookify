@@ -5,7 +5,7 @@ import { join } from "node:path";
 
 import { useSettingsStore } from "@/lib/store/settings";
 import { parseError } from "@/lib/utils/errors";
-import { BACKEND_MESSAGES, normalizeBackendMessage, translateBackendMessage } from "../backendMessages";
+import { BACKEND_MESSAGES, BACKEND_PATTERNS, normalizeBackendMessage, translateBackendMessage } from "../backendMessages";
 
 const setLanguage = (language: string) => useSettingsStore.setState((s) => ({ settings: { ...s.settings, language } }));
 
@@ -56,4 +56,30 @@ test("cada texto da lista ainda existe no backend (senão a tradução ficou ór
     .join("\n");
   const missing = BACKEND_MESSAGES.filter(([text]) => !backend.includes(normalizeBackendMessage(text))).map(([text]) => text);
   assert.deepEqual(missing, [], "texto da lista que o backend não tem mais");
+});
+
+test("mensagem com valor dentro: traduz o texto e mantém o valor como veio", () => {
+  try {
+    setLanguage("en-US");
+    assert.equal(translateBackendMessage("Pack 123abc não encontrado"), "Pack 123abc not found.");
+    assert.equal(translateBackendMessage("No máximo 20 packs por vez."), "At most 20 packs at a time.");
+    assert.equal(translateBackendMessage("Já existe um pack com o nome 'Meu Pack'"), "A pack named “Meu Pack” already exists.");
+    assert.equal(translateBackendMessage("Erro ao listar packs: Connection RESET"), "Error listing packs: Connection RESET", "o detalhe técnico fica com a caixa original");
+    assert.equal(translateBackendMessage("date_start invalido: 2026-13-45"), "Invalid date_start: 2026-13-45.");
+    assert.equal(translateBackendMessage("Algo 9 que o backend inventou"), "Algo 9 que o backend inventou", "texto que não casa com nenhum modelo passa como veio");
+    setLanguage("pt-BR");
+    assert.equal(translateBackendMessage("No mÃ¡ximo 5 integraÃ§Ãµes por vez."), "No máximo 5 integrações por vez.");
+  } finally {
+    setLanguage("pt-BR");
+  }
+});
+
+test("cada trecho fixo dos modelos com valor ainda existe no backend", () => {
+  const backend = pythonSources(join(process.cwd(), "..", "backend", "app"))
+    .flatMap((source) => source.split(/\r?\n/))
+    .map((line) => normalizeBackendMessage(line))
+    .join("\n");
+  const missing = BACKEND_PATTERNS.flatMap(([template]) => template.split(/\{\w+\}/).map((part) => part.trim()).filter((part) => part.length > 3))
+    .filter((part) => !backend.includes(normalizeBackendMessage(part)));
+  assert.deepEqual(missing, [], "trecho de modelo que o backend não tem mais");
 });
