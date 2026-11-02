@@ -1877,13 +1877,28 @@ class GraphAPI:
             "dsa_beneficiary,dsa_payor,"
             "regional_regulated_categories,regional_regulation_identities"
         )
-        return self._handle_graph_request(
-            method="GET",
-            path=f"{campaign_id}/adsets",
-            operation_name="GraphAPI.get_adsets_for_campaign",
-            params={"fields": fields, "limit": 50},
-            timeout=30,
-        )
+        # shortcut: segue o cursor até 20 páginas de 50 (1.000 conjuntos); campanha maior fica truncada.
+        rows: List[Dict[str, Any]] = []
+        after: Optional[str] = None
+        for _ in range(20):
+            params: Dict[str, Any] = {"fields": fields, "limit": 50}
+            if after:
+                params["after"] = after
+            result = self._handle_graph_request(
+                method="GET",
+                path=f"{campaign_id}/adsets",
+                operation_name="GraphAPI.get_adsets_for_campaign",
+                params=params,
+                timeout=30,
+            )
+            if result.get("status") != "success":
+                return result
+            body = result.get("data") or {}
+            rows.extend(body.get("data") or [])
+            after = ((body.get("paging") or {}).get("cursors") or {}).get("after")
+            if not (body.get("paging") or {}).get("next") or not after:
+                break
+        return {"status": "success", "data": {"data": rows}}
 
     def copy_adset(self, source_adset_id: str, params: Dict[str, Any]) -> Dict[str, Any]:
         """Copia um adset existente para outra campanha via POST /{id}/copies."""
@@ -1893,6 +1908,17 @@ class GraphAPI:
             operation_name="GraphAPI.copy_adset",
             json_payload=params,
             timeout=60,
+        )
+
+    def get_copies(self, source_id: str) -> Dict[str, Any]:
+        """GET /{id}/copies (campanha, conjunto ou anúncio): cópias já feitas do objeto.
+        Serve para achar a cópia criada por um POST /copies cuja resposta se perdeu."""
+        return self._handle_graph_request(
+            method="GET",
+            path=f"{source_id}/copies",
+            operation_name="GraphAPI.get_copies",
+            params={"fields": "id,name,created_time", "limit": 100},
+            timeout=30,
         )
 
     def copy_campaign(self, source_campaign_id: str, params: Dict[str, Any]) -> Dict[str, Any]:

@@ -23,7 +23,7 @@ import threading
 import time
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Dict, List, Optional
 
 from app.core.config import META_LAUNCH_GRAPH_BASE_URL
@@ -56,6 +56,9 @@ TEMPLATE_ADSET_NAME_VAR = "{template_adset_name}"
 
 # Piso entre chamadas de escrita na Meta (backoff reativo de 429 vive no GraphAPI).
 _META_WRITE_DELAY_SECONDS = 0.05
+# POST /copies sem resposta: espera antes de procurar a cópia que a Meta pode ter criado.
+_LOST_COPY_PROBE_DELAYS_SECONDS = (5, 20)
+_LOST_COPY_WINDOW = timedelta(minutes=30)
 
 # Subcode de "Transparência dos anúncios" ausente no conjunto (ver memória
 # meta_adset_dsa_beneficiary_payor): marca a conta para a tela avisar antes.
@@ -87,15 +90,21 @@ def interpolate_name(template: str, *, ad_name: str, index: int, template_adset_
 
 def is_meta_datetime_in_past(raw: Any) -> bool:
     """True se raw (ISO ou epoch do Graph API) já passou em UTC."""
+    dt = parse_meta_datetime(raw)
+    return dt is not None and dt <= datetime.now(timezone.utc)
+
+
+def parse_meta_datetime(raw: Any) -> Optional[datetime]:
+    """ISO (offset com ou sem ':') ou epoch do Graph API → datetime em UTC; None se inválido."""
     if raw is None:
-        return False
+        return None
     try:
         if isinstance(raw, (int, float)):
             dt = datetime.fromtimestamp(float(raw), tz=timezone.utc)
         else:
             s = str(raw).strip()
             if not s:
-                return False
+                return None
             if s.isdigit():
                 dt = datetime.fromtimestamp(int(s), tz=timezone.utc)
             else:
@@ -105,9 +114,9 @@ def is_meta_datetime_in_past(raw: Any) -> bool:
                 dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
                 if dt.tzinfo is None:
                     dt = dt.replace(tzinfo=timezone.utc)
-        return dt <= datetime.now(timezone.utc)
+        return dt
     except (ValueError, OSError, OverflowError):
-        return False
+        return None
 
 
 def _copied_id(data: Dict[str, Any], *keys: str) -> Optional[str]:
@@ -309,7 +318,11 @@ class CampaignLaunchProcessor:
         campaign_id = item.get("meta_campaign_id")
         if not campaign_id:
             data = self._call(
-                self.api.copy_campaign,
+                self._recovering_copy(
+                    self.api.copy_campaign,
+                    str(self._payload.get("template_campaign_name") or ""),
+                    lambda: {str(i.get("meta_campaign_id")) for i in fetch_items(self.sb, self.context.job_id)},
+                ),
                 str(self._payload["template_campaign_id"]),
                 {
                     "deep_copy": False,
@@ -377,7 +390,15 @@ class CampaignLaunchProcessor:
             "rename_options": {"rename_strategy": "NO_RENAME"},
         }
         try:
-            data = self._call(self.api.copy_adset, source_id, params)
+            data = self._call(
+                self._recovering_copy(
+                    self.api.copy_adset,
+                    str(entry.get("source_adset_name") or ""),
+                    lambda: {str(a.get("adset_id")) for i in fetch_items(self.sb, self.context.job_id) for a in (i.get("adsets") or [])},
+                ),
+                source_id,
+                params,
+            )
         except MetaAPIError as exc:
             subcode = str(exc.subcode or "")
             if subcode == _COMPLIANCE_SUBCODE:
@@ -391,7 +412,11 @@ class CampaignLaunchProcessor:
                     raw_error=exc.raw_error,
                 ) from exc
             blame = ((exc.raw_error or {}).get("error_data") or {}).get("blame_field_specs") or []
-            if subcode == _EXPLORE_SUBCODE and any("instagram_positions" in (s or []) for s in blame):
+            explore = subcode == _EXPLORE_SUBCODE and any("instagram_positions" in (s or []) for s in blame)
+            # v26, categorias especiais (habitação/emprego/financeiro): conjunto antigo sem o flag
+            # explícito não é aceito; o plano B cria com o flag no valor que o modelo tinha.
+            advantage = "advantage_audience" in json.dumps(exc.raw_error or {}).lower() or "advantage_audience" in str(exc.message).lower()
+            if explore or advantage:
                 data = self._create_adset_from_source(source_id, campaign_id)
             else:
                 raise
@@ -431,6 +456,11 @@ class CampaignLaunchProcessor:
         if "explore" in ig:
             # v26 removeu o Feed do Explorar: pedir "explore" explicitamente dá erro.
             targeting["instagram_positions"] = [p for p in ig if p != "explore"]
+        automation = dict(targeting.get("targeting_automation") or {})
+        if "advantage_audience" not in automation:
+            # Ausente no modelo = público não expandido; a v26 exige o valor explícito.
+            automation["advantage_audience"] = 0
+            targeting["targeting_automation"] = automation
         params["targeting"] = targeting
         if not is_meta_datetime_in_past(src.get("end_time")):
             for key in ("start_time", "end_time"):
@@ -454,7 +484,11 @@ class CampaignLaunchProcessor:
         item_view = {"ad_name": ad_name}
         try:
             data = self._call(
-                self.api.copy_ad,
+                self._recovering_copy(
+                    self.api.copy_ad,
+                    str(self._payload.get("template_ad_name") or ""),
+                    lambda: {str(a.get("ad_id")) for i in fetch_items(self.sb, self.context.job_id) for a in (i.get("adsets") or [])},
+                ),
                 template_ad_id,
                 {
                     "adset_id": adset_id,
@@ -536,6 +570,43 @@ class CampaignLaunchProcessor:
         if self._template is None or not self._template.media_slots:
             raise MetaAPIError("Modelo de criativo ausente no job. Inicie de novo.", "missing_creative_template")
         return self._template
+
+    def _recovering_copy(
+        self,
+        copy_fn: Callable[..., Dict[str, Any]],
+        source_name: str,
+        taken_ids: Callable[[], set],
+    ) -> Callable[..., Dict[str, Any]]:
+        """Embrulha um POST /copies: se a Meta não respondeu (timeout, queda de conexão), a cópia
+        pode ter sido criada mesmo assim. Antes de dar erro (e o retry copiar de novo), procura em
+        GET /{modelo}/copies uma cópia recente com o nome do modelo (NO_RENAME) que nenhum item
+        deste job já usa, e a adota."""
+
+        def call(source_id: str, params: Dict[str, Any]) -> Dict[str, Any]:
+            result = copy_fn(source_id, params)
+            if result.get("status") != "error" or not source_name:
+                return result
+            for delay in _LOST_COPY_PROBE_DELAYS_SECONDS:
+                time.sleep(delay)
+                found = self._find_lost_copy(source_id, source_name, taken_ids())
+                if found:
+                    logger.info("[CAMPAIGN_LAUNCH] lost_copy_adopted job_id=%s source=%s copy=%s", self.context.job_id, source_id, found)
+                    return {"status": "success", "data": {"id": found}}
+            return result
+
+        return call
+
+    def _find_lost_copy(self, source_id: str, source_name: str, taken: set) -> Optional[str]:
+        result = self.api.get_copies(source_id)
+        if result.get("status") != "success":
+            return None
+        cutoff = datetime.now(timezone.utc) - _LOST_COPY_WINDOW
+        candidates = []
+        for row in (result.get("data") or {}).get("data") or []:
+            created = parse_meta_datetime(row.get("created_time"))
+            if str(row.get("id")) not in taken and row.get("name") == source_name and created and created >= cutoff:
+                candidates.append((created, str(row["id"])))
+        return max(candidates)[1] if candidates else None
 
     def _call(self, fn: Callable[..., Dict[str, Any]], *args: Any) -> Dict[str, Any]:
         result = fn(*args)

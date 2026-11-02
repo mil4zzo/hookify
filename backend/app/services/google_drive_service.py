@@ -75,7 +75,7 @@ def parse_folder_id(value: str) -> Optional[str]:
 
 
 class _DriveClient:
-    def __init__(self, user_jwt: str, user_id: str):
+    def __init__(self, user_jwt: Optional[str], user_id: str):
         self.user_jwt = user_jwt
         self.user_id = user_id
         self._token: Optional[str] = None
@@ -273,7 +273,9 @@ def import_in_background(*, user_jwt: str, user_id: str, api: GraphAPI, rows: Li
 
     def _run() -> None:
         sb = get_supabase_service()
-        client = _DriveClient(user_jwt, user_id)
+        # Service role (jwt None, escopo por user_id): o JWT da requisição vence em ~1 h e a
+        # importação de vídeo grande passa disso — o refresh do token do Google cairia junto.
+        client = _DriveClient(None, user_id)
         for row in rows:
             try:
                 ad_media_library.update_media(sb, str(row["id"]), {"status": "uploading", "bytes_sent": 0})

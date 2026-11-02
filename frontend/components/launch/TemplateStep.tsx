@@ -5,7 +5,7 @@ import { useQuery } from "@tanstack/react-query"
 import { IconCalendarOff, IconLock } from "@tabler/icons-react"
 import { api } from "@/lib/api/endpoints"
 import { useLaunchWizard } from "@/lib/campaignLaunch/store"
-import type { LaunchTemplate } from "@/lib/campaignLaunch/types"
+import type { LaunchTemplate, LaunchTemplateAdset } from "@/lib/campaignLaunch/types"
 import { budgetMinorToValue } from "@/lib/manager/budget"
 import { Checkbox } from "@/components/ui/checkbox"
 import { InlineNotice, StatePanel } from "@/components/common/States"
@@ -26,8 +26,25 @@ export function formatMoney(minor: number | null | undefined, currency: string |
 export function budgetLabel(t: LaunchTemplate): string {
   const kind = t.budget.field === "lifetime_budget" ? "total" : "diário"
   if (t.budget.level === "campaign") return `Orçamento ${kind} da campanha`
-  if (t.budget.level === "adset") return `Orçamento ${kind} por conjunto`
+  if (t.budget.level === "adset") return "Orçamento por conjunto"
   return "Sem orçamento definido"
+}
+
+/** Orçamento por conjunto (ABO) olhando só os conjuntos ESCOLHIDOS: cada um tem o seu. */
+export function adsetBudgets(adsets: LaunchTemplateAdset[]) {
+  const kinds = new Set(adsets.map((a) => (a.lifetime_budget ? "lifetime_budget" : "daily_budget")))
+  const amounts = new Set(adsets.map((a) => a.lifetime_budget ?? a.daily_budget))
+  return {
+    mixed: kinds.size > 1,
+    kind: kinds.has("lifetime_budget") ? "total" : "diário",
+    sameAmount: amounts.size === 1 ? [...amounts][0] : null,
+  }
+}
+
+export function adsetBudgetText(adset: LaunchTemplateAdset, currency: string | null): string | null {
+  if (adset.lifetime_budget) return `Total: ${formatMoney(adset.lifetime_budget, currency)}`
+  if (adset.daily_budget) return `Diário: ${formatMoney(adset.daily_budget, currency)}`
+  return null
 }
 
 export function useLaunchTemplate(adId: string | null) {
@@ -124,7 +141,9 @@ function TemplateSummary({
           <p className="text-sm font-medium">{template.campaign.name}</p>
           <p className="text-xs text-muted-foreground">
             {budgetLabel(template)}
-            {template.budget.amount != null && `: ${formatMoney(template.budget.amount, template.currency)}`}
+            {template.budget.level === "campaign" && template.budget.amount != null
+              ? `: ${formatMoney(template.budget.amount, template.currency)}`
+              : template.budget.level === "adset" && " — cada conjunto mantém o seu"}
           </p>
         </div>
 
@@ -151,8 +170,15 @@ function TemplateSummary({
                     />
                     <span className="min-w-0 flex-1 space-y-0.5">
                       <span className="block truncate">{adset.name}</span>
-                      {adset.is_template_adset && (
-                        <span className="block text-xs text-muted-foreground">Conjunto do anúncio modelo</span>
+                      {(adset.is_template_adset || (template.budget.level === "adset" && adsetBudgetText(adset, template.currency))) && (
+                        <span className="block text-xs text-muted-foreground">
+                          {[
+                            adset.is_template_adset && "Conjunto do anúncio modelo",
+                            template.budget.level === "adset" && adsetBudgetText(adset, template.currency),
+                          ]
+                            .filter(Boolean)
+                            .join(" · ")}
+                        </span>
                       )}
                       {adset.schedule_expired && (
                         <span className="flex items-center gap-1 text-xs text-muted-foreground">

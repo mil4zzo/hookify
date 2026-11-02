@@ -30,10 +30,11 @@ def _extract_meta_error_fields(status_data: Dict[str, Any]) -> Dict[str, Any]:
     """
     err_obj = status_data.get("error") if isinstance(status_data.get("error"), dict) else {}
     extracted: Dict[str, Any] = {
-        "code": err_obj.get("code"),
-        "subcode": err_obj.get("error_subcode"),
+        # v26: relatório que falhou traz error_code/error_subcode/error_message no topo.
+        "code": err_obj.get("code") or status_data.get("error_code"),
+        "subcode": err_obj.get("error_subcode") or status_data.get("error_subcode"),
         "type": err_obj.get("type"),
-        "message": err_obj.get("message"),
+        "message": err_obj.get("message") or _top_level_message(status_data),
         "user_title": err_obj.get("error_user_title"),
         "user_msg": err_obj.get("error_user_msg"),
         "fbtrace_id": err_obj.get("fbtrace_id"),
@@ -70,6 +71,13 @@ def _build_async_failure_message(
     return f"Meta async report falhou (job={job_id}, {percent}%): {hint}"
 
 
+def _top_level_message(payload: Dict[str, Any]) -> Optional[str]:
+    value = payload.get("error_message")
+    if isinstance(value, dict):  # formato não confirmado: aceita objeto com message
+        value = value.get("message")
+    return str(value) if value else None
+
+
 def _parse_error_envelope(payload: Dict[str, Any]) -> Dict[str, Any]:
     """Normaliza um envelope `{"error": {...}}` da Meta em dict consumível.
 
@@ -78,10 +86,11 @@ def _parse_error_envelope(payload: Dict[str, Any]) -> Dict[str, Any]:
     """
     err = payload.get("error") if isinstance(payload.get("error"), dict) else {}
     extracted = {
-        "code": err.get("code"),
-        "subcode": err.get("error_subcode"),
+        # v26: `?fields=error_message` deixa de ser campo inválido e vem como campo do relatório.
+        "code": err.get("code") or payload.get("error_code"),
+        "subcode": err.get("error_subcode") or payload.get("error_subcode"),
         "type": err.get("type"),
-        "message": err.get("message"),
+        "message": err.get("message") or _top_level_message(payload),
         "user_title": err.get("error_user_title"),
         "user_msg": err.get("error_user_msg"),
         "fbtrace_id": err.get("fbtrace_id"),

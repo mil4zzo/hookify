@@ -267,6 +267,19 @@
       "path": "/123"
     }
   ],
+  "get_copies": [
+    {
+      "body": [],
+      "fields": "id,name,created_time",
+      "files": [],
+      "host_versioned": true,
+      "method": "GET",
+      "params": [
+        "limit"
+      ],
+      "path": "/123/copies"
+    }
+  ],
   "get_entity_budget_config": [
     {
       "body": [],

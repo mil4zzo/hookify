@@ -128,6 +128,18 @@ def _budget_model(campaign: Dict[str, Any], adsets: List[Dict[str, Any]]) -> Dic
     return {"level": None, "field": None, "amount": None}
 
 
+def _selected_adsets_budget_field(selected: List[Dict[str, Any]]) -> str:
+    """ABO: o tipo (diário/total) do orçamento sobrescrito vem dos conjuntos ESCOLHIDOS,
+    não do 1º da campanha. Misturados, um valor só não serve aos dois."""
+    kinds = {"lifetime_budget" if a.get("lifetime_budget") else "daily_budget" for a in selected}
+    if len(kinds) > 1:
+        raise _validation_error(
+            "Os conjuntos escolhidos misturam orçamento diário e total: deixe o orçamento em branco "
+            "(cada um mantém o seu) ou escolha conjuntos do mesmo tipo."
+        )
+    return kinds.pop()
+
+
 def _account_flags(user: Dict[str, Any], account_id: str) -> Tuple[bool, Optional[str]]:
     try:
         sb = get_supabase_for_user(user["token"])
@@ -210,27 +222,33 @@ def load_launch_template(user: Dict[str, Any], ad_id: str, default_api: GraphAPI
         except Exception:  # noqa: BLE001
             logger.warning("[CAMPAIGN_LAUNCH] page_access_check_failed page=%s", page_id, exc_info=True)
 
+    campaign_lifetime = bool(campaign.get("lifetime_budget"))
     adset_views: List[Dict[str, Any]] = []
     for row in adsets:
         compliant = bool(row.get("regional_regulated_categories") or row.get("dsa_beneficiary"))
+        expired = campaign_launch_service.is_meta_datetime_in_past(row.get("end_time"))
+        # Orçamento total exige data de fim: com a agenda vencida, a cópia não tem como nascer válida.
+        lifetime_expired = expired and (campaign_lifetime or bool(row.get("lifetime_budget")))
         adset_views.append(
             {
                 "id": str(row.get("id")),
                 "name": str(row.get("name") or ""),
                 "status": row.get("status"),
                 "end_time": row.get("end_time"),
-                "schedule_expired": campaign_launch_service.is_meta_datetime_in_past(row.get("end_time")),
+                "schedule_expired": expired,
                 "daily_budget": int(row["daily_budget"]) if row.get("daily_budget") else None,
                 "lifetime_budget": int(row["lifetime_budget"]) if row.get("lifetime_budget") else None,
                 "has_ads_transparency": compliant,
                 "blocked_reason": (
-                    "Sem 'Transparência dos anúncios' — esta conta exige." if requires_transparency and not compliant else None
+                    "Sem 'Transparência dos anúncios' — esta conta exige." if requires_transparency and not compliant
+                    else "Orçamento total com agenda vencida — ajuste a data de fim no modelo." if lifetime_expired
+                    else None
                 ),
                 "is_template_adset": str(row.get("id")) == str(ad.get("adset_id")),
             }
         )
     if adset_views and all(a["blocked_reason"] for a in adset_views):
-        blocking.append("Nenhum conjunto desta campanha tem 'Transparência dos anúncios', que esta conta exige.")
+        blocking.append("Nenhum conjunto desta campanha pode ser copiado: " + str(adset_views[0]["blocked_reason"]))
 
     return LaunchTemplate(
         ad_id=ad_id,
@@ -323,9 +341,9 @@ def create_launch(
     unknown = [a for a in request.adset_ids if a not in adsets_by_id]
     if unknown:
         raise _validation_error("Conjunto selecionado não pertence à campanha modelo.")
-    blocked = [adsets_by_id[a]["name"] for a in request.adset_ids if adsets_by_id[a]["blocked_reason"]]
+    blocked = [adsets_by_id[a] for a in request.adset_ids if adsets_by_id[a]["blocked_reason"]]
     if blocked:
-        raise _validation_error(f"Conjunto sem 'Transparência dos anúncios': {blocked[0]}")
+        raise _validation_error(f"'{blocked[0]['name']}': {blocked[0]['blocked_reason']}")
 
     slot_keys = {s.slot_key for s in t.creative_template.media_slots}
     required = {s.slot_key for s in t.creative_template.media_slots if s.required}
@@ -349,6 +367,8 @@ def create_launch(
         if not t.budget.get("level"):
             raise _validation_error("O modelo não tem orçamento definido para sobrescrever.")
         budget_override = {**t.budget, "amount": request.budget_amount}
+        if t.budget.get("level") == "adset":
+            budget_override["field"] = _selected_adsets_budget_field([adsets_by_id[a] for a in request.adset_ids])
 
     job_id = str(uuid.uuid4())
     tracker = get_job_tracker(user["token"], user["user_id"], use_service_role=True)
@@ -495,7 +515,8 @@ def upload_image(
         width=width,
         height=height,
     )
-    if not reused:
+    if not reused or row.get("status") == "uploading":
+        # "uploading" reaproveitado = envio anterior morreu no meio: imagem reenviada dá o mesmo hash.
         row = ad_media_library.store_image(sb, api, row, content)
     return ad_media_library.public_media(row)
 

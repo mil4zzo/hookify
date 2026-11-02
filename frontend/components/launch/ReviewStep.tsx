@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { useLaunchWizard } from "@/lib/campaignLaunch/store"
 import { isCreativeComplete, renderName } from "@/lib/campaignLaunch/grouping"
 import type { LaunchTemplate } from "@/lib/campaignLaunch/types"
@@ -8,7 +8,7 @@ import { budgetMinorToValue, budgetValueToMinor } from "@/lib/manager/budget"
 import { Input } from "@/components/ui/input"
 import { InlineNotice } from "@/components/common/States"
 import { cn } from "@/lib/utils/cn"
-import { budgetLabel, formatMoney } from "./TemplateStep"
+import { adsetBudgets, budgetLabel, formatMoney } from "./TemplateStep"
 
 const VARIABLES = [
   { token: "{ad_name}", hint: "nome do criativo" },
@@ -26,6 +26,21 @@ export function ReviewStep({ template }: { template: LaunchTemplate }) {
   const [budgetText, setBudgetText] = useState(() =>
     state.budgetAmount != null ? String(budgetMinorToValue(state.budgetAmount, template.currency)) : "",
   )
+  const abo = template.budget.level === "adset" ? adsetBudgets(adsets) : null
+  const budgetEditable = Boolean(template.budget.level) && !abo?.mixed
+  const { setBudgetAmount } = state
+  useEffect(() => {
+    // Diário e total misturados: um valor só não serve aos dois (o backend recusa).
+    if (abo?.mixed) {
+      setBudgetText("")
+      setBudgetAmount(null)
+    }
+  }, [abo?.mixed, setBudgetAmount])
+  const budgetPlaceholder = abo
+    ? abo.sameAmount != null
+      ? `Igual ao modelo: ${formatMoney(abo.sameAmount, template.currency)}`
+      : "Em branco: cada conjunto mantém o seu"
+    : `Igual ao modelo: ${formatMoney(template.budget.amount, template.currency)}`
 
   const preview = useMemo(() => {
     const first = valid[0]
@@ -108,15 +123,20 @@ export function ReviewStep({ template }: { template: LaunchTemplate }) {
               : "Vão ao ar assim que forem criadas (a campanha é ativada por último, já completa)."}
           </p>
 
-          {template.budget.level && (
+          {abo?.mixed && (
+            <p className="text-xs text-muted-foreground">
+              Os conjuntos escolhidos misturam orçamento diário e total: cada um mantém o seu.
+            </p>
+          )}
+          {budgetEditable && (
             <label className="block max-w-xs space-y-1">
               <span className="text-xs text-muted-foreground">
-                {budgetLabel(template)} ({(template.currency || "BRL").toUpperCase()})
+                {abo ? `Orçamento ${abo.kind} por conjunto` : budgetLabel(template)} ({(template.currency || "BRL").toUpperCase()})
               </span>
               <Input
                 inputMode="decimal"
                 value={budgetText}
-                placeholder={`Igual ao modelo: ${formatMoney(template.budget.amount, template.currency)}`}
+                placeholder={budgetPlaceholder}
                 onChange={(e) => {
                   setBudgetText(e.target.value)
                   const value = Number(e.target.value.replace(/\./g, "").replace(",", "."))

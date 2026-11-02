@@ -14,12 +14,18 @@ chamadas que a gente acha que são v24.
 
 ## Status
 
-> Abertos da revisão independente (não bloqueiam a virada; todos na duplicação): timeout numa
-> escrita `/copies` pode duplicar no retry (sem releitura); `contextual_multi_ads` não é mandado
-> explícito na cópia; conjunto com orçamento vitalício e agenda vencida; orçamento escolhido pelo
-> 1º conjunto da campanha, não pelos selecionados; `get_adsets_for_campaign` sem paginação (>50);
-> mídia de imagem presa em `uploading`; JWT do import do Drive pode vencer em ~1 h; `meta_job_client`
-> não lê os campos de erro novos da v26; scripts em `backend/scripts/` ainda com `?ids=`/imports removidos.
+> Abertos da revisão independente: **resolvidos em 2026-11-01 (2ª rodada)**, todos com teste
+> sabotado — cópia sem resposta da Meta é procurada em `GET /{modelo}/copies` e adotada (não
+> duplica); orçamento por conjunto usa o tipo dos conjuntos ESCOLHIDOS (misturado diário×total
+> recusa e a tela mostra o orçamento de cada conjunto); orçamento total com agenda vencida
+> bloqueia o conjunto; conjuntos paginados (até 1.000); imagem presa em `uploading` é reenviada;
+> envio abandonado falha em 10 min em vez de travar o job, envio vivo não estoura o prazo; import
+> do Drive em service role (JWT não vence); `advantage_audience` explícito no plano B do conjunto
+> e cópia recusada por isso cai nele; `meta_job_client` lê `error_code/error_message` no topo
+> (v26), do que depende o retry de GK. **Ficam para teste na Meta real:** `contextual_multi_ads`
+> na cópia (o teste real deu igual ao modelo), troca imagem↔vídeo com mídia flexível, conjunto
+> só com `explore_home` na v26, e o formato real do erro de relatório falho na v26. Scripts
+> antigos em `backend/scripts/` com `?ids=` seguem quebrados (fora do app).
 
 | Etapa | O quê | Estado |
 |---|---|---|

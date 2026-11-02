@@ -184,9 +184,12 @@ def register_media(
 
 
 _STALE_UPLOAD_SECONDS = 120
+# O job desiste de esperar só depois disto sem avanço: um pedaço grande do navegador numa
+# conexão lenta pode levar alguns minutos (2 min daria falso "parou").
+_ABANDONED_UPLOAD_SECONDS = 600
 
 
-def is_stale_upload(row: Dict[str, Any]) -> bool:
+def is_stale_upload(row: Dict[str, Any], seconds: int = _STALE_UPLOAD_SECONDS) -> bool:
     """Envio servidor→Meta parado (thread morta num deploy): pode ser reiniciado.
     O importador grava bytes_sent a cada ~2 s, então 2 min sem update = morto."""
     if row.get("status") != "uploading":
@@ -195,7 +198,7 @@ def is_stale_upload(row: Dict[str, Any]) -> bool:
         updated = datetime.fromisoformat(str(row.get("updated_at")).replace("Z", "+00:00"))
     except ValueError:
         return True
-    return (datetime.now(timezone.utc) - updated).total_seconds() > _STALE_UPLOAD_SECONDS
+    return (datetime.now(timezone.utc) - updated).total_seconds() > seconds
 
 
 def mark_error(sb, media_id: str, message: str) -> Dict[str, Any]:
@@ -437,9 +440,19 @@ def wait_until_ready(
         pending = [r for r in rows.values() if r.get("status") != "ready"]
         if not pending:
             return rows
+        stale = [r for r in pending if is_stale_upload(r, _ABANDONED_UPLOAD_SECONDS)]
+        if stale:
+            # Ninguém mais está enviando (aba fechada, importador morto): esperar não adianta.
+            raise MetaAPIError(
+                f"O envio de '{stale[0].get('file_name')}' parou no meio. Envie a mídia de novo e tente outra vez.",
+                "media_upload_stalled",
+            )
         for row in pending:
             if row.get("status") == "processing":
                 refresh_processing(sb, api, row)
+        if any(r.get("status") == "uploading" for r in pending):
+            # Envio vivo (avançou nos últimos 10 min): o prazo só conta o processamento na Meta.
+            started = time.monotonic()
         if time.monotonic() - started > max_wait_seconds:
             names = ", ".join(str(r.get("file_name")) for r in pending[:3])
             raise MetaAPIError(f"Mídia ainda não ficou pronta: {names}", "media_not_ready")

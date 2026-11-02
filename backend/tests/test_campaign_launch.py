@@ -111,6 +111,12 @@ class FakeAPI:
     def create_adset(self, act_id, params):
         return self._record("create_adset", act_id, params) or ok({"id": self._next("adset")})
 
+    copies: Dict[str, List[Dict[str, Any]]] = {}
+
+    def get_copies(self, source_id):
+        self._record("get_copies", source_id)
+        return ok({"data": copy.deepcopy(self.copies.get(source_id) or [])})
+
     def names(self) -> List[str]:
         return [c[0] for c in self.calls]
 
@@ -159,6 +165,7 @@ def store(monkeypatch):
     monkeypatch.setattr(campaign_launch_service, "update_item", update_item)
     monkeypatch.setattr(ad_media_library, "wait_until_ready", wait_until_ready)
     monkeypatch.setattr(campaign_launch_service, "_META_WRITE_DELAY_SECONDS", 0)
+    monkeypatch.setattr(campaign_launch_service, "_LOST_COPY_PROBE_DELAYS_SECONDS", (0, 0), raising=False)
     return items
 
 
@@ -167,7 +174,9 @@ def _payload(status: str = "PAUSED", budget_override=None) -> Dict[str, Any]:
     return {
         "type": "campaign_launch",
         "template_ad_id": "ad_tpl",
+        "template_ad_name": "Anúncio modelo",
         "template_campaign_id": "camp_tpl",
+        "template_campaign_name": "Campanha modelo",
         "account_id": "123",
         "status": status,
         "total_items": 1,
@@ -461,3 +470,93 @@ class TestFidelityMeasuredOnMeta:
         feats = params["degrees_of_freedom_spec"]["creative_features_spec"]
         assert feats["image_touchups"] == {"enroll_status": "OPT_OUT"}
         assert "standard_enhancements" not in feats
+
+
+def _iso(minutes_ago: int) -> str:
+    from datetime import datetime, timedelta, timezone
+    return (datetime.now(timezone.utc) - timedelta(minutes=minutes_ago)).strftime("%Y-%m-%dT%H:%M:%S+0000")
+
+
+class TestLostCopyResponse:
+    """POST /copies sem resposta (timeout): a Meta pode ter criado. Adota em vez de copiar de novo."""
+
+    def test_campaign_created_despite_timeout_is_adopted(self, store):
+        item_id = _add_item(store, adset_count=1)
+        api = FakeAPI()
+        api.fail["copy_campaign"] = [{"status": "error", "message": "Read timed out"}]
+        api.copies["camp_tpl"] = [
+            {"id": "camp_old", "name": "Campanha modelo", "created_time": _iso(600)},  # velha: não é nossa
+            {"id": "camp_other", "name": "Teste AD06", "created_time": _iso(2)},  # já renomeada: outra
+            {"id": "camp_lost", "name": "Campanha modelo", "created_time": _iso(1)},
+        ]
+        _processor(api, _payload()).run()
+        assert store[item_id]["status"] == "success"
+        assert store[item_id]["meta_campaign_id"] == "camp_lost"
+        assert api.names().count("copy_campaign") == 1
+
+    def test_copy_already_used_by_another_item_is_not_adopted(self, store):
+        item_id = _add_item(store, adset_count=1)
+        store["item-0"] = {**copy.deepcopy(store[item_id]), "id": "item-0", "position": 0,
+                           "status": "success", "meta_campaign_id": "camp_lost"}
+        api = FakeAPI()
+        api.fail["copy_campaign"] = [{"status": "error", "message": "Read timed out"}]
+        api.copies["camp_tpl"] = [{"id": "camp_lost", "name": "Campanha modelo", "created_time": _iso(1)}]
+        _processor(api, _payload()).run()
+        assert store[item_id]["status"] == "error"
+        assert not store[item_id].get("meta_campaign_id")
+
+    def test_meta_rejection_never_probes_copies(self, store):
+        _add_item(store, adset_count=1)
+        api = FakeAPI()
+        api.fail["copy_campaign"] = [meta_error(100, message="Invalid")]
+        _processor(api, _payload()).run()
+        assert "get_copies" not in api.names()
+
+
+class TestAdvantageAudience:
+    def test_copy_rejected_for_missing_flag_falls_back_with_explicit_flag(self, store):
+        item_id = _add_item(store, adset_count=1)
+        api = FakeAPI()
+        api.fail["copy_adset"] = [meta_error(100, message="ADS_TARGETING__REQUIRE_EXPLICIT_ADVANTAGE_AUDIENCE_FLAG")]
+        _processor(api, _payload()).run()
+        assert store[item_id]["status"] == "success"
+        created = next(c for c in api.calls if c[0] == "create_adset")[2]
+        assert created["targeting"]["targeting_automation"] == {"advantage_audience": 0}
+
+
+class TestBudgetField:
+    def test_override_type_comes_from_selected_adsets(self):
+        from app.routes.campaign_launch import _selected_adsets_budget_field
+
+        assert _selected_adsets_budget_field([{"lifetime_budget": 5000}]) == "lifetime_budget"
+        assert _selected_adsets_budget_field([{"daily_budget": 100}, {"daily_budget": 300}]) == "daily_budget"
+        with pytest.raises(Exception) as exc:
+            _selected_adsets_budget_field([{"daily_budget": 100}, {"lifetime_budget": 5000}])
+        assert getattr(exc.value, "status_code", None) == 422
+
+
+class TestMediaWait:
+    def _rows(self, monkeypatch, row):
+        monkeypatch.setattr(ad_media_library, "fetch_media", lambda sb, uid, ids: {"m1": row})
+        monkeypatch.setattr(ad_media_library.time, "sleep", lambda s: None)
+
+    def test_abandoned_upload_fails_fast(self, monkeypatch):
+        self._rows(monkeypatch, {"id": "m1", "status": "uploading", "file_name": "a.mp4", "updated_at": _iso(30)})
+        with pytest.raises(campaign_launch_service.MetaAPIError) as exc:
+            ad_media_library.wait_until_ready(None, None, "u", ["m1"], heartbeat=lambda m: None, max_wait_seconds=10**6)
+        assert exc.value.error_code == "media_upload_stalled"
+
+    def test_live_upload_does_not_hit_the_deadline(self, monkeypatch):
+        calls = {"n": 0}
+
+        def fetch(sb, uid, ids):
+            calls["n"] += 1
+            status = "ready" if calls["n"] > 3 else "uploading"
+            return {"m1": {"id": "m1", "status": status, "file_name": "a.mp4", "updated_at": _iso(0)}}
+
+        monkeypatch.setattr(ad_media_library, "fetch_media", fetch)
+        now = {"t": 0}  # cada espera "passa" 1000 s: sem o reset do prazo, a 1ª volta já estouraria
+        monkeypatch.setattr(ad_media_library.time, "monotonic", lambda: now["t"])
+        monkeypatch.setattr(ad_media_library.time, "sleep", lambda s: now.__setitem__("t", now["t"] + 1000))
+        rows = ad_media_library.wait_until_ready(None, None, "u", ["m1"], heartbeat=lambda m: None, max_wait_seconds=900)
+        assert rows["m1"]["status"] == "ready"
