@@ -566,11 +566,26 @@ leitor só vê o resultado.
   para preencher. Nada é gravado até salvar, e "Desfazer" volta ao que estava. Avisos:
   conversões que parecem fração (nenhuma passa de 1%) e faixa mais baixa com piso acima de
   zero (a primeira faixa não tem piso, então passa a cobrir as notas abaixo dela).
+  Conversão e margem desejada precisam estar na mesma régua: se a margem é depois do
+  reembolso, a conversão também é.
+- **Ajustes do cálculo** (opcional, fechado por padrão; abre sozinho quando há ajuste):
+  - **"Este pack é quanto do seu investimento em tráfego?"** — campanhas que existem por
+    causa destes leads mas estão fora do pack (aquecimento, remarketing, vendas) também
+    custam. Padrão 100%.
+  - **"Imposto sobre o anúncio"** — o que a plataforma cobra por fora do valor gasto (no
+    Brasil, o Meta cobra cerca de 13,8%). Padrão 0%.
+  - **"Quantos % das suas vendas têm leadscore?"** — quem comprou com outro e-mail ou não
+    respondeu a pesquisa fica fora da conversão das faixas, mas a venda existe. Padrão 100%.
+
+  Embaixo, a conferência: "Cada R$ 1 gasto neste pack custa R$ X no total" e "As faixas
+  veem N% das vendas; o Hookify completa o resto". O teto continua na moeda do gasto do
+  Meta, comparável direto com o CPL Real.
 
 **A conta, por anúncio** (com a fatia de leads com nota em cada faixa):
 
 - **CPL Max** = soma, faixa a faixa, de fatia × conversão × ticket × (quanto sobra −
-  margem desejada). É o CPL que deixa o anúncio exatamente na margem desejada.
+  margem desejada), × o fator dos ajustes (fatia do pack ÷ (vendas com leadscore × (1 +
+  imposto)); 1 sem ajuste). É o CPL que deixa o anúncio exatamente na margem desejada.
 - **CPL Real** = gasto ÷ leads com nota da planilha. É ele que se compara com o CPL Max
   — **não** com o CPR, que divide o gasto pelos resultados que a Meta contou.
 - **Leads com nota** = quantos leads da planilha casaram com o anúncio e têm nota: o divisor

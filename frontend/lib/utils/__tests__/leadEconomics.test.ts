@@ -639,3 +639,46 @@ test("(n) chave semântica (D20): muda com cada número da conta, não com id, n
     computeLeadEconomics({ spend: EXAMPLE_SPEND, leadscoreRaw: EXAMPLE_HISTOGRAM, config: zeroOtherProduct })?.cplCeiling,
   );
 });
+
+// ── Ajustes do cálculo (D32) ─────────────────────────────────────────────────
+
+test("(o) ajustes: a conta bate com a do lucro real, à mão, e com o teto a margem dá a meta", () => {
+  // O caso real: pack = 80% do tráfego, imposto 13,83% por fora, 80% das vendas com nota.
+  const bands = [
+    { min: null, product: "p1", conversion: 0.0053 },
+    { min: 80, product: "p1", conversion: 0.0123 },
+    { min: 120, product: "p1", conversion: 0.0197 },
+  ];
+  const product = { id: "p1", name: "Eu Investidor", ticket: 2570, contribution_margin: 0.77, target_margin: 0.4 };
+  const adjusted = mustConfig({ products: [product], bands, pack_spend_share: 0.8, ad_tax: 0.1383, sales_coverage: 0.8 });
+  const leadscoreRaw = [...repeat(10, 30), ...repeat(90, 50), ...repeat(150, 20)];
+  const spend = 1000;
+  const r = nonNull(computeLeadEconomics({ spend, leadscoreRaw, config: adjusted }));
+
+  // À mão: faturamento real por lead devolve os 20% de vendas sem nota; custo real
+  // de cada R$ 1 do pack é 1,1383 ÷ 0,8.
+  const visibleRevenue = 0.3 * 0.0053 * 2570 + 0.5 * 0.0123 * 2570 + 0.2 * 0.0197 * 2570;
+  const realRevenue = visibleRevenue / 0.8;
+  const realCost = (spend / 100) * (1.1383 / 0.8);
+  near(r.margin, (realRevenue * 0.77 - realCost) / realRevenue, "margem = lucro real ÷ faturamento real");
+  // Teto na moeda do gasto do Meta (a da coluna CPL): o CPL em que o lucro real dá 40%.
+  near(r.cplCeiling, (realRevenue * (0.77 - 0.4)) / (1.1383 / 0.8), "teto");
+  near(r.targetMargin, 0.4, "meta");
+  const atCeiling = nonNull(computeLeadEconomics({ spend: r.cplCeiling * 100, leadscoreRaw, config: adjusted }));
+  near(atCeiling.margin, 0.4, "no teto, a margem é a meta");
+
+  // Sem ajuste, a mesma conta de antes (fator 1).
+  const plain = nonNull(computeLeadEconomics({ spend, leadscoreRaw, config: mustConfig({ products: [product], bands }) }));
+  near(plain.cplCeiling, visibleRevenue * 0.37, "sem ajuste");
+});
+
+test("(p) ajustes na chave semântica (D20): mudam o fator, mudam a chave; mesmo fator, mesma chave", () => {
+  const base = { products: [{ id: "p1", name: "M", ticket: 3000, contribution_margin: 0.55, target_margin: 0.4 }], bands: [{ min: null, product: "p1", conversion: 0.04 }] };
+  const key = (extra: Record<string, number>) => leadEconomicsSemanticKey(mustConfig({ ...base, ...extra }));
+  const plain = key({});
+  assert.notEqual(key({ ad_tax: 0.1383 }), plain);
+  assert.notEqual(key({ pack_spend_share: 0.8 }), plain);
+  assert.notEqual(key({ sales_coverage: 0.8 }), plain);
+  // Fatia e cobertura iguais se anulam: os mesmos números, a mesma economia.
+  assert.equal(key({ pack_spend_share: 0.8, sales_coverage: 0.8 }), plain);
+});

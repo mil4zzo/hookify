@@ -94,6 +94,11 @@ LEAD_ECONOMICS_MESSAGES: Dict[str, str] = {
     "bandMinNotIncreasing": "As notas de corte precisam ser crescentes, sem repetir.",
     "bandProductMissing": "Toda faixa precisa apontar para um produto cadastrado.",
     "bandConversion": "A conversão de cada faixa precisa estar entre 0% e 100%.",
+    "packSpendShare": (
+        "A parte do investimento em tráfego que este pack representa precisa ser maior que 0% e no máximo 100%."
+    ),
+    "adTax": "O imposto sobre o anúncio precisa ser de 0% a 100%.",
+    "salesCoverage": "A parte das vendas com leadscore precisa ser maior que 0% e no máximo 100%.",
 }
 
 # Espaço em branco do JS (`trim()` e `\s`): WhiteSpace + LineTerminator da spec,
@@ -317,6 +322,28 @@ def validate_lead_economics(raw: Any) -> Tuple[Optional[Dict[str, Any]], List[st
 
         bands.append({"min": band_min, "product": product, "conversion": conversion})
 
+    # Ajustes do cálculo (D32): ausente ou null vale o padrão (cadastros de antes).
+    def adjustment(key: str, default: Any) -> Any:
+        return default if raw.get(key) is None else _to_finite(raw.get(key))
+
+    pack_spend_share = adjustment("pack_spend_share", 1)
+    if not (0 < pack_spend_share <= 1):
+        push(M["packSpendShare"])
+    ad_tax = adjustment("ad_tax", 0)
+    if not (0 <= ad_tax <= 1):
+        push(M["adTax"])
+    sales_coverage = adjustment("sales_coverage", 1)
+    if not (0 < sales_coverage <= 1):
+        push(M["salesCoverage"])
+
     if errors:
         return None, errors
-    return {"products": products, "bands": bands}, []
+    # Ajuste no padrão fica fora do canônico (espelho do contrato).
+    document: Dict[str, Any] = {"products": products, "bands": bands}
+    if pack_spend_share != 1:
+        document["pack_spend_share"] = pack_spend_share
+    if ad_tax != 0:
+        document["ad_tax"] = ad_tax
+    if sales_coverage != 1:
+        document["sales_coverage"] = sales_coverage
+    return document, []

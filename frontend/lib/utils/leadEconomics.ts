@@ -45,6 +45,16 @@ export interface LeadEconomicsBand {
 export interface LeadEconomics {
   products: LeadEconomicsProduct[];
   bands: LeadEconomicsBand[];
+  /**
+   * Ajustes do cálculo (D32). Opcionais no documento — ausente vale o padrão, que não
+   * ajusta nada; o canônico do validador só traz o ajuste fora do padrão.
+   * Fração do investimento em tráfego que este pack representa, em (0, 1]. Padrão 1.
+   */
+  pack_spend_share?: number;
+  /** Imposto da plataforma sobre o gasto, cobrado por fora do valor gasto, em [0, 1]. Padrão 0. */
+  ad_tax?: number;
+  /** Fração das vendas que as faixas enxergam (compradores com leadscore), em (0, 1]. Padrão 1. */
+  sales_coverage?: number;
 }
 
 export const LEAD_ECONOMICS_MAX_PRODUCTS = 10;
@@ -97,6 +107,15 @@ export const LEAD_ECONOMICS_MESSAGES = {
   },
   get bandConversion() {
     return economicsMsg("bandConversion");
+  },
+  get packSpendShare() {
+    return economicsMsg("packSpendShare");
+  },
+  get adTax() {
+    return economicsMsg("adTax");
+  },
+  get salesCoverage() {
+    return economicsMsg("salesCoverage");
   },
 };
 
@@ -258,8 +277,23 @@ function checkLeadEconomics(raw: unknown, mode: LeadEconomicsCheckMode): LeadEco
     bands.push({ min, product, conversion });
   });
 
+  // Ajustes: ausente ou null vale o padrão (cadastros gravados antes da D32).
+  const adjustment = (key: string, fallback: number) => (raw[key] === null || raw[key] === undefined ? fallback : toFinite(raw[key]));
+  const packSpendShare = adjustment("pack_spend_share", 1);
+  if (!(packSpendShare > 0 && packSpendShare <= 1)) push(M.packSpendShare);
+  const adTax = adjustment("ad_tax", 0);
+  if (!(adTax >= 0 && adTax <= 1)) push(M.adTax);
+  const salesCoverage = adjustment("sales_coverage", 1);
+  if (!(salesCoverage > 0 && salesCoverage <= 1)) push(M.salesCoverage);
+
   if (errors.length > 0) return { value: null, errors };
-  return { value: { products, bands }, errors: [] };
+  // Ajuste no padrão fica FORA do canônico: o cadastro de quem não ajusta nada continua
+  // o mesmo documento de antes da D32 (e o backend espelha a mesma regra).
+  const value: LeadEconomics = { products, bands };
+  if (packSpendShare !== 1) value.pack_spend_share = packSpendShare;
+  if (adTax !== 0) value.ad_tax = adTax;
+  if (salesCoverage !== 1) value.sales_coverage = salesCoverage;
+  return { value, errors: [] };
 }
 
 /**
@@ -308,7 +342,9 @@ export function leadEconomicsSemanticKey(config: LeadEconomics): string {
 const _semanticKeyCache = new WeakMap<LeadEconomics, string>();
 
 function buildSemanticKey(config: LeadEconomics): string {
-  return JSON.stringify(
+  // Os ajustes entram pelo fator que a conta usa: dois trios que dão o mesmo fator dão os mesmos números.
+  return JSON.stringify([
+    leadEconomicsValueFactor(config),
     config.bands.map((band) => {
       const product = band.conversion === 0 ? null : findLeadEconomicsProduct(config, band.product);
       return [
@@ -319,7 +355,7 @@ function buildSemanticKey(config: LeadEconomics): string {
         product?.target_margin ?? null,
       ];
     }),
-  );
+  ]);
 }
 
 // ── Peças da conta usadas pela tela e pela conta por anúncio ─────────────────
@@ -328,18 +364,32 @@ export function findLeadEconomicsProduct(config: LeadEconomics, productId: strin
   return config.products.find((product) => product.id === productId) ?? null;
 }
 
-/** Faturamento esperado por lead de uma faixa: conversão × ticket. */
-export function bandRevenuePerLead(conversion: number, product: LeadEconomicsProduct): number {
-  return conversion * product.ticket;
+/**
+ * Os ajustes do cálculo (D32) num fator só, que multiplica todo o lado do faturamento:
+ * fatia do pack ÷ (cobertura das vendas × (1 + imposto)).
+ *
+ * A conta real por lead é `lucro = F·K − C·CPL`, com F = 1 ÷ cobertura (devolve as
+ * vendas que as faixas não veem) e C = (1 + imposto) ÷ fatia (cada R$ 1 do pack puxa
+ * esse custo total). Dividindo tudo por C, o CPL fica na moeda do gasto do Meta — a
+ * mesma da coluna CPL — e o resto da conta não muda: margem = (E·K − CPL) ÷ (E·R),
+ * teto = E·Σ f·c·t·(s − m), com E = F ÷ C. Padrão: 1.
+ */
+export function leadEconomicsValueFactor(config: Pick<LeadEconomics, "pack_spend_share" | "ad_tax" | "sales_coverage">): number {
+  return (config.pack_spend_share ?? 1) / ((config.sales_coverage ?? 1) * (1 + (config.ad_tax ?? 0)));
+}
+
+/** Faturamento esperado por lead de uma faixa: conversão × ticket × fator dos ajustes. */
+export function bandRevenuePerLead(conversion: number, product: LeadEconomicsProduct, factor: number): number {
+  return conversion * product.ticket * factor;
 }
 
 /**
  * Quanto se pode pagar por um lead de uma faixa sem descer abaixo da margem
- * desejada: conversão × ticket × (sobra − margem desejada). Margem sobre o
+ * desejada: conversão × ticket × fator × (sobra − margem desejada). Margem sobre o
  * faturamento (D15) — por isso a subtração, e não `sobra × (1 − meta)`.
  */
-export function bandCeilingPerLead(conversion: number, product: LeadEconomicsProduct): number {
-  return conversion * product.ticket * (product.contribution_margin - product.target_margin);
+export function bandCeilingPerLead(conversion: number, product: LeadEconomicsProduct, factor: number): number {
+  return bandRevenuePerLead(conversion, product, factor) * (product.contribution_margin - product.target_margin);
 }
 
 // 6 casas: a mesma resolução das notas gravadas (o importador da planilha arredonda
@@ -383,11 +433,11 @@ export interface LeadEconomicsBandResult {
   leads: number;
   /** leads ÷ leads com nota. */
   share: number;
-  /** conversão × ticket. */
+  /** conversão × ticket × fator dos ajustes (`leadEconomicsValueFactor`). */
   revenuePerLead: number;
-  /** conversão × ticket × sobra. */
+  /** faturamento por lead × sobra. */
   contributionPerLead: number;
-  /** conversão × ticket × (sobra − margem desejada). */
+  /** faturamento por lead × (sobra − margem desejada). */
   ceilingPerLead: number;
 }
 
@@ -395,7 +445,7 @@ export interface LeadEconomicsResult {
   /** Leads com nota (a amostra; D13). Sempre > 0 num resultado não nulo. */
   leadsScored: number;
   bands: LeadEconomicsBandResult[];
-  /** R = Σ fatia × conversão × ticket. */
+  /** R = Σ fatia × conversão × ticket × fator dos ajustes. */
   revenuePerLead: number;
   /** K = Σ fatia × conversão × ticket × sobra. */
   contributionPerLead: number;
@@ -490,6 +540,7 @@ function computeFromScoreCounts(
   let contributionPerLead = 0;
   let cplCeiling = 0;
   let targetPerLead = 0;
+  const factor = leadEconomicsValueFactor(config);
 
   for (let index = 0; index < config.bands.length; index++) {
     const band = config.bands[index];
@@ -500,9 +551,9 @@ function computeFromScoreCounts(
 
     const leads = bandLeads[index];
     const share = leads / leadsScored;
-    const bandRevenue = bandRevenuePerLead(band.conversion, product);
+    const bandRevenue = bandRevenuePerLead(band.conversion, product, factor);
     const bandContribution = bandRevenue * product.contribution_margin;
-    const bandCeiling = bandCeilingPerLead(band.conversion, product);
+    const bandCeiling = bandCeilingPerLead(band.conversion, product, factor);
 
     revenuePerLead += share * bandRevenue;
     contributionPerLead += share * bandContribution;

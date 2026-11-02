@@ -9585,5 +9585,422 @@
         }
       ]
     }
+  },
+  {
+    "name": "valido: ajustes do caso real (pack 80%, imposto 13,83%, cobertura 80%) saem no canonico",
+    "input": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "Mentoria",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ],
+      "pack_spend_share": 0.8,
+      "ad_tax": 0.1383,
+      "sales_coverage": 0.8
+    },
+    "expected_errors": [],
+    "expected_value": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "Mentoria",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ],
+      "pack_spend_share": 0.8,
+      "ad_tax": 0.1383,
+      "sales_coverage": 0.8
+    }
+  },
+  {
+    "name": "valido: ajustes no padrao (1, 0, 1) ficam fora do canonico",
+    "input": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "Mentoria",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ],
+      "pack_spend_share": 1,
+      "ad_tax": 0,
+      "sales_coverage": 1
+    },
+    "expected_errors": [],
+    "expected_value": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "Mentoria",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ]
+    }
+  },
+  {
+    "name": "valido: ajustes null valem o padrao e ficam fora do canonico",
+    "input": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "Mentoria",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ],
+      "pack_spend_share": null,
+      "ad_tax": null,
+      "sales_coverage": null
+    },
+    "expected_errors": [],
+    "expected_value": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "Mentoria",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ]
+    }
+  },
+  {
+    "name": "valido: ajustes nos limites (imposto 100%, fatia e cobertura minimas)",
+    "input": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "Mentoria",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ],
+      "pack_spend_share": 0.000001,
+      "ad_tax": 1,
+      "sales_coverage": 0.000001
+    },
+    "expected_errors": [],
+    "expected_value": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "Mentoria",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ],
+      "pack_spend_share": 0.000001,
+      "ad_tax": 1,
+      "sales_coverage": 0.000001
+    }
+  },
+  {
+    "name": "ajuste: fatia do pack 0",
+    "input": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "Mentoria",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ],
+      "pack_spend_share": 0
+    },
+    "expected_errors": [
+      "A parte do investimento em tráfego que este pack representa precisa ser maior que 0% e no máximo 100%."
+    ],
+    "expected_value": null
+  },
+  {
+    "name": "ajuste: fatia do pack acima de 100%",
+    "input": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "Mentoria",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ],
+      "pack_spend_share": 1.5
+    },
+    "expected_errors": [
+      "A parte do investimento em tráfego que este pack representa precisa ser maior que 0% e no máximo 100%."
+    ],
+    "expected_value": null
+  },
+  {
+    "name": "ajuste: fatia do pack como texto",
+    "input": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "Mentoria",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ],
+      "pack_spend_share": "0.8"
+    },
+    "expected_errors": [
+      "A parte do investimento em tráfego que este pack representa precisa ser maior que 0% e no máximo 100%."
+    ],
+    "expected_value": null
+  },
+  {
+    "name": "ajuste: imposto negativo",
+    "input": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "Mentoria",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ],
+      "ad_tax": -0.01
+    },
+    "expected_errors": [
+      "O imposto sobre o anúncio precisa ser de 0% a 100%."
+    ],
+    "expected_value": null
+  },
+  {
+    "name": "ajuste: imposto acima de 100%",
+    "input": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "Mentoria",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ],
+      "ad_tax": 1.01
+    },
+    "expected_errors": [
+      "O imposto sobre o anúncio precisa ser de 0% a 100%."
+    ],
+    "expected_value": null
+  },
+  {
+    "name": "ajuste: imposto booleano (bool nao e numero)",
+    "input": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "Mentoria",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ],
+      "ad_tax": true
+    },
+    "expected_errors": [
+      "O imposto sobre o anúncio precisa ser de 0% a 100%."
+    ],
+    "expected_value": null
+  },
+  {
+    "name": "ajuste: cobertura 0",
+    "input": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "Mentoria",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ],
+      "sales_coverage": 0
+    },
+    "expected_errors": [
+      "A parte das vendas com leadscore precisa ser maior que 0% e no máximo 100%."
+    ],
+    "expected_value": null
+  },
+  {
+    "name": "ajuste: cobertura acima de 100%",
+    "input": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "Mentoria",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 0.04
+        }
+      ],
+      "sales_coverage": 1.2
+    },
+    "expected_errors": [
+      "A parte das vendas com leadscore precisa ser maior que 0% e no máximo 100%."
+    ],
+    "expected_value": null
+  },
+  {
+    "name": "ajuste: os tres invalidos e uma faixa invalida, na ordem do contrato",
+    "input": {
+      "products": [
+        {
+          "id": "p1",
+          "name": "Mentoria",
+          "ticket": 3000,
+          "contribution_margin": 0.55,
+          "target_margin": 0.4
+        }
+      ],
+      "bands": [
+        {
+          "min": null,
+          "product": "p1",
+          "conversion": 2
+        }
+      ],
+      "pack_spend_share": 0,
+      "ad_tax": -1,
+      "sales_coverage": false
+    },
+    "expected_errors": [
+      "A conversão de cada faixa precisa estar entre 0% e 100%.",
+      "A parte do investimento em tráfego que este pack representa precisa ser maior que 0% e no máximo 100%.",
+      "O imposto sobre o anúncio precisa ser de 0% a 100%.",
+      "A parte das vendas com leadscore precisa ser maior que 0% e no máximo 100%."
+    ],
+    "expected_value": null
   }
 ]

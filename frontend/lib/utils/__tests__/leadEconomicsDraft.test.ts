@@ -13,12 +13,14 @@ import {
   draftBandCeilings,
   draftBandLabel,
   draftBandLabels,
+  draftSpendCostMultiplier,
   draftToLeadEconomicsDocument,
   editLeadEconomicsDraft,
   formatMoneyInput,
   formatPercentInput,
   formatScoreInput,
   hasLeadEconomicsFieldIssues,
+  isLeadEconomicsAdjustmentMessage,
   isLeadEconomicsBandMessage,
   isLeadEconomicsEditDirty,
   leadEconomicsDraftErrors,
@@ -910,7 +912,15 @@ test("erro por campo (propriedade): há erro de campo ⇔ o contrato recusa; e �
       ),
       conversion: field(conversions.valid, conversions.wrong),
     }));
-    const d = draft(products, bands);
+    // Ajustes: em branco vale o padrão; "100,00001" arredonda para 100% (válido) e "0,00001" para 0.
+    const shares = { valid: ["", "100", "80", "0,0001", "100,00001"], wrong: ["x", "0", "150", "-5", "0,00001"] };
+    const taxes = { valid: ["", "0", "13,83", "100"], wrong: ["y", "-1", "101"] };
+    const d: LeadEconomicsDraft = {
+      ...draft(products, bands),
+      spendShare: field(shares.valid, shares.wrong),
+      adTax: field(taxes.valid, taxes.wrong),
+      salesCoverage: field(shares.valid, shares.wrong),
+    };
     assert.equal(
       hasLeadEconomicsFieldIssues(leadEconomicsDraftFieldIssues(d, { showAll: true })),
       validateLeadEconomicsDraft(d).errors.length > 0,
@@ -988,4 +998,63 @@ test("rótulos e tetos em lote são lineares no número de faixas, não quadrát
   const pequeno = melhor(500);
   const grande = melhor(2000);
   assert.ok(grande / pequeno < 9, `2000 faixas levaram ${(grande / pequeno).toFixed(1)}x o tempo de 500 (linear ~4x)`);
+});
+
+// ── Ajustes do cálculo (D32) ─────────────────────────────────────────────────
+
+test("ajustes: rascunho novo nasce no padrão, que fica fora do documento", () => {
+  const fresh = createLeadEconomicsDraft(70);
+  assert.deepEqual([fresh.spendShare, fresh.adTax, fresh.salesCoverage], ["100", "0", "100"]);
+  const filled = draft([MENTORIA], [{ min: "", product: "p1", conversion: "4" }]);
+  // Rascunho sem os campos (o de antes da D32) e com eles em branco: o mesmo documento, sem chaves de ajuste.
+  for (const d of [filled, { ...filled, spendShare: "", adTax: " ", salesCoverage: "" }, { ...filled, spendShare: "100", adTax: "0", salesCoverage: "100" }]) {
+    const { value, errors } = validateLeadEconomicsDraft(d);
+    assert.deepEqual(errors, []);
+    assert.deepEqual(Object.keys(value!), ["products", "bands"]);
+  }
+});
+
+test("ajustes: porcentagem vira fração e volta idêntica (ponto fixo)", () => {
+  const typed = { ...draft([MENTORIA], [{ min: "", product: "p1", conversion: "4" }]), spendShare: "80", adTax: "13,83", salesCoverage: "80" };
+  const { value, errors } = validateLeadEconomicsDraft(typed);
+  assert.deepEqual(errors, []);
+  assert.equal(value!.pack_spend_share, 0.8);
+  assert.equal(value!.ad_tax, 0.1383);
+  assert.equal(value!.sales_coverage, 0.8);
+  const back = leadEconomicsToDraft(value!);
+  assert.deepEqual([back.spendShare, back.adTax, back.salesCoverage], ["80", "13,83", "80"]);
+  assert.deepEqual(validateLeadEconomicsDraft(back).value, value);
+  // Cadastro de antes da D32 abre com o padrão nos campos.
+  const old = leadEconomicsToDraft(EXAMPLE);
+  assert.deepEqual([old.spendShare, old.adTax, old.salesCoverage], ["100", "0", "100"]);
+});
+
+test("ajustes: erro no campo e no bloco certo; em branco nunca é 'obrigatório'", () => {
+  const base = draft([MENTORIA], [{ min: "", product: "p1", conversion: "4" }]);
+  const wrong = { ...base, spendShare: "0", adTax: "abc", salesCoverage: "150" };
+  const issues = leadEconomicsDraftFieldIssues(wrong, { showAll: true });
+  assert.deepEqual(issues.adjustments, { spendShare: F.contributionRange, adTax: F.notANumber, salesCoverage: F.contributionRange });
+  const errors = leadEconomicsDraftErrors(wrong);
+  assert.deepEqual(errors, [M.packSpendShare, M.adTax, M.salesCoverage]);
+  assert.ok(errors.every(isLeadEconomicsAdjustmentMessage));
+  assert.ok(!errors.some(isLeadEconomicsBandMessage));
+  const blank = leadEconomicsDraftFieldIssues({ ...base, spendShare: "", adTax: "", salesCoverage: "" }, { showAll: true });
+  assert.deepEqual(blank.adjustments, {});
+});
+
+test("ajustes: teto ao vivo usa o fator; ajuste inválido some com o teto (nunca um teto de mentira)", () => {
+  // O caso real (D32): ticket 2.570, sobra 77%, margem 40%, pack 80% do tráfego, imposto 13,83%, 80% das vendas com nota.
+  const real = {
+    ...draft([{ id: "p1", name: "Eu Investidor", ticket: "2.570", contribution: "77", target: "40" }], [{ min: "", product: "p1", conversion: "1,97" }]),
+    spendShare: "80",
+    adTax: "13,83",
+    salesCoverage: "80",
+  };
+  // 0,0197 × 2.570 × 0,37 ÷ 1,1383: o 1,25 do tráfego e o 1 ÷ 0,80 das vendas se anulam.
+  const ceiling = draftBandCeilings(real)[0]!;
+  assert.ok(Math.abs(ceiling - (0.0197 * 2570 * 0.37) / 1.1383) < 1e-9, `teto ${ceiling}`);
+  assert.equal(draftBandCeiling(real, 0), ceiling);
+  assert.ok(Math.abs(draftSpendCostMultiplier(real)! - 1.1383 / 0.8) < 1e-12);
+  assert.deepEqual(draftBandCeilings({ ...real, adTax: "x" }), [null]);
+  assert.equal(draftSpendCostMultiplier({ ...real, spendShare: "0" }), null);
 });

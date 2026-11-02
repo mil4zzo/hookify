@@ -485,6 +485,36 @@ const CASOS: CasoDeEntrada[] = [
       [faixa({ conversion: 0.123456789012345 })],
     ),
   },
+
+  // ── Ajustes do cálculo (D32): opcionais; no padrão ficam FORA do canônico ──
+  {
+    name: "valido: ajustes do caso real (pack 80%, imposto 13,83%, cobertura 80%) saem no canonico",
+    input: { ...cadastro(), pack_spend_share: 0.8, ad_tax: 0.1383, sales_coverage: 0.8 },
+  },
+  {
+    name: "valido: ajustes no padrao (1, 0, 1) ficam fora do canonico",
+    input: { ...cadastro(), pack_spend_share: 1, ad_tax: 0, sales_coverage: 1 },
+  },
+  {
+    name: "valido: ajustes null valem o padrao e ficam fora do canonico",
+    input: { ...cadastro(), pack_spend_share: null, ad_tax: null, sales_coverage: null },
+  },
+  {
+    name: "valido: ajustes nos limites (imposto 100%, fatia e cobertura minimas)",
+    input: { ...cadastro(), pack_spend_share: 0.000001, ad_tax: 1, sales_coverage: 0.000001 },
+  },
+  { name: "ajuste: fatia do pack 0", input: { ...cadastro(), pack_spend_share: 0 } },
+  { name: "ajuste: fatia do pack acima de 100%", input: { ...cadastro(), pack_spend_share: 1.5 } },
+  { name: "ajuste: fatia do pack como texto", input: { ...cadastro(), pack_spend_share: "0.8" } },
+  { name: "ajuste: imposto negativo", input: { ...cadastro(), ad_tax: -0.01 } },
+  { name: "ajuste: imposto acima de 100%", input: { ...cadastro(), ad_tax: 1.01 } },
+  { name: "ajuste: imposto booleano (bool nao e numero)", input: { ...cadastro(), ad_tax: true } },
+  { name: "ajuste: cobertura 0", input: { ...cadastro(), sales_coverage: 0 } },
+  { name: "ajuste: cobertura acima de 100%", input: { ...cadastro(), sales_coverage: 1.2 } },
+  {
+    name: "ajuste: os tres invalidos e uma faixa invalida, na ordem do contrato",
+    input: { ...cadastro([produto()], [faixa({ conversion: 2 })]), pack_spend_share: 0, ad_tax: -1, sales_coverage: false },
+  },
 ];
 
 // ── Serialização ─────────────────────────────────────────────────────────────

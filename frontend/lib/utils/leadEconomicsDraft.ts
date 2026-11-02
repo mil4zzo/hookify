@@ -29,6 +29,7 @@ import {
   LEAD_ECONOMICS_PRODUCT_NAME_MAX,
   bandCeilingPerLead,
   formatLeadScore,
+  leadEconomicsValueFactor,
   productNameKey,
   validateLeadEconomics,
   type LeadEconomics,
@@ -63,7 +64,19 @@ export interface LeadEconomicsBandDraft {
 export interface LeadEconomicsDraft {
   products: LeadEconomicsProductDraft[];
   bands: LeadEconomicsBandDraft[];
+  /**
+   * Ajustes do cálculo (D32), em PORCENTAGEM digitada. Em branco (ou ausente) vale o
+   * padrão, que não ajusta nada: 100% do tráfego, 0% de imposto, 100% das vendas.
+   */
+  spendShare?: string;
+  adTax?: string;
+  salesCoverage?: string;
 }
+
+/** Os três ajustes do rascunho, na ordem da tela. */
+export const LEAD_ECONOMICS_ADJUSTMENT_FIELDS = ["spendShare", "adTax", "salesCoverage"] as const;
+export type LeadEconomicsAdjustmentField = (typeof LEAD_ECONOMICS_ADJUSTMENT_FIELDS)[number];
+const ADJUSTMENT_DEFAULT_TEXT: Record<LeadEconomicsAdjustmentField, string> = { spendShare: "100", adTax: "0", salesCoverage: "100" };
 
 // ── Ids ──────────────────────────────────────────────────────────────────────
 
@@ -213,6 +226,12 @@ function numberOrNaN(value: number | null): number {
   return value === null ? NaN : value;
 }
 
+/** Ajuste digitado → fração; em branco vale o padrão. */
+function adjustmentValue(draft: LeadEconomicsDraft, field: LeadEconomicsAdjustmentField): number {
+  const raw = draft[field] ?? "";
+  return numberOrNaN(parsePercentInput(isBlank(raw) ? ADJUSTMENT_DEFAULT_TEXT[field] : raw));
+}
+
 /**
  * O nome como o CONTRATO o lê: em branco, longo demais, ou a chave de comparação
  * do nome gravado. Pergunta ao próprio `validateLeadEconomics` (com um produto
@@ -254,6 +273,9 @@ export function draftToLeadEconomicsDocument(draft: LeadEconomicsDraft) {
       product: single ? draft.products[0].id : band.product,
       conversion: numberOrNaN(parsePercentInput(band.conversion)),
     })),
+    pack_spend_share: adjustmentValue(draft, "spendShare"),
+    ad_tax: adjustmentValue(draft, "adTax"),
+    sales_coverage: adjustmentValue(draft, "salesCoverage"),
   };
 }
 
@@ -316,6 +338,7 @@ export function leadEconomicsDraftErrors(draft: LeadEconomicsDraft): string[] {
  */
 export function leadEconomicsDraftLiveErrors(draft: LeadEconomicsDraft): string[] {
   const neutral: LeadEconomicsDraft = {
+    ...draft,
     products: draft.products.map((product) => ({
       ...product,
       ticket: isBlank(product.ticket) ? "1" : product.ticket,
@@ -380,6 +403,13 @@ export const LEAD_ECONOMICS_FIELD_MESSAGES = {
   },
 };
 
+/** Faixa de cada ajuste: a mesma do contrato, com a frase curta que já existe para ela. */
+const ADJUSTMENT_RULES: Record<LeadEconomicsAdjustmentField, { isValid: (v: number) => boolean; message: () => string }> = {
+  spendShare: { isValid: (v) => v > 0 && v <= 1, message: () => LEAD_ECONOMICS_FIELD_MESSAGES.contributionRange },
+  adTax: { isValid: (v) => v >= 0 && v <= 1, message: () => LEAD_ECONOMICS_FIELD_MESSAGES.conversionRange },
+  salesCoverage: { isValid: (v) => v > 0 && v <= 1, message: () => LEAD_ECONOMICS_FIELD_MESSAGES.contributionRange },
+};
+
 export interface LeadEconomicsProductFieldIssues {
   name?: string;
   ticket?: string;
@@ -397,6 +427,7 @@ export interface LeadEconomicsBandFieldIssues {
 export interface LeadEconomicsFieldIssues {
   products: LeadEconomicsProductFieldIssues[];
   bands: LeadEconomicsBandFieldIssues[];
+  adjustments: Partial<Record<LeadEconomicsAdjustmentField, string>>;
 }
 
 /** Remove as chaves `undefined`: "sem problema" é ausência, não um valor. */
@@ -496,12 +527,22 @@ export function leadEconomicsDraftFieldIssues(
     return onlyIssues({ min, product, conversion: conversion.issue });
   });
 
-  return { products, bands };
+  // Em branco vale o padrão: nunca "obrigatório", nem depois de tentar salvar.
+  const adjustments = onlyIssues(
+    Object.fromEntries(
+      LEAD_ECONOMICS_ADJUSTMENT_FIELDS.map((field) => {
+        const rule = ADJUSTMENT_RULES[field];
+        return [field, readNumberField(draft[field] ?? "", parsePercentInput, rule.isValid, rule.message(), false).issue];
+      }),
+    ) as Partial<Record<LeadEconomicsAdjustmentField, string>>,
+  );
+
+  return { products, bands, adjustments };
 }
 
 /** Algum campo com erro? */
 export function hasLeadEconomicsFieldIssues(issues: LeadEconomicsFieldIssues): boolean {
-  return [...issues.products, ...issues.bands].some((item) => Object.keys(item).length > 0);
+  return [...issues.products, ...issues.bands, issues.adjustments].some((item) => Object.keys(item).length > 0);
 }
 
 /** Documento gravado (já normalizado) → rascunho. Ids de produto preservados. */
@@ -520,6 +561,9 @@ export function leadEconomicsToDraft(doc: LeadEconomics): LeadEconomicsDraft {
       product: band.product,
       conversion: formatPercentInput(band.conversion),
     })),
+    spendShare: formatPercentInput(doc.pack_spend_share ?? 1),
+    adTax: formatPercentInput(doc.ad_tax ?? 0),
+    salesCoverage: formatPercentInput(doc.sales_coverage ?? 1),
   };
 }
 
@@ -535,6 +579,7 @@ export function createLeadEconomicsDraft(mqlLeadscoreMin: number | null): LeadEc
   return {
     products: [product],
     bands: hasMql ? [band(""), band(formatScoreInput(mqlLeadscoreMin))] : [band("")],
+    ...ADJUSTMENT_DEFAULT_TEXT,
   };
 }
 
@@ -590,16 +635,37 @@ export function draftBandLabels(draft: LeadEconomicsDraft): string[] {
  */
 export function draftBandCeiling(draft: LeadEconomicsDraft, index: number): number | null {
   if (!draft.bands[index]) return null;
-  return bandCeilingFromDocument(draftToLeadEconomicsDocument(draft), index);
+  return draftBandCeilings(draft)[index];
 }
 
 /** O teto de TODAS as faixas, convertendo o rascunho uma vez (ver `draftBandLabels`). */
 export function draftBandCeilings(draft: LeadEconomicsDraft): (number | null)[] {
   const doc = draftToLeadEconomicsDocument(draft);
-  return doc.bands.map((_, index) => bandCeilingFromDocument(doc, index));
+  const factor = draftValueFactor(doc);
+  return doc.bands.map((_, index) => (factor === null ? null : bandCeilingFromDocument(doc, index, factor)));
 }
 
-function bandCeilingFromDocument(doc: ReturnType<typeof draftToLeadEconomicsDocument>, index: number): number | null {
+type DraftDocument = ReturnType<typeof draftToLeadEconomicsDocument>;
+
+/** Fator dos ajustes (`leadEconomicsValueFactor`), ou null enquanto algum ajuste não passa no contrato. */
+function draftValueFactor(doc: DraftDocument): number | null {
+  const { value } = validateLeadEconomics({
+    products: [{ id: "p", name: "produto", ticket: 1, contribution_margin: 1, target_margin: 0 }],
+    bands: [{ min: null, product: "p", conversion: 0 }],
+    pack_spend_share: doc.pack_spend_share,
+    ad_tax: doc.ad_tax,
+    sales_coverage: doc.sales_coverage,
+  });
+  return value ? leadEconomicsValueFactor(value) : null;
+}
+
+/** Custo total de cada R$ 1 gasto no pack, (1 + imposto) ÷ fatia; null com ajuste inválido. */
+export function draftSpendCostMultiplier(draft: LeadEconomicsDraft): number | null {
+  const doc = draftToLeadEconomicsDocument(draft);
+  return draftValueFactor(doc) === null ? null : (1 + doc.ad_tax) / doc.pack_spend_share;
+}
+
+function bandCeilingFromDocument(doc: DraftDocument, index: number, factor: number): number | null {
   const productId = doc.bands[index].product;
   const product = doc.products.find((item) => item.id === productId);
   if (!product) return null;
@@ -608,7 +674,7 @@ function bandCeilingFromDocument(doc: ReturnType<typeof draftToLeadEconomicsDocu
     bands: [{ min: null, product: product.id, conversion: doc.bands[index].conversion }],
   });
   if (!value) return null;
-  return bandCeilingPerLead(value.bands[0].conversion, value.products[0]);
+  return bandCeilingPerLead(value.bands[0].conversion, value.products[0], factor);
 }
 
 /** Índices das faixas que usam o produto (com um produto só, todas). */
@@ -633,6 +699,11 @@ export function isLeadEconomicsBandMessage(message: string): boolean {
     LEAD_ECONOMICS_MESSAGES.bandProductMissing,
     LEAD_ECONOMICS_MESSAGES.bandConversion,
   ].includes(message);
+}
+
+/** Mensagens do bloco "Ajustes do cálculo". */
+export function isLeadEconomicsAdjustmentMessage(message: string): boolean {
+  return [LEAD_ECONOMICS_MESSAGES.packSpendShare, LEAD_ECONOMICS_MESSAGES.adTax, LEAD_ECONOMICS_MESSAGES.salesCoverage].includes(message);
 }
 
 // ── Edição (funções puras: rascunho → rascunho) ──────────────────────────────

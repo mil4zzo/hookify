@@ -403,7 +403,18 @@
       "removeBand": "Remover a faixa {label}",
       "hintConversion": "Conversão: de cada 100 leads desta faixa, quantos viram venda.",
       "hintCut": "A nota exata do corte entra na faixa de cima. {hasMql, select, yes {Seu corte de MQL é {value}.} other {Este pack não tem corte de MQL.}}",
-      "addBand": "Adicionar faixa"
+      "addBand": "Adicionar faixa",
+      "hintRefund": "Conversão e margem na mesma régua: se a margem desejada é depois do reembolso, use a conversão depois do reembolso.",
+      "adjustmentsTitle": "Ajustes do cálculo",
+      "adjustmentsSubtitle": "Opcional: tráfego fora do pack, imposto e vendas sem leadscore.",
+      "spendShareLabel": "Este pack é quanto do seu investimento em tráfego?",
+      "spendShareHint": "Campanhas que existem por causa destes leads mas estão fora do pack (aquecimento, remarketing, vendas) também custam. Se o pack tem tudo, deixe 100%.",
+      "adTaxLabel": "Imposto sobre o anúncio",
+      "adTaxHint": "O que a plataforma cobra por fora do valor gasto. No Brasil, o Meta cobra cerca de 13,8%.",
+      "salesCoverageLabel": "Quantos % das suas vendas têm leadscore?",
+      "salesCoverageHint": "Quem comprou com outro e-mail ou não respondeu a pesquisa fica fora da conversão das faixas, mas a venda existe. Se a sua conversão já conta todas as vendas, deixe 100%.",
+      "spendCostLine": "Cada {one} gasto neste pack custa {total} no total.",
+      "coverageLine": "As faixas veem {percent} das vendas; o Hookify completa o resto."
     },
     "economicsMsg": {
       "invalidShape": "O cadastro da economia do lead está em um formato inválido.",
@@ -423,7 +434,10 @@
       "bandProductMissing": "Toda faixa precisa apontar para um produto cadastrado.",
       "bandConversion": "A conversão de cada faixa precisa estar entre 0% e 100%.",
       "productFallback": "produto {n}",
-      "unreadableCut": "Uma nota de corte não é um número."
+      "unreadableCut": "Uma nota de corte não é um número.",
+      "packSpendShare": "A parte do investimento em tráfego que este pack representa precisa ser maior que 0% e no máximo 100%.",
+      "adTax": "O imposto sobre o anúncio precisa ser de 0% a 100%.",
+      "salesCoverage": "A parte das vendas com leadscore precisa ser maior que 0% e no máximo 100%."
     },
     "economicsField": {
       "required": "Obrigatório.",

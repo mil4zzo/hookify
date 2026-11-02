@@ -261,5 +261,5 @@ export function importLeadEconomicsBandsCsv(text: string, draft: LeadEconomicsDr
     warnings.push(csvMsg("newProducts", { count: newProducts.length, names: newProducts.join(", ") }));
   }
 
-  return { kind: "ok", draft: { products, bands: bandDrafts }, bandCount: bandDrafts.length, newProducts, warnings };
+  return { kind: "ok", draft: { ...draft, products, bands: bandDrafts }, bandCount: bandDrafts.length, newProducts, warnings };
 }

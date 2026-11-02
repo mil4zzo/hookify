@@ -403,7 +403,18 @@
       "removeBand": "Remove range {label}",
       "hintConversion": "Conversion: of every 100 leads in this range, how many become a sale.",
       "hintCut": "The exact cutoff score belongs to the range above. {hasMql, select, yes {Your MQL cutoff is {value}.} other {This pack has no MQL cutoff.}}",
-      "addBand": "Add range"
+      "addBand": "Add range",
+      "hintRefund": "Keep conversion and margin on the same basis: if the target margin is after refunds, use the conversion after refunds.",
+      "adjustmentsTitle": "Calculation adjustments",
+      "adjustmentsSubtitle": "Optional: traffic outside the pack, ad tax and sales without a lead score.",
+      "spendShareLabel": "What share of your traffic investment is this pack?",
+      "spendShareHint": "Campaigns that exist because of these leads but sit outside the pack (warm-up, remarketing, sales) also cost. If the pack has everything, leave 100%.",
+      "adTaxLabel": "Tax on ad spend",
+      "adTaxHint": "What the platform charges on top of the amount spent. In Brazil, Meta charges about 13.8%.",
+      "salesCoverageLabel": "What % of your sales have a lead score?",
+      "salesCoverageHint": "Buyers who used another email or skipped the survey are left out of the range conversions, but the sale exists. If your conversion already counts every sale, leave 100%.",
+      "spendCostLine": "Each {one} spent in this pack costs {total} in total.",
+      "coverageLine": "The ranges see {percent} of sales; Hookify fills in the rest."
     },
     "economicsMsg": {
       "invalidShape": "The lead economics setup is in an invalid format.",
@@ -423,7 +434,10 @@
       "bandProductMissing": "Every range must point to a registered product.",
       "bandConversion": "The conversion of each range must be between 0% and 100%.",
       "productFallback": "product {n}",
-      "unreadableCut": "A cutoff score is not a number."
+      "unreadableCut": "A cutoff score is not a number.",
+      "packSpendShare": "The share of traffic investment this pack represents must be above 0% and at most 100%.",
+      "adTax": "The tax on ad spend must be from 0% to 100%.",
+      "salesCoverage": "The share of sales with a lead score must be above 0% and at most 100%."
     },
     "economicsField": {
       "required": "Required.",

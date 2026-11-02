@@ -385,3 +385,39 @@ test("corte \"7O\" depois de tentar salvar: resumo diz \"não é um número\", c
   assert.ok(html.includes(leadEconomicsUnreadableCutMessage()), "a frase da tela no resumo das faixas");
   assert.ok(!html.includes(M.bandMinMissing), "nunca \"precisa de uma nota de corte\" com o campo preenchido");
 });
+
+// ── Ajustes do cálculo (D32) ─────────────────────────────────────────────────
+
+function oneProduct(extra: Partial<LeadEconomicsDraft> = {}): LeadEconomicsDraft {
+  return {
+    products: [{ id: "p1", name: "Eu Investidor", ticket: "2.570", contribution: "77", target: "40" }],
+    bands: [{ key: "b0", min: "", product: "p1", conversion: "1,97" }],
+    ...extra,
+  };
+}
+
+test("ajustes: fechados no padrão (só o título aparece); abertos quando já há ajuste", () => {
+  const closed = render({ value: oneProduct({ spendShare: "100", adTax: "0", salesCoverage: "100" }) });
+  assert.ok(closed.includes("Ajustes do cálculo"));
+  assert.ok(!closed.includes("Imposto sobre o anúncio"), "campos escondidos com tudo no padrão");
+
+  const open = render({ value: oneProduct({ spendShare: "80", adTax: "13,83", salesCoverage: "80" }) });
+  for (const label of ["Este pack é quanto do seu investimento em tráfego?", "Imposto sobre o anúncio", "Quantos % das suas vendas têm leadscore?"]) {
+    assert.ok(open.includes(label), label);
+  }
+  // As duas frases calculadas: custo total de cada R$ 1 (1,1383 ÷ 0,8) e a cobertura.
+  assert.ok(open.includes(`Cada R$ 1 gasto neste pack custa R$${NBSP}1,42 no total.`), "custo total");
+  assert.ok(open.includes("As faixas veem 80% das vendas"), "cobertura");
+  // O teto por lead da faixa já sai ajustado: 0,0197 × 2.570 × 0,37 ÷ 1,1383 = R$ 16,46.
+  assert.ok(open.includes(`R$${NBSP}16,46`), "teto ajustado");
+});
+
+test("ajustes: campo errado abre o bloco e fica marcado com a mensagem curta", () => {
+  const html = render({ value: oneProduct({ spendShare: "0", adTax: "0", salesCoverage: "100" }) });
+  const id = html.match(/id="([^"]*ajuste-spendShare)"/)?.[1];
+  assert.ok(id, "campo da fatia do pack");
+  const tag = tagWith(html, `id="${id}"`);
+  assert.equal(attr(tag, "aria-invalid"), "true");
+  assert.equal(textOfId(html, attr(tag, "aria-describedby")!), F.contributionRange);
+  assert.ok(html.includes(M.packSpendShare), "resumo do bloco");
+});

@@ -140,3 +140,9 @@ test("BOM e aspas com separador dentro", () => {
     ["60", "4,5", "Mentoria, turma 2"],
   ]);
 });
+
+test("importar faixas não mexe nos ajustes do cálculo", () => {
+  const base = { ...fresh(), spendShare: "80", adTax: "13,83", salesCoverage: "80" };
+  const r = ok(importLeadEconomicsBandsCsv("nota;conversao\n;0,5\n60;4", base));
+  assert.deepEqual([r.draft.spendShare, r.draft.adTax, r.draft.salesCoverage], ["80", "13,83", "80"]);
+});

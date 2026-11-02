@@ -5,6 +5,7 @@ import { forwardRef, useEffect, useId, useMemo, useRef, useState, type MutableRe
 import { IconAlertTriangle, IconInfoCircle, IconPlus, IconTrash, IconUpload } from "@tabler/icons-react";
 
 import { InlineNotice } from "@/components/common/States";
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Button } from "@/components/ui/button";
 import { Input, type InputProps } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -14,6 +15,7 @@ import { cn } from "@/lib/utils/cn";
 import { LEAD_ECONOMICS_PRODUCT_NAME_MAX, formatLeadScore } from "@/lib/utils/leadEconomics";
 import { LEAD_ECONOMICS_BANDS_CSV_TEMPLATE, decodeCsvBytes, importLeadEconomicsBandsCsv } from "@/lib/utils/leadEconomicsCsv";
 import {
+  LEAD_ECONOMICS_ADJUSTMENT_FIELDS,
   addDraftBand,
   addDraftProduct,
   bandsUsingProduct,
@@ -21,17 +23,30 @@ import {
   draftBandCeilings,
   draftBandLabels,
   draftBandMins,
+  draftSpendCostMultiplier,
+  formatPercentInput,
+  isLeadEconomicsAdjustmentMessage,
   isLeadEconomicsBandMessage,
   leadEconomicsDraftErrors,
   leadEconomicsDraftFieldIssues,
   leadEconomicsDraftLiveErrors,
+  parsePercentInput,
   removeDraftBand,
   removeDraftProduct,
   updateDraftBand,
   updateDraftProduct,
+  type LeadEconomicsAdjustmentField,
   type LeadEconomicsDraft,
   type LeadEconomicsProductDraft,
 } from "@/lib/utils/leadEconomicsDraft";
+
+/** Rótulo e ajuda de cada ajuste (chaves de `packs.economics`). */
+const ADJUSTMENT_COPY: Record<LeadEconomicsAdjustmentField, { label: string; hint: string }> = {
+  spendShare: { label: "spendShareLabel", hint: "spendShareHint" },
+  adTax: { label: "adTaxLabel", hint: "adTaxHint" },
+  salesCoverage: { label: "salesCoverageLabel", hint: "salesCoverageHint" },
+};
+const ADJUSTMENT_DEFAULTS: Record<LeadEconomicsAdjustmentField, number> = { spendShare: 1, adTax: 0, salesCoverage: 1 };
 
 export interface LeadEconomicsEditorProps {
   /** Rascunho em texto. O estado mora no diálogo, que salva tudo de uma vez. */
@@ -315,8 +330,11 @@ export function LeadEconomicsEditor({
     () => (showAllErrors ? leadEconomicsDraftErrors(value) : leadEconomicsDraftLiveErrors(value)),
     [value, showAllErrors],
   );
-  const productErrors = errors.filter((message) => !isLeadEconomicsBandMessage(message));
+  const productErrors = errors.filter((message) => !isLeadEconomicsBandMessage(message) && !isLeadEconomicsAdjustmentMessage(message));
   const bandErrors = errors.filter(isLeadEconomicsBandMessage);
+  const adjustmentErrors = errors.filter(isLeadEconomicsAdjustmentMessage);
+  const costMultiplier = useMemo(() => draftSpendCostMultiplier(value), [value]);
+  const coverage = parsePercentInput(value.salesCoverage?.trim() || "100");
   // Mesma regra de quando mostrar que o resumo: ao vivo só engano; depois de tentar
   // salvar, também o que falta.
   const issues = useMemo(() => leadEconomicsDraftFieldIssues(value, { showAll: showAllErrors }), [value, showAllErrors]);
@@ -816,6 +834,7 @@ export function LeadEconomicsEditor({
           {/* "Conversão" aqui é lead → venda. No mesmo diálogo, o CPR alvo fala de
               "eventos de conversão" da Meta — a frase desfaz a ambiguidade. */}
           <p>{t("hintConversion")}</p>
+          <p>{t("hintRefund")}</p>
           <p>{t("hintCut", { hasMql: mqlLeadscoreMin !== null ? "yes" : "no", value: mqlLeadscoreMin !== null ? formatLeadScore(mqlLeadscoreMin) : "" })}</p>
         </div>
         <div>
@@ -826,6 +845,66 @@ export function LeadEconomicsEditor({
           <ErrorSummary messages={bandErrors} />
         </div>
       </div>
+
+      {/* ── Ajustes do cálculo (D32): fechado por padrão; abre sozinho quando já há ajuste. ── */}
+      <Accordion
+        type="single"
+        collapsible
+        defaultValue={LEAD_ECONOMICS_ADJUSTMENT_FIELDS.some((field) => {
+          const raw = value[field]?.trim();
+          return raw && parsePercentInput(raw) !== ADJUSTMENT_DEFAULTS[field];
+        }) || adjustmentErrors.length > 0 ? "ajustes" : undefined}
+      >
+        <AccordionItem value="ajustes" className="rounded-md">
+          <AccordionTrigger className="focus-inset text-left">
+            <span className="space-y-0.5">
+              <span className="block text-xs font-medium text-foreground">{t("adjustmentsTitle")}</span>
+              <span className="block text-xs font-normal text-muted-foreground">{t("adjustmentsSubtitle")}</span>
+            </span>
+          </AccordionTrigger>
+          {/* Cada linha é um campo: o bloco sobe um nível, como as tabelas acima. */}
+          <AccordionContent className="space-y-3 bg-surface-2">
+            {LEAD_ECONOMICS_ADJUSTMENT_FIELDS.map((field) => {
+              const issue = issues.adjustments[field];
+              const id = `${baseId}-ajuste-${field}`;
+              return (
+                <div key={field} className="grid grid-cols-[1fr_7.5rem] items-start gap-3">
+                  <div className="space-y-0.5">
+                    <label htmlFor={id} className="block text-xs font-medium text-foreground">
+                      {t(ADJUSTMENT_COPY[field].label)}
+                    </label>
+                    <p className="text-xs text-muted-foreground">{t(ADJUSTMENT_COPY[field].hint)}</p>
+                  </div>
+                  <FieldCell issue={issue} messageId={`${id}-erro`} alignEnd>
+                    <UnitInput
+                      id={id}
+                      suffix="%"
+                      value={value[field] ?? ""}
+                      {...fieldErrorProps(issue, `${id}-erro`)}
+                      onChange={(e) => onChange({ ...value, [field]: e.target.value })}
+                      disabled={disabled}
+                    />
+                  </FieldCell>
+                </div>
+              );
+            })}
+            <div className="space-y-0.5 text-xs text-muted-foreground">
+              {costMultiplier !== null && costMultiplier !== 1 && (
+                <p>
+                  {t("spendCostLine", {
+                    one: `${currencySymbol} 1`,
+                    total: formatLeadEconomicsMoney(costMultiplier, currency),
+                  })}
+                </p>
+              )}
+              {coverage !== null && coverage > 0 && coverage < 1 && (
+                <p>{t("coverageLine", { percent: `${formatPercentInput(coverage)}%` })}</p>
+              )}
+            </div>
+            <ErrorSummary messages={adjustmentErrors} />
+          </AccordionContent>
+        </AccordionItem>
+      </Accordion>
     </div>
   );
 }
