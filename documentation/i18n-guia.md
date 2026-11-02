@@ -38,7 +38,7 @@ viewer (escolha salva neste aparelho) e usa `setLocaleOverride` para os formatad
 ## Pendências (fora do inglês das telas de uso diário)
 
 - **Espanhol (es-ES):** catálogos vazios (caem no português) e o seletor não oferece. Traduzir os mesmos arquivos e liberar a opção.
-- **Telas legado / em mudança:** insights, boards, explorer, gold, plano, upload, duplicação de campanha (launch), admin, waitlist/pv. Traduzir quando a tela estabilizar.
+- **Telas legado / em mudança — DECIDIDO (01/11/2026): esperar o redesenho.** insights, boards, explorer, gold, plano, upload, duplicação de campanha (launch), admin, waitlist/pv ficam em português até serem redesenhadas; traduzir junto com o redesenho (não antes). Enquanto isso, quem usa o app em inglês vê português nessas rotas. Se o público em inglês passar a depender de alguma (insights, boards, upload), ela sobe na frente do espanhol.
 - **Páginas legais** (termos, privacidade, exclusão de dados): traduzidas em `legal.*.json` (tags `<b>` e `<f>` = negrito; `<f>` com `text-foreground`), idioma pelo cookie no servidor (`lib/i18n/legalPage.tsx`). **O inglês jurídico é RASCUNHO, pendente de revisão jurídica humana antes de ser tratado como definitivo.**
 - **Mensagens do backend:** ~85 mensagens (fixas e com valor dentro) têm tradução em `lib/i18n/backendMessages.ts`; o resto aparece como o backend manda (português). Migrar para códigos de erro se a lista passar de ~100.
 - **Revisar:** o inglês de `scopeMissing` cita "Settings → Connections" (copiado do português; conferir se esse caminho existe na tela).
