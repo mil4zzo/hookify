@@ -16,6 +16,7 @@ Fluxo:
 from __future__ import annotations
 
 import logging
+from datetime import date, datetime, timezone
 import threading
 import time
 import uuid
@@ -140,6 +141,20 @@ def _selected_adsets_budget_field(selected: List[Dict[str, Any]]) -> str:
     return kinds.pop()
 
 
+def _end_time_override(end_date: Optional[date], selected: List[Dict[str, Any]]) -> Optional[str]:
+    """Data de fim escolhida na revisão. Obrigatória quando algum conjunto escolhido tem orçamento
+    total e agenda vencida (a cópia não nasceria válida); sempre no futuro. Sem fuso: a Meta lê
+    no fuso da conta."""
+    if end_date is None:
+        needing = [a for a in selected if a.get("needs_end_date")]
+        if needing:
+            raise _validation_error(f"'{needing[0]['name']}': orçamento total com agenda vencida — informe uma nova data de fim.")
+        return None
+    if end_date <= datetime.now(timezone.utc).date():
+        raise _validation_error("A data de fim precisa ser depois de hoje.")
+    return f"{end_date.isoformat()}T23:59:00"
+
+
 def _account_flags(user: Dict[str, Any], account_id: str) -> Tuple[bool, Optional[str]]:
     try:
         sb = get_supabase_for_user(user["token"])
@@ -236,12 +251,12 @@ def load_launch_template(user: Dict[str, Any], ad_id: str, default_api: GraphAPI
                 "status": row.get("status"),
                 "end_time": row.get("end_time"),
                 "schedule_expired": expired,
+                "needs_end_date": lifetime_expired,
                 "daily_budget": int(row["daily_budget"]) if row.get("daily_budget") else None,
                 "lifetime_budget": int(row["lifetime_budget"]) if row.get("lifetime_budget") else None,
                 "has_ads_transparency": compliant,
                 "blocked_reason": (
                     "Sem 'Transparência dos anúncios' — esta conta exige." if requires_transparency and not compliant
-                    else "Orçamento total com agenda vencida — ajuste a data de fim no modelo." if lifetime_expired
                     else None
                 ),
                 "is_template_adset": str(row.get("id")) == str(ad.get("adset_id")),
@@ -320,6 +335,7 @@ class LaunchRequest(BaseModel):
     status: Literal["ACTIVE", "PAUSED"] = "PAUSED"
     adset_name_template: str = Field(default="{template_adset_name}", min_length=1, max_length=400)
     budget_amount: Optional[int] = Field(default=None, gt=0)  # subunidade da moeda (centavos)
+    end_date: Optional[date] = None  # nova data de fim dos conjuntos copiados (fuso da conta)
     items: List[LaunchItemIn] = Field(min_length=1, max_length=MAX_ITEMS)
 
 
@@ -344,6 +360,8 @@ def create_launch(
     blocked = [adsets_by_id[a] for a in request.adset_ids if adsets_by_id[a]["blocked_reason"]]
     if blocked:
         raise _validation_error(f"'{blocked[0]['name']}': {blocked[0]['blocked_reason']}")
+
+    end_time_override = _end_time_override(request.end_date, [adsets_by_id[a] for a in request.adset_ids])
 
     slot_keys = {s.slot_key for s in t.creative_template.media_slots}
     required = {s.slot_key for s in t.creative_template.media_slots if s.required}
@@ -388,6 +406,7 @@ def create_launch(
             "status": request.status,
             "total_items": len(request.items),
             "budget_override": budget_override,
+            "end_time_override": end_time_override,
             "creative_template": t.creative_template.to_payload(),
             "template_creative": t.template_creative,
             "template_ad_fields": t.template_ad_fields,

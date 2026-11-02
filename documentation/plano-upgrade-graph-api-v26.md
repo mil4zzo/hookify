@@ -18,13 +18,15 @@ chamadas que a gente acha que são v24.
 > sabotado — cópia sem resposta da Meta é procurada em `GET /{modelo}/copies` e adotada (não
 > duplica); orçamento por conjunto usa o tipo dos conjuntos ESCOLHIDOS (misturado diário×total
 > recusa e a tela mostra o orçamento de cada conjunto); orçamento total com agenda vencida
-> bloqueia o conjunto; conjuntos paginados (até 1.000); imagem presa em `uploading` é reenviada;
+> pede nova data de fim na revisão (campo "Data de fim", vale p/ todos os conjuntos; vai em
+> `end_time` do `/copies`, confirmado no SDK; também opcional p/ os demais); conjuntos paginados (até 1.000); imagem presa em `uploading` é reenviada;
 > envio abandonado falha em 10 min em vez de travar o job, envio vivo não estoura o prazo; import
 > do Drive em service role (JWT não vence); `advantage_audience` explícito no plano B do conjunto
 > e cópia recusada por isso cai nele; `meta_job_client` lê `error_code/error_message` no topo
 > (v26), do que depende o retry de GK. **Ficam para teste na Meta real:** `contextual_multi_ads`
 > na cópia (o teste real deu igual ao modelo), troca imagem↔vídeo com mídia flexível, conjunto
-> só com `explore_home` na v26, e o formato real do erro de relatório falho na v26. Scripts
+> só com `explore_home` na v26, o formato real do erro de relatório falho na v26, `end_time` sem fuso (a Meta lê no fuso da
+> conta) e `stop_time` da campanha CBO com orçamento total (não lido hoje). Scripts
 > antigos em `backend/scripts/` com `?ids=` seguem quebrados (fora do app).
 
 | Etapa | O quê | Estado |

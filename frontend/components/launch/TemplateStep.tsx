@@ -182,7 +182,10 @@ function TemplateSummary({
                       )}
                       {adset.schedule_expired && (
                         <span className="flex items-center gap-1 text-xs text-muted-foreground">
-                          <IconCalendarOff className="h-3 w-3" /> Agenda vencida — a cópia começa sem data de fim
+                          <IconCalendarOff className="h-3 w-3" />{" "}
+                          {adset.needs_end_date
+                            ? "Agenda vencida com orçamento total — você define a nova data de fim na revisão"
+                            : "Agenda vencida — sem data nova, a cópia roda sem data de fim"}
                         </span>
                       )}
                       {blocked && (

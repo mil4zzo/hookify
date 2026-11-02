@@ -169,7 +169,7 @@ def store(monkeypatch):
     return items
 
 
-def _payload(status: str = "PAUSED", budget_override=None) -> Dict[str, Any]:
+def _payload(status: str = "PAUSED", budget_override=None, end_time_override=None) -> Dict[str, Any]:
     template = parse_creative_template({"creative": VIDEO_TEMPLATE_CREATIVE})
     return {
         "type": "campaign_launch",
@@ -181,6 +181,7 @@ def _payload(status: str = "PAUSED", budget_override=None) -> Dict[str, Any]:
         "status": status,
         "total_items": 1,
         "budget_override": budget_override,
+        "end_time_override": end_time_override,
         "creative_template": template.to_payload(),
         "template_creative": VIDEO_TEMPLATE_CREATIVE,
         "template_ad_fields": {"tracking_specs": [{"action.type": ["offsite_conversion"]}], "conversion_domain": "site.com"},
@@ -533,6 +534,47 @@ class TestBudgetField:
         with pytest.raises(Exception) as exc:
             _selected_adsets_budget_field([{"daily_budget": 100}, {"lifetime_budget": 5000}])
         assert getattr(exc.value, "status_code", None) == 422
+
+
+class TestEndDate:
+    def test_new_end_date_goes_to_copy_and_expired_adset_patch(self, store):
+        item_id = _add_item(store, adset_count=1)
+        store[item_id]["adsets"][0]["source_end_time"] = "2020-01-01T00:00:00-0300"
+        api = FakeAPI()
+        _processor(api, _payload(end_time_override="2099-01-31T23:59:00")).run()
+        assert next(c for c in api.calls if c[0] == "copy_adset")[2]["end_time"] == "2099-01-31T23:59:00"
+        patch = next(c for c in api.calls if c[0] == "update_adset")[2]
+        assert patch["end_time"] == "2099-01-31T23:59:00" and patch["start_time"] == ""
+
+    def test_without_new_date_expired_schedule_is_cleared(self, store):
+        item_id = _add_item(store, adset_count=1)
+        store[item_id]["adsets"][0]["source_end_time"] = "2020-01-01T00:00:00-0300"
+        api = FakeAPI()
+        _processor(api, _payload()).run()
+        assert "end_time" not in next(c for c in api.calls if c[0] == "copy_adset")[2]
+        assert next(c for c in api.calls if c[0] == "update_adset")[2]["end_time"] == ""
+
+    def test_fallback_create_uses_new_end_date(self, store):
+        _add_item(store, adset_count=1)
+        api = FakeAPI()
+        api.fail["copy_adset"] = [meta_error(100, message="ADS_TARGETING__REQUIRE_EXPLICIT_ADVANTAGE_AUDIENCE_FLAG")]
+        _processor(api, _payload(end_time_override="2099-01-31T23:59:00")).run()
+        assert next(c for c in api.calls if c[0] == "create_adset")[2]["end_time"] == "2099-01-31T23:59:00"
+
+    def test_route_requires_date_for_expired_lifetime_and_rejects_past(self):
+        from datetime import date
+
+        from app.routes.campaign_launch import _end_time_override
+
+        expired = {"name": "A", "needs_end_date": True}
+        with pytest.raises(Exception) as exc:
+            _end_time_override(None, [expired])
+        assert getattr(exc.value, "status_code", None) == 422
+        with pytest.raises(Exception) as exc:
+            _end_time_override(date(2020, 1, 1), [expired])
+        assert getattr(exc.value, "status_code", None) == 422
+        assert _end_time_override(None, [{"name": "B", "needs_end_date": False}]) is None
+        assert _end_time_override(date(2099, 1, 31), [expired]) == "2099-01-31T23:59:00"
 
 
 class TestMediaWait:

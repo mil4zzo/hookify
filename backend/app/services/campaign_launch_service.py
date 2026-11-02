@@ -357,10 +357,14 @@ class CampaignLaunchProcessor:
                     template_adset_name=str(entry.get("source_adset_name") or ""),
                 ),
             }
+            end_override = self._payload.get("end_time_override")
             if is_meta_datetime_in_past(entry.get("source_end_time")):
                 # Agenda do modelo já venceu: o conjunto copiado nasceria "concluído".
+                # Sem data nova, roda sem fim; com data nova, só ela vale.
                 adset_patch["start_time"] = ""
-                adset_patch["end_time"] = ""
+                adset_patch["end_time"] = end_override or ""
+            elif end_override:
+                adset_patch["end_time"] = end_override
             adset_patch.update(self._budget_patch("adset"))
             if status == "ACTIVE":
                 adset_patch["status"] = "ACTIVE"
@@ -389,6 +393,9 @@ class CampaignLaunchProcessor:
             "status_option": "PAUSED",
             "rename_options": {"rename_strategy": "NO_RENAME"},
         }
+        end_override = self._payload.get("end_time_override")
+        if end_override:
+            params["end_time"] = end_override  # /copies aceita end_time (SDK AdSet.create_copy)
         try:
             data = self._call(
                 self._recovering_copy(
@@ -466,6 +473,8 @@ class CampaignLaunchProcessor:
             for key in ("start_time", "end_time"):
                 if src.get(key):
                     params[key] = src[key]
+        if self._payload.get("end_time_override"):
+            params["end_time"] = self._payload["end_time_override"]
         logger.info("[CAMPAIGN_LAUNCH] adset_fallback_create source=%s", source_id)
         return self._call(self.api.create_adset, f"act_{self.context.account_id}", params)
 

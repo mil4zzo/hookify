@@ -43,6 +43,7 @@ interface LaunchWizardState {
   adsetNameTemplate: string
   launchStatus: "PAUSED" | "ACTIVE"
   budgetAmount: number | null
+  endDate: string | null
   activeJobId: string | null
 
   setStep: (step: LaunchStep) => void
@@ -64,6 +65,7 @@ interface LaunchWizardState {
   setNaming: (patch: Partial<Pick<LaunchWizardState, "campaignNameTemplate" | "adsetNameTemplate">>) => void
   setLaunchStatus: (status: "PAUSED" | "ACTIVE") => void
   setBudgetAmount: (amount: number | null) => void
+  setEndDate: (date: string | null) => void
   setActiveJob: (jobId: string | null) => void
   reset: () => void
 }
@@ -88,6 +90,7 @@ const initial = {
   adsetNameTemplate: "{template_adset_name}",
   launchStatus: "PAUSED" as const,
   budgetAmount: null,
+  endDate: null,
   activeJobId: null,
 }
 
@@ -116,6 +119,7 @@ export const useLaunchWizard = create<LaunchWizardState>((set, get) => ({
       creatives: groupIntoCreatives(Object.values(pool).map(toPoolMedia), slots),
       campaignNameTemplate: campaignName ? `${campaignName} | {ad_name}` : "{ad_name}",
       budgetAmount: null,
+      endDate: null,
     })
   },
 
@@ -182,6 +186,7 @@ export const useLaunchWizard = create<LaunchWizardState>((set, get) => ({
   setNaming: (patch) => set(patch),
   setLaunchStatus: (launchStatus) => set({ launchStatus }),
   setBudgetAmount: (budgetAmount) => set({ budgetAmount }),
+  setEndDate: (endDate) => set({ endDate }),
   setActiveJob: (activeJobId) => set({ activeJobId }),
 
   reset: () => {

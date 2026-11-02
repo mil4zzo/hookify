@@ -10,6 +10,7 @@ export interface LaunchTemplateAdset {
   status?: string | null
   end_time?: string | null
   schedule_expired: boolean
+  needs_end_date: boolean
   daily_budget: number | null
   lifetime_budget: number | null
   has_ads_transparency: boolean
@@ -103,5 +104,6 @@ export interface LaunchRequest {
   status: "ACTIVE" | "PAUSED"
   adset_name_template: string
   budget_amount: number | null
+  end_date: string | null // yyyy-MM-dd
   items: { ad_name: string; campaign_name: string; media: Record<string, string> }[]
 }

@@ -1,14 +1,64 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
+import { addDays, format, isValid, parse } from "date-fns"
+import { IconCalendar, IconX } from "@tabler/icons-react"
 import { useLaunchWizard } from "@/lib/campaignLaunch/store"
 import { isCreativeComplete, renderName } from "@/lib/campaignLaunch/grouping"
 import type { LaunchTemplate } from "@/lib/campaignLaunch/types"
 import { budgetMinorToValue, budgetValueToMinor } from "@/lib/manager/budget"
+import { Button } from "@/components/ui/button"
+import { Calendar } from "@/components/ui/calendar"
 import { Input } from "@/components/ui/input"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { getDateFnsLocale } from "@/lib/utils/dateFnsLocale"
+import { formatLocaleDate } from "@/lib/i18n/locale"
 import { InlineNotice } from "@/components/common/States"
 import { cn } from "@/lib/utils/cn"
 import { adsetBudgets, budgetLabel, formatMoney } from "./TemplateStep"
+
+const END_DATE_FORMAT = "yyyy-MM-dd"
+
+function EndDatePicker({ value, onChange }: { value: string | null; onChange: (value: string | null) => void }) {
+  const [open, setOpen] = useState(false)
+  // parse() lê no fuso local; new Date("yyyy-MM-dd") é UTC e recuaria um dia.
+  const selected = useMemo(() => {
+    const parsed = value ? parse(value, END_DATE_FORMAT, new Date()) : null
+    return parsed && isValid(parsed) ? parsed : undefined
+  }, [value])
+  return (
+    <div className="flex items-center gap-3">
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger asChild>
+          <Button type="button" variant="picker" className="min-w-48 justify-between font-normal">
+            <span className={cn(!selected && "text-muted-foreground")}>
+              {selected ? formatLocaleDate(selected, { day: "2-digit", month: "2-digit", year: "numeric" }) : "Escolher data"}
+            </span>
+            <IconCalendar className="h-4 w-4 text-muted-foreground" />
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent className="w-auto p-0" align="start">
+          <Calendar
+            mode="single"
+            selected={selected}
+            defaultMonth={selected}
+            locale={getDateFnsLocale()}
+            disabled={{ before: addDays(new Date(), 1) }}
+            onSelect={(day) => {
+              onChange(day ? format(day, END_DATE_FORMAT) : null)
+              setOpen(false)
+            }}
+          />
+        </PopoverContent>
+      </Popover>
+      {selected && (
+        <Button type="button" variant="ghost" size="sm" onClick={() => onChange(null)}>
+          <IconX className="h-4 w-4" /> Limpar
+        </Button>
+      )}
+    </div>
+  )
+}
 
 const VARIABLES = [
   { token: "{ad_name}", hint: "nome do criativo" },
@@ -27,6 +77,9 @@ export function ReviewStep({ template }: { template: LaunchTemplate }) {
     state.budgetAmount != null ? String(budgetMinorToValue(state.budgetAmount, template.currency)) : "",
   )
   const abo = template.budget.level === "adset" ? adsetBudgets(adsets) : null
+  const expiredLifetime = adsets.filter((a) => a.needs_end_date)
+  const expiredDaily = adsets.filter((a) => a.schedule_expired && !a.needs_end_date)
+  const endDateRequired = expiredLifetime.length > 0
   const budgetEditable = Boolean(template.budget.level) && !abo?.mixed
   const { setBudgetAmount } = state
   useEffect(() => {
@@ -149,6 +202,20 @@ export function ReviewStep({ template }: { template: LaunchTemplate }) {
               />
             </label>
           )}
+        </section>
+
+        <section className="space-y-3">
+          <h2 className="text-base font-semibold">Data de fim</h2>
+          <EndDatePicker value={state.endDate} onChange={state.setEndDate} />
+          <p className="text-xs text-muted-foreground">
+            {endDateRequired && !state.endDate
+              ? `Obrigatória: ${expiredLifetime.map((a) => a.name).join(", ")} tem orçamento total e a agenda do modelo já venceu.`
+              : state.endDate
+                ? "Vale para todos os conjuntos copiados, no fuso da conta de anúncios."
+                : expiredDaily.length > 0
+                  ? `Sem data, ${expiredDaily.map((a) => a.name).join(", ")} (agenda vencida no modelo) roda sem data de fim até você pausar. Os demais mantêm a data do modelo.`
+                  : "Em branco: cada conjunto mantém a data de fim do modelo."}
+          </p>
         </section>
       </div>
 

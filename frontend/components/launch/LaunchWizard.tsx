@@ -88,7 +88,9 @@ export function LaunchWizard({ initialAdId }: { initialAdId: string | null }) {
 
   const canNext =
     (state.step === 1 && templateReady) || (state.step === 2 && valid.length > 0 && !mediaFailed)
-  const canLaunch = state.step === 3 && templateReady && valid.length > 0 && !mediaFailed && !mediaNotStarted && !launching
+  const needsEndDate =
+    !state.endDate && Boolean(template?.adsets.some((a) => a.needs_end_date && state.selectedAdsetIds.includes(a.id)))
+  const canLaunch = state.step === 3 && templateReady && !needsEndDate && valid.length > 0 && !mediaFailed && !mediaNotStarted && !launching
 
   const launch = async () => {
     if (!template) return
@@ -101,6 +103,7 @@ export function LaunchWizard({ initialAdId }: { initialAdId: string | null }) {
         status: state.launchStatus,
         adset_name_template: state.adsetNameTemplate.trim() || "{template_adset_name}",
         budget_amount: state.budgetAmount,
+        end_date: state.endDate,
         items: valid.map((c, i) => ({
           ad_name: c.name.trim(),
           campaign_name: renderName(state.campaignNameTemplate, { ad_name: c.name.trim(), index: i + 1 }) || c.name.trim(),
