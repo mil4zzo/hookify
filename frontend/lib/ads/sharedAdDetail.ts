@@ -6,6 +6,7 @@ import { useFilters } from "@/lib/hooks/useFilters";
 import { useMqlLeadscore } from "@/lib/hooks/useMqlLeadscore";
 import { computeMqlMetricsFromLeadscore, getLeadscoreRaw, hasLeadscoreData } from "@/lib/utils/mqlMetrics";
 import { getAdThumbnail } from "@/lib/utils/thumbnailFallback";
+import { getRowLeadEconomics, type LeadEconomicsByPack, type RowLeadEconomicsOutcome } from "@/lib/utils/leadEconomics";
 import { extractActorIdFromCreative, extractInstagramMediaId, normalizeMediaType, resolvePrimaryVideoId } from "@/lib/ads/mediaDetection";
 
 type SharedMetricSource = RankingsItem & Record<string, any>;
@@ -68,6 +69,41 @@ function normalizeCurve(values: unknown): number[] {
   return values.map((value) => Number(value || 0));
 }
 
+/**
+ * Economia do lead no modal do anúncio: a MESMA conta da coluna do Manager
+ * (`getRowLeadEconomics`), com o histograma e os trechos de vigência (D33) da MESMA
+ * fonte — nunca o período de uma com os leads da outra.
+ *
+ * `source`: o detalhe do período do modal (agrupado, ou período trocado), quando há.
+ * `detail`: o detalhe do anúncio pedido COM as datas das vigências, para a linha que veio
+ * sem elas (o modal aberto pelos Boards, Insights ou Plano). Enquanto ele carrega, a
+ * resposta é "carregando", não a falha.
+ */
+export function modalLeadEconomicsOutcome(params: {
+  ad: unknown;
+  source: unknown;
+  detail: { data: unknown; loading: boolean } | null;
+  spend: number | null;
+  byPack: LeadEconomicsByPack;
+}): RowLeadEconomicsOutcome {
+  const { ad, source, detail, spend, byPack } = params;
+  const fromSource = getLeadscoreRaw(source as any);
+  let base = (fromSource != null ? source : ad) as Record<string, any> | null | undefined;
+  if (fromSource == null && detail) {
+    if (detail.data) base = detail.data as Record<string, any>;
+    else if (detail.loading) return { unavailable: "period-split-stale" };
+  }
+  return getRowLeadEconomics(
+    {
+      pack_ids: (ad as Record<string, any> | null | undefined)?.pack_ids ?? null,
+      spend,
+      leadscore_histogram: getLeadscoreRaw(base as any) ?? getLeadscoreRaw(ad as any),
+      leadscore_by_period: base?.leadscore_by_period ?? null,
+    },
+    byPack,
+  );
+}
+
 export function buildSharedAdDetailModel({
   baseAd,
   detailAd,
@@ -87,6 +123,8 @@ export function buildSharedAdDetailModel({
   // antigo (CPMQL, e teto/margem da economia do lead). Com leadscore no detalhe, só ele vale.
   if (detailAd && detailAd.leadscore_values !== undefined && detailAd.leadscore_histogram === undefined) {
     delete source.leadscore_histogram;
+    // Os trechos de vigência (D33) são do mesmo período: os do Manager não servem ao do modal.
+    if (detailAd.leadscore_by_period === undefined) delete source.leadscore_by_period;
   }
 
   const retentionSeries =

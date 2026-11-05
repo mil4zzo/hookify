@@ -73,3 +73,15 @@ test("séries, retenção e chaves de outros domínios não são tocadas", () =>
   assert.equal(isManagerRowsQueryKey(null), false);
   assert.equal(isManagerRowsQueryKey("analytics"), false);
 });
+
+test("cortes de vigência (184) na chave da tabela: só quando existem — sem eles, a chave de antes", () => {
+  const before = queryKeys.adPerformance(params, "stamp");
+  assert.deepEqual(queryKeys.adPerformance({ ...params, lead_period_starts: [] }, "stamp"), before);
+  assert.deepEqual(queryKeys.adPerformance({ ...params, lead_period_starts: undefined }, "stamp"), before);
+  const withCuts = queryKeys.adPerformance({ ...params, lead_period_starts: ["2026-10-13"] }, "stamp");
+  assert.notDeepEqual(withCuts, before);
+  assert.notDeepEqual(withCuts, queryKeys.adPerformance({ ...params, lead_period_starts: ["2026-10-20"] }, "stamp"), "editar a data busca de novo");
+  assert.equal(withCuts[withCuts.length - 1], "stamp", "o carimbo de frescor segue no fim");
+  assert.equal(isManagerRowsQueryKey(withCuts), true);
+  assert.notDeepEqual(queryKeys.adVariations("A", "d0", "d1", "p", "2026-10-13"), queryKeys.adVariations("A", "d0", "d1", "p"));
+});

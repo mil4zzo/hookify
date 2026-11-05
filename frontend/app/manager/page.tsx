@@ -8,7 +8,7 @@ import { MANAGER_CELL_MODE_STORAGE_KEY, readManagerCellMode, type ManagerCellMod
 import { PackConflictGuard } from "@/components/common/PackConflictGuard";
 import { ManagerTableSkeleton } from "@/components/manager/ManagerTableSkeleton";
 import { RankingsItem, RankingsRequest } from "@/lib/api/schemas";
-import { useAdPerformance, useAdPerformanceSeries } from "@/lib/api/hooks";
+import { useAdPerformance, useAdPerformanceSeries, useLeadPeriodCuts } from "@/lib/api/hooks";
 import { useAppAuthReady } from "@/lib/hooks/useAppAuthReady";
 import { PageContainer } from "@/components/common/PageContainer";
 import { AnalyticsWorkspace } from "@/components/common/layout";
@@ -228,6 +228,8 @@ function ManagerPageContent() {
   }, []);
 
   // ── API request ────────────────────────────────────────────────────────────
+  // Vigências da economia do lead (D33): sem elas, `undefined` e a consulta é a de antes.
+  const leadPeriodCuts = useLeadPeriodCuts(Array.from(selectedPackIds));
   const managerRequest: RankingsRequest = useMemo(
     () => ({
       date_start: dateRange.start || "",
@@ -249,8 +251,10 @@ function ManagerPageContent() {
       // available_conversion_types vem do metadado packs.conversion_types (union no refresh),
       // não do rankings — manter false pra não pagar o CTE extra que ~dobra o custo da query.
       include_available_conversion_types: false,
+      // Os trechos vêm junto com os leads: sem planilha não há o que separar.
+      lead_period_starts: hasSheetIntegration ? leadPeriodCuts : undefined,
     }),
-    [dateRange.start, dateRange.end, activeGroupBy, selectedPackIds, actionType, hasSheetIntegration, hasCustomColumns],
+    [dateRange.start, dateRange.end, activeGroupBy, selectedPackIds, actionType, hasSheetIntegration, hasCustomColumns, leadPeriodCuts],
   );
 
   const { data: managerData, isLoading: loading, error: managerError } = useAdPerformance(

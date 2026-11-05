@@ -407,12 +407,14 @@ export function buildMetricColumns(params: CreateManagerTableColumnsParams): Col
   // ── Economia do lead: CPL Max e Margem (plano-economia-do-lead.md) ─────
   // Cada linha usa o cadastro dos packs dela (D27). A média do cabeçalho pondera pelos
   // leads com nota de cada anúncio e avisa quando deixou anúncios de fora — os que
-  // juntam packs com cadastros diferentes ou de packs sem cadastro.
-  const describeExcludedRows = (excludedMixed: number, excludedNoEconomics: number): string => {
-    const total = excludedMixed + excludedNoEconomics;
+  // juntam packs com cadastros diferentes, de packs sem cadastro ou sem os leads por vigência.
+  const describeExcludedRows = (rows: { excludedMixed: number; excludedNoEconomics: number; excludedNoPeriodSplit: number }): string | null => {
+    const total = rows.excludedMixed + rows.excludedNoEconomics + rows.excludedNoPeriodSplit;
+    if (total === 0) return null;
     const parts: string[] = [];
-    if (excludedMixed > 0) parts.push(t("averages.excludedMixed", { count: excludedMixed }));
-    if (excludedNoEconomics > 0) parts.push(t("averages.excludedNoEconomics", { count: excludedNoEconomics }));
+    if (rows.excludedMixed > 0) parts.push(t("averages.excludedMixed", { count: rows.excludedMixed }));
+    if (rows.excludedNoEconomics > 0) parts.push(t("averages.excludedNoEconomics", { count: rows.excludedNoEconomics }));
+    if (rows.excludedNoPeriodSplit > 0) parts.push(t("averages.excludedNoPeriodSplit", { count: rows.excludedNoPeriodSplit }));
     return t("averages.excluded", { total, details: parts.join("; ") });
   };
 
@@ -421,10 +423,7 @@ export function buildMetricColumns(params: CreateManagerTableColumnsParams): Col
     const avgLeading = isMinimal ? "leading-none" : "";
     const averages = averagesRef.current;
     const rowsSummary = averages?.lead_economics_rows ?? null;
-    const excludedText =
-      rowsSummary && rowsSummary.excludedMixed + rowsSummary.excludedNoEconomics > 0
-        ? describeExcludedRows(rowsSummary.excludedMixed, rowsSummary.excludedNoEconomics)
-        : null;
+    const excludedText = rowsSummary ? describeExcludedRows(rowsSummary) : null;
     const average = formatAverageRef.current(metricId);
     const averageTooltip = [
       metricId === "leads_scored" ? t("averages.scoredSum") : t("averages.scoredAvg"),

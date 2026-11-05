@@ -185,7 +185,8 @@
       "unstableLabel": "Número instável",
       "excluded": "A média não inclui {total, plural, one {# anúncio} other {# anúncios}}: {details}.",
       "excludedMixed": "{count, plural, one {# junta} other {# juntam}} packs com economias do lead diferentes",
-      "excludedNoEconomics": "{count, plural, one {# é de pack} other {# são de packs}} sem economia cadastrada"
+      "excludedNoEconomics": "{count, plural, one {# é de pack} other {# são de packs}} sem economia cadastrada",
+      "excludedNoPeriodSplit": "{count, plural, one {# chegou} other {# chegaram}} sem os leads separados por vigência"
     },
     "children": {
       "ads": {
@@ -242,11 +243,14 @@
       "cplActual": "CPL Real {value}",
       "cplCeiling": "CPL Max {value}",
       "target": "meta {value}",
+      "periods": "Leads de {count} vigências: {list}",
       "scored": "{count, plural, one {# lead} other {# leads}} com nota",
       "lowSample": "{prefix}: poucos leads com nota — {text}",
       "noRevenue": "Nenhum lead deste anúncio está numa faixa que compra: não há faturamento para dividir.",
       "noSpendCompare": "Sem gasto no período: não há custo por lead para comparar.",
-      "noSpendShow": "Sem gasto no período: não há custo por lead para mostrar."
+      "noSpendShow": "Sem gasto no período: não há custo por lead para mostrar.",
+      "noPeriodSplit": "Este pack tem vigências, mas os leads chegaram sem a separação por data. Sem ela, o Hookify aplicaria uma taxa só a todos os leads, então o número fica de fora. Seu cadastro está certo; a falha é do Hookify.",
+      "periodSplitStale": "Atualizando com as vigências novas…"
     },
     "bulk": {
       "pin": "Fixar no topo",

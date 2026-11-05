@@ -136,3 +136,33 @@ test("Leads com nota: mostra a contagem sem cor, sem esmaecer e sem triângulo, 
   // Com leads e sem gasto o número existe (a margem é que não).
   assert.match(render("leads_scored", row(null)), />20</);
 });
+
+test("vigências (D33): trecho velho desenha carregando, sem travessão; sem trecho é o ícone de falha", () => {
+  const withPeriods: LeadEconomics = { ...A, periods: [{ start: "2026-10-13", bands: [{ min: null, product: "p", conversion: 0.2 }] }] };
+  const byPack: LeadEconomicsByPack = { a: withPeriods };
+  const base = { pack_ids: ["a"], spend: 100, leadscore_histogram: { "70": 20 } };
+  const stale = { ...base, leadscore_by_period: { cuts: ["2026-10-06"], histograms: { "1": { "70": 20 } } } };
+
+  assert.deepEqual(leadEconomicsCellView({ row: stale as any, metric: "lead_margin", byPack, formatCurrency: brl }), {
+    kind: "loading",
+    tooltip: LEAD_ECONOMICS_UNAVAILABLE_TEXT["period-split-stale"],
+  });
+  const staleHtml = renderWith(byPack, "lead_margin", stale);
+  assert.match(staleHtml, /animate-pulse/);
+  assert.doesNotMatch(staleHtml, /—/, "carregando não é vazio");
+
+  const missing = leadEconomicsCellView({ row: base as any, metric: "lead_margin", byPack, formatCurrency: brl });
+  assert.equal(missing.kind, "structural");
+  assert.doesNotMatch(renderWith(byPack, "lead_margin", base), /animate-pulse|—/);
+});
+
+test("vigências (D33): o tooltip diz de quais vigências vieram os leads", () => {
+  const withPeriods: LeadEconomics = { ...A, periods: [{ start: "2026-10-13", bands: [{ min: null, product: "p", conversion: 0.2 }] }] };
+  const split = { cuts: ["2026-10-13"], histograms: { "0": { "70": 12 }, "1": { "70": 8 } } };
+  const result = computeLeadEconomics({ spend: 100, leadscoreRaw: {}, leadscoreByPeriod: split, config: withPeriods });
+  assert.ok(result);
+  assert.match(describeLeadEconomicsValue(result, brl), /Leads de 2 vigências: Início \(12\), A partir de 13\/10 \(8\)/);
+  // Só uma vigência com lead: sem a linha.
+  const one = computeLeadEconomics({ spend: 100, leadscoreRaw: {}, leadscoreByPeriod: { cuts: ["2026-10-13"], histograms: { "1": { "70": 8 } } }, config: withPeriods });
+  assert.doesNotMatch(describeLeadEconomicsValue(one!, brl), /vigências/);
+});

@@ -32,7 +32,7 @@ import { IconAlignLeft, IconBrandParsinta, IconChartAreaLine, IconChartFunnel, I
 import { retentionToColor, findHookBoundary, secondToRetentionIndex } from "@/lib/utils/retentionColor";
 import type { TimestampedWord } from "@/lib/api/schemas";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { useSharedAdNameDetail } from "@/lib/ads/sharedAdDetail";
+import { modalLeadEconomicsOutcome, useSharedAdNameDetail } from "@/lib/ads/sharedAdDetail";
 import { useAdAccountsDb } from "@/lib/api/hooks";
 import Link from "next/link";
 import { useUserTier } from "@/lib/hooks/useUserTier";
@@ -44,7 +44,7 @@ import { RetentionVideoPlayer, RetentionVideoPlayerSkeleton } from "@/components
 import { ThumbnailImage } from "@/components/common/ThumbnailImage";
 import { LeadEconomicsBreakdown } from "@/components/ads/LeadEconomicsBreakdown";
 import { useLeadEconomicsByPack } from "@/lib/hooks/useLeadEconomics";
-import { getRowLeadEconomics } from "@/lib/utils/leadEconomics";
+import { leadEconomicsHasPeriods } from "@/lib/utils/leadEconomics";
 import { showProgressToast, finishProgressToast, buildTranscriptionToastContent } from "@/lib/utils/toast";
 
 interface AdDetailsDialogProps {
@@ -170,7 +170,15 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
   const detailDateStart = historyDateRange.start || dateStart || "";
   const detailDateStop = historyDateRange.end || dateStop || "";
   const shouldLoadVariations = groupByAdName && activeTab === "variations" && !!adName && !!dateStart && !!dateStop;
-  const shouldLoadDetails = !groupByAdName && activeTab === "video" && !!adId && !!dateStart && !!dateStop;
+  const { byPack: leadEconomicsByPack, hasLeadEconomics } = useLeadEconomicsByPack();
+  // Pack com vigências (D33) e linha sem os leads por data (o modal aberto pelos Boards,
+  // Insights ou Plano, que não pedem as datas): o detalhe do mesmo período os traz.
+  const needsPeriodDetail =
+    !groupByAdName &&
+    hasLeadEconomics &&
+    !(ad as any)?.leadscore_by_period &&
+    Object.values(leadEconomicsByPack).some((config) => !!config && leadEconomicsHasPeriods(config));
+  const shouldLoadDetails = !groupByAdName && (activeTab === "video" || needsPeriodDetail) && !!adId && !!dateStart && !!dateStop;
   const shouldLoadCreative = !groupByAdName && (activeTab === "video" || activeTab === "copy") && !!adId;
   const shouldLoadTranscription = activeTab === "copy" && !!adName;
   const shouldLoadHistoryById = activeTab === "history" && !groupByAdName && !!adId && !!dateStart && !!dateStop;
@@ -224,6 +232,7 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
       conversions: src.conversions ?? {},
       leadscore_values: src.leadscore_values ?? null,
       leadscore_histogram: src.leadscore_histogram ?? null,
+      leadscore_by_period: src.leadscore_by_period ?? null,
       custom_histograms: src.custom_histograms ?? null,
       series: src.series ?? null,
     };
@@ -611,19 +620,17 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
   // Economia do lead (F3): a MESMA conta da coluna do Manager (`getRowLeadEconomics`,
   // cadastro dos packs da linha — D27), com os números do período do modal: o período
   // trocado aqui dentro vale, como para o MQL. Agrupado: o detalhe do criativo.
-  const { byPack: leadEconomicsByPack, hasLeadEconomics } = useLeadEconomicsByPack();
   const leadEconomicsSource = groupByAdName ? resolvedDetailModel?.source : effectiveAd;
   const leadEconomicsOutcome = useMemo(() => {
     if (!hasLeadEconomics) return null;
-    return getRowLeadEconomics(
-      {
-        pack_ids: (ad as any)?.pack_ids ?? null,
-        spend: resolvedSpend,
-        leadscore_histogram: getLeadscoreRaw(leadEconomicsSource) ?? getLeadscoreRaw(ad),
-      },
-      leadEconomicsByPack,
-    );
-  }, [hasLeadEconomics, ad, resolvedSpend, leadEconomicsSource, leadEconomicsByPack]);
+    return modalLeadEconomicsOutcome({
+      ad,
+      source: leadEconomicsSource,
+      detail: needsPeriodDetail ? { data: adDetails, loading: loadingAdDetails } : null,
+      spend: resolvedSpend,
+      byPack: leadEconomicsByPack,
+    });
+  }, [hasLeadEconomics, ad, resolvedSpend, leadEconomicsSource, leadEconomicsByPack, needsPeriodDetail, adDetails, loadingAdDetails]);
   const isRetentionLoadingForResolvedVideo = activeTab === "video" && (groupByAdName ? groupedSharedDetail.isLoadingDetail && resolvedRetentionSeries.length === 0 : loadingAdDetails && resolvedRetentionSeries.length === 0);
 
   const isCreativeLoading = (!groupByAdName && loadingCreative) || (groupByAdName && groupedSharedDetail.isLoadingMedia);

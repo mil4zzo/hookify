@@ -96,6 +96,7 @@ export interface ManagerAverages {
   lead_economics_rows: {
     excludedMixed: number;
     excludedNoEconomics: number;
+    excludedNoPeriodSplit: number;
     rowsWithMargin: number;
     rowsBelowTarget: number;
     leadsScored: number;
@@ -543,6 +544,7 @@ export function computeManagerAverages(rows: MetricValueSource[], options: Compu
       ? {
           excludedMixed: leadEconomics.excludedMixed,
           excludedNoEconomics: leadEconomics.excludedNoEconomics,
+          excludedNoPeriodSplit: leadEconomics.excludedNoPeriodSplit,
           rowsWithMargin: leadEconomics.rowsWithMargin,
           rowsBelowTarget: leadEconomics.rowsBelowTarget,
           leadsScored: leadEconomics.aggregate?.leadsScored ?? 0,

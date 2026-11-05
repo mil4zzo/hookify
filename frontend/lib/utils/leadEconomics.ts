@@ -42,9 +42,26 @@ export interface LeadEconomicsBand {
   conversion: number;
 }
 
+/**
+ * Vigência (D33): a partir de `start`, os leads CAPTADOS usam estas faixas. Vale até a
+ * véspera da próxima; a última vale para sempre. Cortes no tempo, como as faixas são
+ * cortes na nota: sem buraco nem sobreposição por construção.
+ */
+export interface LeadEconomicsPeriod {
+  /** `AAAA-MM-DD`, dia da conta de anúncios (o mesmo de `ad_performance_daily.date`). */
+  start: string;
+  bands: LeadEconomicsBand[];
+}
+
 export interface LeadEconomics {
   products: LeadEconomicsProduct[];
+  /** Faixas da primeira vigência — a que não tem data de início (e a única, sem `periods`). */
   bands: LeadEconomicsBand[];
+  /**
+   * Vigências SEGUINTES à primeira (D33), com datas de início estritamente crescentes.
+   * Ausente = uma vigência só: o documento de antes da D33, que o canônico mantém.
+   */
+  periods?: LeadEconomicsPeriod[];
   /**
    * Ajustes do cálculo (D32). Opcionais no documento — ausente vale o padrão, que não
    * ajusta nada; o canônico do validador só traz o ajuste fora do padrão.
@@ -116,6 +133,20 @@ export const LEAD_ECONOMICS_MESSAGES = {
   },
   get salesCoverage() {
     return economicsMsg("salesCoverage");
+  },
+  /** `n`: posição da vigência na tela — a primeira (sem data) é a 1. */
+  periodStart: (n: number) => economicsMsg("periodStart", { n }),
+  periodStartNotIncreasing: (start: string) => economicsMsg("periodStartNotIncreasing", { date: formatPeriodStart(start) }),
+  /**
+   * Erro de faixa DENTRO de uma vigência seguinte: a mesma frase da primeira, com a
+   * vigência na frente — sem isso, "a conversão precisa estar entre 0% e 100%" não diz
+   * em qual das abas está a faixa errada.
+   */
+  inPeriod: (period: { n: number; start: string }, message: string) => {
+    const lowered = message.charAt(0).toLowerCase() + message.slice(1);
+    return period.start
+      ? economicsMsg("inPeriodDated", { date: formatPeriodStart(period.start), message: lowered })
+      : economicsMsg("inPeriodNumbered", { n: period.n, message: lowered });
   },
 };
 
@@ -239,8 +270,61 @@ function checkLeadEconomics(raw: unknown, mode: LeadEconomicsCheckMode): LeadEco
     products.push({ id, name, ticket, contribution_margin: contribution, target_margin: target });
   });
 
-  // Faixas
-  const rawBands = raw.bands as unknown[];
+  // Faixas (da primeira vigência)
+  const bands = checkBands(raw.bands as unknown[], productIds, push);
+
+  // Vigências seguintes (D33): ausente ou null = nenhuma (cadastros de antes).
+  const periods: LeadEconomicsPeriod[] = [];
+  if (raw.periods !== null && raw.periods !== undefined) {
+    if (!Array.isArray(raw.periods)) {
+      push(M.invalidShape);
+    } else {
+      // Último início VÁLIDO visto — a mesma postura do `previousMin` das faixas.
+      let previousStart: string | null = null;
+      for (const item of raw.periods as unknown[]) {
+        if (!isPlainObject(item) || !Array.isArray(item.bands)) {
+          push(M.invalidShape);
+          // A posição conta mesmo assim: a vigência seguinte continua sendo a de número n + 1.
+          periods.push({ start: "", bands: [] });
+          continue;
+        }
+        const n = periods.length + 2;
+        const start = typeof item.start === "string" && isIsoDate(item.start) ? item.start : "";
+        if (!start) push(M.periodStart(n));
+        else {
+          if (previousStart !== null && !(start > previousStart)) push(M.periodStartNotIncreasing(start));
+          previousStart = start;
+        }
+        const pushInPeriod = (message: string) => push(M.inPeriod({ n, start }, message));
+        periods.push({ start, bands: checkBands(item.bands as unknown[], productIds, pushInPeriod) });
+      }
+    }
+  }
+
+  // Ajustes: ausente ou null vale o padrão (cadastros gravados antes da D32).
+  const adjustment = (key: string, fallback: number) => (raw[key] === null || raw[key] === undefined ? fallback : toFinite(raw[key]));
+  const packSpendShare = adjustment("pack_spend_share", 1);
+  if (!(packSpendShare > 0 && packSpendShare <= 1)) push(M.packSpendShare);
+  const adTax = adjustment("ad_tax", 0);
+  if (!(adTax >= 0 && adTax <= 1)) push(M.adTax);
+  const salesCoverage = adjustment("sales_coverage", 1);
+  if (!(salesCoverage > 0 && salesCoverage <= 1)) push(M.salesCoverage);
+
+  if (errors.length > 0) return { value: null, errors };
+  // Ajuste no padrão fica FORA do canônico: o cadastro de quem não ajusta nada continua
+  // o mesmo documento de antes da D32 (e o backend espelha a mesma regra).
+  const value: LeadEconomics = { products, bands };
+  // Mesma regra para as vigências: uma só é o documento de antes da D33.
+  if (periods.length > 0) value.periods = periods;
+  if (packSpendShare !== 1) value.pack_spend_share = packSpendShare;
+  if (adTax !== 0) value.ad_tax = adTax;
+  if (salesCoverage !== 1) value.sales_coverage = salesCoverage;
+  return { value, errors: [] };
+}
+
+/** Uma lista de faixas: a da primeira vigência e a de cada vigência seguinte passam pelas mesmas regras. */
+function checkBands(rawBands: unknown[], productIds: ReadonlySet<string>, push: (message: string) => void): LeadEconomicsBand[] {
+  const M = LEAD_ECONOMICS_MESSAGES;
   if (rawBands.length === 0) push(M.noBands);
 
   const bands: LeadEconomicsBand[] = [];
@@ -276,24 +360,35 @@ function checkLeadEconomics(raw: unknown, mode: LeadEconomicsCheckMode): LeadEco
 
     bands.push({ min, product, conversion });
   });
+  return bands;
+}
 
-  // Ajustes: ausente ou null vale o padrão (cadastros gravados antes da D32).
-  const adjustment = (key: string, fallback: number) => (raw[key] === null || raw[key] === undefined ? fallback : toFinite(raw[key]));
-  const packSpendShare = adjustment("pack_spend_share", 1);
-  if (!(packSpendShare > 0 && packSpendShare <= 1)) push(M.packSpendShare);
-  const adTax = adjustment("ad_tax", 0);
-  if (!(adTax >= 0 && adTax <= 1)) push(M.adTax);
-  const salesCoverage = adjustment("sales_coverage", 1);
-  if (!(salesCoverage > 0 && salesCoverage <= 1)) push(M.salesCoverage);
+/**
+ * Nome de uma vigência na tela (aba do cadastro, modal, tooltip): "Início" para a
+ * primeira, "A partir de 13/10" para as seguintes. Data por fatia de texto, sem fuso.
+ */
+export function leadEconomicsPeriodLabel(start: string | null): string {
+  return start
+    ? translate("packs.economics.periodFrom", { date: `${start.slice(8, 10)}/${start.slice(5, 7)}` })
+    : translate("packs.economics.periodFirst");
+}
 
-  if (errors.length > 0) return { value: null, errors };
-  // Ajuste no padrão fica FORA do canônico: o cadastro de quem não ajusta nada continua
-  // o mesmo documento de antes da D32 (e o backend espelha a mesma regra).
-  const value: LeadEconomics = { products, bands };
-  if (packSpendShare !== 1) value.pack_spend_share = packSpendShare;
-  if (adTax !== 0) value.ad_tax = adTax;
-  if (salesCoverage !== 1) value.sales_coverage = salesCoverage;
-  return { value, errors: [] };
+/** `AAAA-MM-DD` → `DD/MM/AAAA`, por fatia de texto: o espelho Python faz o mesmo, sem fuso nem idioma. */
+function formatPeriodStart(start: string): string {
+  return `${start.slice(8, 10)}/${start.slice(5, 7)}/${start.slice(0, 4)}`;
+}
+
+/**
+ * `AAAA-MM-DD` de um dia que existe no calendário. Só esse formato: ele ordena como
+ * texto (a comparação de vigências é `<`/`>` de string) e é o que o Postgres devolve.
+ * Ano de 1000 em diante: abaixo de 100 o `Date.UTC` lê 1900 + ano, e o espelho Python aceitaria.
+ */
+export function isIsoDate(value: string): boolean {
+  const match = /^([1-9][0-9]{3})-([0-9]{2})-([0-9]{2})$/.exec(value);
+  if (!match) return false;
+  const [year, month, day] = [Number(match[1]), Number(match[2]), Number(match[3])];
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day;
 }
 
 /**
@@ -342,10 +437,8 @@ export function leadEconomicsSemanticKey(config: LeadEconomics): string {
 const _semanticKeyCache = new WeakMap<LeadEconomics, string>();
 
 function buildSemanticKey(config: LeadEconomics): string {
-  // Os ajustes entram pelo fator que a conta usa: dois trios que dão o mesmo fator dão os mesmos números.
-  return JSON.stringify([
-    leadEconomicsValueFactor(config),
-    config.bands.map((band) => {
+  const bandsKey = (bands: ReadonlyArray<LeadEconomicsBand>) =>
+    bands.map((band) => {
       const product = band.conversion === 0 ? null : findLeadEconomicsProduct(config, band.product);
       return [
         band.min,
@@ -354,8 +447,12 @@ function buildSemanticKey(config: LeadEconomics): string {
         product?.contribution_margin ?? null,
         product?.target_margin ?? null,
       ];
-    }),
-  ]);
+    });
+  // Os ajustes entram pelo fator que a conta usa: dois trios que dão o mesmo fator dão os mesmos números.
+  const key: unknown[] = [leadEconomicsValueFactor(config), bandsKey(config.bands)];
+  // Sem vigências, a chave de antes da D33.
+  if (config.periods?.length) key.push(config.periods.map((period) => [period.start, bandsKey(period.bands)]));
+  return JSON.stringify(key);
 }
 
 // ── Peças da conta usadas pela tela e pela conta por anúncio ─────────────────
@@ -459,6 +556,30 @@ export interface LeadEconomicsResult {
   targetMargin: number | null;
   /** Menos de LEAD_ECONOMICS_MIN_SAMPLE leads com nota (D7). */
   lowSample: boolean;
+  /**
+   * Só com vigências (D33): a conta de cada vigência que teve lead, na ordem do cadastro.
+   * Nesse caso `bands` fica vazio — cada vigência tem as suas faixas.
+   */
+  periods?: LeadEconomicsPeriodResult[];
+}
+
+export interface LeadEconomicsPeriodResult {
+  /** 0 = primeira vigência (`config.bands`); n = `config.periods[n - 1]`. */
+  index: number;
+  /** null na primeira vigência. */
+  start: string | null;
+  result: LeadEconomicsResult;
+}
+
+/**
+ * Leads da linha separados por TRECHO de data (D33), como a RPC do Manager devolve.
+ * `cuts` é a lista ordenada de datas de corte mandada na consulta — a união das
+ * vigências de todos os packs da tela; `histograms["t"]` é o histograma do trecho t:
+ * t = quantos cortes são ≤ o dia (0 = antes do primeiro corte).
+ */
+export interface LeadscoreByPeriod {
+  cuts: readonly string[];
+  histograms: Readonly<Record<string, unknown>>;
 }
 
 // ── A conta por anúncio ──────────────────────────────────────────────────────
@@ -524,13 +645,15 @@ function computeFromScoreCounts(
   counts: ReadonlyMap<number, number>,
   spend: number | null,
   config: LeadEconomics,
+  // As faixas de UMA vigência; a primeira por padrão.
+  configBands: ReadonlyArray<LeadEconomicsBand> = config.bands,
 ): LeadEconomicsResult | null {
-  if (config.bands.length === 0) return null;
+  if (configBands.length === 0) return null;
 
-  const bandLeads = new Array<number>(config.bands.length).fill(0);
+  const bandLeads = new Array<number>(configBands.length).fill(0);
   let leadsScored = 0;
   for (const [score, qty] of counts) {
-    bandLeads[findBandIndex(config.bands, score)] += qty;
+    bandLeads[findBandIndex(configBands, score)] += qty;
     leadsScored += qty;
   }
   if (leadsScored <= 0) return null;
@@ -542,8 +665,8 @@ function computeFromScoreCounts(
   let targetPerLead = 0;
   const factor = leadEconomicsValueFactor(config);
 
-  for (let index = 0; index < config.bands.length; index++) {
-    const band = config.bands[index];
+  for (let index = 0; index < configBands.length; index++) {
+    const band = configBands[index];
     // Documento fora do contrato (normalizeLeadEconomics não deixaria passar): sem
     // produto não há conta honesta — indisponível, nunca uma faixa valendo zero.
     const product = findLeadEconomicsProduct(config, band.product);
@@ -563,8 +686,8 @@ function computeFromScoreCounts(
     bands.push({
       index,
       min: band.min,
-      max: config.bands[index + 1]?.min ?? null,
-      label: formatBandLabel(config.bands, index),
+      max: configBands[index + 1]?.min ?? null,
+      label: formatBandLabel(configBands, index),
       product,
       conversion: band.conversion,
       leads,
@@ -594,6 +717,139 @@ function computeFromScoreCounts(
 }
 
 /**
+ * Trechos da consulta → contagens por VIGÊNCIA do cadastro. `null` quando os trechos
+ * não servem para este cadastro: algum início de vigência não está entre os cortes
+ * (consulta feita antes de editar as vigências) ou o dado está fora da forma. Nunca
+ * um palpite — um trecho que atravessa duas vigências não tem taxa honesta.
+ */
+function periodCountsFromSplit(split: LeadscoreByPeriod, config: LeadEconomics): Map<number, number>[] | null {
+  const cutSet = splitCutSet(split);
+  if (!cutSet) return null;
+  const { cuts, histograms } = split;
+  const starts = (config.periods ?? []).map((period) => period.start);
+  if (!starts.every((start) => cutSet.has(start))) return null;
+
+  const counts = Array.from({ length: starts.length + 1 }, () => new Map<number, number>());
+  for (const [key, histogram] of Object.entries(histograms)) {
+    const trecho = Number(key);
+    // O trecho começa no corte t − 1; a vigência dele é a última cujo início é ≤ esse dia.
+    const trechoStart = trecho === 0 ? null : cuts[trecho - 1];
+    let period = 0;
+    if (trechoStart !== null) while (period < starts.length && starts[period] <= trechoStart) period++;
+    addLeadscoreCounts(counts[period], histogram);
+  }
+  return counts;
+}
+
+// Conferido uma vez por objeto de trechos: a mesma linha passa por célula, média, filtro
+// e ordenação a cada render, e a conferência lê todos os trechos.
+const _splitCutSetCache = new WeakMap<LeadscoreByPeriod, Set<string> | null>();
+
+/** Os cortes como conjunto, ou `null` quando os trechos estão fora da forma. */
+function splitCutSet(split: LeadscoreByPeriod): Set<string> | null {
+  if (!split || typeof split !== "object") return null;
+  let cached = _splitCutSetCache.get(split);
+  if (cached === undefined) {
+    cached = splitIsWellFormed(split) ? new Set(split.cuts) : null;
+    _splitCutSetCache.set(split, cached);
+  }
+  return cached;
+}
+
+/** Cortes estritamente crescentes e cada trecho um inteiro de 0 até o número de cortes. */
+function splitIsWellFormed(split: LeadscoreByPeriod): boolean {
+  const { cuts, histograms } = split;
+  if (!Array.isArray(cuts) || !histograms || typeof histograms !== "object") return false;
+  for (let i = 1; i < cuts.length; i++) if (!(cuts[i] > cuts[i - 1])) return false;
+  // Regex e não só `Number(key)`: `Number("")` é 0 e `" 1"` é 1.
+  return Object.keys(histograms).every((key) => /^(0|[1-9][0-9]*)$/.test(key) && Number(key) <= cuts.length);
+}
+
+/**
+ * A conta com vigências: cada vigência com as SUAS faixas sobre os SEUS leads, e o
+ * total ponderado pelos leads com nota — a mesma regra da linha de média (D27), dentro
+ * da linha. O gasto é um só (o do período inteiro): a vigência decide quanto vale cada
+ * lead, não quanto ele custou. Tudo pesa pelos leads, então `margem ≥ meta ⇔ CPL ≤ teto`
+ * continua valendo.
+ */
+function computeFromPeriodCounts(
+  periodCounts: ReadonlyArray<ReadonlyMap<number, number>>,
+  spend: number | null,
+  config: LeadEconomics,
+): LeadEconomicsResult | null {
+  const periods: LeadEconomicsPeriodResult[] = [];
+  let leads = 0;
+  let sumRevenue = 0;
+  let sumContribution = 0;
+  let sumCeiling = 0;
+  let sumTargetRevenue = 0;
+  for (let index = 0; index < periodCounts.length; index++) {
+    const bands = index === 0 ? config.bands : config.periods?.[index - 1]?.bands;
+    if (!bands) return null;
+    // O CPL de cada vigência não existe (o gasto não se divide): só o total tem.
+    const result = computeFromScoreCounts(periodCounts[index], null, config, bands);
+    if (!result) continue;
+    periods.push({ index, start: index === 0 ? null : config.periods![index - 1].start, result });
+    const weight = result.leadsScored;
+    leads += weight;
+    sumRevenue += result.revenuePerLead * weight;
+    sumContribution += result.contributionPerLead * weight;
+    sumCeiling += result.cplCeiling * weight;
+    sumTargetRevenue += (result.targetMargin ?? 0) * result.revenuePerLead * weight;
+  }
+  if (leads <= 0) return null;
+
+  const revenuePerLead = sumRevenue / leads;
+  const contributionPerLead = sumContribution / leads;
+  const cplActual = spend === null ? null : spend / leads;
+  return {
+    leadsScored: leads,
+    bands: [],
+    revenuePerLead,
+    contributionPerLead,
+    cplCeiling: sumCeiling / leads,
+    cplActual,
+    margin: revenuePerLead > 0 && cplActual !== null ? (contributionPerLead - cplActual) / revenuePerLead : null,
+    targetMargin: sumRevenue > 0 ? sumTargetRevenue / sumRevenue : null,
+    lowSample: leads < LEAD_ECONOMICS_MIN_SAMPLE,
+    periods,
+  };
+}
+
+/** O cadastro tem mais de uma vigência — e então a conta precisa dos leads por trecho. */
+export function leadEconomicsHasPeriods(config: LeadEconomics): boolean {
+  return (config.periods?.length ?? 0) > 0;
+}
+
+/**
+ * Datas de corte que a consulta manda (D33): a união dos inícios de vigência de todos os
+ * cadastros da tela, distinta e em ordem (data ISO ordena como texto). Vazia = ninguém tem
+ * vigências, e a consulta fica a de antes.
+ */
+export function leadEconomicsPeriodCuts(configs: Iterable<LeadEconomics | null | undefined>): string[] {
+  const starts = new Set<string>();
+  for (const config of configs) for (const period of config?.periods ?? []) starts.add(period.start);
+  return Array.from(starts).sort();
+}
+
+/**
+ * A resposta traz só `{trecho: histograma}`; os cortes são os que a consulta MANDOU. Junta
+ * os dois em `LeadscoreByPeriod`, na própria linha (as linhas acabaram de sair do JSON).
+ * Linha sem o campo fica sem: a conta a trata como falha (`no-period-split`), nunca com uma
+ * taxa só.
+ */
+export function attachLeadPeriodCuts(rows: ReadonlyArray<unknown> | null | undefined, cuts: readonly string[] | null | undefined): void {
+  if (!rows || !cuts || cuts.length === 0) return;
+  for (const row of rows) {
+    if (!row || typeof row !== "object") continue;
+    const target = row as { leadscore_by_period?: unknown };
+    const histograms = target.leadscore_by_period;
+    if (!histograms || typeof histograms !== "object" || Array.isArray(histograms)) continue;
+    target.leadscore_by_period = { cuts, histograms: histograms as Record<string, unknown> } satisfies LeadscoreByPeriod;
+  }
+}
+
+/**
  * Cache por referência, como `computeMqlMetricsFromLeadscore`: dentro de um render o
  * mesmo anúncio passa por accessor → filtro → célula com a mesma referência do dado
  * bruto. Dado bruto → cadastro (também por referência) → gasto. WeakMap nos dois
@@ -612,17 +868,22 @@ const _leadEconomicsCache = new WeakMap<
 export function computeLeadEconomics(params: {
   spend: number | null | undefined;
   leadscoreRaw: unknown;
+  /** Obrigatório quando o cadastro tem vigências (D33); ignorado quando não tem. */
+  leadscoreByPeriod?: LeadscoreByPeriod | null;
   config: LeadEconomics | null;
 }): LeadEconomicsResult | null {
-  const { spend, leadscoreRaw, config } = params;
+  const { spend, leadscoreRaw, leadscoreByPeriod, config } = params;
   if (!config) return null;
+  const withPeriods = leadEconomicsHasPeriods(config);
+  // Com vigências, a fonte é o histograma por trecho; sem ele não há conta (nunca uma taxa só).
+  const source: unknown = withPeriods ? leadscoreByPeriod?.histograms : leadscoreRaw;
   // Fora de array/objeto não há lead com nota (normalizeLeadscoreValues devolve []).
-  if (!leadscoreRaw || typeof leadscoreRaw !== "object") return null;
+  if (!source || typeof source !== "object") return null;
 
-  let byConfig = _leadEconomicsCache.get(leadscoreRaw);
+  let byConfig = _leadEconomicsCache.get(source);
   if (!byConfig) {
     byConfig = new WeakMap();
-    _leadEconomicsCache.set(leadscoreRaw, byConfig);
+    _leadEconomicsCache.set(source, byConfig);
   }
   let bySpend = byConfig.get(config);
   if (!bySpend) {
@@ -631,7 +892,13 @@ export function computeLeadEconomics(params: {
   }
   if (bySpend.has(spend)) return bySpend.get(spend) ?? null;
 
-  const result = computeFromScoreCounts(countLeadscores(leadscoreRaw), finiteSpendOrNull(spend), config);
+  let result: LeadEconomicsResult | null;
+  if (withPeriods) {
+    const periodCounts = periodCountsFromSplit(leadscoreByPeriod!, config);
+    result = periodCounts ? computeFromPeriodCounts(periodCounts, finiteSpendOrNull(spend), config) : null;
+  } else {
+    result = computeFromScoreCounts(countLeadscores(leadscoreRaw), finiteSpendOrNull(spend), config);
+  }
   bySpend.set(spend, result);
   return result;
 }
@@ -648,7 +915,8 @@ export function computeLeadEconomicsForRows(
   rows: ReadonlyArray<{ spend: number | null | undefined; leadscoreRaw: unknown }>,
   config: LeadEconomics | null,
 ): LeadEconomicsResult | null {
-  if (!config) return null;
+  // Com vigências, somar as contagens apagaria as datas: a média por linha (D27) é a conta.
+  if (!config || leadEconomicsHasPeriods(config)) return null;
 
   const counts = new Map<number, number>();
   let spendTotal = 0;
@@ -685,7 +953,19 @@ export type LeadEconomicsUnavailableReason =
   /** Os packs da linha têm cadastros com números diferentes. */
   | "mixed-economics"
   /** Cadastro existe, mas a linha não tem nenhum lead com nota. */
-  | "no-scored-leads";
+  | "no-scored-leads"
+  /**
+   * O cadastro tem vigências (D33), mas a resposta não trouxe os leads por trecho: a
+   * consulta do banco é uma versão sem o trecho (volta atrás). Falha do sistema, não do
+   * cadastro — o usuário não tem o que fazer.
+   */
+  | "no-period-split"
+  /**
+   * Os trechos vieram, mas de uma consulta feita ANTES da última edição das vigências
+   * (os cortes não cobrem as datas do cadastro). Transitório: a consulta com os cortes
+   * novos já está a caminho — a tela trata como "carregando", não como erro.
+   */
+  | "period-split-stale";
 
 export type RowLeadEconomicsResolution =
   | { config: LeadEconomics; unavailable?: undefined }
@@ -694,6 +974,8 @@ export type RowLeadEconomicsResolution =
 const NO_ECONOMICS = Object.freeze({ unavailable: "no-economics" as const });
 const MIXED_ECONOMICS = Object.freeze({ unavailable: "mixed-economics" as const });
 const NO_SCORED_LEADS = Object.freeze({ unavailable: "no-scored-leads" as const });
+const NO_PERIOD_SPLIT = Object.freeze({ unavailable: "no-period-split" as const });
+const PERIOD_SPLIT_STALE = Object.freeze({ unavailable: "period-split-stale" as const });
 
 // A resolução é por (mapa, lista de packs da linha): as duas referências são
 // estáveis entre renders (o mapa vem memoizado; `pack_ids` é da linha da query).
@@ -750,6 +1032,8 @@ export interface LeadEconomicsRowSource {
   spend?: unknown;
   leadscore_histogram?: unknown;
   leadscore_values?: unknown;
+  /** Leads por trecho de data (D33); só existe quando a consulta mandou cortes. */
+  leadscore_by_period?: LeadscoreByPeriod | null;
 }
 
 export type RowLeadEconomicsOutcome =
@@ -779,9 +1063,24 @@ function rowLeadscoreRaw(row: LeadEconomicsRowSource): unknown {
 export function getRowLeadEconomics(row: LeadEconomicsRowSource, byPack: LeadEconomicsByPack): RowLeadEconomicsOutcome {
   const resolution = resolveRowLeadEconomics(row.pack_ids, byPack);
   if (resolution.unavailable) return resolution;
-  const result = computeLeadEconomics({ spend: rowSpend(row.spend), leadscoreRaw: rowLeadscoreRaw(row), config: resolution.config });
+  const split = splitStatus(row, resolution.config);
+  if (split !== "ok") return split === "missing" ? NO_PERIOD_SPLIT : PERIOD_SPLIT_STALE;
+  const result = computeRow(row, rowSpend(row.spend), resolution.config);
   if (!result) return NO_SCORED_LEADS;
   return { result, config: resolution.config };
+}
+
+/** A linha traz o que a conta deste cadastro precisa? Sem vigências, sempre. */
+function splitStatus(row: LeadEconomicsRowSource, config: LeadEconomics): "ok" | "missing" | "stale" {
+  if (!leadEconomicsHasPeriods(config)) return "ok";
+  // Trecho fora da forma é a mesma falha que trecho ausente: do sistema, nunca "sem lead".
+  const cuts = row.leadscore_by_period ? splitCutSet(row.leadscore_by_period) : null;
+  if (!cuts) return "missing";
+  return config.periods!.every((period) => cuts.has(period.start)) ? "ok" : "stale";
+}
+
+function computeRow(row: LeadEconomicsRowSource, spend: number | null, config: LeadEconomics): LeadEconomicsResult | null {
+  return computeLeadEconomics({ spend, leadscoreRaw: rowLeadscoreRaw(row), leadscoreByPeriod: row.leadscore_by_period, config });
 }
 
 /**
@@ -847,6 +1146,8 @@ export interface LeadEconomicsRowsSummary {
   /** Linhas com lead ou gasto deixadas de fora da média, por motivo. */
   excludedMixed: number;
   excludedNoEconomics: number;
+  /** Cadastro com vigências e linha sem os leads por trecho que o sirvam (D33): sem trecho ou trecho velho. */
+  excludedNoPeriodSplit: number;
   /** Linhas com margem calculável, e quantas delas abaixo da própria meta. */
   rowsWithMargin: number;
   rowsBelowTarget: number;
@@ -889,6 +1190,7 @@ export function aggregateRowsLeadEconomics(
   let hasSpend = false;
   let excludedMixed = 0;
   let excludedNoEconomics = 0;
+  let excludedNoPeriodSplit = 0;
   let rowsWithMargin = 0;
   let rowsBelowTarget = 0;
 
@@ -897,10 +1199,12 @@ export function aggregateRowsLeadEconomics(
     const spend = rowSpend(row.spend);
     const raw = rowLeadscoreRaw(row);
 
-    if (resolution.unavailable) {
+    const noSplit = !resolution.unavailable && splitStatus(row, resolution.config) !== "ok";
+    if (resolution.unavailable || noSplit) {
       // Linha sem lead e sem gasto não muda a média: não há o que avisar.
       if (hasAnyScoredLead(raw) || (spend !== null && spend !== 0)) {
-        if (resolution.unavailable === "mixed-economics") excludedMixed += 1;
+        if (noSplit) excludedNoPeriodSplit += 1;
+        else if (resolution.unavailable === "mixed-economics") excludedMixed += 1;
         else excludedNoEconomics += 1;
       }
       continue;
@@ -911,7 +1215,7 @@ export function aggregateRowsLeadEconomics(
       hasSpend = true;
     }
 
-    const result = computeLeadEconomics({ spend, leadscoreRaw: raw, config: resolution.config });
+    const result = computeRow(row, spend, resolution.config);
     if (!result) continue;
 
     const weight = result.leadsScored;
@@ -929,7 +1233,7 @@ export function aggregateRowsLeadEconomics(
   }
 
   if (leads === 0) {
-    return { aggregate: null, excludedMixed, excludedNoEconomics, rowsWithMargin, rowsBelowTarget };
+    return { aggregate: null, excludedMixed, excludedNoEconomics, excludedNoPeriodSplit, rowsWithMargin, rowsBelowTarget };
   }
 
   const revenuePerLead = sumRevenue / leads;
@@ -948,6 +1252,7 @@ export function aggregateRowsLeadEconomics(
     },
     excludedMixed,
     excludedNoEconomics,
+    excludedNoPeriodSplit,
     rowsWithMargin,
     rowsBelowTarget,
   };

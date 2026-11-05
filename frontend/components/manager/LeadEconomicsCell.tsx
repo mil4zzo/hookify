@@ -6,11 +6,15 @@ import { IconAlertTriangle, IconArrowsSplit, IconCalculatorOff, type Icon } from
 import type { RankingsItem } from "@/lib/api/schemas";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils/cn";
+import { logger } from "@/lib/utils/logger";
+// design-system-exception: direct-skeleton-import - célula densa da tabela carregando, no formato do número que vai entrar
+import { Skeleton } from "@/components/ui/skeleton";
 import { formatMetricValue } from "@/lib/metrics";
 import { isColorlessMetricKey } from "@/lib/metrics/definitions";
 import { getMetricQualityToneByAverage, getMetricValueTextClass } from "@/lib/utils/metricQuality";
 import {
   getRowLeadEconomics,
+  leadEconomicsPeriodLabel,
   leadMarginTone,
   type LeadEconomicsByPack,
   type LeadEconomicsResult,
@@ -31,6 +35,12 @@ export const LEAD_ECONOMICS_UNAVAILABLE_TEXT: Record<LeadEconomicsUnavailableRea
   get "no-scored-leads"() {
     return translate("manager.leadEconomics.noScoredLeads");
   },
+  get "no-period-split"() {
+    return translate("manager.leadEconomics.noPeriodSplit");
+  },
+  get "period-split-stale"() {
+    return translate("manager.leadEconomics.periodSplitStale");
+  },
 };
 
 /**
@@ -43,6 +53,8 @@ export const LEAD_ECONOMICS_UNAVAILABLE_TEXT: Record<LeadEconomicsUnavailableRea
 const STRUCTURAL_ICON: Partial<Record<LeadEconomicsUnavailableReason, Icon>> = {
   "no-economics": IconCalculatorOff,
   "mixed-economics": IconArrowsSplit,
+  // Falha do sistema (consulta sem os trechos), não do período: não vira número sozinha.
+  "no-period-split": IconAlertTriangle,
 };
 
 /**
@@ -55,6 +67,14 @@ export function describeLeadEconomicsValue(result: LeadEconomicsResult, formatCu
   parts.push(translate("manager.leadEconomics.cplCeiling", { value: formatCurrency(result.cplCeiling) }));
   if (result.targetMargin !== null) parts.push(translate("manager.leadEconomics.target", { value: formatMetricValue("lead_margin", result.targetMargin) }));
   parts.push(translate("manager.leadEconomics.scored", { count: result.leadsScored }));
+  // Linha que cruza vigências (D33): de quais vieram os leads.
+  const periods = result.periods ?? [];
+  if (periods.length > 1) {
+    const list = periods
+      .map((period) => `${leadEconomicsPeriodLabel(period.start)} (${period.result.leadsScored})`)
+      .join(", ");
+    parts.push(translate("manager.leadEconomics.periods", { count: periods.length, list }));
+  }
   const text = parts.join(" · ");
   return result.lowSample ? translate("manager.leadEconomics.lowSample", { prefix: translate("manager.leadEconomics.unstablePrefix"), text }) : text;
 }
@@ -68,6 +88,8 @@ function describeMissingMargin(result: LeadEconomicsResult): string {
 /** O que a célula mostra — pura, para o teste ler o tooltip que o HTML fechado não traz. */
 export type LeadEconomicsCellView =
   | { kind: "structural"; reason: LeadEconomicsUnavailableReason; tooltip: string }
+  /** Trechos de uma consulta anterior à edição das vigências: a nova já está a caminho. */
+  | { kind: "loading"; tooltip: string }
   | { kind: "dash"; tooltip: string }
   | { kind: "value"; text: string; tooltip: string; toneClass: string; lowSample: boolean };
 
@@ -83,6 +105,7 @@ export function leadEconomicsCellView(params: {
   const outcome = getRowLeadEconomics(row, byPack);
   if (!outcome.result) {
     const tooltip = LEAD_ECONOMICS_UNAVAILABLE_TEXT[outcome.unavailable];
+    if (outcome.unavailable === "period-split-stale") return { kind: "loading", tooltip };
     return STRUCTURAL_ICON[outcome.unavailable] ? { kind: "structural", reason: outcome.unavailable, tooltip } : { kind: "dash", tooltip };
   }
 
@@ -123,6 +146,16 @@ interface LeadEconomicsCellProps {
   average?: number | null;
 }
 
+// Uma vez por carga da página: a falha é da consulta, e se repete em todas as linhas.
+let noPeriodSplitReported = false;
+
+/** Pack com vigências e a resposta sem os trechos: falha do sistema, nunca do cadastro. */
+function reportNoPeriodSplit(): void {
+  if (noPeriodSplitReported) return;
+  noPeriodSplitReported = true;
+  logger.error("[lead-economics] no-period-split: pack com vigências e linha sem leadscore_by_period (consulta sem os cortes ou RPC sem a 184)");
+}
+
 /** O tooltip do app (Radix), como no BudgetCell — nunca o `title` nativo (revisão P2). */
 function WithTooltip({ text, children }: { text: string; children: React.ReactElement }) {
   return (
@@ -158,6 +191,18 @@ export const LeadEconomicsCell = React.memo(function LeadEconomicsCell({
 }: LeadEconomicsCellProps) {
   const view = leadEconomicsCellView({ row, metric, byPack, formatCurrency, colorMetricValue, average });
   const textSize = minimal ? "text-xs" : "text-base";
+  const noPeriodSplit = view.kind === "structural" && view.reason === "no-period-split";
+  React.useEffect(() => {
+    if (noPeriodSplit) reportNoPeriodSplit();
+  }, [noPeriodSplit]);
+
+  if (view.kind === "loading") {
+    return (
+      <div className="flex flex-col items-center" role="status" aria-label={view.tooltip}>
+        <Skeleton className={minimal ? "h-3 w-10" : "h-4 w-14"} />
+      </div>
+    );
+  }
 
   if (view.kind === "structural") {
     const StructuralIcon = STRUCTURAL_ICON[view.reason]!;

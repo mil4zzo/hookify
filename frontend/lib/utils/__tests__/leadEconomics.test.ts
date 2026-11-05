@@ -2,11 +2,15 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   LEAD_ECONOMICS_MESSAGES as M,
+  aggregateRowsLeadEconomics,
+  attachLeadPeriodCuts,
   computeLeadEconomics,
   computeLeadEconomicsForRows,
   countLeadscores,
   formatBandLabel,
   formatLeadScore,
+  getRowLeadEconomics,
+  leadEconomicsPeriodCuts,
   leadEconomicsSemanticKey,
   normalizeLeadEconomics,
   validateLeadEconomics,
@@ -681,4 +685,188 @@ test("(p) ajustes na chave semântica (D20): mudam o fator, mudam a chave; mesmo
   assert.notEqual(key({ sales_coverage: 0.8 }), plain);
   // Fatia e cobertura iguais se anulam: os mesmos números, a mesma economia.
   assert.equal(key({ pack_spend_share: 0.8, sales_coverage: 0.8 }), plain);
+});
+
+// ── Vigências (D33) ──────────────────────────────────────────────────────────
+
+const EI = { id: "p1", name: "Eu Investidor", ticket: 2570, contribution_margin: 0.77, target_margin: 0.4 };
+const oneBand = (conversion: number) => [{ min: null, product: "p1", conversion }];
+
+test("(q) vigências: conta à mão com duas vigências, e o lead do dia do corte vai para a de cima", () => {
+  // Semana 1 converte 1%, a partir de 13/10 converte 2%. A consulta cortou também em
+  // 06/10 (outro pack da tela): o trecho 06/10–12/10 ainda é da Semana 1.
+  const config = mustConfig({ products: [EI], bands: oneBand(0.01), periods: [{ start: "2026-10-13", bands: oneBand(0.02) }] });
+  const split = { cuts: ["2026-10-06", "2026-10-13"], histograms: { "0": { "50": 20 }, "1": { "50": 40 }, "2": { "50": 40 } } };
+  const r = nonNull(computeLeadEconomics({ spend: 500, leadscoreRaw: { "50": 100 }, leadscoreByPeriod: split, config }));
+
+  // 60 leads a 1% e 40 a 2% (o trecho "2" começa no próprio dia 13).
+  const conversion = 0.6 * 0.01 + 0.4 * 0.02;
+  near(r.cplCeiling, conversion * 2570 * 0.37, "teto ponderado pelos leads");
+  near(r.revenuePerLead, conversion * 2570, "faturamento");
+  near(r.cplActual, 5, "CPL = gasto inteiro ÷ todos os leads");
+  near(r.margin, (conversion * 2570 * 0.77 - 5) / (conversion * 2570), "margem");
+  near(r.targetMargin, 0.4, "meta");
+  assert.equal(r.leadsScored, 100);
+  assert.deepEqual(r.bands, [], "com vigências, as faixas ficam em cada vigência");
+  assert.deepEqual(
+    r.periods?.map((p) => [p.index, p.start, p.result.leadsScored]),
+    [
+      [0, null, 60],
+      [1, "2026-10-13", 40],
+    ],
+  );
+  const atCeiling = nonNull(computeLeadEconomics({ spend: r.cplCeiling * 100, leadscoreRaw: { "50": 100 }, leadscoreByPeriod: split, config }));
+  near(atCeiling.margin, 0.4, "no teto, a margem é a meta");
+});
+
+test("(r) vigências: com as mesmas faixas em todas, o número é o de uma vigência só (300 casos)", () => {
+  const rng = makeRng(33);
+  for (let i = 0; i < 300; i++) {
+    const bands = [
+      { min: null, product: "p1", conversion: Math.round(rng() * 1000) / 100000 },
+      { min: 50, product: "p1", conversion: Math.round(rng() * 1000) / 100000 },
+      { min: 200, product: "p1", conversion: Math.round(rng() * 1000) / 100000 },
+    ];
+    const single = mustConfig({ products: [EI], bands });
+    const withPeriods = mustConfig({ products: [EI], bands, periods: [{ start: "2026-10-13", bands }, { start: "2026-10-20", bands }] });
+    const cuts = ["2026-10-06", "2026-10-13", "2026-10-20"];
+    const histograms: Record<string, Record<string, number>> = {};
+    const total: Record<string, number> = {};
+    for (let n = 0; n < 1 + Math.floor(rng() * 40); n++) {
+      const trecho = String(Math.floor(rng() * 4));
+      const score = String(Math.floor(rng() * 300));
+      const qty = 1 + Math.floor(rng() * 5);
+      (histograms[trecho] ??= {})[score] = (histograms[trecho][score] ?? 0) + qty;
+      total[score] = (total[score] ?? 0) + qty;
+    }
+    const spend = Math.round(rng() * 100000) / 100;
+    const a = nonNull(computeLeadEconomics({ spend, leadscoreRaw: total, config: single }));
+    const b = nonNull(computeLeadEconomics({ spend, leadscoreRaw: total, leadscoreByPeriod: { cuts, histograms }, config: withPeriods }));
+    assert.equal(b.leadsScored, a.leadsScored, `caso ${i}: leads`);
+    for (const key of ["revenuePerLead", "contributionPerLead", "cplCeiling", "cplActual"] as const) {
+      near(b[key], a[key] as number, `caso ${i}: ${key}`, 1e-9 * Math.max(1, Math.abs(a[key] as number)));
+    }
+    if (a.margin === null) assert.equal(b.margin, null);
+    else near(b.margin, a.margin, `caso ${i}: margem`, 1e-9);
+  }
+});
+
+test("(s) vigências: margem ≥ meta ⇔ CPL ≤ teto (500 casos gerados, produtos e cortes diferentes)", () => {
+  const rng = makeRng(330);
+  const products = [EI, { id: "p2", name: "Ebook", ticket: 97, contribution_margin: 0.9, target_margin: 0.2 }];
+  for (let i = 0; i < 500; i++) {
+    const randomBands = () => [
+      { min: null, product: rng() < 0.5 ? "p1" : "p2", conversion: rng() * 0.05 },
+      { min: 10 + Math.floor(rng() * 100), product: rng() < 0.5 ? "p1" : "p2", conversion: rng() * 0.05 },
+    ];
+    const config = mustConfig({ products, bands: randomBands(), periods: [{ start: "2026-10-13", bands: randomBands() }] });
+    const histograms = { "0": { [String(Math.floor(rng() * 200))]: 1 + Math.floor(rng() * 30) }, "1": { [String(Math.floor(rng() * 200))]: 1 + Math.floor(rng() * 30) } };
+    const probe = nonNull(computeLeadEconomics({ spend: 0, leadscoreRaw: {}, leadscoreByPeriod: { cuts: ["2026-10-13"], histograms }, config }));
+    const spend = rng() * probe.cplCeiling * probe.leadsScored * 2;
+    const r = nonNull(computeLeadEconomics({ spend, leadscoreRaw: {}, leadscoreByPeriod: { cuts: ["2026-10-13"], histograms }, config }));
+    if (r.margin === null || r.targetMargin === null || r.cplActual === null) continue;
+    const byMargin = r.margin >= r.targetMargin - 1e-9;
+    const byCeiling = r.cplActual <= r.cplCeiling + 1e-9 * Math.max(1, r.cplCeiling);
+    assert.equal(byMargin, byCeiling, `caso ${i}: margem ${r.margin} meta ${r.targetMargin} CPL ${r.cplActual} teto ${r.cplCeiling}`);
+  }
+});
+
+test("(t) vigências: sem os leads por trecho, ou com trechos que não cobrem as datas, a linha fica indisponível", () => {
+  const config = mustConfig({ products: [EI], bands: oneBand(0.01), periods: [{ start: "2026-10-13", bands: oneBand(0.02) }] });
+  const byPack = { a: config };
+  const base = { pack_ids: ["a"], spend: 100, leadscore_histogram: { "50": 10 } };
+  assert.equal(getRowLeadEconomics(base, byPack).unavailable, "no-period-split", "consulta sem trecho (versão antiga da RPC)");
+  assert.equal(
+    getRowLeadEconomics({ ...base, leadscore_by_period: { cuts: ["2026-10-06"], histograms: { "0": { "50": 10 } } } }, byPack).unavailable,
+    "period-split-stale",
+    "trechos de antes de editar a vigência: o 13/10 não é corte (carregando, não erro)",
+  );
+  const ok = getRowLeadEconomics({ ...base, leadscore_by_period: { cuts: ["2026-10-13"], histograms: { "1": { "50": 10 } } } }, byPack);
+  near(ok.result?.cplCeiling, 0.02 * 2570 * 0.37, "todos os leads depois do corte: taxa da vigência nova");
+
+  // Cadastro sem vigências ignora o trecho e usa o histograma total, como antes.
+  const plain = mustConfig({ products: [EI], bands: oneBand(0.01) });
+  const withSplit = getRowLeadEconomics({ ...base, leadscore_by_period: { cuts: ["2026-10-13"], histograms: { "1": { "50": 3 } } } }, { a: plain });
+  assert.deepEqual(withSplit, getRowLeadEconomics(base, { a: plain }));
+
+  // Chamada direta da conta com trechos velhos: também sem número (não só pela linha).
+  assert.equal(
+    computeLeadEconomics({ spend: 1, leadscoreRaw: {}, leadscoreByPeriod: { cuts: ["2026-10-06"], histograms: { "1": { "50": 1 } } }, config }),
+    null,
+  );
+  // Trecho fora da forma é falha do sistema, nunca "nenhum lead com nota".
+  for (const histograms of [{ "2": { "50": 1 } }, { "": { "50": 1 } }, { " 1": { "50": 1 } }]) {
+    assert.equal(
+      getRowLeadEconomics({ ...base, leadscore_by_period: { cuts: ["2026-10-13"], histograms } }, byPack).unavailable,
+      "no-period-split",
+      JSON.stringify(histograms),
+    );
+  }
+  assert.equal(
+    getRowLeadEconomics({ ...base, leadscore_by_period: { cuts: ["2026-10-13", "2026-10-06"], histograms: {} } }, byPack).unavailable,
+    "no-period-split",
+    "cortes fora de ordem",
+  );
+  // Trecho fora da faixa da lista de cortes: dado fora da forma, sem palpite.
+  assert.equal(
+    computeLeadEconomics({ spend: 1, leadscoreRaw: {}, leadscoreByPeriod: { cuts: ["2026-10-13"], histograms: { "2": { "50": 1 } } }, config }),
+    null,
+  );
+
+  // Média: a linha sem trecho sai e é contada à parte; a com trecho entra.
+  const summary = aggregateRowsLeadEconomics(
+    [base, { ...base, leadscore_by_period: { cuts: ["2026-10-13"], histograms: { "1": { "50": 10 } } } }],
+    byPack,
+  );
+  assert.equal(summary.excludedNoPeriodSplit, 1);
+  assert.equal(summary.excludedNoEconomics, 0);
+  assert.equal(summary.aggregate?.leadsScored, 10);
+  near(summary.aggregate?.cplCeiling, 0.02 * 2570 * 0.37, "média");
+
+  // A soma de contagens (D17) não sabe de datas: com vigências, não responde.
+  assert.equal(computeLeadEconomicsForRows([{ spend: 1, leadscoreRaw: { "50": 1 } }], config), null);
+});
+
+test("(u) vigências na chave semântica (D20): sem vigência é a chave de antes; data ou faixa diferente muda", () => {
+  const plain = mustConfig({ products: [EI], bands: oneBand(0.01) });
+  assert.equal(leadEconomicsSemanticKey(plain), JSON.stringify([1, [[null, 0.01, 2570, 0.77, 0.4]]]), "a chave de antes da D33");
+  const key = (start: string, conversion: number) =>
+    leadEconomicsSemanticKey(mustConfig({ products: [EI], bands: oneBand(0.01), periods: [{ start, bands: oneBand(conversion) }] }));
+  assert.notEqual(key("2026-10-13", 0.02), leadEconomicsSemanticKey(plain));
+  assert.notEqual(key("2026-10-14", 0.02), key("2026-10-13", 0.02));
+  assert.notEqual(key("2026-10-13", 0.03), key("2026-10-13", 0.02));
+  assert.equal(key("2026-10-13", 0.02), key("2026-10-13", 0.02));
+});
+
+test("(v) cortes da consulta: união das vigências da tela, distinta e em ordem; sem vigências, nada", () => {
+  const a = mustConfig({ products: [EI], bands: oneBand(0.01), periods: [{ start: "2026-10-20", bands: oneBand(0.02) }, { start: "2026-10-27", bands: oneBand(0.03) }] });
+  const b = mustConfig({ products: [EI], bands: oneBand(0.01), periods: [{ start: "2026-10-13", bands: oneBand(0.02) }, { start: "2026-10-20", bands: oneBand(0.02) }] });
+  const plain = mustConfig({ products: [EI], bands: oneBand(0.01) });
+  assert.deepEqual(leadEconomicsPeriodCuts([a, null, b, plain, undefined]), ["2026-10-13", "2026-10-20", "2026-10-27"]);
+  assert.deepEqual(leadEconomicsPeriodCuts([plain, null]), []);
+});
+
+test("(w) resposta da RPC → linha: os trechos ganham os cortes mandados e a conta sai certa", () => {
+  // Dois packs na tela: um corta em 13/10, o outro em 20/10. A RPC devolve só {trecho: histograma}.
+  const a = mustConfig({ products: [EI], bands: oneBand(0.01), periods: [{ start: "2026-10-13", bands: oneBand(0.02) }] });
+  const b = mustConfig({ products: [EI], bands: oneBand(0.01), periods: [{ start: "2026-10-20", bands: oneBand(0.04) }] });
+  const cuts = leadEconomicsPeriodCuts([a, b]);
+  const rows: Record<string, unknown>[] = [
+    { pack_ids: ["a"], spend: 100, leadscore_histogram: { "50": 30 }, leadscore_by_period: { "0": { "50": 10 }, "1": { "50": 10 }, "2": { "50": 10 } } },
+    { pack_ids: ["b"], spend: 100, leadscore_histogram: { "50": 30 }, leadscore_by_period: { "0": { "50": 10 }, "1": { "50": 10 }, "2": { "50": 10 } } },
+    { pack_ids: ["a"], spend: 100, leadscore_histogram: { "50": 30 } },
+  ];
+  attachLeadPeriodCuts(rows, cuts);
+  const byPack = { a, b };
+  // Pack a: trechos 1 e 2 (de 13/10 em diante) a 2%. Pack b: só o trecho 2 (de 20/10) a 4%.
+  near(getRowLeadEconomics(rows[0] as any, byPack).result?.cplCeiling, ((10 * 0.01 + 20 * 0.02) / 30) * 2570 * 0.37, "pack a");
+  near(getRowLeadEconomics(rows[1] as any, byPack).result?.cplCeiling, ((20 * 0.01 + 10 * 0.04) / 30) * 2570 * 0.37, "pack b");
+  // Linha sem o campo continua sem: falha do sistema, nunca a taxa da primeira vigência.
+  assert.equal(getRowLeadEconomics(rows[2] as any, byPack).unavailable, "no-period-split");
+
+  // Sem cortes (ninguém com vigência), a linha fica como veio.
+  const untouched = { leadscore_by_period: { "0": { "50": 1 } } };
+  attachLeadPeriodCuts([untouched], []);
+  attachLeadPeriodCuts([untouched], undefined);
+  assert.deepEqual(untouched, { leadscore_by_period: { "0": { "50": 1 } } });
 });

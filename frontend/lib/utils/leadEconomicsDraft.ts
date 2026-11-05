@@ -29,6 +29,8 @@ import {
   LEAD_ECONOMICS_PRODUCT_NAME_MAX,
   bandCeilingPerLead,
   formatLeadScore,
+  isIsoDate,
+  leadEconomicsPeriodLabel,
   leadEconomicsValueFactor,
   productNameKey,
   validateLeadEconomics,
@@ -61,9 +63,21 @@ export interface LeadEconomicsBandDraft {
   conversion: string;
 }
 
+/** Vigência seguinte (D33): a partir da data, valem as faixas dela. A primeira são as `bands` da raiz. */
+export interface LeadEconomicsPeriodDraft {
+  /** Chave só da tela (React). */
+  key: string;
+  /** `AAAA-MM-DD` escolhido no calendário; "" = ainda sem data. */
+  start: string;
+  bands: LeadEconomicsBandDraft[];
+}
+
 export interface LeadEconomicsDraft {
   products: LeadEconomicsProductDraft[];
+  /** Faixas da PRIMEIRA vigência (a sem data de início). */
   bands: LeadEconomicsBandDraft[];
+  /** Vigências seguintes; ausente ou vazio = uma só (o cadastro de antes da D33). */
+  periods?: LeadEconomicsPeriodDraft[];
   /**
    * Ajustes do cálculo (D32), em PORCENTAGEM digitada. Em branco (ou ausente) vale o
    * padrão, que não ajusta nada: 100% do tráfego, 0% de imposto, 100% das vendas.
@@ -260,6 +274,12 @@ function readProductName(raw: string): { kind: "blank" } | { kind: "tooLong" } |
  */
 export function draftToLeadEconomicsDocument(draft: LeadEconomicsDraft) {
   const single = draft.products.length === 1;
+  const toBands = (bands: LeadEconomicsBandDraft[]) =>
+    bands.map((band, index) => ({
+      min: index === 0 ? null : parseScoreInput(band.min),
+      product: single ? draft.products[0].id : band.product,
+      conversion: numberOrNaN(parsePercentInput(band.conversion)),
+    }));
   return {
     products: draft.products.map((product) => ({
       id: product.id,
@@ -268,11 +288,9 @@ export function draftToLeadEconomicsDocument(draft: LeadEconomicsDraft) {
       contribution_margin: numberOrNaN(parsePercentInput(product.contribution)),
       target_margin: numberOrNaN(parsePercentInput(product.target)),
     })),
-    bands: draft.bands.map((band, index) => ({
-      min: index === 0 ? null : parseScoreInput(band.min),
-      product: single ? draft.products[0].id : band.product,
-      conversion: numberOrNaN(parsePercentInput(band.conversion)),
-    })),
+    bands: toBands(draft.bands),
+    // Sem vigência seguinte a chave nem existe: o documento é o de antes da D33.
+    ...(draft.periods?.length ? { periods: draft.periods.map((period) => ({ start: period.start, bands: toBands(period.bands) })) } : {}),
     pack_spend_share: adjustmentValue(draft, "spendShare"),
     ad_tax: adjustmentValue(draft, "adTax"),
     sales_coverage: adjustmentValue(draft, "salesCoverage"),
@@ -302,20 +320,45 @@ export const leadEconomicsUnreadableCutMessage = (): string => translate("packs.
  * primeira faixa não virou número — em branco ou ilegível, nada mais.
  */
 function phraseCutErrors(errors: string[], draft: LeadEconomicsDraft, countBlank: boolean): string[] {
-  let blank = false;
-  let unreadable = false;
-  draft.bands.forEach((band, index) => {
-    if (index === 0) return;
-    if (isBlank(band.min)) blank = true;
-    else if (parseScoreInput(band.min) === null) unreadable = true;
-  });
+  // Cada vigência tem a SUA frase de "falta corte" (a das seguintes vem com a vigência na frente).
+  const byMessage = new Map<string, { blank: boolean; unreadable: boolean; wrap: (message: string) => string }>();
+  for (const { bands, wrap } of draftVigencias(draft)) {
+    let blank = false;
+    let unreadable = false;
+    bands.forEach((band, index) => {
+      if (index === 0) return;
+      if (isBlank(band.min)) blank = true;
+      else if (parseScoreInput(band.min) === null) unreadable = true;
+    });
+    // Duas vigências com a mesma data têm a mesma frase: as marcas se somam, nenhuma apaga a outra.
+    const key = wrap(LEAD_ECONOMICS_MESSAGES.bandMinMissing);
+    const seen = byMessage.get(key);
+    byMessage.set(key, { blank: blank || !!seen?.blank, unreadable: unreadable || !!seen?.unreadable, wrap });
+  }
   return errors.flatMap((message) => {
-    if (message !== LEAD_ECONOMICS_MESSAGES.bandMinMissing) return [message];
+    const cut = byMessage.get(message);
+    if (!cut) return [message];
     const phrased: string[] = [];
-    if (blank && countBlank) phrased.push(message);
-    if (unreadable) phrased.push(leadEconomicsUnreadableCutMessage());
+    if (cut.blank && countBlank) phrased.push(message);
+    if (cut.unreadable) phrased.push(cut.wrap(leadEconomicsUnreadableCutMessage()));
     return phrased;
   });
+}
+
+/**
+ * As vigências do rascunho, cada uma com as faixas e o jeito como o contrato embrulha as
+ * frases dela: a primeira sem nada, as seguintes com "Na vigência a partir de…". A data
+ * entra como o contrato a lê ("" quando não é um dia válido).
+ */
+function draftVigencias(draft: LeadEconomicsDraft): { bands: LeadEconomicsBandDraft[]; wrap: (message: string) => string }[] {
+  const M = LEAD_ECONOMICS_MESSAGES;
+  return [
+    { bands: draft.bands, wrap: (message: string) => message },
+    ...(draft.periods ?? []).map((period, i) => {
+      const start = isIsoDate(period.start) ? period.start : "";
+      return { bands: period.bands, wrap: (message: string) => M.inPeriod({ n: i + 2, start }, message) };
+    }),
+  ];
 }
 
 /**
@@ -345,17 +388,23 @@ export function leadEconomicsDraftLiveErrors(draft: LeadEconomicsDraft): string[
       contribution: isBlank(product.contribution) ? "100" : product.contribution,
       target: isBlank(product.target) ? "0" : product.target,
     })),
-    bands: draft.bands.map((band) => ({
-      ...band,
-      conversion: isBlank(band.conversion) ? "0" : band.conversion,
-    })),
+    bands: neutralBands(draft.bands),
+    periods: draft.periods?.map((period) => ({ ...period, bands: neutralBands(period.bands) })),
   };
+  // Data de vigência em branco é o mesmo "falta": só acusa depois de tentar salvar.
+  const blankStarts = new Set(
+    (draft.periods ?? []).flatMap((period, i) => (isBlank(period.start) ? [LEAD_ECONOMICS_MESSAGES.periodStart(i + 2)] : [])),
+  );
   // Nome não tem "ilegível": só falta quando está em branco. Corte tem — texto que
   // não é número continua acusando (com a frase da tela; em branco, não acusa).
   const errors = validateLeadEconomics(draftToLeadEconomicsDocument(neutral)).errors.filter(
-    (message) => message !== LEAD_ECONOMICS_MESSAGES.productNameMissing,
+    (message) => message !== LEAD_ECONOMICS_MESSAGES.productNameMissing && !blankStarts.has(message),
   );
   return phraseCutErrors(errors, draft, false);
+}
+
+function neutralBands(bands: LeadEconomicsBandDraft[]): LeadEconomicsBandDraft[] {
+  return bands.map((band) => ({ ...band, conversion: isBlank(band.conversion) ? "0" : band.conversion }));
 }
 
 // ── Erro por campo (para marcar o campo, não só listar) ──────────────────────
@@ -555,16 +604,23 @@ export function leadEconomicsToDraft(doc: LeadEconomics): LeadEconomicsDraft {
       contribution: formatPercentInput(product.contribution_margin),
       target: formatPercentInput(product.target_margin),
     })),
-    bands: doc.bands.map((band) => ({
-      key: newLeadEconomicsId(),
-      min: band.min === null ? "" : formatScoreInput(band.min),
-      product: band.product,
-      conversion: formatPercentInput(band.conversion),
-    })),
+    bands: bandsToDraft(doc.bands),
+    ...(doc.periods?.length
+      ? { periods: doc.periods.map((period) => ({ key: newLeadEconomicsId(), start: period.start, bands: bandsToDraft(period.bands) })) }
+      : {}),
     spendShare: formatPercentInput(doc.pack_spend_share ?? 1),
     adTax: formatPercentInput(doc.ad_tax ?? 0),
     salesCoverage: formatPercentInput(doc.sales_coverage ?? 1),
   };
+}
+
+function bandsToDraft(bands: LeadEconomics["bands"]): LeadEconomicsBandDraft[] {
+  return bands.map((band) => ({
+    key: newLeadEconomicsId(),
+    min: band.min === null ? "" : formatScoreInput(band.min),
+    product: band.product,
+    conversion: formatPercentInput(band.conversion),
+  }));
 }
 
 /**
@@ -677,6 +733,24 @@ function bandCeilingFromDocument(doc: DraftDocument, index: number, factor: numb
   return bandCeilingPerLead(value.bands[0].conversion, value.products[0], factor);
 }
 
+/**
+ * Rótulo de cada faixa que usa o produto, em TODAS as vigências (com um produto só,
+ * todas): é o que a pergunta "Mover para" lista. Com vigências, cada faixa leva a
+ * dela junto ("Abaixo de 80" (A partir de 13/10)).
+ */
+export function productBandUsage(draft: LeadEconomicsDraft, productId: string): string[] {
+  const hasPeriods = (draft.periods?.length ?? 0) > 0;
+  const out: string[] = [];
+  draftPeriodLabels(draft).forEach((periodLabel, index) => {
+    const view = draftPeriodView(draft, index);
+    const labels = draftBandLabels(view);
+    for (const i of bandsUsingProduct(view, productId)) {
+      out.push(!hasPeriods ? `"${labels[i]}"` : translate("packs.economics.bandInPeriod", { band: labels[i], period: periodLabel }));
+    }
+  });
+  return out;
+}
+
 /** Índices das faixas que usam o produto (com um produto só, todas). */
 export function bandsUsingProduct(draft: LeadEconomicsDraft, productId: string): number[] {
   const single = draft.products.length === 1;
@@ -687,18 +761,33 @@ export function bandsUsingProduct(draft: LeadEconomicsDraft, productId: string):
   return out;
 }
 
-/** Separa as mensagens do contrato por bloco da tela: faixas × produtos. */
-export function isLeadEconomicsBandMessage(message: string): boolean {
+/**
+ * Separa as mensagens do contrato por bloco da tela: faixas × produtos. Com o rascunho,
+ * as das vigências seguintes (a data e as faixas, que o contrato embrulha com a
+ * vigência) também são do bloco das faixas.
+ */
+export function isLeadEconomicsBandMessage(message: string, draft?: LeadEconomicsDraft): boolean {
+  const M = LEAD_ECONOMICS_MESSAGES;
   // Montado a cada chamada: o texto muda com o idioma, e a lista é de 7 itens.
-  return [
-    LEAD_ECONOMICS_MESSAGES.noBands,
-    LEAD_ECONOMICS_MESSAGES.firstBandHasMin,
-    LEAD_ECONOMICS_MESSAGES.bandMinMissing,
+  const bandMessages = [
+    M.noBands,
+    M.firstBandHasMin,
+    M.bandMinMissing,
     leadEconomicsUnreadableCutMessage(),
-    LEAD_ECONOMICS_MESSAGES.bandMinNotIncreasing,
-    LEAD_ECONOMICS_MESSAGES.bandProductMissing,
-    LEAD_ECONOMICS_MESSAGES.bandConversion,
-  ].includes(message);
+    M.bandMinNotIncreasing,
+    M.bandProductMissing,
+    M.bandConversion,
+  ];
+  if (bandMessages.includes(message)) return true;
+  const periods = draft?.periods ?? [];
+  if (periods.length === 0) return false;
+  const vigencias = draftVigencias(draft!);
+  return periods.some(
+    (period, i) =>
+      message === M.periodStart(i + 2) ||
+      message === M.periodStartNotIncreasing(period.start) ||
+      bandMessages.some((band) => vigencias[i + 1].wrap(band) === message),
+  );
 }
 
 /** Mensagens do bloco "Ajustes do cálculo". */
@@ -717,10 +806,18 @@ export function addDraftProduct(draft: LeadEconomicsDraft): LeadEconomicsDraft {
   const product: LeadEconomicsProductDraft = { id: newLeadEconomicsId(), name: "", ticket: "", contribution: "", target: "" };
   // Com um produto só, a faixa aponta para ele qualquer que seja o id guardado; com
   // o segundo, o id passa a valer: garante que todas apontam para o produto que já
-  // existia (e não para um id velho).
-  const bands =
-    draft.products.length === 1 ? draft.bands.map((band) => ({ ...band, product: draft.products[0].id })) : draft.bands;
-  return { products: [...draft.products, product], bands };
+  // existia (e não para um id velho) — em todas as vigências.
+  const grown = { ...draft, products: [...draft.products, product] };
+  return draft.products.length === 1 ? mapAllBands(grown, (band) => ({ ...band, product: draft.products[0].id })) : grown;
+}
+
+/** A mesma troca nas faixas de todas as vigências. */
+function mapAllBands(draft: LeadEconomicsDraft, fn: (band: LeadEconomicsBandDraft) => LeadEconomicsBandDraft): LeadEconomicsDraft {
+  return {
+    ...draft,
+    bands: draft.bands.map(fn),
+    ...(draft.periods ? { periods: draft.periods.map((period) => ({ ...period, bands: period.bands.map(fn) })) } : {}),
+  };
 }
 
 export function updateDraftProduct(
@@ -747,13 +844,10 @@ export function removeDraftProduct(
   if (draft.products.length <= 1) return draft;
   const products = draft.products.filter((product) => product.id !== productId);
   if (products.length === draft.products.length) return draft;
-  const inUse = bandsUsingProduct(draft, productId).length > 0;
+  const inUse = productBandUsage(draft, productId).length > 0;
   const target = moveBandsTo && products.some((product) => product.id === moveBandsTo) ? moveBandsTo : null;
   if (inUse && target === null) return draft;
-  return {
-    products,
-    bands: draft.bands.map((band) => (band.product === productId && target ? { ...band, product: target } : band)),
-  };
+  return mapAllBands({ ...draft, products }, (band) => (band.product === productId && target ? { ...band, product: target } : band));
 }
 
 /**
@@ -804,6 +898,87 @@ export function removeDraftBand(draft: LeadEconomicsDraft, index: number): LeadE
   const bands = draft.bands.filter((_, i) => i !== index);
   if (index === 0) bands[0] = { ...bands[0], min: "" };
   return { ...draft, bands };
+}
+
+// ── Vigências (D33): o editor mostra as faixas de UMA por vez ─────────────────
+
+/**
+ * O rascunho como se só existisse a vigência `index` (0 = a primeira): as funções de
+ * faixa (rótulo, teto, campo com erro, adicionar, remover, CSV) trabalham nele sem
+ * conhecer vigência. Volta ao rascunho por `setDraftPeriodView`.
+ */
+export function draftPeriodView(draft: LeadEconomicsDraft, index: number): LeadEconomicsDraft {
+  const bands = index === 0 ? draft.bands : draft.periods?.[index - 1]?.bands;
+  return { ...draft, bands: bands ?? draft.bands, periods: undefined };
+}
+
+/**
+ * Grava de volta o que mudou na vigência `index` (faixas, e produtos/ajustes, que são
+ * de todas). Se a vista ganhou o segundo produto (o CSV pode criar), as faixas das
+ * OUTRAS vigências passam a apontar para o produto que já existia — a mesma regra de
+ * `addDraftProduct`; com um produto só, o id guardado nelas podia ser qualquer um.
+ */
+export function setDraftPeriodView(draft: LeadEconomicsDraft, index: number, view: LeadEconomicsDraft): LeadEconomicsDraft {
+  const grewFromSingle = draft.products.length === 1 && view.products.length > 1;
+  const pin = (bands: LeadEconomicsBandDraft[]) => (grewFromSingle ? bands.map((band) => ({ ...band, product: draft.products[0].id })) : bands);
+  const { periods: _ignored, ...shared } = view;
+  void _ignored;
+  return {
+    ...shared,
+    bands: index === 0 ? view.bands : pin(draft.bands),
+    ...(draft.periods
+      ? { periods: draft.periods.map((period, i) => (i + 1 === index ? { ...period, bands: view.bands } : grewFromSingle ? { ...period, bands: pin(period.bands) } : period)) }
+      : {}),
+  };
+}
+
+/** Rótulo de cada vigência (a aba): "Início", "A partir de 13/10", "Vigência 3" (sem data ainda). */
+export function draftPeriodLabels(draft: LeadEconomicsDraft): string[] {
+  const label = (key: string, values?: Record<string, string | number>) => translate(`packs.economics.${key}`, values);
+  return [
+    leadEconomicsPeriodLabel(null),
+    ...(draft.periods ?? []).map((period, i) =>
+      isIsoDate(period.start) ? leadEconomicsPeriodLabel(period.start) : label("periodNumbered", { n: i + 2 }),
+    ),
+  ];
+}
+
+/**
+ * Início sugerido para a vigência nova: uma semana depois da última data válida (a
+ * conversão é medida por semana de captação), ou hoje quando ainda não há nenhuma.
+ */
+export function suggestPeriodStart(draft: LeadEconomicsDraft, today: string): string {
+  const starts = (draft.periods ?? []).map((period) => period.start).filter(isIsoDate);
+  if (starts.length === 0) return today;
+  const last = starts[starts.length - 1];
+  const [year, month, day] = last.split("-").map(Number);
+  return new Date(Date.UTC(year, month - 1, day + 7)).toISOString().slice(0, 10);
+}
+
+/**
+ * Vigência nova no fim, com as faixas da última COPIADAS (o caso comum é trocar só as
+ * taxas). Chaves novas: a faixa copiada é outra linha na tela.
+ */
+export function addDraftPeriod(draft: LeadEconomicsDraft, start: string): LeadEconomicsDraft {
+  const periods = draft.periods ?? [];
+  const source = periods.length > 0 ? periods[periods.length - 1].bands : draft.bands;
+  const bands = source.map((band) => ({ ...band, key: newLeadEconomicsId() }));
+  return { ...draft, periods: [...periods, { key: newLeadEconomicsId(), start, bands }] };
+}
+
+export function updateDraftPeriodStart(draft: LeadEconomicsDraft, index: number, start: string): LeadEconomicsDraft {
+  if (index < 1 || !draft.periods?.[index - 1]) return draft;
+  return { ...draft, periods: draft.periods.map((period, i) => (i + 1 === index ? { ...period, start } : period)) };
+}
+
+/** Remove a vigência `index` (≥ 1): os dias dela passam a ser da anterior. A primeira não sai. */
+export function removeDraftPeriod(draft: LeadEconomicsDraft, index: number): LeadEconomicsDraft {
+  if (index < 1 || !draft.periods?.[index - 1]) return draft;
+  const periods = draft.periods.filter((_, i) => i + 1 !== index);
+  if (periods.length > 0) return { ...draft, periods };
+  const { periods: _removed, ...rest } = draft;
+  void _removed;
+  return rest;
 }
 
 // ── Estado da edição no diálogo (funções puras) ──────────────────────────────

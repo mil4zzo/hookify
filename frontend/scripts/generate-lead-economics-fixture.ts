@@ -515,6 +515,81 @@ const CASOS: CasoDeEntrada[] = [
     name: "ajuste: os tres invalidos e uma faixa invalida, na ordem do contrato",
     input: { ...cadastro([produto()], [faixa({ conversion: 2 })]), pack_spend_share: 0, ad_tax: -1, sales_coverage: false },
   },
+
+  // ── Vigências (D33): a primeira são as `bands` da raiz; `periods` são as seguintes ──
+  {
+    name: "valido: duas vigencias seguintes com cortes proprios",
+    input: {
+      ...cadastro([produto()], [faixa(), faixa({ min: 240, conversion: 0.0197 })]),
+      periods: [
+        { start: "2026-10-13", bands: [faixa({ conversion: 0.004 }), faixa({ min: 200, conversion: 0.02 })] },
+        { start: "2026-10-20", bands: [faixa({ conversion: 0.003 })], nome: "descartado" },
+      ],
+    },
+  },
+  { name: "valido: periods vazio sai do canonico", input: { ...cadastro(), periods: [] } },
+  { name: "valido: periods null sai do canonico", input: { ...cadastro(), periods: null } },
+  { name: "valido: 29 de fevereiro de ano bissexto", input: { ...cadastro(), periods: [{ start: "2028-02-29", bands: [faixa()] }] } },
+  { name: "vigencia: periods nao e lista", input: { ...cadastro(), periods: { start: "2026-10-13" } } },
+  { name: "vigencia: item nao e objeto", input: { ...cadastro(), periods: ["2026-10-13"] } },
+  { name: "vigencia: sem bands", input: { ...cadastro(), periods: [{ start: "2026-10-13" }] } },
+  {
+    name: "vigencia: item fora da forma ainda conta na numeracao das seguintes",
+    input: { ...cadastro(), periods: ["lixo", { start: "2026-02-30", bands: [faixa()] }] },
+  },
+  { name: "vigencia: bands vazia", input: { ...cadastro(), periods: [{ start: "2026-10-13", bands: [] }] } },
+  { name: "vigencia: sem start", input: { ...cadastro(), periods: [{ bands: [faixa()] }] } },
+  { name: "vigencia: start null", input: { ...cadastro(), periods: [{ start: null, bands: [faixa()] }] } },
+  { name: "vigencia: start com hora", input: { ...cadastro(), periods: [{ start: "2026-10-13T00:00:00", bands: [faixa()] }] } },
+  { name: "vigencia: start sem zero a esquerda", input: { ...cadastro(), periods: [{ start: "2026-1-3", bands: [faixa()] }] } },
+  { name: "vigencia: start compacto", input: { ...cadastro(), periods: [{ start: "20261013", bands: [faixa()] }] } },
+  { name: "vigencia: 30 de fevereiro", input: { ...cadastro(), periods: [{ start: "2026-02-30", bands: [faixa()] }] } },
+  { name: "vigencia: 29 de fevereiro fora de ano bissexto", input: { ...cadastro(), periods: [{ start: "2026-02-29", bands: [faixa()] }] } },
+  { name: "vigencia: mes 13", input: { ...cadastro(), periods: [{ start: "2026-13-01", bands: [faixa()] }] } },
+  { name: "vigencia: ano abaixo de 1000", input: { ...cadastro(), periods: [{ start: "0999-12-31", bands: [faixa()] }] } },
+  {
+    name: "vigencia: digito arabe-indico nao e digito",
+    input: { ...cadastro(), periods: [{ start: `202${cp(0x0666)}-10-13`, bands: [faixa()] }] },
+  },
+  { name: "vigencia: start numero", input: { ...cadastro(), periods: [{ start: 20261013, bands: [faixa()] }] } },
+  {
+    name: "vigencia: datas repetidas",
+    input: { ...cadastro(), periods: [{ start: "2026-10-13", bands: [faixa()] }, { start: "2026-10-13", bands: [faixa()] }] },
+  },
+  {
+    name: "vigencia: datas fora de ordem",
+    input: { ...cadastro(), periods: [{ start: "2026-10-20", bands: [faixa()] }, { start: "2026-10-13", bands: [faixa()] }] },
+  },
+  {
+    name: "vigencia: data invalida no meio nao apaga a ultima valida",
+    input: {
+      ...cadastro(),
+      periods: [
+        { start: "2026-10-20", bands: [faixa()] },
+        { start: "ontem", bands: [faixa()] },
+        { start: "2026-10-13", bands: [faixa()] },
+      ],
+    },
+  },
+  {
+    name: "vigencia: faixa de vigencia seguinte aponta para produto inexistente",
+    input: { ...cadastro(), periods: [{ start: "2026-10-13", bands: [faixa({ product: "p9" })] }] },
+  },
+  {
+    name: "vigencia: primeira faixa da vigencia com min e cortes nao crescentes",
+    input: {
+      ...cadastro(),
+      periods: [{ start: "2026-10-13", bands: [faixa({ min: 10 }), faixa({ min: 50 }), faixa({ min: 50 })] }],
+    },
+  },
+  {
+    name: "vigencia: erros da raiz e da vigencia saem na ordem do contrato, sem repetir",
+    input: {
+      ...cadastro([produto()], [faixa({ conversion: 2 })]),
+      periods: [{ start: "2026-02-30", bands: [faixa({ conversion: -1 })] }],
+      ad_tax: 2,
+    },
+  },
 ];
 
 // ── Serialização ─────────────────────────────────────────────────────────────

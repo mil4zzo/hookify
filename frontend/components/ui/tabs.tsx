@@ -46,14 +46,15 @@ export function Tabs({ defaultValue, value, onValueChange, children, className }
 interface TabsListProps {
   children: ReactNode;
   className?: string;
+  "aria-label"?: string;
 }
 
 // Trilho no nivel 1 com borda no nivel 2: a aba ativa AFUNDA nele (`state-pressed`),
 // enquanto as inativas ficam rentes. E a fisica do teclado — o que ja foi acionado esta
 // pressionado — e o trilho precisa de um plano proprio para o afundamento ser legivel.
-export function TabsList({ children, className }: TabsListProps) {
+export function TabsList({ children, className, "aria-label": ariaLabel }: TabsListProps) {
   return (
-    <div className={cn("flex w-fit max-w-full items-center gap-1 overflow-x-auto rounded-lg border border-surface-2 bg-card p-1", className)} role="tablist">
+    <div className={cn("flex w-fit max-w-full items-center gap-1 overflow-x-auto rounded-lg border border-surface-2 bg-card p-1", className)} role="tablist" aria-label={ariaLabel}>
       {children}
     </div>
   );

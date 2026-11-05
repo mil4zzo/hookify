@@ -5,6 +5,7 @@ import {
   LEAD_ECONOMICS_FIELD_MESSAGES as F,
   leadEconomicsUnreadableCutMessage,
   addDraftBand,
+  addDraftPeriod,
   addDraftProduct,
   bandsUsingProduct,
   createLeadEconomicsDraft,
@@ -13,6 +14,8 @@ import {
   draftBandCeilings,
   draftBandLabel,
   draftBandLabels,
+  draftPeriodLabels,
+  draftPeriodView,
   draftSpendCostMultiplier,
   draftToLeadEconomicsDocument,
   editLeadEconomicsDraft,
@@ -34,13 +37,18 @@ import {
   parseMoneyInput,
   parsePercentInput,
   parseScoreInput,
+  productBandUsage,
   removeDraftBand,
+  removeDraftPeriod,
   removeDraftProduct,
   removeLeadEconomicsEdit,
+  setDraftPeriodView,
   startLeadEconomicsEdit,
   suggestNextCut,
+  suggestPeriodStart,
   undoRemoveLeadEconomicsEdit,
   updateDraftBand,
+  updateDraftPeriodStart,
   updateDraftProduct,
   validateLeadEconomicsDraft,
   type LeadEconomicsDraft,
@@ -1037,7 +1045,7 @@ test("ajustes: erro no campo e no bloco certo; em branco nunca é 'obrigatório'
   const errors = leadEconomicsDraftErrors(wrong);
   assert.deepEqual(errors, [M.packSpendShare, M.adTax, M.salesCoverage]);
   assert.ok(errors.every(isLeadEconomicsAdjustmentMessage));
-  assert.ok(!errors.some(isLeadEconomicsBandMessage));
+  assert.ok(!errors.some((message) => isLeadEconomicsBandMessage(message)));
   const blank = leadEconomicsDraftFieldIssues({ ...base, spendShare: "", adTax: "", salesCoverage: "" }, { showAll: true });
   assert.deepEqual(blank.adjustments, {});
 });
@@ -1057,4 +1065,109 @@ test("ajustes: teto ao vivo usa o fator; ajuste inválido some com o teto (nunca
   assert.ok(Math.abs(draftSpendCostMultiplier(real)! - 1.1383 / 0.8) < 1e-12);
   assert.deepEqual(draftBandCeilings({ ...real, adTax: "x" }), [null]);
   assert.equal(draftSpendCostMultiplier({ ...real, spendShare: "0" }), null);
+});
+
+// ── Vigências (D33) ──────────────────────────────────────────────────────────
+
+const WITH_PERIODS: LeadEconomics = {
+  products: [{ id: "p1", name: "Eu Investidor", ticket: 2570, contribution_margin: 0.77, target_margin: 0.4 }],
+  bands: [
+    { min: null, product: "p1", conversion: 0.003 },
+    { min: 240, product: "p1", conversion: 0.0197 },
+  ],
+  periods: [
+    { start: "2026-10-13", bands: [{ min: null, product: "p1", conversion: 0.004 }, { min: 240, product: "p1", conversion: 0.021 }] },
+    { start: "2026-10-20", bands: [{ min: null, product: "p1", conversion: 0.005 }] },
+  ],
+  pack_spend_share: 0.8,
+};
+
+test("vigências: documento → rascunho → documento é ponto fixo; sem vigência a chave nem aparece", () => {
+  const draft = leadEconomicsToDraft(WITH_PERIODS);
+  assert.deepEqual(validateLeadEconomicsDraft(draft).value, WITH_PERIODS);
+  const plain = leadEconomicsToDraft(EXAMPLE);
+  assert.equal("periods" in plain, false);
+  assert.equal("periods" in draftToLeadEconomicsDocument(plain), false);
+  // Remover a última vigência seguinte volta ao documento de antes da D33.
+  const back = removeDraftPeriod(removeDraftPeriod(draft, 2), 1);
+  assert.equal("periods" in back, false);
+  assert.equal(JSON.stringify(validateLeadEconomicsDraft(back).value), JSON.stringify({ products: WITH_PERIODS.products, bands: WITH_PERIODS.bands, pack_spend_share: 0.8 }));
+});
+
+test("vigências: nova copia as faixas da última (chaves novas), uma semana depois; rótulos pela data", () => {
+  const draft = leadEconomicsToDraft(WITH_PERIODS);
+  assert.equal(suggestPeriodStart(draft, "2026-11-05"), "2026-10-27");
+  assert.equal(suggestPeriodStart(leadEconomicsToDraft(EXAMPLE), "2026-11-05"), "2026-11-05", "sem vigência: hoje");
+  const next = addDraftPeriod(draft, "2026-10-27");
+  const copied = next.periods![2];
+  assert.deepEqual(copied.bands.map(({ key: _k, ...band }) => band), draft.periods![1].bands.map(({ key: _k, ...band }) => band));
+  assert.ok(copied.bands.every((band) => !draft.periods![1].bands.some((old) => old.key === band.key)), "chaves novas");
+  assert.deepEqual(draftPeriodLabels(next), ["Início", "A partir de 13/10", "A partir de 20/10", "A partir de 27/10"]);
+  assert.deepEqual(draftPeriodLabels(updateDraftPeriodStart(next, 3, "")).slice(3), ["Vigência 4"]);
+  // A primeira vigência copia das faixas da raiz.
+  const first = addDraftPeriod(leadEconomicsToDraft(EXAMPLE), "2026-10-13");
+  assert.equal(first.periods![0].bands.length, EXAMPLE.bands.length);
+});
+
+test("vigências: o editor mexe só na aberta; o CSV que cria o 2º produto prende as outras ao 1º", () => {
+  const draft = leadEconomicsToDraft(WITH_PERIODS);
+  const view = draftPeriodView(draft, 1);
+  assert.equal(view.bands, draft.periods![0].bands);
+  const edited = setDraftPeriodView(draft, 1, updateDraftBand(view, 0, { conversion: "1" }));
+  assert.equal(edited.periods![0].bands[0].conversion, "1");
+  assert.equal(edited.bands, draft.bands, "a primeira intacta");
+  assert.equal(edited.periods![1], draft.periods![1], "a outra intacta");
+
+  // Com um produto só, a faixa aponta para ele com qualquer id guardado. Ganhou o 2º pela vista:
+  const stale = { ...draft, bands: draft.bands.map((band) => ({ ...band, product: "velho" })) };
+  const grown = { ...draftPeriodView(stale, 2), products: [...stale.products, { id: "p2", name: "Ebook", ticket: "97", contribution: "90", target: "20" }] };
+  const merged = setDraftPeriodView(stale, 2, grown);
+  assert.ok(merged.bands.every((band) => band.product === "p1"), "a 1ª vigência passa a apontar para o produto que existia");
+  assert.equal(merged.products.length, 2);
+});
+
+test("vigências: produto — adicionar mantém os ajustes e prende todas as vigências; remover move em todas", () => {
+  const draft = leadEconomicsToDraft(WITH_PERIODS);
+  const two = addDraftProduct(draft);
+  assert.equal(two.spendShare, draft.spendShare, "o ajuste não some ao adicionar produto");
+  assert.ok(two.periods!.every((period) => period.bands.every((band) => band.product === "p1")));
+  const p2 = two.products[1].id;
+  const usingP2 = setDraftPeriodView(two, 2, updateDraftBand(draftPeriodView(two, 2), 0, { product: p2 }));
+  assert.deepEqual(productBandUsage(usingP2, p2), ['"todas as notas" (A partir de 20/10)'.replace("todas as notas", draftBandLabels(draftPeriodView(usingP2, 2))[0])]);
+  const removed = removeDraftProduct(usingP2, p2, "p1");
+  assert.equal(removed.periods![1].bands[0].product, "p1", "a faixa da outra vigência foi movida");
+  assert.equal(removeDraftProduct(usingP2, p2, null), usingP2, "em uso noutra vigência: não sai sem destino");
+});
+
+test("vigências: erro de faixa de outra vigência é do bloco das faixas e diz qual; data em branco só ao salvar", () => {
+  const draft = leadEconomicsToDraft(WITH_PERIODS);
+  const typo = setDraftPeriodView(draft, 1, updateDraftBand(draftPeriodView(draft, 1), 1, { min: "7O" }));
+  const live = leadEconomicsDraftLiveErrors(typo);
+  assert.deepEqual(live, [M.inPeriod({ n: 2, start: "2026-10-13" }, UNREADABLE_CUT)]);
+  assert.ok(live.every((message) => isLeadEconomicsBandMessage(message, typo)));
+  assert.equal(isLeadEconomicsBandMessage(live[0]), false, "sem o rascunho não há como saber");
+
+  const noDate = updateDraftPeriodStart(draft, 2, "");
+  assert.deepEqual(leadEconomicsDraftLiveErrors(noDate), []);
+  assert.deepEqual(leadEconomicsDraftErrors(noDate), [M.periodStart(3)]);
+  assert.ok(isLeadEconomicsBandMessage(M.periodStart(3), noDate));
+  const outOfOrder = updateDraftPeriodStart(draft, 2, "2026-10-01");
+  assert.deepEqual(leadEconomicsDraftLiveErrors(outOfOrder), [M.periodStartNotIncreasing("2026-10-01")]);
+  assert.ok(isLeadEconomicsBandMessage(M.periodStartNotIncreasing("2026-10-01"), outOfOrder));
+});
+
+test("vigências: data que não existe (só por API) — a frase do corte ilegível sai numerada, como a do contrato", () => {
+  const draft = updateDraftPeriodStart(leadEconomicsToDraft(WITH_PERIODS), 1, "2026-02-30");
+  const typo = setDraftPeriodView(draft, 1, updateDraftBand(draftPeriodView(draft, 1), 1, { min: "7O" }));
+  const errors = leadEconomicsDraftErrors(typo);
+  assert.ok(errors.includes(M.inPeriod({ n: 2, start: "" }, UNREADABLE_CUT)), JSON.stringify(errors));
+  assert.ok(!errors.includes(M.inPeriod({ n: 2, start: "" }, M.bandMinMissing)), "nada de 'falta corte' com 7O no campo");
+});
+
+test("vigências com a mesma data: o corte ilegível de uma não some por causa da outra", () => {
+  const draft = updateDraftPeriodStart(leadEconomicsToDraft(WITH_PERIODS), 2, "2026-10-13");
+  const typo = setDraftPeriodView(draft, 1, updateDraftBand(draftPeriodView(draft, 1), 1, { min: "7O" }));
+  const live = leadEconomicsDraftLiveErrors(typo);
+  assert.ok(live.includes(M.inPeriod({ n: 2, start: "2026-10-13" }, UNREADABLE_CUT)), JSON.stringify(live));
+  assert.ok(live.includes(M.periodStartNotIncreasing("2026-10-13")));
 });

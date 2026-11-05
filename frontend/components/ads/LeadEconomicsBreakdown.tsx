@@ -11,10 +11,11 @@ import { LEAD_ECONOMICS_UNAVAILABLE_TEXT } from "@/components/manager/LeadEconom
 import { Button } from "@/components/ui/button";
 import { formatMetricValue } from "@/lib/metrics";
 import { cn } from "@/lib/utils/cn";
-import { LEAD_ECONOMICS_MIN_SAMPLE, leadMarginTone, type RowLeadEconomicsOutcome } from "@/lib/utils/leadEconomics";
+import { LEAD_ECONOMICS_MIN_SAMPLE, leadEconomicsPeriodLabel, leadMarginTone, type RowLeadEconomicsOutcome } from "@/lib/utils/leadEconomics";
 import { getMetricValueTextClass } from "@/lib/utils/metricQuality";
 
 const pct = (fraction: number) => formatMetricValue("lead_margin", fraction);
+
 const count = (n: number) => n.toLocaleString(getAppLocale());
 
 export interface LeadEconomicsBreakdownProps {
@@ -48,13 +49,30 @@ export function LeadEconomicsBreakdown({ outcome, formatCurrency, defaultExpande
     return (
       <div className="space-y-2">
         {header}
-        <StatePanel kind="empty" density="compact" frame="none" message={LEAD_ECONOMICS_UNAVAILABLE_TEXT[outcome.unavailable]} />
+        <StatePanel
+          // Trechos de antes da edição das vigências: a consulta nova já está a caminho.
+          kind={outcome.unavailable === "period-split-stale" ? "loading" : outcome.unavailable === "no-period-split" ? "error" : "empty"}
+          density="compact"
+          frame="none"
+          message={LEAD_ECONOMICS_UNAVAILABLE_TEXT[outcome.unavailable]}
+        />
       </div>
     );
   }
 
   const result = outcome.result;
   const tone = leadMarginTone(result.margin, result.targetMargin);
+  // Com vigências (D33), as faixas são de cada uma: um bloco por vigência, e a fatia de
+  // cada faixa passa a ser dos leads de TODAS — assim "Entra no teto" ainda soma o CPL Max.
+  const groups = result.periods?.length
+    ? result.periods.map((period) => ({
+        key: period.index,
+        label: leadEconomicsPeriodLabel(period.start),
+        leads: period.result.leadsScored,
+        bands: period.result.bands,
+        weight: period.result.leadsScored / result.leadsScored,
+      }))
+    : [{ key: 0, label: null, leads: result.leadsScored, bands: result.bands, weight: 1 }];
 
   return (
     <div className="space-y-2">
@@ -105,18 +123,29 @@ export function LeadEconomicsBreakdown({ outcome, formatCurrency, defaultExpande
                 </tr>
               </thead>
               <tbody className="divide-y divide-border text-foreground">
-                {result.bands.map((band) => (
-                  <tr key={band.index}>
-                    <th scope="row" className="px-3 py-2 text-left font-normal">{band.label}</th>
-                    <td className="px-3 py-2 text-right">
-                      {count(band.leads)} <span className="text-muted-foreground">({pct(band.share)})</span>
-                    </td>
-                    <td className="max-w-[10rem] truncate px-3 py-2" title={band.product.name}>{band.product.name}</td>
-                    <td className="px-3 py-2 text-right">{pct(band.conversion)}</td>
-                    <td className="px-3 py-2 text-right">{formatCurrency(band.ceilingPerLead)}</td>
-                    <td className="px-3 py-2 text-right">{formatCurrency(band.share * band.ceilingPerLead)}</td>
-                  </tr>
-                ))}
+                {groups.flatMap((group) => [
+                  ...(group.label === null
+                    ? []
+                    : [
+                        <tr key={`v${group.key}`}>
+                          <th scope="rowgroup" colSpan={6} className="px-3 py-2 text-left font-medium">
+                            {translate("ads.leadBreakdown.periodHeader", { label: group.label, formatted: count(group.leads), count: group.leads })}
+                          </th>
+                        </tr>,
+                      ]),
+                  ...group.bands.map((band) => (
+                    <tr key={`${group.key}-${band.index}`}>
+                      <th scope="row" className="px-3 py-2 text-left font-normal">{band.label}</th>
+                      <td className="px-3 py-2 text-right">
+                        {count(band.leads)} <span className="text-muted-foreground">({pct(band.share * group.weight)})</span>
+                      </td>
+                      <td className="max-w-[10rem] truncate px-3 py-2" title={band.product.name}>{band.product.name}</td>
+                      <td className="px-3 py-2 text-right">{pct(band.conversion)}</td>
+                      <td className="px-3 py-2 text-right">{formatCurrency(band.ceilingPerLead)}</td>
+                      <td className="px-3 py-2 text-right">{formatCurrency(band.share * group.weight * band.ceilingPerLead)}</td>
+                    </tr>
+                  )),
+                ])}
               </tbody>
               <tfoot>
                 <tr className="border-t border-border font-semibold text-foreground">
@@ -131,6 +160,7 @@ export function LeadEconomicsBreakdown({ outcome, formatCurrency, defaultExpande
               {translate("ads.leadBreakdown.basis", { formatted: count(result.leadsScored), count: result.leadsScored })}
             </p>
             <p>{translate("ads.leadBreakdown.formula")}</p>
+            {groups.length > 1 && <p>{translate("ads.leadBreakdown.periodsNote")}</p>}
           </div>
         </div>
       )}

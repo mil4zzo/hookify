@@ -2,11 +2,17 @@
 
 import { useTranslations } from "next-intl";
 import { forwardRef, useEffect, useId, useMemo, useRef, useState, type MutableRefObject, type ReactNode, type Ref } from "react";
-import { IconAlertTriangle, IconInfoCircle, IconPlus, IconTrash, IconUpload } from "@tabler/icons-react";
+import { format, isValid, parse } from "date-fns";
+import { IconAlertTriangle, IconCalendar, IconInfoCircle, IconPlus, IconTrash, IconUpload } from "@tabler/icons-react";
 
 import { InlineNotice } from "@/components/common/States";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Button } from "@/components/ui/button";
+import { Calendar } from "@/components/ui/calendar";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { getDateFnsLocale } from "@/lib/utils/dateFnsLocale";
+import { formatLocaleDate } from "@/lib/i18n/locale";
 import { Input, type InputProps } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { getAppLocale } from "@/lib/i18n/locale";
@@ -17,12 +23,14 @@ import { LEAD_ECONOMICS_BANDS_CSV_TEMPLATE, decodeCsvBytes, importLeadEconomicsB
 import {
   LEAD_ECONOMICS_ADJUSTMENT_FIELDS,
   addDraftBand,
+  addDraftPeriod,
   addDraftProduct,
-  bandsUsingProduct,
   canAddDraftProduct,
   draftBandCeilings,
   draftBandLabels,
   draftBandMins,
+  draftPeriodLabels,
+  draftPeriodView,
   draftSpendCostMultiplier,
   formatPercentInput,
   isLeadEconomicsAdjustmentMessage,
@@ -31,9 +39,14 @@ import {
   leadEconomicsDraftFieldIssues,
   leadEconomicsDraftLiveErrors,
   parsePercentInput,
+  productBandUsage,
   removeDraftBand,
+  removeDraftPeriod,
   removeDraftProduct,
+  setDraftPeriodView,
+  suggestPeriodStart,
   updateDraftBand,
+  updateDraftPeriodStart,
   updateDraftProduct,
   type LeadEconomicsAdjustmentField,
   type LeadEconomicsDraft,
@@ -160,7 +173,8 @@ export function productTrashClick(
   productId: string,
   pending: PendingProductRemoval | null,
 ): { removeNow: boolean; refocusQuestion: boolean; pending: PendingProductRemoval | null } {
-  if (bandsUsingProduct(draft, productId).length === 0) return { removeNow: true, refocusQuestion: false, pending: null };
+  // Em TODAS as vigências: faixa de outra aba também fica sem produto se ele sair calado.
+  if (productBandUsage(draft, productId).length === 0) return { removeNow: true, refocusQuestion: false, pending: null };
   if (pending?.productId === productId) return { removeNow: false, refocusQuestion: true, pending };
   const other = draft.products.find((product) => product.id !== productId);
   return { removeNow: false, refocusQuestion: false, pending: other ? { productId, moveTo: other.id } : null };
@@ -245,6 +259,43 @@ function ProductName({ product, index }: { product: LeadEconomicsProductDraft; i
  * entra e sai: leitor de tela só anuncia mudança dentro de uma região que já existia
  * — montada junto com o conteúdo, a primeira mensagem passava calada.
  */
+const PERIOD_DATE_FORMAT = "yyyy-MM-dd";
+
+/** Início de uma vigência: o calendário do app (o mesmo da data de fim do lançamento). */
+function PeriodStartPicker({ value, onChange, label, disabled }: { value: string; onChange: (value: string) => void; label: string; disabled?: boolean }) {
+  const t = useTranslations("packs.economics");
+  const [open, setOpen] = useState(false);
+  // parse() lê no fuso local; new Date("yyyy-MM-dd") é UTC e recuaria um dia.
+  const selected = useMemo(() => {
+    const parsed = value ? parse(value, PERIOD_DATE_FORMAT, new Date()) : null;
+    return parsed && isValid(parsed) ? parsed : undefined;
+  }, [value]);
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button type="button" variant="picker" size="sm" className="min-w-40 justify-between font-normal" aria-label={label} disabled={disabled}>
+          <span className={cn(!selected && "text-muted-foreground")}>
+            {selected ? formatLocaleDate(selected, { day: "2-digit", month: "2-digit", year: "numeric" }) : t("chooseDate")}
+          </span>
+          <IconCalendar className="h-4 w-4 text-muted-foreground" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-auto p-0" align="start">
+        <Calendar
+          mode="single"
+          selected={selected}
+          defaultMonth={selected}
+          locale={getDateFnsLocale()}
+          onSelect={(day) => {
+            if (day) onChange(format(day, PERIOD_DATE_FORMAT));
+            setOpen(false);
+          }}
+        />
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 function ErrorSummary({ messages }: { messages: string[] }) {
   return (
     <div aria-live="polite">
@@ -302,6 +353,13 @@ export function LeadEconomicsEditor({
     | null
   >(null);
   const csvInputRef = useRef<HTMLInputElement>(null);
+  // Vigência aberta (D33): as faixas, o teto ao vivo e o CSV são os DELA. 0 = a primeira.
+  const [periodIndex, setPeriodIndex] = useState(0);
+  const periodLabels = useMemo(() => draftPeriodLabels(value), [value]);
+  const activePeriod = Math.min(periodIndex, periodLabels.length - 1);
+  const view = useMemo(() => draftPeriodView(value, activePeriod), [value, activePeriod]);
+  /** Mudança nas faixas da vigência aberta, gravada de volta no rascunho inteiro. */
+  const emitView = (next: LeadEconomicsDraft) => onChange(setDraftPeriodView(value, activePeriod, next));
 
   // Foco acompanhando a troca de conteúdo: lixeiras (produto `p:<id>`, faixa
   // `b:<key>`), campos que recebem o foco ao adicionar, e os botões fixos.
@@ -320,24 +378,25 @@ export function LeadEconomicsEditor({
   const activeRemoval = pendingRemoval && !single && value.products.some((product) => product.id === pendingRemoval.productId) ? pendingRemoval : null;
   const activeRemovalId = activeRemoval?.productId ?? null;
   const currencySymbol = useMemo(() => leadEconomicsCurrencySymbol(currency), [currency]);
-  const mins = useMemo(() => draftBandMins(value), [value]);
+  const mins = useMemo(() => draftBandMins(view), [view]);
   // Rótulo e teto de todas as faixas, uma vez por mudança do rascunho: por faixa, cada
   // um relia o cadastro inteiro (O(n²) por tecla; o cadastro não tem teto de faixas).
-  const labels = useMemo(() => draftBandLabels(value), [value]);
-  const ceilings = useMemo(() => draftBandCeilings(value), [value]);
+  const labels = useMemo(() => draftBandLabels(view), [view]);
+  const ceilings = useMemo(() => draftBandCeilings(view), [view]);
 
   const errors = useMemo(
     () => (showAllErrors ? leadEconomicsDraftErrors(value) : leadEconomicsDraftLiveErrors(value)),
     [value, showAllErrors],
   );
-  const productErrors = errors.filter((message) => !isLeadEconomicsBandMessage(message) && !isLeadEconomicsAdjustmentMessage(message));
-  const bandErrors = errors.filter(isLeadEconomicsBandMessage);
+  // Os erros são de TODAS as vigências (a frase diz qual), não só da aberta.
+  const productErrors = errors.filter((message) => !isLeadEconomicsBandMessage(message, value) && !isLeadEconomicsAdjustmentMessage(message));
+  const bandErrors = errors.filter((message) => isLeadEconomicsBandMessage(message, value));
   const adjustmentErrors = errors.filter(isLeadEconomicsAdjustmentMessage);
   const costMultiplier = useMemo(() => draftSpendCostMultiplier(value), [value]);
   const coverage = parsePercentInput(value.salesCoverage?.trim() || "100");
   // Mesma regra de quando mostrar que o resumo: ao vivo só engano; depois de tentar
   // salvar, também o que falta.
-  const issues = useMemo(() => leadEconomicsDraftFieldIssues(value, { showAll: showAllErrors }), [value, showAllErrors]);
+  const issues = useMemo(() => leadEconomicsDraftFieldIssues(view, { showAll: showAllErrors }), [view, showAllErrors]);
 
   // Linha adicionada: foco no primeiro campo dela, assim que ela existir.
   useEffect(() => {
@@ -408,14 +467,16 @@ export function LeadEconomicsEditor({
 
   const importCsv = async (file: File) => {
     try {
-      const result = importLeadEconomicsBandsCsv(decodeCsvBytes(await file.arrayBuffer()), value);
+      // Na vigência ABERTA: as outras ficam como estão.
+      const result = importLeadEconomicsBandsCsv(decodeCsvBytes(await file.arrayBuffer()), view);
       if (result.kind === "error") {
         setCsvNotice({ kind: "error", fileName: file.name, message: result.message });
         return;
       }
-      onChange(result.draft);
+      const imported = setDraftPeriodView(value, activePeriod, result.draft);
+      onChange(imported);
       setPendingRemoval(null);
-      setCsvNotice({ kind: "ok", fileName: file.name, count: result.bandCount, warnings: result.warnings, previous: value, imported: result.draft });
+      setCsvNotice({ kind: "ok", fileName: file.name, count: result.bandCount, warnings: result.warnings, previous: value, imported });
     } catch {
       setCsvNotice({ kind: "error", fileName: file.name, message: t("csvReadError") });
     }
@@ -431,23 +492,39 @@ export function LeadEconomicsEditor({
   };
 
   const addBand = () => {
-    const next = addDraftBand(value, mqlLeadscoreMin);
-    if (next === value) return;
+    const next = addDraftBand(view, mqlLeadscoreMin);
+    if (next === view) return;
     pendingFieldFocus.current = `corte:${next.bands[next.bands.length - 1].key}`;
-    onChange(next);
+    emitView(next);
     setPendingRemoval(null);
   };
 
   const removeBand = (index: number) => {
-    const next = removeDraftBand(value, index);
-    if (next === value) return;
+    const next = removeDraftBand(view, index);
+    if (next === view) return;
     focusAfterRemoval(
       "b",
-      value.bands.map((band) => band.key),
+      view.bands.map((band) => band.key),
       index,
     );
-    onChange(next);
+    emitView(next);
     setPendingRemoval(null);
+  };
+
+  const addPeriod = () => {
+    const next = addDraftPeriod(value, suggestPeriodStart(value, format(new Date(), PERIOD_DATE_FORMAT)));
+    onChange(next);
+    setPeriodIndex(next.periods!.length);
+    setPendingRemoval(null);
+    setCsvNotice(null);
+  };
+
+  const removePeriod = () => {
+    onChange(removeDraftPeriod(value, activePeriod));
+    // Os dias dela voltam para a anterior: é ela que fica aberta.
+    setPeriodIndex(activePeriod - 1);
+    setPendingRemoval(null);
+    setCsvNotice(null);
   };
 
   /** Rótulo explícito no gatilho do seletor (não depende do Radix espelhar o item). */
@@ -458,7 +535,7 @@ export function LeadEconomicsEditor({
 
   /** "ou mais" / "a menos de 80" ao lado do campo de corte. */
   const cutSuffix = (index: number): string => {
-    if (index === value.bands.length - 1) return t("cutOrMore");
+    if (index === view.bands.length - 1) return t("cutOrMore");
     const next = mins[index + 1];
     return next === null || next === undefined ? "" : t("cutLessThan", { value: formatLeadScore(next) });
   };
@@ -503,7 +580,7 @@ export function LeadEconomicsEditor({
               const removal = activeRemoval?.productId === product.id ? activeRemoval : null;
               // Destino que a tela mostra é o que vale no "Mover e remover".
               const moveTo = removal && others.some(({ item }) => item.id === removal.moveTo) ? removal.moveTo : (others[0]?.item.id ?? "");
-              const usedBy = removal ? bandsUsingProduct(value, product.id).map((i) => `"${labels[i]}"`) : [];
+              const usedBy = removal ? productBandUsage(value, product.id) : [];
 
               return (
                 <div key={product.id}>
@@ -706,6 +783,58 @@ export function LeadEconomicsEditor({
           </InlineNotice>
         ) : null}
 
+        {/* Vigências (D33): uma só = a tela de antes, com o "Nova vigência" discreto. */}
+        {periodLabels.length > 1 ? (
+          <div className="space-y-2">
+            <div className="flex flex-wrap items-center gap-3">
+              <Tabs
+                className="w-auto"
+                value={String(activePeriod)}
+                onValueChange={(next) => {
+                  setPeriodIndex(Number(next));
+                  setPendingRemoval(null);
+                  setCsvNotice(null);
+                }}
+              >
+                <TabsList aria-label={t("periodsAria")}>
+                  {periodLabels.map((label, index) => (
+                    <TabsTrigger key={index === 0 ? "first" : value.periods![index - 1].key} value={String(index)} disabled={disabled}>
+                      {label}
+                    </TabsTrigger>
+                  ))}
+                </TabsList>
+              </Tabs>
+              <Button variant="ghost" size="sm" onClick={addPeriod} disabled={disabled}>
+                <IconPlus />
+                {t("addPeriod")}
+              </Button>
+            </div>
+            {activePeriod > 0 && (
+              <div className="flex flex-wrap items-center gap-3">
+                <span className="text-xs text-muted-foreground">{t("periodStartLabel")}</span>
+                <PeriodStartPicker
+                  value={value.periods![activePeriod - 1].start}
+                  onChange={(start) => onChange(updateDraftPeriodStart(value, activePeriod, start))}
+                  label={t("periodStartLabel")}
+                  disabled={disabled}
+                />
+                <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-destructive" onClick={removePeriod} disabled={disabled}>
+                  <IconTrash />
+                  {t("removePeriod")}
+                </Button>
+              </div>
+            )}
+            <p className="text-xs text-muted-foreground">{t("periodsHint")}</p>
+          </div>
+        ) : (
+          <div>
+            <Button variant="ghost" size="sm" onClick={addPeriod} disabled={disabled}>
+              <IconPlus />
+              {t("addPeriod")}
+            </Button>
+          </div>
+        )}
+
         <div className="overflow-x-auto rounded-md border border-border bg-surface-2">
           <div className="min-w-[37.5rem] divide-y divide-border">
             <div className={cn("grid items-end gap-2 px-3 pb-2 pt-3 text-xs text-muted-foreground", bandGrid)}>
@@ -716,7 +845,7 @@ export function LeadEconomicsEditor({
               <span aria-hidden />
             </div>
 
-            {value.bands.map((band, index) => {
+            {view.bands.map((band, index) => {
               const label = labels[index];
               const ceiling = ceilings[index];
               const suffix = cutSuffix(index);
@@ -750,7 +879,7 @@ export function LeadEconomicsEditor({
                           placeholder={t("cutPlaceholder")}
                           aria-label={t("cutAria", { n: index + 1 })}
                           {...fieldErrorProps(bandIssues.min, ids.min)}
-                          onChange={(e) => onChange(updateDraftBand(value, index, { min: e.target.value }))}
+                          onChange={(e) => emitView(updateDraftBand(view, index, { min: e.target.value }))}
                           disabled={disabled}
                         />
                         {/* Quebra a linha em vez de cortar: é o limite de cima da faixa, e
@@ -765,7 +894,7 @@ export function LeadEconomicsEditor({
                   <FieldCell issue={bandIssues.product} messageId={ids.product}>
                     {/* text-left: o gatilho é um <button>, que centraliza; nome longo
                         cortado com reticências ficava no meio, longe dos vizinhos. */}
-                    <Select value={bandProduct} onValueChange={(product) => onChange(updateDraftBand(value, index, { product }))} disabled={disabled}>
+                    <Select value={bandProduct} onValueChange={(product) => emitView(updateDraftBand(view, index, { product }))} disabled={disabled}>
                       <SelectTrigger size="sm" className={cn("text-left", INVALID_TRIGGER)} aria-label={t("bandProductAria", { label })} {...fieldErrorProps(bandIssues.product, ids.product)}>
                         <SelectValue placeholder={t("choose")}>{labelOfProduct(bandProduct)}</SelectValue>
                       </SelectTrigger>
@@ -784,7 +913,7 @@ export function LeadEconomicsEditor({
                       value={band.conversion}
                       aria-label={t("conversionAria", { label })}
                       {...fieldErrorProps(bandIssues.conversion, ids.conversion)}
-                      onChange={(e) => onChange(updateDraftBand(value, index, { conversion: e.target.value }))}
+                      onChange={(e) => emitView(updateDraftBand(view, index, { conversion: e.target.value }))}
                       disabled={disabled}
                     />
                   </FieldCell>
@@ -808,7 +937,7 @@ export function LeadEconomicsEditor({
                       </span>
                     )}
                   </output>
-                  {value.bands.length > 1 ? (
+                  {view.bands.length > 1 ? (
                     <Button
                       ref={refInto(trashRefs.current, `b:${band.key}`)}
                       size="icon"

@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { useEffect } from 'react'
+import { useEffect, useMemo } from 'react'
 import { api } from './endpoints'
 import { showError } from '@/lib/utils/toast'
 import { AppError } from '@/lib/utils/errors'
@@ -32,6 +32,7 @@ import { getCachedPackAds, cachePackAds, removeCachedPackAds } from '@/lib/stora
 import { filterVideoAds } from '@/lib/utils/filterVideoAds'
 import { usePacksLoading } from '@/components/layout/PacksLoader'
 import { computePacksFreshnessStamp } from '@/lib/utils/packsFreshness'
+import { leadEconomicsPeriodCuts, normalizeLeadEconomics } from '@/lib/utils/leadEconomics'
 import { FETCHED_AT_FIELD, getAnalyticsPersister, markAnalyticsChanged } from '@/lib/api/analyticsPersister'
 
 // Query Keys
@@ -41,15 +42,15 @@ export const queryKeys = {
   ads: (params: GetAdsRequest) => ['facebook', 'ads', params] as const,
   videoSource: (params: GetVideoSourceRequest) => ['facebook', 'video-source', params] as const,
   imageSource: (params: GetImageSourceRequest) => ['facebook', 'image-source', params] as const,
-  adVariations: (adName: string, dateStart: string, dateStop: string, packIdsKey: string = '') => ['analytics', 'rankings', 'children', adName, dateStart, dateStop, packIdsKey] as const,
-  adDetails: (adId: string, dateStart: string, dateStop: string, packIdsKey: string = '') => ['analytics', 'rankings', 'ad-details', adId, dateStart, dateStop, packIdsKey] as const,
+  adVariations: (adName: string, dateStart: string, dateStop: string, packIdsKey: string = '', cutsKey: string = '') => ['analytics', 'rankings', 'children', adName, dateStart, dateStop, packIdsKey, cutsKey] as const,
+  adDetails: (adId: string, dateStart: string, dateStop: string, packIdsKey: string = '', cutsKey: string = '') => ['analytics', 'rankings', 'ad-details', adId, dateStart, dateStop, packIdsKey, cutsKey] as const,
   adCreative: (adId: string) => ['analytics', 'rankings', 'ad-creative', adId] as const,
   adHistory: (adId: string, dateStart: string, dateStop: string, packIdsKey: string = '') => ['analytics', 'rankings', 'ad-history', adId, dateStart, dateStop, packIdsKey] as const,
-  adNameDetails: (adName: string, dateStart: string, dateStop: string, packIdsKey: string = '') => ['analytics', 'rankings', 'ad-name-details', adName, dateStart, dateStop, packIdsKey] as const,
+  adNameDetails: (adName: string, dateStart: string, dateStop: string, packIdsKey: string = '', cutsKey: string = '') => ['analytics', 'rankings', 'ad-name-details', adName, dateStart, dateStop, packIdsKey, cutsKey] as const,
   adNameHistory: (adName: string, dateStart: string, dateStop: string, packIdsKey: string = '') => ['analytics', 'rankings', 'ad-name-history', adName, dateStart, dateStop, packIdsKey] as const,
   adTranscription: (adName: string) => ['analytics', 'transcription', adName] as const,
-  campaignChildren: (campaignId: string, dateStart: string, dateStop: string, actionType: string, packIdsKey: string) => ['analytics', 'rankings', 'campaign-children', campaignId, dateStart, dateStop, actionType, packIdsKey] as const,
-  adsetChildren: (adsetId: string, dateStart: string, dateStop: string, packIdsKey: string = '') => ['analytics', 'rankings', 'adset-children', adsetId, dateStart, dateStop, packIdsKey] as const,
+  campaignChildren: (campaignId: string, dateStart: string, dateStop: string, actionType: string, packIdsKey: string, cutsKey: string = '') => ['analytics', 'rankings', 'campaign-children', campaignId, dateStart, dateStop, actionType, packIdsKey, cutsKey] as const,
+  adsetChildren: (adsetId: string, dateStart: string, dateStop: string, packIdsKey: string = '', cutsKey: string = '') => ['analytics', 'rankings', 'adset-children', adsetId, dateStart, dateStop, packIdsKey, cutsKey] as const,
   packAds: (packId: string) => ['analytics', 'pack-ads', packId] as const,
   packActivity: (packId: string, actorId: string = '') => ['analytics', 'pack-activity', packId, actorId] as const,
   rankings: (params: RankingsRequest, freshness: string = '') => [
@@ -68,6 +69,8 @@ export const queryKeys = {
     params.offset,
     params.limit,
     params.include_available_conversion_types,
+    // 184: só quando há vigências — sem elas a chave (e o cache em disco) fica a de antes.
+    ...(params.lead_period_starts?.length ? [params.lead_period_starts] : []),
     freshness,
   ] as const,
   // Alias semântico para consultas de performance agregada de anúncios
@@ -87,6 +90,8 @@ export const queryKeys = {
     params.offset,
     params.limit,
     params.include_available_conversion_types,
+    // 184: só quando há vigências — sem elas a chave (e o cache em disco) fica a de antes.
+    ...(params.lead_period_starts?.length ? [params.lead_period_starts] : []),
     freshness,
   ] as const,
   // `freshness` = carimbo dos packs selecionados (updated_at do refresh + last_successful_sync_at
@@ -259,6 +264,22 @@ export const useImageSource = (params: GetImageSourceRequest, enabled = true) =>
 }
 
 /**
+ * Cortes de vigência da economia do lead (D33) dos packs pedidos, lidos do store como o
+ * carimbo de frescor. `undefined` quando nenhum deles tem vigências: a consulta fica a de
+ * antes. Editar uma vigência muda os cortes — e a chave, que busca de novo.
+ */
+export function useLeadPeriodCuts(packIds: readonly string[] | undefined): string[] | undefined {
+  const packs = useSessionStore((s) => s.packs)
+  const idsKey = (packIds ?? []).join('|')
+  const cutsKey = useMemo(() => {
+    const wanted = new Set(idsKey ? idsKey.split('|') : [])
+    const configs = (packs ?? []).filter((pack) => wanted.has(String(pack.id))).map((pack) => normalizeLeadEconomics(pack.lead_economics))
+    return leadEconomicsPeriodCuts(configs).join('|')
+  }, [packs, idsKey])
+  return useMemo(() => (cutsKey ? cutsKey.split('|') : undefined), [cutsKey])
+}
+
+/**
  * Hook centralizado para buscar variações de um anúncio agrupado por nome.
  * Utiliza cache compartilhado do React Query, evitando requisições duplicadas.
  * 
@@ -282,13 +303,15 @@ export const useAdVariations = (
   enabled: boolean = false
 ) => {
   const packIdsKey = [...packIds].sort().join("|");
+  const leadPeriodStarts = useLeadPeriodCuts(packIds);
   return useQuery({
-    queryKey: queryKeys.adVariations(adName, dateStart, dateStop, packIdsKey),
+    queryKey: queryKeys.adVariations(adName, dateStart, dateStop, packIdsKey, leadPeriodStarts?.join('|') ?? ''),
     queryFn: async ({ signal }) => {
       const response = await api.analytics.getRankingsChildren(adName, {
         date_start: dateStart,
         date_stop: dateStop,
         pack_ids: packIds,
+        lead_period_starts: leadPeriodStarts,
       }, { signal });
       // Retornar apenas o array de dados, tipado corretamente
       return (response.data || []) as RankingsChildrenItem[];
@@ -311,15 +334,17 @@ export const useCampaignChildren = (
   enabled: boolean = false
 ) => {
   const packIdsKey = [...packIds].sort().join("|")
+  const leadPeriodStarts = useLeadPeriodCuts(packIds)
   const actionTypeKey = String(actionType || "").trim()
   return useQuery({
-    queryKey: queryKeys.campaignChildren(campaignId, dateStart, dateStop, actionTypeKey, packIdsKey),
+    queryKey: queryKeys.campaignChildren(campaignId, dateStart, dateStop, actionTypeKey, packIdsKey, leadPeriodStarts?.join('|') ?? ''),
     queryFn: async ({ signal }) => {
       const response = await api.analytics.getCampaignChildren(campaignId, {
         date_start: dateStart,
         date_stop: dateStop,
         action_type: actionTypeKey || undefined,
         pack_ids: packIds,
+        lead_period_starts: leadPeriodStarts,
       }, { signal })
       return (response.data || []) as RankingsItem[]
     },
@@ -340,13 +365,15 @@ export const useAdsetChildren = (
   enabled: boolean = false
 ) => {
   const packIdsKey = [...packIds].sort().join("|");
+  const leadPeriodStarts = useLeadPeriodCuts(packIds);
   return useQuery({
-    queryKey: queryKeys.adsetChildren(adsetId, dateStart, dateStop, packIdsKey),
+    queryKey: queryKeys.adsetChildren(adsetId, dateStart, dateStop, packIdsKey, leadPeriodStarts?.join('|') ?? ''),
     queryFn: async ({ signal }) => {
       const response = await api.analytics.getAdsetChildren(adsetId, {
         date_start: dateStart,
         date_stop: dateStop,
         pack_ids: packIds,
+        lead_period_starts: leadPeriodStarts,
       }, { signal })
       return (response.data || []) as RankingsChildrenItem[]
     },
@@ -382,12 +409,14 @@ export const useAdDetails = (
   enabled: boolean = false
 ) => {
   const packIdsKey = [...packIds].sort().join("|");
+  const leadPeriodStarts = useLeadPeriodCuts(packIds);
   return useQuery({
-    queryKey: queryKeys.adDetails(adId, dateStart, dateStop, packIdsKey),
+    queryKey: queryKeys.adDetails(adId, dateStart, dateStop, packIdsKey, leadPeriodStarts?.join('|') ?? ''),
     queryFn: ({ signal }) => api.analytics.getAdDetails(adId, {
       date_start: dateStart,
       date_stop: dateStop,
       pack_ids: packIds,
+        lead_period_starts: leadPeriodStarts,
     }, { signal }),
     enabled: enabled && !!adId && !!dateStart && !!dateStop,
     staleTime: 5 * 60 * 1000, // Cache de 5 minutos
@@ -470,12 +499,14 @@ export const useAdNameDetails = (
   enabled: boolean = false
 ) => {
   const packIdsKey = [...packIds].sort().join("|");
+  const leadPeriodStarts = useLeadPeriodCuts(packIds);
   return useQuery({
-    queryKey: queryKeys.adNameDetails(adName, dateStart, dateStop, packIdsKey),
+    queryKey: queryKeys.adNameDetails(adName, dateStart, dateStop, packIdsKey, leadPeriodStarts?.join('|') ?? ''),
     queryFn: ({ signal }) => api.analytics.getAdNameDetails(adName, {
       date_start: dateStart,
       date_stop: dateStop,
       pack_ids: packIds,
+        lead_period_starts: leadPeriodStarts,
     }, { signal }),
     enabled: enabled && !!adName && !!dateStart && !!dateStop,
     staleTime: 5 * 60 * 1000,

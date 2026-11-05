@@ -27,7 +27,9 @@
       "colBandCeiling": "Teto na faixa",
       "colInCeiling": "Entra no teto",
       "basis": "Conta feita com os {formatted} {count, plural, one {lead} other {leads}} com nota que casaram com a planilha.",
-      "formula": "Teto na faixa: conversão × ticket × (quanto sobra − margem desejada). Entra no teto: a fatia dos leads × o teto na faixa."
+      "formula": "Teto na faixa: conversão × ticket × (quanto sobra − margem desejada). Entra no teto: a fatia dos leads × o teto na faixa.",
+      "periodHeader": "{label} · {formatted} {count, plural, one {lead} other {leads}} com nota",
+      "periodsNote": "Cada lead usa as faixas da vigência do dia em que entrou; a fatia é dos leads de todas as vigências."
     },
     "survey": {
       "numberHeader": "{kind, select, leadscore {leadscore} other {número}} · {n} leads",

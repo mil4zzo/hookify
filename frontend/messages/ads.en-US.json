@@ -27,7 +27,9 @@
       "colBandCeiling": "Band ceiling",
       "colInCeiling": "Adds to ceiling",
       "basis": "Calculated from the {formatted} scored {count, plural, one {lead} other {leads}} that matched the spreadsheet.",
-      "formula": "Band ceiling: conversion × ticket × (what's left − desired margin). Adds to ceiling: the leads' share × the band ceiling."
+      "formula": "Band ceiling: conversion × ticket × (what's left − desired margin). Adds to ceiling: the leads' share × the band ceiling.",
+      "periodHeader": "{label} · {formatted} scored {count, plural, one {lead} other {leads}}",
+      "periodsNote": "Each lead uses the ranges of the period it was captured in; the share is of the leads across all periods."
     },
     "survey": {
       "numberHeader": "{kind, select, leadscore {leadscore} other {number}} · {n} leads",

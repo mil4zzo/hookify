@@ -185,7 +185,8 @@
       "unstableLabel": "Unstable number",
       "excluded": "The average excludes {total, plural, one {# ad} other {# ads}}: {details}.",
       "excludedMixed": "{count, plural, one {# combines} other {# combine}} packs with different lead economics",
-      "excludedNoEconomics": "{count, plural, one {# belongs to a pack} other {# belong to packs}} without lead economics set up"
+      "excludedNoEconomics": "{count, plural, one {# belongs to a pack} other {# belong to packs}} without lead economics set up",
+      "excludedNoPeriodSplit": "{count, plural, one {# arrived} other {# arrived}} without leads split by period"
     },
     "children": {
       "ads": {
@@ -242,11 +243,14 @@
       "cplActual": "CPL Real {value}",
       "cplCeiling": "CPL Max {value}",
       "target": "target {value}",
+      "periods": "Leads from {count} periods: {list}",
       "scored": "{count, plural, one {# scored lead} other {# scored leads}}",
       "lowSample": "{prefix}: few scored leads — {text}",
       "noRevenue": "None of this ad's leads fall in a band that buys: there is no revenue to divide.",
       "noSpendCompare": "No spend in the period: there is no cost per lead to compare.",
-      "noSpendShow": "No spend in the period: there is no cost per lead to show."
+      "noSpendShow": "No spend in the period: there is no cost per lead to show.",
+      "noPeriodSplit": "This pack has periods, but the leads arrived without the split by date. Without it, Hookify would apply a single rate to every lead, so the number is left out. Your setup is fine; the fault is Hookify's.",
+      "periodSplitStale": "Updating with the new periods…"
     },
     "bulk": {
       "pin": "Pin to top",

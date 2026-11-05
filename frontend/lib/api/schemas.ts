@@ -646,6 +646,8 @@ export const RankingsRequestSchema = z.object({
   series_window: z.number().optional(),
   offset: z.number().int().nonnegative().optional(),
   include_available_conversion_types: z.boolean().optional(),
+  // 184 (D33): cortes de vigência da economia do lead; a linha volta com `leadscore_by_period`.
+  lead_period_starts: z.array(z.string()).optional(),
 })
 
 // Schema centralizado para séries de métricas diárias (sparklines)
@@ -802,6 +804,8 @@ export const RankingsItemSchema = z.object({
   frequency: z.number().nullable().optional(),
   leadscore_values: z.array(z.number()).optional(), // Array agregado (telas de detalhe; ad_metrics cru)
   leadscore_histogram: z.record(z.string(), z.number()).optional(), // {score: quantidade} — RPC do Manager (migration 130); expandido em normalizeLeadscoreValues
+  // 184 (D33): leads por trecho de vigência, já com os cortes da consulta (attachLeadPeriodCuts).
+  leadscore_by_period: z.object({ cuts: z.array(z.string()), histograms: z.record(z.string(), z.unknown()) }).nullable().optional(),
   // 140: {mapping_id: {valor: quantidade}} das colunas vinculadas da planilha.
   // {} quando o request não pediu (include_custom=false) ou o grupo não tem dado.
   custom_histograms: z.record(z.string(), z.record(z.string(), z.number())).optional(),
@@ -968,6 +972,7 @@ export const RankingsChildrenItemSchema = z.object({
   frequency: z.number().nullable().optional(),
   leadscore_values: z.array(z.number()).optional(), // Array agregado de leadscore_values para calcular MQLs/leadscore médio
   leadscore_histogram: z.record(z.string(), z.number()).optional(),
+  leadscore_by_period: z.object({ cuts: z.array(z.string()), histograms: z.record(z.string(), z.unknown()) }).nullable().optional(), // 184
   custom_histograms: z.record(z.string(), z.record(z.string(), z.number())).optional(), // 140
   conversions: z.record(z.string(), z.number()),
   thumbnail: z.string().nullable().optional(),

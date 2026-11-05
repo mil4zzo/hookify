@@ -1,6 +1,7 @@
 import { apiClient } from './client'
 import type { DirectShareEntry, FolderAccessChanges, FolderShareDetail, FolderShareEntry, FolderShareScope, PackFolder, PackFolderMembers } from '@/lib/types'
 import { getActiveCustomColumns } from '@/lib/metrics/customColumnsRegistry'
+import { attachLeadPeriodCuts } from '@/lib/utils/leadEconomics'
 import { asRowPayload, type ColumnarPayload } from './managerColumns'
 import type { DriveFile, LaunchProgress, LaunchRequest, LaunchTemplate, LibraryMedia } from '@/lib/campaignLaunch/types'
 import { ANALYTICS_REQUEST_TIMEOUT_MS } from './limits'
@@ -84,6 +85,22 @@ export interface SuccessResponse {
  */
 function appendIncludeCustom(qs: URLSearchParams): void {
   if (getActiveCustomColumns().length > 0) qs.append('include_custom', 'true')
+}
+
+/** 184 (D33): cortes de vigência da economia do lead — só quando algum pack tem vigências. */
+function appendLeadPeriodStarts(qs: URLSearchParams, starts: readonly string[] | undefined): void {
+  starts?.forEach((start) => qs.append('lead_period_starts', start))
+}
+
+function withRowLeadPeriodCuts(response: RankingsResponse, starts: readonly string[] | undefined): RankingsResponse {
+  withLeadPeriodCuts(response.data, starts)
+  return response
+}
+
+/** Linhas da resposta com os trechos de vigência ligados aos cortes que a consulta mandou. */
+function withLeadPeriodCuts<T>(rows: T, starts: readonly string[] | undefined): T {
+  attachLeadPeriodCuts(Array.isArray(rows) ? rows : [rows], starts)
+  return rows
 }
 
 export const api = {
@@ -340,14 +357,14 @@ export const api = {
     // formato de sempre. Colunas trafegam ~45% menores; o navegador usa linhas.
     // Ver lib/api/managerColumns.ts.
     getRankings: async (params: RankingsRequest, options?: { signal?: AbortSignal }): Promise<RankingsResponse> =>
-      asRowPayload(
+      withRowLeadPeriodCuts(asRowPayload(
         await apiClient.post<RankingsResponse | ColumnarPayload | unknown[]>('/analytics/rankings', { ...params, format: 'columns' }, { signal: options?.signal, timeout: ANALYTICS_REQUEST_TIMEOUT_MS }),
-      ) as RankingsResponse,
+      ) as RankingsResponse, params.lead_period_starts),
     // Alias semântico para evolução futura: mesma payload, rota nova
     getAdPerformance: async (params: RankingsRequest, options?: { signal?: AbortSignal }): Promise<RankingsResponse> =>
-      asRowPayload(
+      withRowLeadPeriodCuts(asRowPayload(
         await apiClient.post<RankingsResponse | ColumnarPayload | unknown[]>('/analytics/ad-performance', { ...params, format: 'columns' }, { signal: options?.signal, timeout: ANALYTICS_REQUEST_TIMEOUT_MS }),
-      ) as RankingsResponse,
+      ) as RankingsResponse, params.lead_period_starts),
     getRankingsSeries: (params: RankingsSeriesRequest, options?: { signal?: AbortSignal }): Promise<RankingsSeriesResponse> =>
       apiClient.post('/analytics/rankings/series', params, { signal: options?.signal, timeout: ANALYTICS_REQUEST_TIMEOUT_MS }),
     getRankingsRetention: (params: RankingsRetentionRequest, options?: { signal?: AbortSignal }): Promise<RankingsRetentionResponse> =>
@@ -357,7 +374,7 @@ export const api = {
     // (o registro ativo é publicado pela página que conhece os packs).
     getRankingsChildren: (
       adName: string,
-      params: { date_start: string; date_stop: string; order_by?: string; pack_ids?: string[] },
+      params: { date_start: string; date_stop: string; lead_period_starts?: string[]; order_by?: string; pack_ids?: string[] },
       options?: { signal?: AbortSignal }
     ): Promise<{ data: any[] }> => {
       const qs = new URLSearchParams()
@@ -368,11 +385,15 @@ export const api = {
         if (packId) qs.append('pack_ids', packId)
       })
       appendIncludeCustom(qs)
-      return apiClient.get(`/analytics/rankings/ad-name/${encodeURIComponent(adName)}/children?${qs.toString()}`, { signal: options?.signal, timeout: ANALYTICS_REQUEST_TIMEOUT_MS })
+      appendLeadPeriodStarts(qs, params.lead_period_starts)
+      return (apiClient.get(`/analytics/rankings/ad-name/${encodeURIComponent(adName)}/children?${qs.toString()}`, { signal: options?.signal, timeout: ANALYTICS_REQUEST_TIMEOUT_MS }) as Promise<{ data: any[] }>).then((response) => {
+        withLeadPeriodCuts(response?.data, params.lead_period_starts)
+        return response
+      })
     },
     getAdDetails: (
       adId: string,
-      params: { date_start: string; date_stop: string; pack_ids?: string[] },
+      params: { date_start: string; date_stop: string; lead_period_starts?: string[]; pack_ids?: string[] },
       options?: { signal?: AbortSignal }
     ): Promise<RankingsChildrenItem> => {
       const qs = new URLSearchParams()
@@ -382,7 +403,8 @@ export const api = {
         if (packId) qs.append('pack_ids', packId)
       })
       appendIncludeCustom(qs)
-      return apiClient.get(`/analytics/rankings/ad-id/${encodeURIComponent(adId)}?${qs.toString()}`, { signal: options?.signal, timeout: ANALYTICS_REQUEST_TIMEOUT_MS })
+      appendLeadPeriodStarts(qs, params.lead_period_starts)
+      return (apiClient.get(`/analytics/rankings/ad-id/${encodeURIComponent(adId)}?${qs.toString()}`, { signal: options?.signal, timeout: ANALYTICS_REQUEST_TIMEOUT_MS }) as Promise<RankingsChildrenItem>).then((item) => withLeadPeriodCuts(item, params.lead_period_starts))
     },
     getAdCreative: (adId: string, options?: { signal?: AbortSignal; packIds?: string[] }): Promise<AdCreativeResponse> =>
       apiClient.get(`/analytics/rankings/ad-id/${encodeURIComponent(adId)}/creative`, {
@@ -405,7 +427,7 @@ export const api = {
     },
     getAdNameDetails: (
       adName: string,
-      params: { date_start: string; date_stop: string; pack_ids?: string[] },
+      params: { date_start: string; date_stop: string; lead_period_starts?: string[]; pack_ids?: string[] },
       options?: { signal?: AbortSignal }
     ): Promise<RankingsChildrenItem> => {
       const qs = new URLSearchParams()
@@ -415,7 +437,8 @@ export const api = {
         if (packId) qs.append('pack_ids', packId)
       })
       appendIncludeCustom(qs)
-      return apiClient.get(`/analytics/rankings/ad-name/${encodeURIComponent(adName)}/details?${qs.toString()}`, { signal: options?.signal, timeout: ANALYTICS_REQUEST_TIMEOUT_MS })
+      appendLeadPeriodStarts(qs, params.lead_period_starts)
+      return (apiClient.get(`/analytics/rankings/ad-name/${encodeURIComponent(adName)}/details?${qs.toString()}`, { signal: options?.signal, timeout: ANALYTICS_REQUEST_TIMEOUT_MS }) as Promise<RankingsChildrenItem>).then((item) => withLeadPeriodCuts(item, params.lead_period_starts))
     },
     getAdNameHistory: (
       adName: string,
@@ -459,7 +482,7 @@ export const api = {
     },
     getAdsetChildren: (
       adsetId: string,
-      params: { date_start: string; date_stop: string; order_by?: string; pack_ids?: string[] },
+      params: { date_start: string; date_stop: string; lead_period_starts?: string[]; order_by?: string; pack_ids?: string[] },
       options?: { signal?: AbortSignal }
     ): Promise<{ data: any[] }> => {
       const qs = new URLSearchParams()
@@ -470,11 +493,15 @@ export const api = {
         if (packId) qs.append('pack_ids', packId)
       })
       appendIncludeCustom(qs)
-      return apiClient.get(`/analytics/rankings/adset-id/${encodeURIComponent(adsetId)}/children?${qs.toString()}`, { signal: options?.signal, timeout: ANALYTICS_REQUEST_TIMEOUT_MS })
+      appendLeadPeriodStarts(qs, params.lead_period_starts)
+      return (apiClient.get(`/analytics/rankings/adset-id/${encodeURIComponent(adsetId)}/children?${qs.toString()}`, { signal: options?.signal, timeout: ANALYTICS_REQUEST_TIMEOUT_MS }) as Promise<{ data: any[] }>).then((response) => {
+        withLeadPeriodCuts(response?.data, params.lead_period_starts)
+        return response
+      })
     },
     getCampaignChildren: (
       campaignId: string,
-      params: { date_start: string; date_stop: string; order_by?: string; action_type?: string; pack_ids?: string[] },
+      params: { date_start: string; date_stop: string; lead_period_starts?: string[]; order_by?: string; action_type?: string; pack_ids?: string[] },
       options?: { signal?: AbortSignal }
     ): Promise<{ data: any[] }> => {
       const qs = new URLSearchParams()
@@ -486,8 +513,12 @@ export const api = {
         if (packId) qs.append('pack_ids', packId)
       })
       appendIncludeCustom(qs)
+      appendLeadPeriodStarts(qs, params.lead_period_starts)
       const query = qs.toString()
-      return apiClient.get(`/analytics/rankings/campaign-id/${encodeURIComponent(campaignId)}/children${query ? `?${query}` : ''}`, { signal: options?.signal, timeout: ANALYTICS_REQUEST_TIMEOUT_MS })
+      return (apiClient.get(`/analytics/rankings/campaign-id/${encodeURIComponent(campaignId)}/children${query ? `?${query}` : ''}`, { signal: options?.signal, timeout: ANALYTICS_REQUEST_TIMEOUT_MS }) as Promise<{ data: any[] }>).then((response) => {
+        withLeadPeriodCuts(response?.data, params.lead_period_starts)
+        return response
+      })
     },
     listPacks: (includeAds?: boolean): Promise<{ success: boolean; packs: any[] }> =>
       apiClient.get('/analytics/packs', { params: { include_ads: includeAds || false } }),

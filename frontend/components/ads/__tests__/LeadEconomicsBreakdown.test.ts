@@ -93,3 +93,22 @@ test("amostra pequena avisa; sem gasto, CPL e margem ficam em branco (nunca R$ 0
   assert.ok(noSpend.includes("R$ 17.91"), "o teto existe sem gasto");
   assert.ok(!noSpend.includes("R$ 0.00"), "CPL sem gasto não é R$ 0");
 });
+
+test("vigências (D33): um bloco por vigência, e as parcelas de todas somam o CPL Max", () => {
+  const withPeriods: LeadEconomics = { ...EXAMPLE, periods: [{ start: "2026-10-13", bands: EXAMPLE.bands.map((band) => ({ ...band, conversion: band.conversion * 2 })) }] };
+  const outcome = getRowLeadEconomics(
+    { pack_ids: ["v"], spend: 500, leadscore_histogram: {}, leadscore_by_period: { cuts: ["2026-10-13"], histograms: { "0": { "30": 10, "85": 5 }, "1": { "70": 10, "85": 5 } } } } as any,
+    { v: withPeriods },
+  );
+  assert.ok(outcome.result?.periods);
+  const html = renderToStaticMarkup(React.createElement(LeadEconomicsBreakdown, { outcome, formatCurrency: brl, defaultExpanded: true }));
+  assert.match(html, /Início · 15 leads com nota/);
+  assert.match(html, /A partir de 13\/10 · 15 leads com nota/);
+  const total = outcome.result.periods!.flatMap((period) =>
+    period.result.bands.map((band) => band.share * (period.result.leadsScored / outcome.result!.leadsScored) * band.ceilingPerLead),
+  );
+  assert.ok(Math.abs(total.reduce((sum, value) => sum + value, 0) - outcome.result.cplCeiling) < 1e-9, "as parcelas somam o teto");
+  for (const value of total) assert.ok(html.includes(`>${brl(value)}</td>`), brl(value));
+  // Fatia de TODOS os leads: 10 de 30 abaixo de 60 na primeira vigência.
+  assert.match(html, /10 <span class="text-muted-foreground">\(33,33%\)<\/span>/);
+});

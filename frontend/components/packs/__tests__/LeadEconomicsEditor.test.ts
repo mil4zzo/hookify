@@ -421,3 +421,23 @@ test("ajustes: campo errado abre o bloco e fica marcado com a mensagem curta", (
   assert.equal(textOfId(html, attr(tag, "aria-describedby")!), F.contributionRange);
   assert.ok(html.includes(M.packSpendShare), "resumo do bloco");
 });
+
+test("vigências (D33): abas pela data, a primeira aberta mostra as faixas dela; uma só = só o botão", () => {
+  const product = { id: "p1", name: "EI", ticket: "2570", contribution: "77", target: "40" };
+  const band = (key: string, conversion: string) => ({ key, min: "", product: "p1", conversion });
+  const value: LeadEconomicsDraft = {
+    products: [product],
+    bands: [band("a", "0,3")],
+    periods: [{ key: "v2", start: "2026-10-13", bands: [band("b", "0,4")] }],
+  };
+  const html = render({ value });
+  assert.match(html, /role="tablist" aria-label="Vigências"/);
+  assert.match(html, /aria-selected="true"[^>]*>Início</);
+  assert.match(html, /aria-selected="false"[^>]*>A partir de 13\/10</);
+  assert.ok(html.includes('value="0,3"') && !html.includes('value="0,4"'), "faixas só da vigência aberta");
+  assert.ok(html.includes("Nova vigência"));
+
+  const plain = render({ value: { products: [product], bands: [band("a", "0,3")] } });
+  assert.doesNotMatch(plain, /role="tablist"/);
+  assert.ok(plain.includes("Nova vigência"));
+});
