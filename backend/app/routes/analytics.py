@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Literal, Set, Tuple
+from typing import Annotated, Any, Dict, List, Optional, Literal, Set, Tuple
 from datetime import date, datetime, timedelta
 import json
 import logging
@@ -158,6 +158,29 @@ def _validate_iso_date(v: str) -> str:
     return v
 
 
+# 184: teto de cortes por consulta. Uma vigência por semana em quase 20 anos; acima disto
+# não é cadastro de gente, é abuso (cada corte é uma comparação por anúncio-dia no banco).
+LEAD_PERIOD_STARTS_MAX = 1000
+
+
+def _clean_lead_period_starts(values: Optional[List[str]]) -> Optional[List[str]]:
+    """Datas de corte das vigências (migration 184): ISO, distintas e ordenadas — o que o
+    `width_bucket` da função exige e o que o navegador usa para ler os trechos. Vazio = None."""
+    if not values:
+        return None
+    if len(values) > LEAD_PERIOD_STARTS_MAX:
+        raise ValueError(f"lead_period_starts aceita no maximo {LEAD_PERIOD_STARTS_MAX} datas")
+    return sorted({_validate_iso_date(v) for v in values})
+
+
+def _lead_period_starts_query(values: Optional[List[str]]) -> Optional[List[str]]:
+    """Mesma limpeza para as rotas GET: erro vira 400, não 500."""
+    try:
+        return _clean_lead_period_starts(values)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
 class RankingsFilters(BaseModel):
     adaccount_ids: Optional[List[str]] = None
     campaign_name_contains: Optional[str] = None
@@ -206,11 +229,19 @@ class RankingsRequest(BaseModel):
             "conforme o tamanho da selecao). Prefira o metadado packs.conversion_types."
         ),
     )
+    # 184: cortes das vigências da economia do lead dos packs da tela. Com eles, cada
+    # linha traz `leadscore_by_period` (leads por trecho de data). None = a resposta de antes.
+    lead_period_starts: Optional[List[str]] = None
 
     @field_validator("date_start", "date_stop")
     @classmethod
     def validate_date(cls, v: str) -> str:
         return _validate_iso_date(v)
+
+    @field_validator("lead_period_starts")
+    @classmethod
+    def validate_lead_period_starts(cls, v: Optional[List[str]]) -> Optional[List[str]]:
+        return _clean_lead_period_starts(v)
 
 
 class RankingsSeriesRequest(BaseModel):
@@ -675,6 +706,9 @@ def _get_rankings_v161_raw(
         "p_order_by": (req.order_by or "spend"),
         "p_thumb_public_prefix": thumb_prefix,
     }
+    # 184: só para a função que conhece o parâmetro (a volta atrás para a v170 não quebra).
+    if req.lead_period_starts and _config.ANALYTICS_MANAGER_COLUMNS_RPC in _config.LEAD_PERIOD_RPCS:
+        params["p_lead_period_starts"] = req.lead_period_starts
     abort_if_client_gone("rankings:antes_do_slot")
     # Slot explícito pelo mesmo motivo do `_get_rankings_core_v2_rpc`: checar
     # desconexão DEPOIS de ganhar a vez e ANTES de disparar a consulta.
@@ -1420,6 +1454,14 @@ def _entity_thumbnail(group: Dict[str, Any]) -> Optional[str]:
     return _get_storage_thumb_if_any({"thumb_storage_path": group.get("thumb_storage_path")})
 
 
+def _lead_period_field(t: Dict[str, Any], include_leadscore: bool) -> Dict[str, Any]:
+    """`leadscore_by_period` (184) só quando a consulta mandou cortes: sem eles, o
+    contrato da rota fica exatamente o de antes (nem a chave aparece)."""
+    if not include_leadscore or t.get("leads_by_period") is None:
+        return {}
+    return {"leadscore_by_period": t["leads_by_period"]}
+
+
 def _entity_child_item(
     group: Dict[str, Any],
     axis: List[str],
@@ -1479,6 +1521,7 @@ def _entity_child_item(
         "frequency": d["frequency"],
         "conversions": t["conversions"],
         "leadscore_values": t["leadscore_values"] if include_leadscore else [],
+        **_lead_period_field(t, include_leadscore),
         # 140: histogramas das colunas vinculadas ({} quando a rota não pediu)
         "custom_histograms": t["custom_histograms"],
         "thumbnail": _entity_thumbnail(group),
@@ -1508,6 +1551,9 @@ def get_ad_name_details(
     user=Depends(get_current_user),
     # 140: por ÚLTIMO de propósito — os testes chamam as rotas por posição.
     include_custom: bool = False,
+    # 184: cortes das vigências da economia do lead (também por último). `Annotated` e
+    # não `= Query(...)`: chamada direta (os testes) recebe None, não o objeto do Query.
+    lead_period_starts: Annotated[Optional[List[str]], Query()] = None,
 ):
     """Detalhe agregado de todos os ad_ids com o mesmo ad_name no período (read model,
     migration 133). Com `pack_ids`, só as métricas dos packs selecionados.
@@ -1517,6 +1563,7 @@ def get_ad_name_details(
         user, date_start=date_start, date_stop=date_stop, entity="ad_name", entity_id=ad_name,
         pack_ids=pack_ids, group_by="entity", include_curve=True, series_days=5,
         include_custom=include_custom,
+        lead_period_starts=_lead_period_starts_query(lead_period_starts),
     )
     g = EP.single_group(payload)
     if g is None:
@@ -1548,6 +1595,7 @@ def get_ad_name_details(
         "frequency": d["frequency"],
         "conversions": t["conversions"],
         "leadscore_values": t["leadscore_values"] if include_leadscore else [],
+        **_lead_period_field(t, include_leadscore),
         "custom_histograms": t["custom_histograms"],
         "thumbnail": _entity_thumbnail(g),
         "video_play_curve_actions": EP.curve_of(g),
@@ -1566,6 +1614,9 @@ def get_rankings_children(
     pack_ids: Optional[List[str]] = Query(default=None),
     user=Depends(get_current_user),
     include_custom: bool = False,
+    # 184: cortes das vigências da economia do lead (também por último). `Annotated` e
+    # não `= Query(...)`: chamada direta (os testes) recebe None, não o objeto do Query.
+    lead_period_starts: Annotated[Optional[List[str]], Query()] = None,
 ):
     """Linhas-filhas (um anúncio por ad_id) de um ad_name no período (read model,
     migration 133). Com `pack_ids`, só os packs selecionados.
@@ -1578,6 +1629,7 @@ def get_rankings_children(
         user, date_start=date_start, date_stop=date_stop, entity="ad_name", entity_id=ad_name,
         pack_ids=pack_ids, group_by="ad_id", include_curve=False, series_days=0,
         include_custom=include_custom,
+        lead_period_starts=_lead_period_starts_query(lead_period_starts),
     )
     mql = payload["mql_leadscore_min"]
     items: List[Dict[str, Any]] = []
@@ -1600,6 +1652,9 @@ def get_campaign_children(
     pack_ids: Optional[List[str]] = Query(default=None),
     user=Depends(get_current_user),
     include_custom: bool = False,
+    # 184: cortes das vigências da economia do lead (também por último). `Annotated` e
+    # não `= Query(...)`: chamada direta (os testes) recebe None, não o objeto do Query.
+    lead_period_starts: Annotated[Optional[List[str]], Query()] = None,
 ):
     """Retorna linhas-filhas agregadas por adset_id para um campaign_id no período.
 
@@ -1621,6 +1676,7 @@ def get_campaign_children(
         include_leadscore=include_leadscore,
         include_custom=include_custom,
         include_available_conversion_types=False,
+        lead_period_starts=_lead_period_starts_query(lead_period_starts),
     )
     # Cliente do Manager: a função tem teto de 40 s no banco (164); o cliente comum
     # desistiria aos 25 s e deixaria a consulta órfã.
@@ -1657,6 +1713,9 @@ def get_adset_children(
     pack_ids: Optional[List[str]] = Query(default=None),
     user=Depends(get_current_user),
     include_custom: bool = False,
+    # 184: cortes das vigências da economia do lead (também por último). `Annotated` e
+    # não `= Query(...)`: chamada direta (os testes) recebe None, não o objeto do Query.
+    lead_period_starts: Annotated[Optional[List[str]], Query()] = None,
 ):
     """Linhas-filhas (um anúncio por ad_id) de um adset_id no período (read model,
     migration 133). Com `pack_ids`, só os packs selecionados.
@@ -1670,6 +1729,7 @@ def get_adset_children(
         user, date_start=date_start, date_stop=date_stop, entity="adset_id", entity_id=adset_id,
         pack_ids=pack_ids, group_by="ad_id", include_curve=False, series_days=0,
         include_custom=include_custom,
+        lead_period_starts=_lead_period_starts_query(lead_period_starts),
     )
     mql = payload["mql_leadscore_min"]
     items: List[Dict[str, Any]] = []
@@ -1697,6 +1757,9 @@ def get_adset_details(
     pack_ids: Optional[List[str]] = Query(default=None),
     user=Depends(get_current_user),
     include_custom: bool = False,
+    # 184: cortes das vigências da economia do lead (também por último). `Annotated` e
+    # não `= Query(...)`: chamada direta (os testes) recebe None, não o objeto do Query.
+    lead_period_starts: Annotated[Optional[List[str]], Query()] = None,
 ):
     """Detalhe de um adset_id no período, com série de 5 dias (read model, migration
     133). `conversions` aqui SEM prefixo e só as conversões da Meta — contrato
@@ -1706,6 +1769,7 @@ def get_adset_details(
         user, date_start=date_start, date_stop=date_stop, entity="adset_id", entity_id=adset_id,
         pack_ids=pack_ids, group_by="entity", include_curve=False, series_days=5,
         include_custom=include_custom,
+        lead_period_starts=_lead_period_starts_query(lead_period_starts),
     )
     g = EP.single_group(payload)
     if g is None:
@@ -1735,6 +1799,7 @@ def get_adset_details(
         "cpm": d["cpm"],
         "website_ctr": d["website_ctr"],
         "leadscore_values": t["leadscore_values"],
+        **_lead_period_field(t, True),
         "custom_histograms": t["custom_histograms"],
         "conversions": EP.plain_conversions_of((g.get("totals") or {}).get("conversions")),
         "ad_count": int(g.get("ad_count") or 0),
@@ -1751,6 +1816,9 @@ def get_ad_details(
     pack_ids: Optional[List[str]] = Query(default=None),
     user=Depends(get_current_user),
     include_custom: bool = False,
+    # 184: cortes das vigências da economia do lead (também por último). `Annotated` e
+    # não `= Query(...)`: chamada direta (os testes) recebe None, não o objeto do Query.
+    lead_period_starts: Annotated[Optional[List[str]], Query()] = None,
 ):
     """Detalhe de um ad_id no período, com série de 5 dias e curva de retenção (read
     model, migration 133). Com `pack_ids`, só os packs selecionados."""
@@ -1759,6 +1827,7 @@ def get_ad_details(
         user, date_start=date_start, date_stop=date_stop, entity="ad_id", entity_id=ad_id,
         pack_ids=pack_ids, group_by="entity", include_curve=True, series_days=5,
         include_custom=include_custom,
+        lead_period_starts=_lead_period_starts_query(lead_period_starts),
     )
     g = EP.single_group(payload)
     if g is None:
@@ -1791,6 +1860,7 @@ def get_ad_details(
         "frequency": d["frequency"],
         "conversions": t["conversions"],
         "leadscore_values": t["leadscore_values"],
+        **_lead_period_field(t, True),
         "custom_histograms": t["custom_histograms"],
         "thumbnail": _entity_thumbnail(g),
         "video_play_curve_actions": EP.curve_of(g),

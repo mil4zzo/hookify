@@ -212,5 +212,55 @@ class TestRotas(unittest.TestCase):
         self.assertIsNone(sb.params["p_pack_ids"])  # ramo legado: None, nao lista vazia
 
 
+    # ── 184: leads por vigência ──────────────────────────────────────────────
+
+    def _grupo_com_trechos(self, **over):
+        g = _group(**over)
+        g["totals"] = dict(g["totals"], leads_by_period={"0": {"40": 1}, "1": {"80": 2}})
+        return g
+
+    def test_cortes_vao_a_v184_e_o_trecho_volta_em_todas_as_rotas(self):
+        cortes = ["2026-01-04", "2026-01-02", "2026-01-04"]
+        chamadas = [
+            lambda: A.get_ad_name_details("N1", "2026-01-01", "2026-01-05", True, ["p1"], self.USER, False, cortes),
+            lambda: A.get_rankings_children("N1", "2026-01-01", "2026-01-05", None, True, ["p1"], self.USER, False, cortes)["data"][0],
+            lambda: A.get_adset_children("s1", "2026-01-01", "2026-01-05", None, True, ["p1"], self.USER, False, cortes)["data"][0],
+            lambda: A.get_adset_details("s1", "2026-01-01", "2026-01-05", ["p1"], self.USER, False, cortes),
+            lambda: A.get_ad_details("a1", "2026-01-01", "2026-01-05", ["p1"], self.USER, False, cortes),
+        ]
+        for i, chamar in enumerate(chamadas):
+            sb = _Sb({"mql_leadscore_min": None, "groups": [self._grupo_com_trechos()]})
+            with self._patch(sb), mock.patch.object(EP.config, "ANALYTICS_ENTITY_RPC", "fetch_entity_performance_v184"):
+                item = chamar()
+            self.assertEqual(sb.params["p_lead_period_starts"], ["2026-01-02", "2026-01-04"], f"rota {i}: limpos")
+            self.assertEqual(item["leadscore_by_period"], {"0": {"40": 1}, "1": {"80": 2}}, f"rota {i}")
+
+    def test_sem_cortes_nem_parametro_nem_chave(self):
+        sb = _Sb({"mql_leadscore_min": None, "groups": [_group()]})
+        with self._patch(sb), mock.patch.object(EP.config, "ANALYTICS_ENTITY_RPC", "fetch_entity_performance_v184"):
+            out = A.get_ad_name_details("N1", "2026-01-01", "2026-01-05", True, ["p1"], self.USER)
+        self.assertNotIn("p_lead_period_starts", sb.params)
+        self.assertNotIn("leadscore_by_period", out, "o contrato de antes, nem a chave")
+
+    def test_volta_atras_para_a_v171_nao_manda_os_cortes(self):
+        sb = _Sb({"mql_leadscore_min": None, "groups": [_group()]})
+        with self._patch(sb), mock.patch.object(EP.config, "ANALYTICS_ENTITY_RPC", "fetch_entity_performance_v171"):
+            out = A.get_ad_name_details("N1", "2026-01-01", "2026-01-05", True, ["p1"], self.USER, False, ["2026-01-02"])
+        self.assertNotIn("p_lead_period_starts", sb.params, "a v171 não conhece o parâmetro")
+        self.assertNotIn("leadscore_by_period", out)
+
+    def test_sem_leadscore_nao_vai_o_trecho(self):
+        sb = _Sb({"mql_leadscore_min": None, "groups": [self._grupo_com_trechos()]})
+        with self._patch(sb), mock.patch.object(EP.config, "ANALYTICS_ENTITY_RPC", "fetch_entity_performance_v184"):
+            out = A.get_ad_name_details("N1", "2026-01-01", "2026-01-05", False, ["p1"], self.USER, False, ["2026-01-02"])
+        self.assertNotIn("leadscore_by_period", out)
+
+    def test_corte_invalido_vira_400(self):
+        with self._patch(_Sb({"mql_leadscore_min": None, "groups": [_group()]})):
+            with self.assertRaises(HTTPException) as cm:
+                A.get_ad_details("a1", "2026-01-01", "2026-01-05", ["p1"], self.USER, False, ["2026-02-30"])
+        self.assertEqual(cm.exception.status_code, 400)
+
+
 if __name__ == "__main__":
     unittest.main()

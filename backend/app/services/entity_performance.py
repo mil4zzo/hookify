@@ -107,8 +107,13 @@ def fetch_entity_performance(
     include_curve: bool = False,
     series_days: Optional[int] = None,
     include_custom: bool = False,
+    lead_period_starts: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
     """Uma chamada à RPC; devolve {"mql_leadscore_min": float|None, "groups": [...]}.
+
+    `lead_period_starts` (migration 184): datas de corte das vigências da economia do
+    lead; com elas, `totals.leads_by_period` traz os leads por trecho de data. Só vai à
+    função que conhece o parâmetro (`config.LEAD_PERIOD_RPCS`).
 
     `include_custom` (migration 140): liga `totals.custom_histograms` — os histogramas
     das colunas vinculadas da planilha, somados no período. Desligado, a RPC nem os
@@ -130,6 +135,8 @@ def fetch_entity_performance(
         "p_series_days": series_days,
         "p_include_custom": bool(include_custom),
     }
+    if lead_period_starts and config.ANALYTICS_ENTITY_RPC in config.LEAD_PERIOD_RPCS:
+        params["p_lead_period_starts"] = list(lead_period_starts)
 
     # Leitura pura: quem já desligou não ocupa o banco.
     abort_if_client_gone(f"drill:{entity}")
@@ -278,6 +285,8 @@ def totals_of(group: Dict[str, Any]) -> Dict[str, Any]:
     out["conversions"] = conversions_of(t.get("conversions"))
     out["leads"] = t.get("leads") if isinstance(t.get("leads"), dict) else {}
     out["leadscore_values"] = expand_leads(out["leads"])
+    # 184: {"<trecho>": {"<nota>": qtd}} só quando a consulta mandou cortes; senão None.
+    out["leads_by_period"] = t.get("leads_by_period") if isinstance(t.get("leads_by_period"), dict) else None
     # 140: {"<mapping_id>": {"<valor>": qtd}} — {} quando não pedido ou sem dado
     out["custom_histograms"] = t.get("custom_histograms") if isinstance(t.get("custom_histograms"), dict) else {}
     return out

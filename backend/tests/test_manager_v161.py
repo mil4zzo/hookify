@@ -133,7 +133,7 @@ def test_chamada_leva_o_prefixo(cliente, monkeypatch):
     sb = _com_sb(monkeypatch, _Sb(_ok()))
     cliente.post("/analytics/ad-performance", json=BODY)
     nome, params = sb.rpcs[0]
-    assert nome == "fetch_manager_rankings_v170"
+    assert nome == "fetch_manager_rankings_v184"
     assert params["p_thumb_public_prefix"] == public_storage_prefix(DEFAULT_BUCKET)
     assert params["p_limit"] == 100000
 
@@ -158,7 +158,10 @@ def test_configuracao_volta_para_a_v161(cliente, monkeypatch):
 
 
 @pytest.mark.parametrize("env,aceito,padrao,atributo", [
-    ("ANALYTICS_ENTITY_RPC", "fetch_entity_performance_v158", "fetch_entity_performance_v171",
+    ("ANALYTICS_ENTITY_RPC", "fetch_entity_performance_v158", "fetch_entity_performance_v184",
+     "ANALYTICS_ENTITY_RPC"),
+    # a volta atrás da 184 no detalhe
+    ("ANALYTICS_ENTITY_RPC", "fetch_entity_performance_v171", "fetch_entity_performance_v184",
      "ANALYTICS_ENTITY_RPC"),
     ("ANALYTICS_RETENTION_RPC", "fetch_manager_rankings_retention_v2",
      "fetch_manager_rankings_retention_v172", "ANALYTICS_RETENTION_RPC"),
@@ -193,11 +196,13 @@ def test_valor_fora_da_lista_avisa_no_log(monkeypatch, caplog):
 
 
 @pytest.mark.parametrize("valor,esperado", [
-    ("", "fetch_manager_rankings_v170"),
+    ("", "fetch_manager_rankings_v184"),
+    # a volta atrás da 184 (sem leads por vigência) é escolher a v170 por env
+    ("fetch_manager_rankings_v170", "fetch_manager_rankings_v170"),
     ("fetch_manager_rankings_v161", "fetch_manager_rankings_v161"),
     # a volta atrás da 170 (sem a regra de imagem) é escolher a v162 por env
     ("fetch_manager_rankings_v162", "fetch_manager_rankings_v162"),
-    ("drop_tudo", "fetch_manager_rankings_v170"),
+    ("drop_tudo", "fetch_manager_rankings_v184"),
 ])
 def test_nome_da_funcao_so_aceita_a_lista(monkeypatch, valor, esperado):
     import importlib
@@ -286,7 +291,7 @@ def test_filhos_de_campanha_leem_linhas_sem_prefixo(cliente, monkeypatch):
                     params={"date_start": "2026-08-26", "date_stop": "2026-09-15"})
     assert r.status_code == 200
     nome, params = sb.rpcs[0]
-    assert nome == "fetch_manager_rankings_v170"
+    assert nome == "fetch_manager_rankings_v184"
     assert params["p_thumb_public_prefix"] is None
     assert params["p_group_by"] == "adset_id"
     assert [x["group_key"] for x in r.json()["data"]] == ["a1", "a2"]
@@ -398,3 +403,50 @@ def test_paridade_em_pedacos(caso):
     partes = list(reversed(p["data_columns"]))
     partes.insert(len(partes) // 2, meta)
     assert as_row_payload(partes)["data"] == caso["linhas"]
+
+
+# ── 184: cortes das vigências da economia do lead ───────────────────────────
+
+def test_cortes_vao_limpos_para_a_v184(cliente, monkeypatch):
+    sb = _com_sb(monkeypatch, _Sb(_ok()))
+    body = dict(BODY, lead_period_starts=["2026-10-20", "2026-10-13", "2026-10-20"])
+    assert cliente.post("/analytics/ad-performance", json=body).status_code == 200
+    assert sb.rpcs[0][1]["p_lead_period_starts"] == ["2026-10-13", "2026-10-20"], "distintos e em ordem"
+
+
+def test_sem_cortes_a_chamada_e_a_de_antes(cliente, monkeypatch):
+    sb = _com_sb(monkeypatch, _Sb(_ok()))
+    for extra in ({}, {"lead_period_starts": []}, {"lead_period_starts": None}):
+        cliente.post("/analytics/ad-performance", json=dict(BODY, **extra))
+    assert all("p_lead_period_starts" not in params for _, params in sb.rpcs)
+
+
+def test_volta_atras_para_a_v170_nao_manda_os_cortes(cliente, monkeypatch):
+    monkeypatch.setattr(config, "ANALYTICS_MANAGER_COLUMNS_RPC", "fetch_manager_rankings_v170")
+    sb = _com_sb(monkeypatch, _Sb(_ok()))
+    r = cliente.post("/analytics/ad-performance", json=dict(BODY, lead_period_starts=["2026-10-13"]))
+    assert r.status_code == 200, "a v170 não conhece o parâmetro: mandá-lo seria 404"
+    assert "p_lead_period_starts" not in sb.rpcs[0][1]
+
+
+MIL_E_UMA_DATAS = [f"{2000 + i // 12:04d}-{i % 12 + 1:02d}-01" for i in range(1001)]
+
+
+@pytest.mark.parametrize("ruim", [["2026-02-30"], ["13/10/2026"], ["2026-10-13T00:00"], MIL_E_UMA_DATAS])
+def test_cortes_invalidos_sao_recusados(cliente, monkeypatch, ruim):
+    sb = _com_sb(monkeypatch, _Sb(_ok()))
+    r = cliente.post("/analytics/ad-performance", json=dict(BODY, lead_period_starts=ruim))
+    assert r.status_code == 422
+    assert sb.rpcs == []
+
+
+def test_filhos_de_campanha_repassam_os_cortes(cliente, monkeypatch):
+    sb = _com_sb(monkeypatch, _Sb(_ok()))
+    r = cliente.get("/analytics/rankings/campaign-id/c1/children",
+                    params=[("date_start", "2026-08-26"), ("date_stop", "2026-09-15"),
+                            ("lead_period_starts", "2026-09-01"), ("lead_period_starts", "2026-08-30")])
+    assert r.status_code == 200
+    assert sb.rpcs[0][1]["p_lead_period_starts"] == ["2026-08-30", "2026-09-01"]
+    r = cliente.get("/analytics/rankings/campaign-id/c1/children",
+                    params=[("date_start", "2026-08-26"), ("date_stop", "2026-09-15"), ("lead_period_starts", "ontem")])
+    assert r.status_code == 400

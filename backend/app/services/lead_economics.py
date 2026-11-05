@@ -67,6 +67,7 @@ from __future__ import annotations
 
 import math
 import re
+from datetime import date
 from typing import Any, Dict, List, Optional, Tuple
 
 LEAD_ECONOMICS_MAX_PRODUCTS = 10
@@ -99,7 +100,16 @@ LEAD_ECONOMICS_MESSAGES: Dict[str, str] = {
     ),
     "adTax": "O imposto sobre o anúncio precisa ser de 0% a 100%.",
     "salesCoverage": "A parte das vendas com leadscore precisa ser maior que 0% e no máximo 100%.",
+    # Vigências (D33). `{n}`: posição na tela, a primeira (sem data) é a 1; `{date}`: DD/MM/AAAA.
+    "periodStart": "A vigência {n} precisa de uma data de início válida.",
+    "periodStartNotIncreasing": "A vigência a partir de {date} precisa começar depois da anterior, sem repetir o dia.",
+    "inPeriodDated": "Na vigência a partir de {date}: {message}",
+    "inPeriodNumbered": "Na vigência {n}: {message}",
 }
+
+# `AAAA-MM-DD` com ano de 1000 em diante (espelho de `isIsoDate`). `[0-9]` e não `\d`:
+# o `\d` do Python casa dígitos de qualquer alfabeto; o do JS, só os ASCII.
+_ISO_DATE = re.compile(r"([1-9][0-9]{3})-([0-9]{2})-([0-9]{2})")
 
 # Espaço em branco do JS (`trim()` e `\s`): WhiteSpace + LineTerminator da spec,
 # com a categoria Zs expandida. Diferente do `str.isspace()` do Python, que
@@ -279,8 +289,72 @@ def validate_lead_economics(raw: Any) -> Tuple[Optional[Dict[str, Any]], List[st
             "target_margin": target,
         })
 
-    # Faixas
-    raw_bands: List[Any] = raw["bands"]
+    # Faixas (da primeira vigência)
+    bands = _check_bands(raw["bands"], product_ids, push)
+
+    # Vigências seguintes (D33): ausente ou null = nenhuma (cadastros de antes).
+    periods: List[Dict[str, Any]] = []
+    raw_periods = raw.get("periods")
+    if raw_periods is not None:
+        if not isinstance(raw_periods, list):
+            push(M["invalidShape"])
+        else:
+            # Último início VÁLIDO visto — a mesma postura do `previous_min` das faixas.
+            previous_start: Optional[str] = None
+            for item in raw_periods:
+                n = len(periods) + 2
+                if not isinstance(item, dict) or not isinstance(item.get("bands"), list):
+                    push(M["invalidShape"])
+                    # A posição conta mesmo assim (espelho do contrato).
+                    periods.append({"start": "", "bands": []})
+                    continue
+                raw_start = item.get("start")
+                start = raw_start if isinstance(raw_start, str) and _is_iso_date(raw_start) else ""
+                if not start:
+                    push(M["periodStart"].format(n=n))
+                else:
+                    if previous_start is not None and not (start > previous_start):
+                        push(M["periodStartNotIncreasing"].format(date=_format_period_start(start)))
+                    previous_start = start
+
+                def push_in_period(message: str, n: int = n, start: str = start) -> None:
+                    push(_in_period(n, start, message))
+
+                periods.append({"start": start, "bands": _check_bands(item["bands"], product_ids, push_in_period)})
+
+    # Ajustes do cálculo (D32): ausente ou null vale o padrão (cadastros de antes).
+    def adjustment(key: str, default: Any) -> Any:
+        return default if raw.get(key) is None else _to_finite(raw.get(key))
+
+    pack_spend_share = adjustment("pack_spend_share", 1)
+    if not (0 < pack_spend_share <= 1):
+        push(M["packSpendShare"])
+    ad_tax = adjustment("ad_tax", 0)
+    if not (0 <= ad_tax <= 1):
+        push(M["adTax"])
+    sales_coverage = adjustment("sales_coverage", 1)
+    if not (0 < sales_coverage <= 1):
+        push(M["salesCoverage"])
+
+    if errors:
+        return None, errors
+    # Ajuste no padrão fica fora do canônico (espelho do contrato).
+    document: Dict[str, Any] = {"products": products, "bands": bands}
+    # Mesma regra para as vigências: uma só é o documento de antes da D33.
+    if periods:
+        document["periods"] = periods
+    if pack_spend_share != 1:
+        document["pack_spend_share"] = pack_spend_share
+    if ad_tax != 0:
+        document["ad_tax"] = ad_tax
+    if sales_coverage != 1:
+        document["sales_coverage"] = sales_coverage
+    return document, []
+
+
+def _check_bands(raw_bands: List[Any], product_ids: set, push: Any) -> List[Dict[str, Any]]:
+    """Uma lista de faixas (espelho de `checkBands`): a da primeira vigência e a de cada vigência seguinte."""
+    M = LEAD_ECONOMICS_MESSAGES
     if len(raw_bands) == 0:
         push(M["noBands"])
 
@@ -322,28 +396,29 @@ def validate_lead_economics(raw: Any) -> Tuple[Optional[Dict[str, Any]], List[st
 
         bands.append({"min": band_min, "product": product, "conversion": conversion})
 
-    # Ajustes do cálculo (D32): ausente ou null vale o padrão (cadastros de antes).
-    def adjustment(key: str, default: Any) -> Any:
-        return default if raw.get(key) is None else _to_finite(raw.get(key))
+    return bands
 
-    pack_spend_share = adjustment("pack_spend_share", 1)
-    if not (0 < pack_spend_share <= 1):
-        push(M["packSpendShare"])
-    ad_tax = adjustment("ad_tax", 0)
-    if not (0 <= ad_tax <= 1):
-        push(M["adTax"])
-    sales_coverage = adjustment("sales_coverage", 1)
-    if not (0 < sales_coverage <= 1):
-        push(M["salesCoverage"])
 
-    if errors:
-        return None, errors
-    # Ajuste no padrão fica fora do canônico (espelho do contrato).
-    document: Dict[str, Any] = {"products": products, "bands": bands}
-    if pack_spend_share != 1:
-        document["pack_spend_share"] = pack_spend_share
-    if ad_tax != 0:
-        document["ad_tax"] = ad_tax
-    if sales_coverage != 1:
-        document["sales_coverage"] = sales_coverage
-    return document, []
+def _is_iso_date(value: str) -> bool:
+    """Dia que existe no calendário, no formato `AAAA-MM-DD` (espelho de `isIsoDate`)."""
+    match = _ISO_DATE.fullmatch(value)
+    if not match:
+        return False
+    try:
+        date(int(match.group(1)), int(match.group(2)), int(match.group(3)))
+    except ValueError:
+        return False
+    return True
+
+
+def _format_period_start(start: str) -> str:
+    """`AAAA-MM-DD` → `DD/MM/AAAA` por fatia de texto (espelho de `formatPeriodStart`)."""
+    return f"{start[8:10]}/{start[5:7]}/{start[0:4]}"
+
+
+def _in_period(n: int, start: str, message: str) -> str:
+    """Erro de faixa dentro de uma vigência seguinte, com a vigência na frente (espelho de `inPeriod`)."""
+    lowered = message[:1].lower() + message[1:]
+    if start:
+        return LEAD_ECONOMICS_MESSAGES["inPeriodDated"].format(date=_format_period_start(start), message=lowered)
+    return LEAD_ECONOMICS_MESSAGES["inPeriodNumbered"].format(n=n, message=lowered)

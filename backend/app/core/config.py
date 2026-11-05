@@ -155,10 +155,15 @@ ANALYTICS_MANAGER_V161 = os.getenv("ANALYTICS_MANAGER_V161", "true").strip().low
 # (a Meta às vezes manda plays num estático). MIGRATION ANTES DO DEPLOY: sem a 170
 # aplicada, esta função não existe. `fetch_manager_rankings_v162` aqui é a volta
 # atrás sem deploy — com ela, os plays espúrios voltam.
+#
+# A 184 é a v170 com `p_lead_period_starts` (vigências da economia do lead): sem cortes,
+# a mesma resposta byte a byte. MIGRATION ANTES DO DEPLOY. Volta atrás sem deploy: a v170
+# (a rota deixa de mandar os cortes e o navegador mostra o pack com vigência como
+# indisponível, nunca com uma taxa só).
 _MANAGER_COLUMNS_RPCS = ("fetch_manager_rankings_v161", "fetch_manager_rankings_v162",
-                         "fetch_manager_rankings_v170")
+                         "fetch_manager_rankings_v170", "fetch_manager_rankings_v184")
 ANALYTICS_MANAGER_COLUMNS_RPC = _rpc_escolhida(
-    "ANALYTICS_MANAGER_COLUMNS_RPC", _MANAGER_COLUMNS_RPCS, "fetch_manager_rankings_v170")
+    "ANALYTICS_MANAGER_COLUMNS_RPC", _MANAGER_COLUMNS_RPCS, "fetch_manager_rankings_v184")
 
 # ATENÇÃO: voltar para a v162 aqui desfaz a regra de imagem SÓ nas linhas. A série do
 # sparkline (171) e a curva (172) têm os seus próprios caminhos de volta — o da série é
@@ -166,9 +171,14 @@ ANALYTICS_MANAGER_COLUMNS_RPC = _rpc_escolhida(
 
 # Qual função entrega o detalhe de uma entidade (o modal do anúncio: totais, série e
 # curva). A 171 é a v158 com a mesma regra. MIGRATION ANTES DO DEPLOY. Volta atrás: a v158.
-_ENTITY_RPCS = ("fetch_entity_performance_v158", "fetch_entity_performance_v171")
+# A 184 é a v171 com `p_lead_period_starts` (mesma regra da do Manager). Volta atrás: a v171.
+_ENTITY_RPCS = ("fetch_entity_performance_v158", "fetch_entity_performance_v171", "fetch_entity_performance_v184")
 ANALYTICS_ENTITY_RPC = _rpc_escolhida(
-    "ANALYTICS_ENTITY_RPC", _ENTITY_RPCS, "fetch_entity_performance_v171")
+    "ANALYTICS_ENTITY_RPC", _ENTITY_RPCS, "fetch_entity_performance_v184")
+
+# As funções que aceitam `p_lead_period_starts`. Mandar o parâmetro a uma que não o
+# conhece seria 404 do PostgREST: com a volta atrás, os cortes simplesmente não vão.
+LEAD_PERIOD_RPCS = frozenset({"fetch_manager_rankings_v184", "fetch_entity_performance_v184"})
 
 # Qual função desenha a curva de retenção de um grupo. A 172 é a v2 com a mesma regra
 # de imagem. MIGRATION ANTES DO DEPLOY. Volta atrás: a v2.
