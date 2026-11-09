@@ -68,8 +68,54 @@ def save_folder_judgment(token: str, folder_id: str, fields: Dict[str, Any]) -> 
             raise HTTPException(status_code=403, detail="Esta acao e so de quem edita esta pasta.")
         if "folder_not_found" in message:
             raise HTTPException(status_code=404, detail="Pasta nao encontrada.")
+        if "folder_judgment_governed" in message:
+            raise HTTPException(status_code=409, detail=governed_message(None))
         raise
     return merged
+
+
+# ── Dono unico do criterio (migration 186) ──────────────────────────────────────
+# Se uma pasta (ou ancestral) define criterio, nada abaixo dela o edita: nem subpasta,
+# nem pack. Estas consultas dizem QUEM manda; a regra em si e imposta aqui nas rotas
+# (pack) e no banco (`set_folder_judgment`, pasta).
+
+def governed_message(folder_name: Optional[str]) -> str:
+    where = f"pela pasta “{folder_name}”" if folder_name else "por uma pasta acima"
+    return f"Os criterios de julgamento aqui sao definidos {where}. Para mudar, edite o criterio dessa pasta."
+
+
+def pack_governors(token: str, pack_ids: List[str]) -> Dict[str, Optional[str]]:
+    """{pack_id: nome da pasta que manda no criterio dele} so para os packs governados.
+
+    O nome pode ser None (pasta que o ator nao enxerga). Falha de leitura NAO bloqueia
+    (devolve {} e registra): a tela ja desabilita o botao, e travar toda edicao por uma
+    RPC fora do ar seria pior que deixar passar.
+    """
+    if not pack_ids:
+        return {}
+    try:
+        rows = _rpc(get_supabase_for_user(token), "pack_judgment_governors", {"p_pack_ids": pack_ids}) or []
+        return {str(r["pack_id"]): r.get("folder_name") for r in rows if r.get("folder_id")}
+    except Exception:
+        logger.exception("[FOLDERS_JUDGMENT] Nao deu para ler quem governa o criterio dos packs")
+        return {}
+
+
+def folder_governor(token: str, folder_id: str) -> Optional[Dict[str, Any]]:
+    """O ANCESTRAL (nunca a propria pasta) que ja define criterio, ou None."""
+    rows = _rpc(get_supabase_for_user(token), "folder_judgment_governor", {"p_folder_id": folder_id, "p_strict": True}) or []
+    return rows[0] if rows else None
+
+
+def folders_with_judgment(token: str, folder_ids: List[str]) -> set:
+    """Quais dessas pastas definem criterio (a tela deriva o resto subindo pela arvore)."""
+    if not folder_ids:
+        return set()
+    try:
+        return {str(x) for x in (_rpc(get_supabase_for_user(token), "folders_with_judgment", {"p_folder_ids": folder_ids}) or [])}
+    except Exception:
+        logger.exception("[FOLDERS_JUDGMENT] Nao deu para ler quais pastas definem criterio")
+        return set()
 
 
 def inherit_folder_judgment(user: Dict[str, Any], folder_id: str, pack_ids: List[str]) -> Optional[List[Dict[str, Any]]]:

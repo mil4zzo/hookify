@@ -224,6 +224,11 @@ def list_folders(user=Depends(get_current_user)):
             .execute(),
         ).data or []
 
+    # Quais pastas definem criterio de julgamento: a tela deriva dai quem manda em cada
+    # pasta e pack (dono unico, migration 186) sem baixar o documento.
+    with_judgment = folders_judgment.folders_with_judgment(user["token"], [str(f["id"]) for f in folders])
+    folders = [{**f, "has_judgment": str(f["id"]) in with_judgment} for f in folders]
+
     return {
         "success": True,
         "folders": folders,

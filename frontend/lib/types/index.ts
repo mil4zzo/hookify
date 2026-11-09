@@ -190,6 +190,8 @@ export interface PackFolder {
   /** Nome do dono, nas pastas compartilhadas com o usuário. */
   owner_name?: string | null
   shared_root?: boolean
+  /** A pasta define critério de julgamento (os packs de dentro o herdam e não editam o próprio). */
+  has_judgment?: boolean
 }
 
 /** Convite DIRETO num pack do usuário: a pasta o absorve ao cobrir a pessoa (181). */

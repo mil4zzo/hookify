@@ -32,6 +32,8 @@ export interface PackActionsMenuProps {
   onEditDateRange?: (pack: AdsPack) => void;
   onTranscribeAds?: (packId: string, packName: string) => void;
   onEditJudgment?: (pack: AdsPack) => void;
+  /** Nome da pasta que define o critério deste pack (ele não edita o próprio). */
+  judgmentGovernedBy?: string | null;
   onEditSheetIntegration?: (pack: AdsPack) => void;
   onDeleteSheetIntegration?: (pack: AdsPack) => void;
 }
@@ -60,6 +62,7 @@ export function PackActionsMenu({
   onEditDateRange,
   onTranscribeAds,
   onEditJudgment,
+  judgmentGovernedBy,
   onEditSheetIntegration,
   onDeleteSheetIntegration,
 }: PackActionsMenuProps) {
@@ -118,7 +121,12 @@ export function PackActionsMenu({
             </DropdownMenuItem>
           )}
           {onEditJudgment && !isViewer && (
-            <DropdownMenuItem icon={<IconTargetArrow />} description={hasJudgmentOverride ? t("judgmentOwn") : undefined} onClick={() => onEditJudgment(pack)}>
+            <DropdownMenuItem
+              icon={<IconTargetArrow />}
+              description={judgmentGovernedBy ? t("judgmentGoverned", { folder: judgmentGovernedBy }) : hasJudgmentOverride ? t("judgmentOwn") : undefined}
+              disabled={!!judgmentGovernedBy}
+              onClick={() => onEditJudgment(pack)}
+            >
               {t("judgment")}
             </DropdownMenuItem>
           )}

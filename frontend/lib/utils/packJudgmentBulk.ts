@@ -194,7 +194,9 @@ export interface BulkPackJudgmentResult {
   pack_id: string;
   status: "updated" | "skipped" | "failed";
   /** `viewer`: você só lê este pack; `no_access`: pack que não é (mais) seu. */
-  reason?: "viewer" | "no_access";
+  reason?: "viewer" | "no_access" | "folder";
+  /** `folder`: a pasta que define o critério deste pack (null = pasta que você não enxerga). */
+  folder_name?: string | null;
   error?: string;
   /** O que foi gravado NESTE pack (o CPR alvo já fundido com o que ele tinha). */
   judgment?: {

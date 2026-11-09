@@ -53,6 +53,7 @@ export interface PackCardProps {
   onDeleteSheetIntegration?: (pack: AdsPack) => void;
   /** Abre a configuração de critérios de julgamento (MQL, CPR alvo, métrica de custo) do pack. */
   onEditJudgment?: (pack: AdsPack) => void;
+  judgmentGovernedBy?: string | null;
   /** Abre a edição do período do pack. Só o dono: período define o que o pack É. */
   onEditDateRange?: (pack: AdsPack) => void;
   /** Inicia apenas a transcrição dos vídeos do pack (sem refresh). Útil para testes. */
@@ -77,7 +78,7 @@ export interface PackCardProps {
  * - Métricas: Campanhas, Adsets, Anúncios (grid de 3 colunas)
  * - Footer: Última atualização (esquerda) + Atualização automática (direita)
  */
-export function PackCard({ pack, adAccountName, formatCurrency, formatDate, onRefresh, onRemove, onMove, onToggleAutoRefresh, onSetSheetIntegration, onEditSheetIntegration, onDeleteSheetIntegration, onEditJudgment, onEditDateRange, onTranscribeAds, isSelected = false, isUpdating, updatingByName, isTogglingAutoRefresh, packToDisableAutoRefresh }: PackCardProps) {
+export function PackCard({ pack, adAccountName, formatCurrency, formatDate, onRefresh, onRemove, onMove, onToggleAutoRefresh, onSetSheetIntegration, onEditSheetIntegration, onDeleteSheetIntegration, onEditJudgment, judgmentGovernedBy, onEditDateRange, onTranscribeAds, isSelected = false, isUpdating, updatingByName, isTogglingAutoRefresh, packToDisableAutoRefresh }: PackCardProps) {
   const t = useTranslations("packs.card");
   const stats = pack.stats;
   // Conta de anúncio de origem: prefere o nome resolvido; cai para o id cru (act_...) se ainda não carregou/não resolveu.
@@ -307,6 +308,7 @@ export function PackCard({ pack, adAccountName, formatCurrency, formatDate, onRe
         onEditDateRange={onEditDateRange}
         onTranscribeAds={onTranscribeAds}
         onEditJudgment={onEditJudgment}
+        judgmentGovernedBy={judgmentGovernedBy}
         onEditSheetIntegration={onEditSheetIntegration}
         onDeleteSheetIntegration={onDeleteSheetIntegration}
         disabled={isEditingName}

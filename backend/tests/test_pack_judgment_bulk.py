@@ -25,7 +25,7 @@ from fastapi.testclient import TestClient
 import app.main as main
 from app.core.auth import get_current_user
 from app.routes import analytics
-from app.services import pack_action_log, supabase_repo
+from app.services import folders_judgment, pack_action_log, supabase_repo
 from app.services.lead_economics import LEAD_ECONOMICS_MESSAGES as M
 from app.services.pack_access import PackAccess
 
@@ -47,7 +47,7 @@ ROLES = {
 @pytest.fixture
 def ctx(monkeypatch):
     """Cliente + espiões. `roles` e `targets` podem ser trocados pelo teste."""
-    state = {"roles": dict(ROLES), "targets": {}, "fail": set(), "writes": [], "logs": [], "target_reads": 0, "validations": 0}
+    state = {"governors": {}, "folder_governor": None, "roles": dict(ROLES), "targets": {}, "fail": set(), "writes": [], "logs": [], "target_reads": 0, "validations": 0}
 
     main.app.dependency_overrides[get_current_user] = lambda: {"user_id": "u1", "token": "tok"}
     monkeypatch.setattr(analytics, "resolve_pack_roles", lambda actor, ids: {i: state["roles"][i] for i in ids if i in state["roles"]})
@@ -62,6 +62,9 @@ def ctx(monkeypatch):
         state["writes"].append((pack_id, copy.deepcopy(fields), actor))
         return dict(fields)
 
+    monkeypatch.setattr(folders_judgment, "pack_governors", lambda token, ids: {i: state["governors"][i] for i in ids if i in state["governors"]})
+    monkeypatch.setattr(folders_judgment, "folder_governor", lambda token, folder_id: state["folder_governor"])
+    monkeypatch.setattr(folders_judgment, "save_folder_judgment", lambda token, folder_id, fields: state.setdefault("folder_saves", []).append((folder_id, fields)))
     monkeypatch.setattr(supabase_repo, "get_packs_target_cpr", read_targets)
     monkeypatch.setattr(supabase_repo, "update_pack_judgment", write)
     monkeypatch.setattr(pack_action_log, "log_pack_action", lambda **kw: state["logs"].append(kw))
@@ -238,3 +241,44 @@ def test_target_cpr_patch_vazio_nao_mexe(ctx):
     assert ctx["writes"][0][1] == {"mql_leadscore_min": 5}, "target_cpr {} fica fora do update"
     r = _post(ctx, {"pack_ids": ["meu"], "target_cpr": {}})
     assert r.status_code == 400, "só um patch vazio = nada a gravar"
+
+
+# ── Dono unico do criterio (migration 186) ──────────────────────────────────────
+# Sabotagens: tirar o filtro de packs governados -> test_pack_sob_pasta_com_criterio_fica_de_fora
+# falha; deixar o PATCH passar -> test_patch_de_pack_governado_da_409 falha; checar a pasta
+# DEPOIS de gravar os packs -> test_pasta_governada_nao_grava_nada falha.
+
+def test_pack_sob_pasta_com_criterio_fica_de_fora(ctx):
+    ctx["governors"]["meu2"] = "Campanha X"
+    r = ctx["client"].post(URL, json={"pack_ids": ["meu", "meu2"], "mql_leadscore_min": 60})
+    by_id = {x["pack_id"]: x for x in r.json()["results"]}
+    assert by_id["meu"]["status"] == "updated"
+    assert by_id["meu2"] == {"pack_id": "meu2", "status": "skipped", "reason": "folder", "folder_name": "Campanha X"}
+    assert [w[0] for w in ctx["writes"]] == ["meu"]
+
+
+def test_patch_de_pack_governado_da_409(ctx, monkeypatch):
+    monkeypatch.setattr(analytics, "assert_pack_role", lambda uid, pid: ROLES["meu"])
+    ctx["governors"]["meu"] = "Campanha X"
+    r = ctx["client"].patch("/analytics/packs/meu/judgment", json={"mql_leadscore_min": 60})
+    assert r.status_code == 409 and "Campanha X" in r.json()["detail"]
+    assert ctx["writes"] == []
+
+
+def test_pasta_governada_nao_grava_nada(ctx):
+    ctx["folder_governor"] = {"folder_id": "pai", "folder_name": "Pai"}
+    r = ctx["client"].post(URL, json={"pack_ids": ["meu"], "mql_leadscore_min": 60, "folder_id": "f1"})
+    assert r.status_code == 409 and ctx["writes"] == [] and not ctx.get("folder_saves")
+
+
+def test_pasta_vazia_guarda_o_criterio(ctx):
+    r = ctx["client"].post(URL, json={"pack_ids": [], "mql_leadscore_min": 60, "folder_id": "f1"})
+    assert r.status_code == 200 and r.json() == {"results": [], "folder_saved": True}
+    assert ctx["folder_saves"] == [("f1", {"mql_leadscore_min": 60})]
+
+
+def test_acao_da_pasta_nao_filtra_packs_pela_propria_pasta(ctx):
+    # os packs da pasta estao sob ela (que ja define): reaplicar na pasta tem que gravar neles
+    ctx["governors"]["meu"] = "Esta mesma pasta"
+    r = ctx["client"].post(URL, json={"pack_ids": ["meu"], "mql_leadscore_min": 60, "folder_id": "f1"})
+    assert r.json()["results"][0]["status"] == "updated"

@@ -2296,6 +2296,11 @@ def update_pack_judgment(
     try:
         access = assert_pack_role(user["user_id"], pack_id)  # dono|editor; viewer -> 403
 
+        # Dono unico (migration 186): pack sob pasta com criterio nao tem criterio proprio.
+        governors = folders_judgment.pack_governors(user["token"], [pack_id])
+        if pack_id in governors:
+            raise HTTPException(status_code=409, detail=folders_judgment.governed_message(governors[pack_id]))
+
         # exclude_unset preserva a distincao entre "nao enviado" e "enviado como null".
         fields = request.model_dump(exclude_unset=True)
         if not fields:
@@ -2337,7 +2342,7 @@ def update_pack_judgment_bulk(
     Pack que falhar ao gravar volta como `failed` e nao derruba os demais.
     """
     pack_ids = list(dict.fromkeys(str(p).strip() for p in (request.pack_ids or []) if str(p or "").strip()))
-    if not pack_ids:
+    if not pack_ids and not request.folder_id:
         raise HTTPException(status_code=400, detail="Nenhum pack informado")
     if len(pack_ids) > BULK_JUDGMENT_MAX_PACKS:
         raise HTTPException(status_code=400, detail=f"No máximo {BULK_JUDGMENT_MAX_PACKS} packs por vez.")
@@ -2355,7 +2360,24 @@ def update_pack_judgment_bulk(
     fields = _validate_judgment_fields(fields, target_removal=True)
 
     actor_id = str(user["user_id"])
-    results = apply_judgment_to_packs(actor_id, pack_ids, fields)
+    skipped_governed: List[Dict[str, Any]] = []
+    if folder_id:
+        # Definir na pasta so vale se nenhum ancestral ja define (dono unico, migration 186).
+        # Antes de gravar nos packs: o banco recusaria a pasta DEPOIS, com os packs ja mudados.
+        governor = folders_judgment.folder_governor(user["token"], str(folder_id))
+        if governor:
+            raise HTTPException(status_code=409, detail=folders_judgment.governed_message(governor.get("folder_name")))
+    else:
+        # Selecao de packs soltos: os que moram sob pasta com criterio ficam de fora.
+        governors = folders_judgment.pack_governors(user["token"], pack_ids)
+        if governors:
+            skipped_governed = [
+                {"pack_id": pid, "status": "skipped", "reason": "folder", "folder_name": governors[pid]}
+                for pid in pack_ids if pid in governors
+            ]
+            pack_ids = [pid for pid in pack_ids if pid not in governors]
+    results = apply_judgment_to_packs(actor_id, pack_ids, fields) if pack_ids else []
+    results = results + skipped_governed
 
     # Acao no menu de uma PASTA: alem de copiar nos packs de hoje, a pasta guarda o
     # criterio para os que entrarem depois. O que ja foi aplicado nao desfaz se isso falhar.

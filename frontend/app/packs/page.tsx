@@ -56,6 +56,7 @@ import { MoveToFolderDialog } from "@/components/packs/MoveToFolderDialog";
 import { FolderCard } from "@/components/packs/FolderCard";
 import { PacksActionsSkeleton, PacksLibrarySkeleton } from "@/components/packs/PacksLibrarySkeleton";
 import { FolderNameDialog } from "@/components/packs/FolderNameDialog";
+import { judgmentGovernor } from "@/lib/utils/folderJudgment";
 import { filterFolderTree, flattenTree, folderPath, planFolderMove, subtreeIds, type FolderDropEdge } from "@/lib/utils/folderTree";
 import {
   absorbedDirect,
@@ -456,15 +457,28 @@ export default function PacksPage() {
   const [bulkJudgmentPacks, setBulkJudgmentPacks] = useState<AdsPack[] | null>(null);
   // Vindo do menu de uma pasta: o critério também fica guardado nela (herança de quem entrar).
   const [bulkJudgmentFolderId, setBulkJudgmentFolderId] = useState<string | null>(null);
+  // Dono único (migration 186): pack sob pasta que define critério não edita o próprio.
+  // Devolve o nome da pasta que manda (string vazia = pasta que o usuário não enxerga).
+  const judgmentGovernorOfPack = (packId: string): string | null => {
+    const governor = judgmentGovernor(allFolders, folderIdByPack[packId]);
+    return governor ? governor.name : null;
+  };
   const configureJudgmentFor = (list: AdsPack[], folderId: string | null = null) => {
     const writable = list.filter((p) => p.shared_role !== "viewer");
     const viewers = list.length - writable.length;
     if (viewers > 0) {
       showWarning(t("warnViewersJudgment", { count: viewers }));
     }
-    if (writable.length > 0) {
+    // Ação vinda da pasta define o critério NELA (os packs de dentro são dela); vinda de
+    // seleção de packs soltos, os que moram sob pasta com critério ficam de fora.
+    const editable = folderId ? writable : writable.filter((p) => judgmentGovernorOfPack(p.id) === null);
+    const governed = writable.length - editable.length;
+    if (governed > 0) {
+      showWarning(t("warnGovernedJudgment", { count: governed }));
+    }
+    if (editable.length > 0 || folderId) {
       setBulkJudgmentFolderId(folderId);
-      setBulkJudgmentPacks(writable);
+      setBulkJudgmentPacks(editable);
     }
   };
   const handleBulkConfigureJudgment = () => configureJudgmentFor(selectedPacksList);
@@ -927,7 +941,12 @@ export default function PacksPage() {
         id: "judgment",
         label: t("actJudgment"),
         icon: <IconTargetArrow />,
-        disabled: !list.some((p) => p.shared_role !== "viewer"),
+        // Pasta vazia pode ter critério (os packs que entrarem o herdam). Só não pode se um
+        // ancestral já define (dono único) ou se o usuário só lê.
+        disabled: !!judgmentGovernor(allFolders, folder.id, { strict: true }) || (folder.access === "viewer"),
+        description: judgmentGovernor(allFolders, folder.id, { strict: true })
+          ? t("folderGoverned", { folder: judgmentGovernor(allFolders, folder.id, { strict: true })!.name })
+          : undefined,
         onSelect: () => configureJudgmentFor(list, folder.id),
       },
       {
@@ -1532,6 +1551,7 @@ export default function PacksPage() {
                   onEditDateRange={setDateRangePack}
                   onTranscribeAds={(packId, packName) => setTranscriptionDialogPack({ id: packId, name: packName })}
                   onEditJudgment={setJudgmentPack}
+                  judgmentGovernedBy={judgmentGovernorOfPack(pack.id)}
                   onEditSheetIntegration={handleEditSheetIntegration}
                   onDeleteSheetIntegration={handleDeleteSheetIntegration}
                 >
@@ -1825,7 +1845,7 @@ export default function PacksPage() {
                           />
                         </div>
                       )}
-                    <PackCard pack={pack} adAccountName={adAccountNameById.get(pack.adaccount_id)} formatCurrency={formatCurrency} formatDate={formatDate} onRefresh={handleRefreshPack} onRemove={handleRemovePack} onMove={openMoveDialog} onToggleAutoRefresh={handleToggleAutoRefresh} onSetSheetIntegration={setSheetIntegrationPack} onEditSheetIntegration={handleEditSheetIntegration} onDeleteSheetIntegration={handleDeleteSheetIntegration} onEditJudgment={setJudgmentPack} onEditDateRange={setDateRangePack} onTranscribeAds={(packId, packName) => setTranscriptionDialogPack({ id: packId, name: packName })} isSelected={isPackSelected(pack.id)} isUpdating={isPackUpdating(pack.id) || isPackRefreshingOnServer(pack)} updatingByName={isPackRefreshingOnServer(pack) ? pack.refresh_actor_name : null} isTogglingAutoRefresh={isTogglingAutoRefresh} packToDisableAutoRefresh={packToDisableAutoRefresh} />
+                    <PackCard pack={pack} adAccountName={adAccountNameById.get(pack.adaccount_id)} formatCurrency={formatCurrency} formatDate={formatDate} onRefresh={handleRefreshPack} onRemove={handleRemovePack} onMove={openMoveDialog} onToggleAutoRefresh={handleToggleAutoRefresh} onSetSheetIntegration={setSheetIntegrationPack} onEditSheetIntegration={handleEditSheetIntegration} onDeleteSheetIntegration={handleDeleteSheetIntegration} onEditJudgment={setJudgmentPack} judgmentGovernedBy={judgmentGovernorOfPack(pack.id)} onEditDateRange={setDateRangePack} onTranscribeAds={(packId, packName) => setTranscriptionDialogPack({ id: packId, name: packName })} isSelected={isPackSelected(pack.id)} isUpdating={isPackUpdating(pack.id) || isPackRefreshingOnServer(pack)} updatingByName={isPackRefreshingOnServer(pack) ? pack.refresh_actor_name : null} isTogglingAutoRefresh={isTogglingAutoRefresh} packToDisableAutoRefresh={packToDisableAutoRefresh} />
                     </div>
                   ))}
                 </div>

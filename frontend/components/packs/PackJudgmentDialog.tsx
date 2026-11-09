@@ -105,7 +105,8 @@ export function PackJudgmentDialog({ pack, open, onOpenChange, accountCurrency, 
   const t = useTranslations("packs.judgment");
   const tc = useTranslations("packs.common");
   const { updatePack } = useClientPacks();
-  const isBulk = !!bulkPacks && bulkPacks.length > 0;
+  // Pasta vazia (folderId, sem packs) também é uma ação em massa: o critério fica guardado nela.
+  const isBulk = !!bulkPacks && (bulkPacks.length > 0 || !!folderId);
   // Preferência só como reserva: ela acompanha a conta apenas quando todas as contas
   // do usuário têm a mesma moeda, e em pack compartilhado é a moeda de quem vê — por
   // isso o editor avisa quando é ela que está valendo.
@@ -191,7 +192,7 @@ export function PackJudgmentDialog({ pack, open, onOpenChange, accountCurrency, 
     setPendingBulk(null);
     if (!open) return;
 
-    if (bulkPacks && bulkPacks.length > 0) {
+    if (bulkPacks && (bulkPacks.length > 0 || folderId)) {
       const seed = seedBulkJudgment(bulkPacks);
       setBulkSeed(seed);
       setInitialForm(seed.form);
@@ -294,7 +295,7 @@ export function PackJudgmentDialog({ pack, open, onOpenChange, accountCurrency, 
   // Funções simples (sem useCallback): o diálogo só re-renderiza ao digitar, e
   // memoizar aqui exigiria esconder dependências do lint.
   async function handleBulkSave() {
-    if (!bulkPacks || bulkPacks.length === 0) return;
+    if (!bulkPacks || (bulkPacks.length === 0 && !folderId)) return;
     const built = buildBulkPackJudgmentPayload({ mql: mqlValue, targets }, initialForm, economicsDecision);
     if (built.kind === "error") {
       if (built.field === "economics") setShowEconomicsErrors(true);
@@ -316,7 +317,7 @@ export function PackJudgmentDialog({ pack, open, onOpenChange, accountCurrency, 
   }
 
   async function sendBulk(payload: BulkPackJudgmentPayload) {
-    if (!bulkPacks || bulkPacks.length === 0) return;
+    if (!bulkPacks || (bulkPacks.length === 0 && !folderId)) return;
     setIsSaving(true);
     try {
       const response = await api.analytics.updatePackJudgmentBulk({ pack_ids: bulkPacks.map((p) => p.id), ...(folderId ? { folder_id: folderId } : {}), ...payload });
@@ -325,6 +326,13 @@ export function PackJudgmentDialog({ pack, open, onOpenChange, accountCurrency, 
       }
       const names = Object.fromEntries(bulkPacks.map((p) => [p.id, p.name]));
       const summary = summarizeBulkJudgment(response.results, names);
+      if (bulkPacks.length === 0) {
+        // Pasta vazia: não há pack a atualizar; o que valeu foi guardar na pasta.
+        if (response.folder_saved === false) showWarning(t("folderNotSaved"));
+        else showSuccess(t("folderSaved"));
+        onOpenChange(false);
+        return;
+      }
       if (summary.failed.length > 0) {
         showError(new Error(t("bulkFailed", { headline: summary.headline, failures: summary.failed.map((f) => `${f.name} (${f.error})`).join("; ") })));
       } else if (summary.skipped.length > 0) {
@@ -416,7 +424,10 @@ export function PackJudgmentDialog({ pack, open, onOpenChange, accountCurrency, 
           <h2 className="text-lg font-semibold text-foreground">{isBulk ? t("titleBulk") : t("title")}</h2>
           {isBulk ? (
             <p className="text-sm text-muted-foreground">
-              {t.rich("introBulk", { count: packCount, names: listNames(bulkPacks!.map((p) => p.name)), b: (c) => <span className="font-medium text-foreground">{c}</span> })}
+              {bulkPacks!.length === 0
+                ? t("introFolderEmpty")
+                : t.rich("introBulk", { count: packCount, names: listNames(bulkPacks!.map((p) => p.name)), b: (c) => <span className="font-medium text-foreground">{c}</span> })}
+              {folderId && bulkPacks!.length > 0 ? ` ${t("folderNote")}` : null}
             </p>
           ) : (
             <p className="text-sm text-muted-foreground">
