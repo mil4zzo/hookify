@@ -1988,7 +1988,11 @@ export default function PacksPage() {
               return;
             }
             const { delta, affected, absorbed } = packsMoveImpact(packIds, parentId);
-            guardAccess(delta, affected, t("createWithPacks", { name }), () => void create(), absorbed, sharedTreeNotice(packIds, parentId));
+            // Pasta nova sob uma pasta que manda: os packs levados herdam o critério dela.
+            const overwrite = await judgmentOverwriteNotice(packIds, parentId);
+            const shared = sharedTreeNotice(packIds, parentId);
+            const notice = shared || overwrite ? <span className="block space-y-2">{shared}{overwrite}</span> : null;
+            guardAccess(delta, affected, t("createWithPacks", { name }), () => void create(), absorbed, notice);
           }
         }}
       />

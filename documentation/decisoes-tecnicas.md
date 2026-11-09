@@ -5360,6 +5360,26 @@ tem cadastro, e fica fora da ordenação dos Boards. Métrica nova que dependa d
 próprio de uma tela segue o mesmo caminho. Memória: `rule_engine_offered_field_must_be_answerable.md`.
 
 
+### Pack compartilhado dentro da pasta (2026-11-09, migrations 187/188)
+
+A regra vale nos dois sentidos, para a pasta nunca dizer uma coisa e o pack fazer outra:
+
+- Pack compartilhado comigo **não entra** em pasta minha com critério (`judgment_move_conflicts`).
+- Pasta que **já tem** pack compartilhado (ela ou subpastas) **não define** critério
+  (`judgment_archived_packs`; o banco recusa com `folder_has_shared_packs`). A tela pergunta
+  *antes* de abrir o formulário — descobrir ao salvar, com tudo preenchido, foi rejeitado.
+- Mover ou criar pasta com tais packs para onde já há critério também é recusado
+  (`judgment_place_conflicts`, e a checagem de `create_folder`).
+- Só conta arquivamento de quem **ainda recebe** o pack (188): o dono revogando o compartilhamento
+  deixa a linha de arquivamento para trás, e sem isso a pasta ficava travada sem saída.
+- Arrastar pasta com critério para quem manda **apaga** o critério dela: pede confirmação. Pack que
+  entra com valor próprio diferente também (só quando há valor a perder).
+
+Limites conhecidos (revisão independente): a trava mora nas rotas do backend, o banco só a impõe em
+`set_folder_judgment`; há janela estreita de corrida entre checar e gravar; pasta antiga com critério e
+pack arquivado não edita pela tela (em produção havia 0 pastas com critério quando a 187 entrou).
+
+
 ## Meta `/copies` de anúncio com `creative_parameters` não herda tudo do criativo (2026-11-01)
 
 Medido em v26 com `backend/scripts/meta_write_smoke.py` (escrita real, tudo pausado e apagado):

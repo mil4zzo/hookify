@@ -17,6 +17,7 @@
 --   8. judgment_archived_packs sem o filtro de arquivamento     -> falha em A10a (devolve também o pack do dono)
 --   9. set_folder_judgment sem a trava folder_has_shared_packs -> falha em A10b
 --  10. judgment_place_conflicts sem o `EXISTS (_folder_judgment_owner)` -> falha em A11c (pasta livre barrada)
+--  12. (188) judgment_archived_packs sem o EXISTS pack_shares do arquivador -> falha em A14
 --  11. judgment_archived_packs devolvendo sempre o nome       -> falha em A12b (vaza o nome para o editor da pasta)
 \set ON_ERROR_STOP on
 \timing off
@@ -190,5 +191,12 @@ DELETE FROM public.pack_folder_members WHERE user_id = :ana::uuid AND pack_id = 
 SELECT pg_temp.expect('A13 sem pack compartilhado, define',
   pg_temp.erro_de(:ana::uuid, format('select public.set_folder_judgment(%L, %L)', :ana2, '{"mql_leadscore_min":10}')), NULL);
 
-\echo 'OK: 27 asserções'
+-- A14 (188): o dono revoga o compartilhamento de R. A linha de arquivamento da Ana fica, mas já
+-- não conta: ela não tem mais o pack e não conseguiria tirá-lo da pasta.
+DELETE FROM public.pack_shares WHERE pack_id = :r::uuid AND grantee_id = :ana::uuid;
+SELECT pg_temp.como(:ana::uuid);
+SELECT pg_temp.expect('A14 compartilhamento revogado não trava a pasta',
+  (SELECT count(*)::text FROM public.judgment_archived_packs(:pai::uuid)), '0');
+
+\echo 'OK: 28 asserções'
 ROLLBACK;
