@@ -325,6 +325,7 @@ Conexões OAuth do Facebook vinculadas a usuários.
 | "position" | integer | NOT NULL, DEFAULT |
 | created_at | timestamp | NOT NULL, DEFAULT |
 | updated_at | timestamp | NOT NULL, DEFAULT |
+| judgment | jsonb |  |
 
 ---
 
@@ -584,4 +585,4 @@ Preferências e configurações personalizadas por usuário.
 
 ---
 
-*Gerado em: 2026-11-01 — via `supabase/generate_schema_map.py`*
+*Gerado em: 2026-11-08 — via `supabase/generate_schema_map.py`*
