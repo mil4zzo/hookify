@@ -18,6 +18,7 @@ from postgrest.exceptions import APIError
 import app.main as main
 from app.core.auth import get_current_user
 from app.routes import folders
+from app.services import folders_judgment
 
 F = "17400000-0000-4000-8000-00000000000a"
 P = "17400000-0000-4000-8000-00000000000b"
@@ -28,6 +29,8 @@ def sb(monkeypatch):
     main.app.dependency_overrides[get_current_user] = lambda: {"user_id": "u1", "token": "tok"}
     client = MagicMock()
     monkeypatch.setattr(folders, "get_supabase_for_user", lambda token: client)
+    # O criterio da pasta (187) tem os proprios testes; aqui so a borda HTTP das subpastas.
+    monkeypatch.setattr(folders_judgment, "place_conflicts", lambda *a, **k: [])
     yield client
     main.app.dependency_overrides.pop(get_current_user, None)
 

@@ -683,6 +683,9 @@ export const api = {
     /** O critério guardado NA pasta (sem subir pelos pais): a edição da pasta parte dele. */
     getJudgment: (folderId: string): Promise<{ judgment: JudgmentGovernor['judgment'] | null }> =>
       apiClient.get(`/folders/${folderId}/judgment`),
+    /** Packs compartilhados dentro da pasta (e subpastas): com eles ela não pode definir critério (187). `name` nulo = pack que você não enxerga. */
+    getJudgmentBlockers: (folderId: string): Promise<{ packs: Array<{ id: string; name: string | null }>; message: string | null }> =>
+      apiClient.get(`/folders/${folderId}/judgment-blockers`),
     move: (packIds: string[], folderId: string | null): Promise<{ success: boolean; moved: number; folder_id: string | null; access_changes?: FolderAccessChanges; judgment_inherited?: BulkPackJudgmentResult[] | null }> =>
       apiClient.post('/folders/move', { pack_ids: packIds, folder_id: folderId }),
   },

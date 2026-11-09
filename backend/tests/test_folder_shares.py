@@ -104,6 +104,7 @@ class FakeSB:
 def _sem_criterio_de_pasta(monkeypatch):
     """O criterio da pasta (185-187) tem os proprios testes; aqui ele nao interfere."""
     monkeypatch.setattr(folders_judgment, "move_conflicts", lambda *a, **k: [])
+    monkeypatch.setattr(folders_judgment, "place_conflicts", lambda *a, **k: [])
     monkeypatch.setattr(folders_judgment, "inherit_folder_judgment", lambda *a, **k: None)
     monkeypatch.setattr(folders_judgment, "reconcile_on_place", lambda *a, **k: None)
     monkeypatch.setattr(folders_judgment, "folders_with_judgment", lambda *a, **k: set())

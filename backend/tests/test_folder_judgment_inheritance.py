@@ -111,3 +111,64 @@ def test_mover_pack_compartilhado_para_pasta_com_criterio_e_recusado(monkeypatch
         )
     assert e.value.status_code == 409 and "compartilhado" in e.value.detail
     assert "move_packs_to_folder" not in rpcs
+
+
+# ── Pasta com pack compartilhado dentro (migration 187) ──
+# Sabotagens: tirar place_conflicts da rota de mover pasta -> o primeiro teste falha (a RPC roda);
+# tirar a checagem de create_folder -> o segundo falha (a pasta e criada).
+
+_F1 = "00000000-0000-4000-8000-0000000000f1"
+_F2 = "00000000-0000-4000-8000-0000000000f2"
+_D1 = "00000000-0000-4000-8000-0000000000d1"
+
+
+def test_mover_pasta_com_pack_compartilhado_para_pasta_com_criterio_e_recusado(monkeypatch):
+    import pytest
+    from fastapi import HTTPException
+    from app.routes import folders as folders_route
+
+    rpcs = []
+
+    class SB:
+        def rpc(self, name, params):
+            rpcs.append(name)
+            return _Rpc(1)
+
+    monkeypatch.setattr(folders_route, "get_supabase_for_user", lambda token: SB())
+    monkeypatch.setattr(fj, "place_conflicts", lambda token, folder_id, parent_id: [{"id": _D1, "name": "Pack do parceiro"}])
+    with pytest.raises(HTTPException) as e:
+        folders_route.place_folder(_F1, folders_route.PlaceRequest(parent_id=_F2, sibling_ids=[_F1]), _user())
+    assert e.value.status_code == 409 and "compartilhados" in e.value.detail
+    assert "place_folder" not in rpcs
+
+
+def test_criar_pasta_com_pack_compartilhado_sob_criterio_nao_cria_nada(monkeypatch):
+    import pytest
+    from fastapi import HTTPException
+    from app.routes import folders as folders_route
+
+    rpcs = []
+
+    class SB:
+        def rpc(self, name, params):
+            rpcs.append(name)
+            return _Rpc({"id": _F1})
+
+    monkeypatch.setattr(folders_route, "get_supabase_for_user", lambda token: SB())
+    monkeypatch.setattr(fj, "move_conflicts", lambda token, ids, folder: [_D1])
+    with pytest.raises(HTTPException) as e:
+        folders_route.create_folder(folders_route.FolderCreate(name="Nova", pack_ids=[_D1], parent_id=_F2), _user())
+    assert e.value.status_code == 409
+    assert "create_folder" not in rpcs
+
+
+def test_bloqueios_da_pasta_dizem_quais_packs(monkeypatch):
+    from app.routes import folders as folders_route
+
+    monkeypatch.setattr(fj, "archived_packs", lambda token, folder_id: [{"id": _D1, "name": "Pack do parceiro"}, {"id": _F2, "name": None}])
+    out = folders_route.get_folder_judgment_blockers(_F1, _user())
+    assert [p["id"] for p in out["packs"]] == [_D1, _F2]
+    assert "Pack do parceiro" in out["message"] and "e mais 1 que voce nao enxerga" in out["message"]
+
+    monkeypatch.setattr(fj, "archived_packs", lambda token, folder_id: [])
+    assert folders_route.get_folder_judgment_blockers(_F1, _user()) == {"packs": [], "message": None}

@@ -65,6 +65,7 @@ def ctx(monkeypatch):
     monkeypatch.setattr(folders_judgment, "pack_governors", lambda token, ids: {i: state["governors"][i] for i in ids if i in state["governors"]})
     monkeypatch.setattr(folders_judgment, "folder_governor", lambda token, folder_id: state["folder_governor"])
     monkeypatch.setattr(folders_judgment, "folder_governed_pack_ids", lambda token, folder_id: list(state["folder_packs"]))
+    monkeypatch.setattr(folders_judgment, "archived_packs", lambda token, folder_id: list(state.get("shared", [])))
     monkeypatch.setattr(folders_judgment, "save_folder_judgment", lambda token, folder_id, fields: state.setdefault("folder_saves", []).append((folder_id, fields)))
     monkeypatch.setattr(supabase_repo, "get_packs_target_cpr", read_targets)
     monkeypatch.setattr(supabase_repo, "update_pack_judgment", write)
@@ -317,3 +318,12 @@ def test_rota_de_governantes_devolve_so_os_governados(ctx):
     ctx["governors"]["meu2"] = _gov("Campanha X", mql_leadscore_min=70)
     r = ctx["client"].post("/analytics/packs/judgment-governors", json={"pack_ids": ["meu", "meu2"]})
     assert r.status_code == 200 and r.json() == {"governors": {"meu2": _gov("Campanha X", mql_leadscore_min=70)}}
+
+
+def test_pasta_com_pack_compartilhado_recusa_antes_de_gravar_nos_packs(ctx):
+    # Sabotagem: tirar a conferencia de archived_packs da rota -> os packs "meu" sao gravados.
+    ctx["folder_packs"] = ["meu"]
+    ctx["shared"] = [{"id": "x", "name": "Pack do parceiro"}]
+    r = ctx["client"].post(URL, json={"pack_ids": ["meu"], "mql_leadscore_min": 60, "folder_id": "f1"})
+    assert r.status_code == 409 and "Pack do parceiro" in r.json()["detail"]
+    assert ctx["writes"] == [] and not ctx.get("folder_saves")

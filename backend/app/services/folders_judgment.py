@@ -67,6 +67,8 @@ def _rpc_or_http(sb, name: str, params: Dict[str, Any]):
             raise HTTPException(status_code=404, detail="Pasta nao encontrada.")
         if "folder_judgment_governed" in message:
             raise HTTPException(status_code=409, detail=governed_message(None))
+        if "folder_has_shared_packs" in message:
+            raise HTTPException(status_code=409, detail=shared_packs_message([]))
         raise
 
 
@@ -93,6 +95,36 @@ def own_folder_judgment(token: str, folder_id: str) -> Optional[Dict[str, Any]]:
 def governed_message(folder_name: Optional[str]) -> str:
     where = f"pela pasta “{folder_name}”" if folder_name else "por uma pasta acima"
     return f"Este critério é definido {where}. Para mudar, edite o critério dessa pasta."
+
+
+def shared_packs_message(names: List[Optional[str]]) -> str:
+    """Pasta com pack compartilhado dentro nao define criterio (nome None = pack que voce nao enxerga)."""
+    shown = [n for n in names if n]
+    hidden = len(names) - len(shown)
+    what = ", ".join(f"“{n}”" for n in shown[:5])
+    if len(shown) > 5:
+        what += f" e mais {len(shown) - 5}"
+    if hidden and what:
+        what += f" e mais {hidden} que voce nao enxerga"
+    elif hidden:
+        what = f"{hidden} pack(s) que voce nao enxerga"
+    lead = f"Esta pasta tem packs compartilhados ({what})" if what else "Esta pasta tem packs compartilhados"
+    return lead + " que seguem os criterios de quem os criou. Tire-os da pasta antes de definir os criterios dela."
+
+
+def archived_packs(token: str, folder_id: str) -> List[Dict[str, Any]]:
+    """Packs compartilhados (arquivados por quem os recebeu) na pasta e nas subpastas:
+    [{"id", "name"}], name None quando o ator nao enxerga o pack. 403/404 se nao edita a pasta."""
+    rows = _rpc_or_http(get_supabase_for_user(token), "judgment_archived_packs", {"p_folder_id": folder_id}) or []
+    return [{"id": str(r["pack_id"]), "name": r.get("pack_name")} for r in rows]
+
+
+def place_conflicts(token: str, folder_id: str, parent_id: Optional[str]) -> List[Dict[str, Any]]:
+    """Packs compartilhados dentro da pasta que impedem coloca-la sob `parent_id` (que manda no criterio)."""
+    if not parent_id:
+        return []
+    rows = _rpc_or_http(get_supabase_for_user(token), "judgment_place_conflicts", {"p_folder_id": folder_id, "p_parent_id": parent_id}) or []
+    return [{"id": str(r["pack_id"]), "name": r.get("pack_name")} for r in rows]
 
 
 def pack_governors(token: str, pack_ids: List[str]) -> Dict[str, Dict[str, Any]]:

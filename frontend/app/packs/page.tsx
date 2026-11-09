@@ -56,7 +56,7 @@ import { MoveToFolderDialog } from "@/components/packs/MoveToFolderDialog";
 import { FolderCard } from "@/components/packs/FolderCard";
 import { PacksActionsSkeleton, PacksLibrarySkeleton } from "@/components/packs/PacksLibrarySkeleton";
 import { FolderNameDialog } from "@/components/packs/FolderNameDialog";
-import { judgmentGovernor } from "@/lib/utils/folderJudgment";
+import { foldersLosingJudgment, judgmentGovernor, packsLosingJudgment } from "@/lib/utils/folderJudgment";
 import { filterFolderTree, flattenTree, folderPath, planFolderMove, subtreeIds, type FolderDropEdge } from "@/lib/utils/folderTree";
 import {
   absorbedDirect,
@@ -481,6 +481,23 @@ export default function PacksPage() {
   };
   const handleBulkConfigureJudgment = () => configureJudgmentFor(selectedPacksList);
 
+  // Pasta com pack compartilhado dentro não define critério (187). Perguntar ANTES de abrir o
+  // formulário: descobrir isso ao salvar, com tudo preenchido, é o pior momento. Se a
+  // pergunta falhar, abre mesmo: o servidor recusa o save do mesmo jeito.
+  const [sharedBlock, setSharedBlock] = useState<{ folder: PackFolder; packs: Array<{ id: string; name: string | null }> } | null>(null);
+  const openFolderJudgment = async (folder: PackFolder, list: AdsPack[]) => {
+    try {
+      const { packs: shared } = await api.folders.getJudgmentBlockers(folder.id);
+      if (shared.length > 0) {
+        setSharedBlock({ folder, packs: shared });
+        return;
+      }
+    } catch (error) {
+      logger.error("Erro ao conferir packs compartilhados da pasta:", error);
+    }
+    configureJudgmentFor(list, folder.id);
+  };
+
   /**
    * Desconecta a planilha de vários packs, um de cada vez. O pack em si fica
    * intacto — mas o leadscore importado sai junto, como na ação individual.
@@ -788,6 +805,29 @@ export default function PacksPage() {
   const MOVE_FORBIDDEN = ta("moveForbidden");
 
   /**
+   * Pack que entra numa pasta que manda no critério passa a seguir o dela: o valor próprio que
+   * ele tinha (se diferente) é substituído. Só avisa quando há o que perder — por isso lê o
+   * critério da pasta; se a leitura falhar, segue sem aviso (o movimento em si é seguro).
+   */
+  const judgmentOverwriteNotice = async (ids: string[], folderId: string | null): Promise<React.ReactNode> => {
+    const target = judgmentGovernor(allFolders, folderId);
+    if (!target) return null;
+    const entering = ids
+      .map((id) => packs.find((p) => p.id === id))
+      .filter((p): p is AdsPack => !!p && !p.shared_role && judgmentGovernor(allFolders, folderIdByPack[p.id])?.id !== target.id);
+    if (entering.length === 0) return null;
+    try {
+      const { judgment } = await api.folders.getJudgment(target.id);
+      const losing = packsLosingJudgment(entering, judgment);
+      if (losing.length === 0) return null;
+      return <span className="block">{ta.rich("judgmentOverwrite", { count: losing.length, governor: target.name, b: strong })}</span>;
+    } catch (error) {
+      logger.error("Erro ao ler o critério da pasta de destino:", error);
+      return null;
+    }
+  };
+
+  /**
    * O ÚNICO caminho de escrita de "mover": arrastar, a barra de ações e o menu do pack
    * chamam esta função. Ela é que decide o que é movimento, escreve, limpa a seleção e
    * oferece o "Desfazer" — três gestos com a mesma consequência precisam ter a mesma
@@ -803,7 +843,9 @@ export default function PacksPage() {
       return;
     }
     const { delta, affected, absorbed } = packsMoveImpact(ids, folderId);
-    const notice = sharedTreeNotice(ids, folderId);
+    const overwrite = await judgmentOverwriteNotice(ids, folderId);
+    const shared = sharedTreeNotice(ids, folderId);
+    const notice = shared || overwrite ? <span className="block space-y-2">{shared}{overwrite}</span> : null;
     if (affected > 0 || notice) {
       const targetName = folderId ? bucketById.get(folderId)?.folder.name : null;
       guardAccess(delta, affected, targetName ? t("moveTitle", { name: targetName }) : t("takeOutTitle"), () => void performMove(ids, folderId), absorbed, notice);
@@ -856,7 +898,23 @@ export default function PacksPage() {
     const impact = folderMoveImpact(allFolders, folderShares, folderId, plan.parentId, ownedPacksIn);
     const name = bucketById.get(folderId)?.folder.name ?? t("folderFallback");
     const after = allFolders.map((f) => (f.id === folderId ? { ...f, parent_id: plan.parentId } : f));
-    const returning = returningNotice(foreignPlacementsUnder(folderId), after, folderShares);
+    const returningRaw = returningNotice(foreignPlacementsUnder(folderId), after, folderShares);
+    // Entrar numa pasta que já manda APAGA o critério próprio (da pasta e das subpastas): o
+    // banco faz isso calado, então a tela pede confirmação dizendo o que se perde.
+    const losing = foldersLosingJudgment(allFolders, folderId, plan.parentId);
+    const governor = judgmentGovernor(allFolders, plan.parentId);
+    const lossNotice =
+      losing.length > 0 && governor ? (
+        <span className="block">
+          {ta.rich("judgmentLoss", {
+            count: losing.length,
+            folders: new Intl.ListFormat(getAppLocale(), { type: "conjunction" }).format(losing.map((x) => x.name)),
+            governor: governor.name,
+            b: strong,
+          })}
+        </span>
+      ) : null;
+    const returning = returningRaw || lossNotice ? <span className="block space-y-2">{returningRaw}{lossNotice}</span> : null;
     guardAccess(impact.delta, impact.packCount, t("moveFolderTitle", { name }), () => void moveFolderNow(folderId, targetId, edge), [], returning);
   };
 
@@ -945,7 +1003,7 @@ export default function PacksPage() {
         // ancestral já define (dono único) ou se o usuário só lê.
         disabled: !!parentGovernor || folder.access === "viewer",
         description: parentGovernor ? t("folderGoverned", { folder: parentGovernor.name }) : undefined,
-        onSelect: () => configureJudgmentFor(list, folder.id),
+        onSelect: () => void openFolderJudgment(folder, list),
       },
       {
         id: "configure-sheets",
@@ -1985,6 +2043,23 @@ export default function PacksPage() {
         confirmIcon={<IconLogout className="h-5 w-5" />}
         onConfirm={handleConfirmLeaveFolder}
       />
+
+      {/* Pasta com pack compartilhado dentro não pode definir critério (187) */}
+      <ConfirmDialog
+        isOpen={!!sharedBlock}
+        onClose={() => setSharedBlock(null)}
+        title={ta("sharedBlockTitle")}
+        message={ta("sharedBlockMessage", { folder: sharedBlock?.folder.name ?? "", count: sharedBlock?.packs.length ?? 0 })}
+        confirmText={ta("understood")}
+        cancelText={ta("close")}
+        onConfirm={() => setSharedBlock(null)}
+      >
+        <ul className="list-disc space-y-1 pl-5 text-sm text-foreground">
+          {(sharedBlock?.packs ?? []).map((p) => (
+            <li key={p.id}>{p.name ?? ta("sharedBlockHidden")}</li>
+          ))}
+        </ul>
+      </ConfirmDialog>
 
       {/* Aviso antes de um gesto que muda QUEM enxerga os packs (pasta compartilhada) */}
       <ConfirmDialog

@@ -14,6 +14,11 @@
 --    packs que a pasta governa (folder_governed_pack_ids), depois de conferir o papel.
 -- 4. Pasta arrastada para dentro de outra que já manda perde o critério próprio (e o das
 --    subpastas): reconcile_folder_judgment_on_place, chamada pela rota depois do place.
+-- 6. Pasta que contém pack compartilhado (arquivado por quem o recebeu) NÃO pode definir
+--    critério: o pack seguiria o do dono e a pasta diria outra coisa. A tela pergunta antes
+--    (judgment_archived_packs); o banco recusa de qualquer jeito (folder_has_shared_packs).
+--    Mover para uma pasta que manda uma pasta com packs assim também é recusado
+--    (judgment_place_conflicts) — a regra vale nos dois sentidos.
 -- 5. set_folder_judgment trava a árvore (o mesmo advisory lock de move_packs_to_folder):
 --    mãe e filha definidas ao mesmo tempo não terminam as duas com critério.
 --
@@ -136,6 +141,60 @@ BEGIN
 END;
 $$;
 
+-- Packs ARQUIVADOS na subárvore da pasta: a colocação é de quem recebeu o pack (não é a do
+-- dono nem uma contribuição dele), então o critério do pack não é o da pasta. Só dono/editor
+-- da pasta pergunta. O nome só sai para quem tem acesso ao pack (senão a pasta compartilhada
+-- vazaria o nome de um pack que ninguém lhe deu).
+CREATE OR REPLACE FUNCTION public.judgment_archived_packs(p_folder_id uuid)
+RETURNS TABLE(pack_id uuid, pack_name text)
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+DECLARE
+  v_role text := public.folder_access_role(p_folder_id, (SELECT auth.uid()));
+BEGIN
+  IF v_role IS NULL THEN
+    RAISE EXCEPTION 'folder_not_found' USING ERRCODE = 'P0001';
+  ELSIF v_role NOT IN ('dono', 'editor') THEN
+    RAISE EXCEPTION 'folder_forbidden' USING ERRCODE = 'P0001';
+  END IF;
+
+  RETURN QUERY
+  WITH RECURSIVE down AS (
+    SELECT f.id, f.user_id FROM public.folders f WHERE f.id = p_folder_id
+    UNION ALL
+    SELECT g.id, g.user_id FROM public.folders g JOIN down d ON g.parent_id = d.id
+  )
+  SELECT p.id,
+         CASE WHEN p.user_id = (SELECT auth.uid())
+                OR EXISTS (SELECT 1 FROM public.pack_shares s WHERE s.pack_id = p.id AND s.grantee_id = (SELECT auth.uid()))
+              THEN p.name END
+  FROM public.pack_folder_members m
+  JOIN down d ON d.id = m.folder_id AND d.user_id = m.user_id
+  JOIN public.packs p ON p.id = m.pack_id
+  WHERE NOT (m.user_id = p.user_id OR m.contributed)
+  ORDER BY p.name, p.id;
+END;
+$$;
+
+-- Mover a pasta para dentro de p_parent_id: os packs arquivados dela (e das subpastas)
+-- não podem ir para um lugar que já tem critério.
+CREATE OR REPLACE FUNCTION public.judgment_place_conflicts(p_folder_id uuid, p_parent_id uuid)
+RETURNS TABLE(pack_id uuid, pack_name text)
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+  SELECT a.pack_id, a.pack_name
+  FROM public.judgment_archived_packs(p_folder_id) a
+  WHERE p_parent_id IS NOT NULL
+    AND public.folder_access_role(p_parent_id, (SELECT auth.uid())) IS NOT NULL
+    AND EXISTS (SELECT 1 FROM public._folder_judgment_owner(p_parent_id, false))
+$$;
+
 CREATE OR REPLACE FUNCTION public.set_folder_judgment(p_folder_id uuid, p_judgment jsonb)
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -159,6 +218,9 @@ BEGIN
   IF v_value IS NOT NULL THEN
     IF EXISTS (SELECT 1 FROM public._folder_judgment_owner(p_folder_id, true)) THEN
       RAISE EXCEPTION 'folder_judgment_governed' USING ERRCODE = 'P0001';
+    END IF;
+    IF EXISTS (SELECT 1 FROM public.judgment_archived_packs(p_folder_id)) THEN
+      RAISE EXCEPTION 'folder_has_shared_packs' USING ERRCODE = 'P0001';
     END IF;
 
     -- A pasta passa a mandar nas subpastas: o critério próprio delas sai.
@@ -222,6 +284,10 @@ REVOKE EXECUTE ON FUNCTION public.judgment_move_conflicts(uuid[], uuid) FROM PUB
 GRANT EXECUTE ON FUNCTION public.judgment_move_conflicts(uuid[], uuid) TO authenticated;
 REVOKE EXECUTE ON FUNCTION public.folder_governed_pack_ids(uuid) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.folder_governed_pack_ids(uuid) TO authenticated;
+REVOKE EXECUTE ON FUNCTION public.judgment_archived_packs(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.judgment_archived_packs(uuid) TO authenticated;
+REVOKE EXECUTE ON FUNCTION public.judgment_place_conflicts(uuid, uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.judgment_place_conflicts(uuid, uuid) TO authenticated;
 REVOKE EXECUTE ON FUNCTION public.set_folder_judgment(uuid, jsonb) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.set_folder_judgment(uuid, jsonb) TO authenticated;
 REVOKE EXECUTE ON FUNCTION public.reconcile_folder_judgment_on_place(uuid) FROM PUBLIC, anon;

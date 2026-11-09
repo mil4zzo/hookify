@@ -640,6 +640,13 @@
       "granted": "<b>{people}</b> {count, plural, =1 {passa} other {passam}} a ver {these}.",
       "changed": "<b>{people}</b> {count, plural, =1 {muda} other {mudam}} de papel em {these}.",
       "revoked": "<b>{people}</b> {count, plural, =1 {perde} other {perdem}} o acesso a {these}.",
+      "judgmentLoss": "{count, plural, =1 {A pasta <b>{folders}</b> tem critérios de julgamento próprios} other {As pastas <b>{folders}</b> têm critérios de julgamento próprios}}. Como <b>{governor}</b> já define critérios, {count, plural, =1 {os dela serão apagados} other {os delas serão apagados}} e os packs passarão a seguir os de <b>{governor}</b>. Isso não pode ser desfeito.",
+      "judgmentOverwrite": "{count, plural, =1 {1 pack tem} other {# packs têm}} critérios próprios diferentes dos de <b>{governor}</b>. Ao entrar, {count, plural, =1 {ele passa} other {eles passam}} a seguir os da pasta, e os valores atuais {count, plural, =1 {dele} other {deles}} serão substituídos.",
+      "sharedBlockTitle": "Esta pasta tem packs compartilhados",
+      "sharedBlockMessage": "{count, plural, =1 {Este pack é compartilhado com você e segue} other {Estes packs são compartilhados com você e seguem}} os critérios de quem {count, plural, =1 {o criou} other {os criou}}, não os de “{folder}”. Tire-{count, plural, =1 {o} other {os}} da pasta antes de definir os critérios dela:",
+      "sharedBlockHidden": "Pack que você não enxerga",
+      "understood": "Entendi",
+      "close": "Fechar",
       "continue": "Continuar",
       "moveForbidden": "Algum pack não pode ir para lá. Numa pasta compartilhada com você só entram os packs que são seus, e os do dono só circulam dentro dela.",
       "folderMoveForbidden": "A pasta não pode ir para lá: numa pasta compartilhada com você, as pastas só circulam dentro dela."

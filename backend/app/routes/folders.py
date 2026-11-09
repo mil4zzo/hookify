@@ -252,6 +252,11 @@ def create_folder(payload: FolderCreate = Body(...), user=Depends(get_current_us
     if parent_id:
         _valid_uuids([parent_id], "parent_id")
 
+    # Packs compartilhados nao entram em pasta que manda no criterio (187): barrar ANTES de
+    # criar, senao fica uma pasta vazia que ninguem pediu.
+    if parent_id and pack_ids:
+        _refuse_shared_packs_under_judgment(user["token"], pack_ids, parent_id)
+
     folder = _rpc(sb, "create_folder", {"p_name": name, "p_parent_id": parent_id})
     if not folder:
         raise HTTPException(status_code=500, detail="Erro ao criar a pasta.")
@@ -327,6 +332,22 @@ def place_folder(folder_id: str, payload: PlaceRequest = Body(...), user=Depends
     if folder_id not in sibling_ids:
         raise HTTPException(status_code=422, detail="Ordem invalida para a pasta movida.")
 
+    # Pasta com pack compartilhado dentro nao vai para onde ja ha criterio (187): barrar ANTES
+    # de mover — depois o pack ja estaria sob uma pasta que diz outra coisa.
+    if parent_id:
+        try:
+            conflicts = folders_judgment.place_conflicts(user["token"], folder_id, parent_id)
+        except APIError as e:
+            raise _folder_rpc_error(e)
+        if conflicts:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "A pasta de destino tem criterios de julgamento, e esta pasta tem packs compartilhados com voce "
+                    "(eles seguem os criterios de quem os criou). Tire-os da pasta antes de mover."
+                ),
+            )
+
     actor_id = str(user["user_id"])
     affected = _subtree_pack_ids(sb, folder_id)
     with folder_scope.tracked_access_changes(sb, actor_id, affected) as access_changes:
@@ -348,6 +369,15 @@ def get_folder_judgment(folder_id: str, user=Depends(get_current_user)):
     return {"judgment": folders_judgment.own_folder_judgment(user["token"], folder_id)}
 
 
+@router.get("/{folder_id}/judgment-blockers")
+def get_folder_judgment_blockers(folder_id: str, user=Depends(get_current_user)):
+    """Packs compartilhados na pasta (e subpastas) que impedem de definir criterio nela.
+    A tela pergunta ANTES de abrir o formulario: nao se descobre isso depois de preencher."""
+    _valid_uuids([folder_id], "folder_id")
+    packs = folders_judgment.archived_packs(user["token"], folder_id)
+    return {"packs": packs, "message": folders_judgment.shared_packs_message([p["name"] for p in packs]) if packs else None}
+
+
 @router.post("/reorder")
 def reorder_folders(payload: ReorderRequest = Body(...), user=Depends(get_current_user)):
     """Grava a ordem das pastas numa ida so (RPC reorder_folders, migrations 173/181).
@@ -363,6 +393,23 @@ def reorder_folders(payload: ReorderRequest = Body(...), user=Depends(get_curren
 
     changed = _rpc(sb, "reorder_folders", {"p_folder_ids": folder_ids})
     return {"success": True, "changed": int(changed or 0)}
+
+
+def _refuse_shared_packs_under_judgment(token: str, pack_ids: List[str], folder_id: str) -> None:
+    """409 se algum destes packs e compartilhado com o ator e a pasta (ou acima) tem criterio."""
+    try:
+        blocked = folders_judgment.move_conflicts(token, pack_ids, folder_id)
+    except APIError as e:
+        raise _folder_rpc_error(e)
+    if blocked:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Esta pasta tem criterios de julgamento, e "
+                + ("este pack e compartilhado com voce: ele" if len(blocked) == 1 else f"{len(blocked)} destes packs sao compartilhados com voce: eles")
+                + " segue(m) os criterios de quem o(s) criou e nao pode(m) entrar aqui. Use uma pasta sem criterios."
+            ),
+        )
 
 
 @router.post("/move")
@@ -385,19 +432,7 @@ def move_packs(payload: MoveRequest = Body(...), user=Depends(get_current_user))
     # Pack compartilhado com o ator nao entra numa pasta DELE com criterio (migration 187):
     # o criterio do pack e o da pasta do dono, e a pasta do ator diria outra coisa.
     if folder_id:
-        try:
-            blocked = folders_judgment.move_conflicts(user["token"], pack_ids, folder_id)
-        except APIError as e:
-            raise _folder_rpc_error(e)
-        if blocked:
-            raise HTTPException(
-                status_code=409,
-                detail=(
-                    "Esta pasta tem criterios de julgamento, e "
-                    + ("este pack e compartilhado com voce: ele" if len(blocked) == 1 else f"{len(blocked)} destes packs sao compartilhados com voce: eles")
-                    + " segue(m) os criterios de quem o(s) criou e nao pode(m) entrar aqui. Use uma pasta sem criterios."
-                ),
-            )
+        _refuse_shared_packs_under_judgment(user["token"], pack_ids, folder_id)
 
     with folder_scope.tracked_access_changes(sb, actor_id, pack_ids) as access_changes:
         moved = int(_rpc(sb, "move_packs_to_folder", {"p_pack_ids": pack_ids, "p_folder_id": folder_id}) or 0)

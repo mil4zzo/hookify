@@ -2,6 +2,8 @@
 -- `judgment` de pack_judgment_governors e chama as funções novas).
 BEGIN;
 
+DROP FUNCTION IF EXISTS public.judgment_place_conflicts(uuid, uuid);
+DROP FUNCTION IF EXISTS public.judgment_archived_packs(uuid);
 DROP FUNCTION IF EXISTS public.reconcile_folder_judgment_on_place(uuid);
 DROP FUNCTION IF EXISTS public.folder_governed_pack_ids(uuid);
 DROP FUNCTION IF EXISTS public.judgment_move_conflicts(uuid[], uuid);

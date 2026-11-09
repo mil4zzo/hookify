@@ -640,6 +640,13 @@
       "granted": "<b>{people}</b> will start seeing {these}.",
       "changed": "<b>{people}</b> will change role in {these}.",
       "revoked": "<b>{people}</b> will lose access to {these}.",
+      "judgmentLoss": "{count, plural, =1 {The folder <b>{folders}</b> has} other {The folders <b>{folders}</b> have}} judgment criteria of {count, plural, =1 {its} other {their}} own. Since <b>{governor}</b> already defines criteria, they will be erased and the packs will follow the ones from <b>{governor}</b>. This cannot be undone.",
+      "judgmentOverwrite": "{count, plural, =1 {1 pack has} other {# packs have}} criteria of {count, plural, =1 {its} other {their}} own that differ from the ones in <b>{governor}</b>. Once in, {count, plural, =1 {it follows} other {they follow}} the folder's, and the current values will be replaced.",
+      "sharedBlockTitle": "This folder has shared packs",
+      "sharedBlockMessage": "{count, plural, =1 {This pack is shared with you and follows} other {These packs are shared with you and follow}} the criteria of {count, plural, =1 {its} other {their}} creator, not those of “{folder}”. Take {count, plural, =1 {it} other {them}} out of the folder before setting its criteria:",
+      "sharedBlockHidden": "A pack you cannot see",
+      "understood": "Got it",
+      "close": "Close",
       "continue": "Continue",
       "moveForbidden": "A pack can't go there. In a folder shared with you only your own packs are allowed, and the owner's packs only move within it.",
       "folderMoveForbidden": "The folder can't go there: in a folder shared with you, folders only move within it."

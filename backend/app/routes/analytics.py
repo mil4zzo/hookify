@@ -2389,6 +2389,11 @@ def update_pack_judgment_bulk(
         governor = folders_judgment.folder_governor(user["token"], str(folder_id))
         if governor:
             raise HTTPException(status_code=409, detail=folders_judgment.governed_message(governor.get("folder_name")))
+        #  - pack compartilhado dentro da pasta (ou subpastas) impede a pasta de definir criterio:
+        #    recusar AGORA, antes de gravar nos packs, e nao so no save da pasta, la no fim.
+        shared = folders_judgment.archived_packs(user["token"], str(folder_id))
+        if shared:
+            raise HTTPException(status_code=409, detail=folders_judgment.shared_packs_message([p["name"] for p in shared]))
         governed_set = set(governed)
         results = [
             {"pack_id": pid, "status": "skipped", "reason": "not_in_folder"}

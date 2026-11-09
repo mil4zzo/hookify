@@ -14,6 +14,10 @@
 --   5. judgment_move_conflicts sem `p.user_id <> auth.uid()`  -> falha em A9 (pack próprio barrado na pasta compartilhada)
 --   6. folder_governed_pack_ids sem o filtro de colocação do dono -> falha em A6b
 --   7. reconcile_folder_judgment_on_place sem limpar           -> falha em A7
+--   8. judgment_archived_packs sem o filtro de arquivamento     -> falha em A10a (devolve também o pack do dono)
+--   9. set_folder_judgment sem a trava folder_has_shared_packs -> falha em A10b
+--  10. judgment_place_conflicts sem o `EXISTS (_folder_judgment_owner)` -> falha em A11c (pasta livre barrada)
+--  11. judgment_archived_packs devolvendo sempre o nome       -> falha em A12b (vaza o nome para o editor da pasta)
 \set ON_ERROR_STOP on
 \timing off
 BEGIN;
@@ -86,7 +90,10 @@ SELECT pg_temp.expect('A3 governa P (visto pelo Bruno)',
   :pai || '|<oculto>|70');
 
 -- A4: Bruno dá critério à pasta dele (onde arquivou P): o arquivo dele NÃO governa P.
-SELECT pg_temp.expect('A4a BX define', pg_temp.erro_de(:bruno::uuid, format('select public.set_folder_judgment(%L, %L)', :bx, '{"mql_leadscore_min":50}')), NULL);
+-- (BX já guarda P arquivado: hoje o banco recusaria definir critério ali — A10. O que se prova
+-- aqui é o DADO ANTIGO, de antes da regra, que não pode passar a governar P.)
+SELECT pg_temp.expect('A4a BX recusa critério novo (tem pack compartilhado)', pg_temp.erro_de(:bruno::uuid, format('select public.set_folder_judgment(%L, %L)', :bx, '{"mql_leadscore_min":50}')), 'folder_has_shared_packs');
+UPDATE public.folders SET judgment = '{"mql_leadscore_min":50}' WHERE id = :bx::uuid;
 SELECT pg_temp.como(:bruno::uuid);
 SELECT pg_temp.expect('A4 só a pasta da Ana governa P',
   (SELECT string_agg(folder_id::text, ',') FROM public.pack_judgment_governors(ARRAY[:p::uuid])),
@@ -129,5 +136,59 @@ SELECT pg_temp.como(:bruno::uuid);
 SELECT pg_temp.expect('A9 Q e P livres em PAI',
   (SELECT string_agg(x::text, ',') FROM public.judgment_move_conflicts(ARRAY[:q::uuid, :p::uuid], :pai::uuid) x), NULL);
 
-\echo 'OK: 17 asserções'
+-- A10..A13: pasta com pack COMPARTILHADO arquivado (Ana recebeu Q do Bruno e R da Carla).
+-- ANA2 é uma pasta livre da Ana com Q dentro.
+\set ana2   '''00000000-0000-4000-8000-0000000187f6'''
+\set livre  '''00000000-0000-4000-8000-0000000187f7'''
+\set r      '''00000000-0000-4000-8000-0000000187d3'''
+INSERT INTO public.folders (id, user_id, name, parent_id) VALUES
+  (:ana2::uuid,  :ana::uuid, 'ANA2',  NULL),
+  (:livre::uuid, :ana::uuid, 'LIVRE', NULL);
+INSERT INTO public.packs (id, user_id, name, date_start, date_stop, level) VALUES
+  (:r::uuid, :carla::uuid, 't187-R', '2026-01-01', '2026-01-31', 'ad');
+INSERT INTO public.pack_shares (pack_id, owner_id, grantee_id) VALUES
+  (:q::uuid, :bruno::uuid, :ana::uuid),
+  (:r::uuid, :carla::uuid, :ana::uuid);
+INSERT INTO public.pack_folder_members (user_id, pack_id, folder_id) VALUES
+  (:ana::uuid, :q::uuid, :ana2::uuid);
+
+SELECT pg_temp.como(:ana::uuid);
+SELECT pg_temp.expect('A10a só o arquivado (Q), não o P da própria Ana',
+  (SELECT string_agg(pack_id::text, ',') FROM public.judgment_archived_packs(:ana2::uuid)), :q);
+SELECT pg_temp.expect('A10a2 PAI não tem arquivado (P é da Ana)',
+  (SELECT string_agg(pack_id::text, ',') FROM public.judgment_archived_packs(:pai::uuid)), NULL);
+SELECT pg_temp.expect('A10b ANA2 não pode definir critério',
+  pg_temp.erro_de(:ana::uuid, format('select public.set_folder_judgment(%L, %L)', :ana2, '{"mql_leadscore_min":10}')),
+  'folder_has_shared_packs');
+SELECT pg_temp.expect('A10c apagar o critério continua permitido',
+  pg_temp.erro_de(:ana::uuid, format('select public.set_folder_judgment(%L, NULL)', :ana2)), NULL);
+
+-- A11: mover ANA2 (com Q) para dentro de quem manda é recusado; para a raiz ou pasta livre, não.
+SELECT pg_temp.como(:ana::uuid);
+SELECT pg_temp.expect('A11a ANA2 -> PAI barrada',
+  (SELECT string_agg(pack_id::text, ',') FROM public.judgment_place_conflicts(:ana2::uuid, :pai::uuid)), :q);
+SELECT pg_temp.expect('A11b ANA2 -> raiz livre',
+  (SELECT count(*)::text FROM public.judgment_place_conflicts(:ana2::uuid, NULL)), '0');
+SELECT pg_temp.expect('A11c ANA2 -> pasta sem critério livre',
+  (SELECT count(*)::text FROM public.judgment_place_conflicts(:ana2::uuid, :livre::uuid)), '0');
+
+-- A12: R (da Carla) arquivado em FILHA, sob PAI. O Bruno, editor de PAI, vê QUE há um pack
+-- compartilhado ali, mas não o nome (o pack não é dele nem foi dado a ele).
+INSERT INTO public.pack_folder_members (user_id, pack_id, folder_id) VALUES (:ana::uuid, :r::uuid, :filha::uuid);
+SELECT pg_temp.como(:ana::uuid);
+SELECT pg_temp.expect('A12a Ana vê o nome',
+  (SELECT pack_name FROM public.judgment_archived_packs(:pai::uuid)), 't187-R');
+SELECT pg_temp.como(:bruno::uuid);
+SELECT pg_temp.expect('A12b Bruno vê o pack, sem o nome',
+  (SELECT pack_id::text || '|' || coalesce(pack_name, '<oculto>') FROM public.judgment_archived_packs(:pai::uuid)),
+  :r || '|<oculto>');
+SELECT pg_temp.expect('A12c quem não edita a pasta não pergunta',
+  pg_temp.erro_de(:carla::uuid, format('select * from public.judgment_archived_packs(%L)', :pai)), 'folder_not_found');
+
+-- A13: tirando Q da ANA2, ela pode definir critério.
+DELETE FROM public.pack_folder_members WHERE user_id = :ana::uuid AND pack_id = :q::uuid;
+SELECT pg_temp.expect('A13 sem pack compartilhado, define',
+  pg_temp.erro_de(:ana::uuid, format('select public.set_folder_judgment(%L, %L)', :ana2, '{"mql_leadscore_min":10}')), NULL);
+
+\echo 'OK: 27 asserções'
 ROLLBACK;
