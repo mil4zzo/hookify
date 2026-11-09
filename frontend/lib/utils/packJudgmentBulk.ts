@@ -206,6 +206,8 @@ export interface BulkPackJudgmentResult {
 
 export interface BulkPackJudgmentResponse {
   results: BulkPackJudgmentResult[];
+  /** Só quando a ação veio do menu de uma pasta: false = os packs gravaram, mas a pasta não guardou o critério. */
+  folder_saved?: boolean | null;
 }
 
 /** Patch do store a partir do que o backend gravou no pack. */

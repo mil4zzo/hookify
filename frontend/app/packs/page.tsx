@@ -454,13 +454,18 @@ export default function PacksPage() {
   // não do silo); pack compartilhado só para leitura fica de fora (avisado).
   const selectedWritablePacks = useMemo(() => selectedPacksList.filter((p) => p.shared_role !== "viewer"), [selectedPacksList]);
   const [bulkJudgmentPacks, setBulkJudgmentPacks] = useState<AdsPack[] | null>(null);
-  const configureJudgmentFor = (list: AdsPack[]) => {
+  // Vindo do menu de uma pasta: o critério também fica guardado nela (herança de quem entrar).
+  const [bulkJudgmentFolderId, setBulkJudgmentFolderId] = useState<string | null>(null);
+  const configureJudgmentFor = (list: AdsPack[], folderId: string | null = null) => {
     const writable = list.filter((p) => p.shared_role !== "viewer");
     const viewers = list.length - writable.length;
     if (viewers > 0) {
       showWarning(t("warnViewersJudgment", { count: viewers }));
     }
-    if (writable.length > 0) setBulkJudgmentPacks(writable);
+    if (writable.length > 0) {
+      setBulkJudgmentFolderId(folderId);
+      setBulkJudgmentPacks(writable);
+    }
   };
   const handleBulkConfigureJudgment = () => configureJudgmentFor(selectedPacksList);
 
@@ -923,7 +928,7 @@ export default function PacksPage() {
         label: t("actJudgment"),
         icon: <IconTargetArrow />,
         disabled: !list.some((p) => p.shared_role !== "viewer"),
-        onSelect: () => configureJudgmentFor(list),
+        onSelect: () => configureJudgmentFor(list, folder.id),
       },
       {
         id: "configure-sheets",
@@ -2455,12 +2460,14 @@ export default function PacksPage() {
           if (!open) {
             setJudgmentPack(null);
             setBulkJudgmentPacks(null);
+            setBulkJudgmentFolderId(null);
           }
         }}
         // Ticket da economia do lead na moeda da CONTA do pack (é com o gasto dela
         // que ele se compara), não na preferência de quem vê.
         accountCurrency={findAdAccountCurrency(adAccountsData, judgmentPack?.adaccount_id)}
         bulkPacks={bulkJudgmentPacks}
+        folderId={bulkJudgmentFolderId}
         accountCurrencies={bulkJudgmentPacks?.map((p) => findAdAccountCurrency(adAccountsData, p.adaccount_id))}
       />
 

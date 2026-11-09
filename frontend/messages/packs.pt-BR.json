@@ -335,6 +335,7 @@
       "bulkFailed": "{headline}. Falhou em: {failures}",
       "bulkSkipped": "{headline}. Sem permissão em: {names}.",
       "bulkApplied": "Critérios aplicados: {headline}.",
+      "folderNotSaved": "Os packs foram atualizados, mas a pasta não guardou o critério: packs que entrarem depois não vão herdá-lo. Tente de novo.",
       "saved": "Configuração do pack salva."
     },
     "transcription": {

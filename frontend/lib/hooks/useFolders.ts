@@ -5,6 +5,8 @@ import { api } from "@/lib/api/endpoints";
 import { showError, showSuccess } from "@/lib/utils/toast";
 import { logger } from "@/lib/utils/logger";
 import { translate } from "@/lib/i18n/translate";
+import { useClientPacks } from "@/lib/hooks/useClientSession";
+import { bulkJudgmentStorePatch } from "@/lib/utils/packJudgmentBulk";
 import type { AdsPack, DirectShareEntry, FolderAccessChanges, FolderShareEntry, PackFolder, PackFolderMembers } from "@/lib/types";
 import { buildFolderTree, flattenTree, planFolderMove, type FolderBucket, type FolderDropEdge } from "@/lib/utils/folderTree";
 
@@ -19,6 +21,7 @@ export type { FolderBucket } from "@/lib/utils/folderTree";
  * esperar o servidor para o card sair da tela faria o gesto parecer travado.
  */
 export function useFolders(packs: AdsPack[]) {
+  const { updatePack } = useClientPacks();
   const [folders, setFolders] = useState<PackFolder[]>([]);
   const [members, setMembers] = useState<PackFolderMembers>({});
   // Quem tem cada pasta que o usuário compartilhou (migration 181). Só leitura aqui:
@@ -202,6 +205,10 @@ export function useFolders(packs: AdsPack[]) {
 
       try {
         const res = await api.folders.move(packIds, folderId);
+        // Pack que entrou numa pasta com critério o herdou no servidor: a tela acompanha.
+        for (const r of res.judgment_inherited ?? []) {
+          if (r.status === "updated" && r.judgment) updatePack(r.pack_id, bulkJudgmentStorePatch(r.judgment));
+        }
         return { packIds, before, accessChanges: res.access_changes as FolderAccessChanges | undefined };
       } catch (error) {
         setMembers((prev) => {
@@ -216,7 +223,7 @@ export function useFolders(packs: AdsPack[]) {
         return null;
       }
     },
-    [members],
+    [members, updatePack],
   );
 
   /** Volta um movimento ao estado exato de antes, pack a pack. */

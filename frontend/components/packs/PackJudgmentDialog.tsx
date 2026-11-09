@@ -74,6 +74,8 @@ interface PackJudgmentDialogProps {
    * como está em cada pack; mexido vale para todos. Ignora `pack`.
    */
   bulkPacks?: AdsPack[] | null;
+  /** Ação vinda do menu de uma pasta: ela também guarda o critério para os packs que entrarem depois. */
+  folderId?: string | null;
   /** Em massa: a moeda da conta de CADA pack, na ordem de `bulkPacks`. */
   accountCurrencies?: Array<string | null>;
 }
@@ -99,7 +101,7 @@ const TAB_OF_FIELD: Record<"mql" | "target" | "economics", JudgmentTab> = { mql:
  * onde todos concordam, e o save manda apenas o que foi mexido (ver
  * `packJudgmentBulk.ts` — mexido e vazio limpa em todos).
  */
-export function PackJudgmentDialog({ pack, open, onOpenChange, accountCurrency, bulkPacks, accountCurrencies }: PackJudgmentDialogProps) {
+export function PackJudgmentDialog({ pack, open, onOpenChange, accountCurrency, bulkPacks, folderId, accountCurrencies }: PackJudgmentDialogProps) {
   const t = useTranslations("packs.judgment");
   const tc = useTranslations("packs.common");
   const { updatePack } = useClientPacks();
@@ -317,7 +319,7 @@ export function PackJudgmentDialog({ pack, open, onOpenChange, accountCurrency, 
     if (!bulkPacks || bulkPacks.length === 0) return;
     setIsSaving(true);
     try {
-      const response = await api.analytics.updatePackJudgmentBulk({ pack_ids: bulkPacks.map((p) => p.id), ...payload });
+      const response = await api.analytics.updatePackJudgmentBulk({ pack_ids: bulkPacks.map((p) => p.id), ...(folderId ? { folder_id: folderId } : {}), ...payload });
       for (const result of response.results) {
         if (result.status === "updated" && result.judgment) updatePack(result.pack_id, bulkJudgmentStorePatch(result.judgment));
       }
@@ -330,6 +332,7 @@ export function PackJudgmentDialog({ pack, open, onOpenChange, accountCurrency, 
       } else {
         showSuccess(t("bulkApplied", { headline: summary.headline }));
       }
+      if (response.folder_saved === false) showWarning(t("folderNotSaved"));
       onOpenChange(false);
     } catch (err) {
       showError(err as Error);

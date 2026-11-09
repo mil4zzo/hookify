@@ -22,6 +22,7 @@ from app.services import supabase_repo
 from app.services import entity_performance as EP
 from app.services.pack_access import assert_owner_powers, assert_pack_role, resolve_entity_pack_scope, resolve_pack_roles
 from app.services import pack_action_log
+from app.services import folders_judgment
 from app.services.lead_economics import (
     LEAD_ECONOMICS_MAX_PRODUCTS,
     LEAD_ECONOMICS_MESSAGES,
@@ -331,6 +332,10 @@ class BulkPackJudgmentRequest(BaseModel):
         default=None, description="Patch por evento: valor define, null remove; null no topo limpa tudo."
     )
     lead_economics: Optional[Any] = Field(default=None, description="Economia do lead para todos; null apaga.")
+    folder_id: Optional[str] = Field(
+        default=None,
+        description="Acao no menu de uma pasta: ela tambem guarda o criterio para os packs que entrarem depois.",
+    )
 
     model_config = {"extra": "forbid"}
 
@@ -2339,6 +2344,7 @@ def update_pack_judgment_bulk(
 
     fields = request.model_dump(exclude_unset=True)
     fields.pop("pack_ids", None)
+    folder_id = fields.pop("folder_id", None)
     # Patch sem eventos nao e "limpe tudo" (isso e `target_cpr: null`): sem esta
     # linha, `{}` fundia com nada e gravava null nas metas de todos os packs.
     if fields.get("target_cpr") == {}:
@@ -2349,6 +2355,29 @@ def update_pack_judgment_bulk(
     fields = _validate_judgment_fields(fields, target_removal=True)
 
     actor_id = str(user["user_id"])
+    results = apply_judgment_to_packs(actor_id, pack_ids, fields)
+
+    # Acao no menu de uma PASTA: alem de copiar nos packs de hoje, a pasta guarda o
+    # criterio para os que entrarem depois. O que ja foi aplicado nao desfaz se isso falhar.
+    folder_saved: Optional[bool] = None
+    if folder_id:
+        try:
+            folders_judgment.save_folder_judgment(user["token"], str(folder_id), fields)
+            folder_saved = True
+        except HTTPException:
+            raise
+        except Exception:
+            logger.exception("[PACK_JUDGMENT_BULK] Packs gravados, mas a pasta %s nao guardou o criterio", folder_id)
+            folder_saved = False
+    return {"results": results, "folder_saved": folder_saved}
+
+
+def apply_judgment_to_packs(actor_id: str, pack_ids: List[str], fields: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Grava `fields` (ja validados) nos packs em que o ator e dono ou editor.
+
+    Compartilhado pela acao em massa e pela heranca de pasta (`folders_judgment`).
+    Viewer / sem acesso voltam como `skipped`; falha de gravacao como `failed`.
+    """
     try:
         roles = resolve_pack_roles(actor_id, pack_ids)
     except HTTPException:
@@ -2409,7 +2438,7 @@ def update_pack_judgment_bulk(
         {s: sum(1 for r in results if r["status"] == s) for s in ("updated", "skipped", "failed")},
         sorted(fields),
     )
-    return {"results": results}
+    return results
 
 
 @router.get("/packs/{pack_id}/activity")

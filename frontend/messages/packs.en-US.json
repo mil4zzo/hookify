@@ -334,6 +334,7 @@
       "noChange": "No criterion was changed. Change what should apply to all the packs.",
       "bulkFailed": "{headline}. Failed in: {failures}",
       "bulkSkipped": "{headline}. No permission in: {names}.",
+      "folderNotSaved": "The packs were updated, but the folder did not keep the criteria: packs added later will not inherit them. Try again.",
       "bulkApplied": "Criteria applied: {headline}.",
       "saved": "Pack settings saved."
     },

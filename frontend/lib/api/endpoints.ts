@@ -58,7 +58,7 @@ import type { BulkSheetIntegrationResponse, BulkSheetSyncProgress, RevalidatedSh
 import { env } from '@/lib/config/env'
 import type { CreateSharePayload, CreateShareResponse, ShareSummary } from '@/lib/share/types'
 import type { LeadEconomics } from '@/lib/utils/leadEconomics'
-import type { BulkPackJudgmentPayload, BulkPackJudgmentResponse } from '@/lib/utils/packJudgmentBulk'
+import type { BulkPackJudgmentPayload, BulkPackJudgmentResponse, BulkPackJudgmentResult } from '@/lib/utils/packJudgmentBulk'
 
 // Tipos simples para o fluxo de onboarding inicial
 export interface OnboardingStatusResponse {
@@ -560,7 +560,7 @@ export const api = {
      * define, null remove; os outros eventos de cada pack ficam). Dono e editor
      * recebem; viewer e pack sem acesso voltam como `skipped`.
      */
-    updatePackJudgmentBulk: (payload: { pack_ids: string[] } & BulkPackJudgmentPayload): Promise<BulkPackJudgmentResponse> =>
+    updatePackJudgmentBulk: (payload: { pack_ids: string[]; folder_id?: string } & BulkPackJudgmentPayload): Promise<BulkPackJudgmentResponse> =>
       apiClient.post('/analytics/packs/bulk-judgment', payload),
     /**
      * Histórico de ações do pack (P3.5). Qualquer membro lê — todos já veem os
@@ -676,7 +676,7 @@ export const api = {
     place: (folderId: string, parentId: string | null, siblingIds: string[]): Promise<{ success: boolean; changed: number; parent_id: string | null; access_changes?: FolderAccessChanges }> =>
       apiClient.post(`/folders/${folderId}/place`, { parent_id: parentId, sibling_ids: siblingIds }),
     /** `folderId` nulo tira os packs da pasta (voltam para soltos). */
-    move: (packIds: string[], folderId: string | null): Promise<{ success: boolean; moved: number; folder_id: string | null; access_changes?: FolderAccessChanges }> =>
+    move: (packIds: string[], folderId: string | null): Promise<{ success: boolean; moved: number; folder_id: string | null; access_changes?: FolderAccessChanges; judgment_inherited?: BulkPackJudgmentResult[] | null }> =>
       apiClient.post('/folders/move', { pack_ids: packIds, folder_id: folderId }),
   },
 

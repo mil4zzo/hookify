@@ -38,7 +38,7 @@ from pydantic import BaseModel, Field
 from app.core.auth import get_current_user
 from app.core.supabase_client import get_supabase_for_user
 from app.core.supabase_retry import with_postgrest_retry
-from app.services import folder_scope
+from app.services import folder_scope, folders_judgment
 from app.routes.pack_shares import _hydrate_display_names
 
 logger = logging.getLogger(__name__)
@@ -265,7 +265,12 @@ def create_folder(payload: FolderCreate = Body(...), user=Depends(get_current_us
                 logger.warning("[FOLDERS] Pasta %s ficou vazia apos falha ao mover packs", folder["id"])
             raise
 
-    return {"success": True, "folder": folder, "moved": moved, "access_changes": access_changes}
+    # Pasta nova sob uma pasta com criterio: os packs que ja nascem nela o herdam.
+    inherited = folders_judgment.inherit_folder_judgment(user, folder["id"], pack_ids) if moved else None
+    return {
+        "success": True, "folder": folder, "moved": moved, "access_changes": access_changes,
+        "judgment_inherited": inherited,
+    }
 
 
 @router.patch("/{folder_id}")
@@ -363,4 +368,10 @@ def move_packs(payload: MoveRequest = Body(...), user=Depends(get_current_user))
     with folder_scope.tracked_access_changes(sb, actor_id, pack_ids) as access_changes:
         moved = int(_rpc(sb, "move_packs_to_folder", {"p_pack_ids": pack_ids, "p_folder_id": folder_id}) or 0)
 
-    return {"success": True, "moved": moved, "folder_id": folder_id, "access_changes": access_changes}
+    # Pack que entra numa pasta com criterio de julgamento (a dela ou de uma pasta de cima) o herda.
+    inherited = folders_judgment.inherit_folder_judgment(user, folder_id, pack_ids) if folder_id and moved else None
+
+    return {
+        "success": True, "moved": moved, "folder_id": folder_id, "access_changes": access_changes,
+        "judgment_inherited": inherited,
+    }
