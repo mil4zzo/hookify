@@ -2296,16 +2296,17 @@ def update_pack_judgment(
     try:
         access = assert_pack_role(user["user_id"], pack_id)  # dono|editor; viewer -> 403
 
-        # Dono unico (migration 186): pack sob pasta com criterio nao tem criterio proprio.
-        governors = folders_judgment.pack_governors(user["token"], [pack_id])
-        if pack_id in governors:
-            raise HTTPException(status_code=409, detail=folders_judgment.governed_message(governors[pack_id]))
-
         # exclude_unset preserva a distincao entre "nao enviado" e "enviado como null".
         fields = request.model_dump(exclude_unset=True)
         if not fields:
             raise HTTPException(status_code=400, detail="Nenhum campo de julgamento enviado")
         fields = _validate_judgment_fields(fields)
+
+        # Depois da validacao barata: corpo invalido nao paga a ida ao banco.
+        # Dono unico (migration 186): pack sob pasta com criterio nao tem criterio proprio.
+        governors = folders_judgment.pack_governors(user["token"], [pack_id])
+        if pack_id in governors:
+            raise HTTPException(status_code=409, detail=folders_judgment.governed_message(governors[pack_id]))
 
         supabase_repo.update_pack_judgment(pack_id, fields, user["user_id"])
 

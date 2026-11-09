@@ -169,6 +169,8 @@ def sb(monkeypatch):
 
 @pytest.fixture
 def client(monkeypatch, sb):
+    from app.services import folders_judgment
+    monkeypatch.setattr(folders_judgment, "pack_governors", lambda *_a, **_k: {})  # sem ida ao banco
     main.app.dependency_overrides[get_current_user] = _usuario_falso
     monkeypatch.setattr(
         analytics, "assert_pack_role", lambda *_a, **_k: PackAccess(role="editor", owner_id="dono-2")
