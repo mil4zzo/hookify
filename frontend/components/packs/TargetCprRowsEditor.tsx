@@ -24,6 +24,10 @@ interface TargetCprRowsEditorProps {
   disabled?: boolean;
   /** Nota curta ao lado do evento no seletor (em massa: "os packs discordam"). */
   eventNote?: (event: string) => string | undefined;
+  /** Eventos cuja meta é definida por uma pasta: a linha não muda nem sai. */
+  lockedEvents?: ReadonlySet<string>;
+  /** Recado sob a linha travada. */
+  lockedNote?: string | null;
 }
 
 /**
@@ -31,7 +35,7 @@ interface TargetCprRowsEditorProps {
  * desenho das condições dos filtros. Só as linhas com meta aparecem; "Meta" acrescenta
  * outra. A lógica (o que cada linha vira no mapa do formulário) é `targetCprRows.ts`.
  */
-export function TargetCprRowsEditor({ rows, onChange, conversionTypes, disabled, eventNote }: TargetCprRowsEditorProps) {
+export function TargetCprRowsEditor({ rows, onChange, conversionTypes, disabled, eventNote, lockedEvents, lockedNote }: TargetCprRowsEditorProps) {
   const t = useTranslations("packs.targetCpr");
   return (
     <div className="space-y-2">
@@ -39,10 +43,14 @@ export function TargetCprRowsEditor({ rows, onChange, conversionTypes, disabled,
         {rows.map((row) => {
           const options = eventsForRow(rows, conversionTypes, row.key);
           const label = row.event ? formatActionTypeLabel(row.event) : "";
+          // Evento cuja meta a pasta define (dono único): a linha fica, mas não muda nem sai.
+          const locked = !!row.event && !!lockedEvents?.has(row.event);
+          const rowDisabled = disabled || locked;
           return (
-            <div key={row.key} className="flex items-center gap-2">
+            <div key={row.key} className="space-y-1">
+            <div className="flex items-center gap-2">
               <div className="min-w-0 flex-1">
-                <Select value={row.event} onValueChange={(event) => onChange(updateTargetCprRow(rows, row.key, { event }))} disabled={disabled}>
+                <Select value={row.event} onValueChange={(event) => onChange(updateTargetCprRow(rows, row.key, { event }))} disabled={rowDisabled}>
                   <SelectTrigger size="sm" aria-label={t("conversionEvent")}>
                     <SelectValue placeholder={t("chooseEvent")} />
                   </SelectTrigger>
@@ -70,18 +78,20 @@ export function TargetCprRowsEditor({ rows, onChange, conversionTypes, disabled,
                 placeholder={row.event ? t("noTarget") : t("chooseEventLower")}
                 aria-label={label ? t("goalFor", { label }) : t("goal")}
                 // Valor sem evento não vira meta de ninguém: o campo só abre com o evento escolhido.
-                disabled={disabled || !row.event}
+                disabled={rowDisabled || !row.event}
               />
               <Button
                 type="button"
                 variant="ghost"
                 size="sm"
                 onClick={() => onChange(removeTargetCprRow(rows, row.key))}
-                disabled={disabled || (rows.length === 1 && !row.event && !row.value)}
+                disabled={rowDisabled || (rows.length === 1 && !row.event && !row.value)}
                 aria-label={label ? t("removeFor", { label }) : t("removeRow")}
               >
                 <IconTrash className="h-4 w-4 text-destructive" />
               </Button>
+            </div>
+            {locked && lockedNote ? <p className="text-xs text-muted-foreground">{lockedNote}</p> : null}
             </div>
           );
         })}

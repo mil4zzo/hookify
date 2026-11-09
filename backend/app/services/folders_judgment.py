@@ -53,15 +53,12 @@ def _rpc(sb, name: str, params: Dict[str, Any]):
     return with_postgrest_retry(f"folders_judgment.{name}", lambda: sb.rpc(name, params).execute()).data
 
 
-def save_folder_judgment(token: str, folder_id: str, fields: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    """Guarda na pasta o que a ação em massa aplicou. Quem não edita a pasta recebe 403/404 da RPC."""
+def _rpc_or_http(sb, name: str, params: Dict[str, Any]):
+    """RPC das pastas com os erros de regra traduzidos em 4xx (o resto sobe)."""
     from fastapi import HTTPException
 
-    sb = get_supabase_for_user(token)
     try:
-        current = _rpc(sb, "resolve_folder_judgment", {"p_folder_id": folder_id, "p_own_only": True})
-        merged = merge_folder_judgment(current, fields)
-        _rpc(sb, "set_folder_judgment", {"p_folder_id": folder_id, "p_judgment": merged})
+        return _rpc(sb, name, params)
     except APIError as e:
         message = getattr(e, "message", None) or str(e)
         if "folder_forbidden" in message:
@@ -71,44 +68,138 @@ def save_folder_judgment(token: str, folder_id: str, fields: Dict[str, Any]) -> 
         if "folder_judgment_governed" in message:
             raise HTTPException(status_code=409, detail=governed_message(None))
         raise
+
+
+def save_folder_judgment(token: str, folder_id: str, fields: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Guarda na pasta o que a ação em massa aplicou. Quem não edita a pasta recebe 403/404 da RPC."""
+    sb = get_supabase_for_user(token)
+    current = _rpc_or_http(sb, "resolve_folder_judgment", {"p_folder_id": folder_id, "p_own_only": True})
+    merged = merge_folder_judgment(current, fields)
+    _rpc_or_http(sb, "set_folder_judgment", {"p_folder_id": folder_id, "p_judgment": merged})
     return merged
 
 
-# ── Dono unico do criterio (migration 186) ──────────────────────────────────────
-# Se uma pasta (ou ancestral) define criterio, nada abaixo dela o edita: nem subpasta,
-# nem pack. Estas consultas dizem QUEM manda; a regra em si e imposta aqui nas rotas
-# (pack) e no banco (`set_folder_judgment`, pasta).
+def own_folder_judgment(token: str, folder_id: str) -> Optional[Dict[str, Any]]:
+    """O critério guardado NA pasta (sem subir): é o que a tela de edição da pasta mostra."""
+    return _rpc_or_http(get_supabase_for_user(token), "resolve_folder_judgment", {"p_folder_id": folder_id, "p_own_only": True})
+
+
+# ── Dono único do critério (migrations 186/187) ─────────────────────────────────
+# Se uma pasta (ou ancestral) define critério, nada abaixo dela o edita. O que trava são
+# SÓ os campos que a pasta define (no CPR alvo, só os eventos dela): o resto continua do
+# pack. Quem manda num pack é a pasta onde o DONO o colocou — o arquivamento de quem
+# recebeu o pack compartilhado nunca governa (migration 187).
 
 def governed_message(folder_name: Optional[str]) -> str:
     where = f"pela pasta “{folder_name}”" if folder_name else "por uma pasta acima"
-    return f"Os criterios de julgamento aqui sao definidos {where}. Para mudar, edite o criterio dessa pasta."
+    return f"Este critério é definido {where}. Para mudar, edite o critério dessa pasta."
 
 
-def pack_governors(token: str, pack_ids: List[str]) -> Dict[str, Optional[str]]:
-    """{pack_id: nome da pasta que manda no criterio dele} so para os packs governados.
+def pack_governors(token: str, pack_ids: List[str]) -> Dict[str, Dict[str, Any]]:
+    """{pack_id: {"folder_name": str | None, "judgment": {...}}} só para os packs governados.
 
-    O nome pode ser None (pasta que o ator nao enxerga). Falha de leitura NAO bloqueia
-    (devolve {} e registra): a tela ja desabilita o botao, e travar toda edicao por uma
-    RPC fora do ar seria pior que deixar passar.
+    O nome é None quando a pasta é de outra pessoa e o ator não a enxerga. Falha de leitura
+    NÃO bloqueia (devolve {} e registra): a tela já trava os campos, e barrar toda edição
+    por uma RPC fora do ar seria pior que deixar passar.
     """
     if not pack_ids:
         return {}
     try:
         rows = _rpc(get_supabase_for_user(token), "pack_judgment_governors", {"p_pack_ids": pack_ids}) or []
-        return {str(r["pack_id"]): r.get("folder_name") for r in rows if r.get("folder_id")}
+        return {
+            str(r["pack_id"]): {"folder_name": r.get("folder_name"), "judgment": r.get("judgment") or {}}
+            for r in rows if r.get("folder_id")
+        }
     except Exception:
         logger.exception("[FOLDERS_JUDGMENT] Nao deu para ler quem governa o criterio dos packs")
         return {}
 
 
+def _same_number(a: Any, b: Any) -> bool:
+    if a is None or b is None:
+        return a is None and b is None
+    try:
+        return abs(float(a) - float(b)) < 1e-9
+    except (TypeError, ValueError):
+        return False
+
+
+def locked_field_changed(fields: Dict[str, Any], judgment: Dict[str, Any]) -> bool:
+    """PATCH de UM pack: muda algum campo travado pela pasta? (`target_cpr` é o mapa inteiro.)
+
+    Mandar o mesmo valor da pasta é permitido — a tela do pack manda o formulário todo.
+    """
+    if "mql_leadscore_min" in judgment and "mql_leadscore_min" in fields:
+        if not _same_number(fields["mql_leadscore_min"], judgment["mql_leadscore_min"]):
+            return True
+    if "lead_economics" in judgment and "lead_economics" in fields:
+        if fields["lead_economics"] != judgment["lead_economics"]:
+            return True
+    locked_events = judgment.get("target_cpr") or {}
+    if locked_events and "target_cpr" in fields:
+        sent = fields["target_cpr"] or {}
+        if any(not _same_number(sent.get(ev), val) for ev, val in locked_events.items()):
+            return True
+    return False
+
+
+def strip_locked_fields(fields: Dict[str, Any], judgment: Dict[str, Any]) -> Dict[str, Any]:
+    """Ação em massa por seleção: o que sobra do pedido para um pack governado.
+
+    Campos que a pasta define saem; no CPR alvo (patch por evento) saem só os eventos dela.
+    `target_cpr: null` (limpar todas as metas) também sai quando a pasta define algum evento:
+    limpar apagaria a meta travada.
+    """
+    out = {k: v for k, v in fields.items() if k not in judgment or k == "target_cpr"}
+    locked_events = judgment.get("target_cpr") or {}
+    if "target_cpr" in out and locked_events:
+        if out["target_cpr"] is None:
+            out.pop("target_cpr")
+        else:
+            rest = {ev: v for ev, v in out["target_cpr"].items() if ev not in locked_events}
+            if rest:
+                out["target_cpr"] = rest
+            else:
+                out.pop("target_cpr")
+    return out
+
+
 def folder_governor(token: str, folder_id: str) -> Optional[Dict[str, Any]]:
-    """O ANCESTRAL (nunca a propria pasta) que ja define criterio, ou None."""
+    """O ANCESTRAL (nunca a própria pasta) que já define critério, ou None."""
     rows = _rpc(get_supabase_for_user(token), "folder_judgment_governor", {"p_folder_id": folder_id, "p_strict": True}) or []
     return rows[0] if rows else None
 
 
+def folder_governed_pack_ids(token: str, folder_id: str) -> List[str]:
+    """Packs que a pasta governa (colocação do dono, na subárvore). 403/404 se o ator não
+    edita a pasta — chamado ANTES de gravar qualquer pack."""
+    rows = _rpc_or_http(get_supabase_for_user(token), "folder_governed_pack_ids", {"p_folder_id": folder_id}) or []
+    return [str(r) for r in rows]
+
+
+def move_conflicts(token: str, pack_ids: List[str], folder_id: str) -> List[str]:
+    """Packs compartilhados com o ator que não podem entrar nesta pasta: ela (ou acima) tem critério."""
+    rows = _rpc(get_supabase_for_user(token), "judgment_move_conflicts", {"p_pack_ids": pack_ids, "p_folder_id": folder_id}) or []
+    return [str(r) for r in rows]
+
+
+def reconcile_on_place(user: Dict[str, Any], folder_id: str) -> Optional[List[Dict[str, Any]]]:
+    """Pasta arrastada para dentro de outra que já manda: perde o critério próprio (banco) e os
+    packs da subárvore herdam o da nova mãe. Nunca levanta: a pasta já foi movida."""
+    try:
+        sb = get_supabase_for_user(user["token"])
+        governor = _rpc(sb, "reconcile_folder_judgment_on_place", {"p_folder_id": folder_id})
+        if not governor:
+            return None
+        pack_ids = folder_governed_pack_ids(user["token"], folder_id)
+        return inherit_folder_judgment(user, folder_id, pack_ids) if pack_ids else None
+    except Exception:
+        logger.exception("[FOLDERS_JUDGMENT] Pasta %s movida, mas a reconciliacao do criterio falhou", folder_id)
+        return None
+
+
 def folders_with_judgment(token: str, folder_ids: List[str]) -> set:
-    """Quais dessas pastas definem criterio (a tela deriva o resto subindo pela arvore)."""
+    """Quais dessas pastas definem critério (a tela deriva o resto subindo pela árvore)."""
     if not folder_ids:
         return set()
     try:

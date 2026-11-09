@@ -194,7 +194,9 @@ export interface BulkPackJudgmentResult {
   pack_id: string;
   status: "updated" | "skipped" | "failed";
   /** `viewer`: você só lê este pack; `no_access`: pack que não é (mais) seu. */
-  reason?: "viewer" | "no_access" | "folder";
+  reason?: "viewer" | "no_access" | "folder" | "not_in_folder";
+  /** `folder` em pack atualizado: só os campos que a pasta não define foram gravados. */
+  partial?: "folder";
   /** `folder`: a pasta que define o critério deste pack (null = pasta que você não enxerga). */
   folder_name?: string | null;
   error?: string;
@@ -239,12 +241,22 @@ export function summarizeBulkJudgment(
   const updated: string[] = [];
   const skipped: string[] = [];
   const failed: Array<{ name: string; error: string }> = [];
+  let byFolder = 0;
+  let notInFolder = 0;
+  let partial = 0;
   for (const r of results) {
-    if (r.status === "updated") updated.push(nameOf(r));
+    if (r.status === "updated") {
+      updated.push(nameOf(r));
+      if (r.partial === "folder") partial++;
+    } else if (r.status === "skipped" && r.reason === "folder") byFolder++;
+    else if (r.status === "skipped" && r.reason === "not_in_folder") notInFolder++;
     else if (r.status === "skipped") skipped.push(nameOf(r));
     else failed.push({ name: nameOf(r), error: r.error || msg("saveError") });
   }
   const parts = [msg("updated", { count: updated.length })];
+  if (partial) parts.push(msg("partialByFolder", { count: partial }));
+  if (byFolder) parts.push(msg("lockedByFolder", { count: byFolder }));
+  if (notInFolder) parts.push(msg("notInFolder", { count: notInFolder }));
   if (skipped.length) parts.push(msg("noPermission", { count: skipped.length }));
   if (failed.length) parts.push(msg("failed", { count: failed.length }));
   return { updated, skipped, failed, headline: parts.join(" · ") };

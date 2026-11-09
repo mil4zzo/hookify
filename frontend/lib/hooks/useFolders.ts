@@ -176,12 +176,17 @@ export function useFolders(packs: AdsPack[]) {
       }),
     );
     try {
-      await api.folders.place(folderId, plan.parentId, plan.siblingIds);
+      const res = await api.folders.place(folderId, plan.parentId, plan.siblingIds);
+      // Entrou numa pasta que manda no critério: os packs herdaram no servidor (187).
+      for (const r of res.judgment_inherited ?? []) {
+        if (r.status === "updated" && r.judgment) updatePack(r.pack_id, bulkJudgmentStorePatch(r.judgment));
+      }
+      if (res.judgment_inherited) load();
     } catch (error) {
       setFolders(previous);
       showError(error instanceof Error ? error : new Error(translate("packs.folders.errMove")));
     }
-  }, [folders]);
+  }, [folders, updatePack, load]);
 
   /**
    * Move packs. `folderId` nulo tira da pasta.

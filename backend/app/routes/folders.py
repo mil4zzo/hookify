@@ -333,7 +333,19 @@ def place_folder(folder_id: str, payload: PlaceRequest = Body(...), user=Depends
         changed = _rpc(
             sb, "place_folder", {"p_folder_id": folder_id, "p_parent_id": parent_id, "p_sibling_ids": sibling_ids}
         )
-    return {"success": True, "changed": int(changed or 0), "parent_id": parent_id, "access_changes": access_changes}
+    # Entrou numa pasta que ja manda no criterio: perde o proprio e os packs herdam (187).
+    inherited = folders_judgment.reconcile_on_place(user, folder_id) if parent_id else None
+    return {
+        "success": True, "changed": int(changed or 0), "parent_id": parent_id, "access_changes": access_changes,
+        "judgment_inherited": inherited,
+    }
+
+
+@router.get("/{folder_id}/judgment")
+def get_folder_judgment(folder_id: str, user=Depends(get_current_user)):
+    """O criterio guardado NA pasta (sem subir pelos pais): a tela de edicao da pasta parte dele."""
+    _valid_uuids([folder_id], "folder_id")
+    return {"judgment": folders_judgment.own_folder_judgment(user["token"], folder_id)}
 
 
 @router.post("/reorder")
@@ -369,6 +381,23 @@ def move_packs(payload: MoveRequest = Body(...), user=Depends(get_current_user))
     folder_id = (payload.folder_id or "").strip() or None
     if folder_id:
         _valid_uuids([folder_id], "folder_id")
+
+    # Pack compartilhado com o ator nao entra numa pasta DELE com criterio (migration 187):
+    # o criterio do pack e o da pasta do dono, e a pasta do ator diria outra coisa.
+    if folder_id:
+        try:
+            blocked = folders_judgment.move_conflicts(user["token"], pack_ids, folder_id)
+        except APIError as e:
+            raise _folder_rpc_error(e)
+        if blocked:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "Esta pasta tem criterios de julgamento, e "
+                    + ("este pack e compartilhado com voce: ele" if len(blocked) == 1 else f"{len(blocked)} destes packs sao compartilhados com voce: eles")
+                    + " segue(m) os criterios de quem o(s) criou e nao pode(m) entrar aqui. Use uma pasta sem criterios."
+                ),
+            )
 
     with folder_scope.tracked_access_changes(sb, actor_id, pack_ids) as access_changes:
         moved = int(_rpc(sb, "move_packs_to_folder", {"p_pack_ids": pack_ids, "p_folder_id": folder_id}) or 0)

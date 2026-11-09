@@ -943,7 +943,10 @@ def save_ad_sheet_integrations_bulk(
     integrations: Dict[str, Any] = {}
     # Dono unico do criterio (migration 186): pack sob pasta que define criterio nao tem corte
     # proprio. A planilha do pack e configurada do mesmo jeito; so o corte de MQL nao e gravado.
-    mql_governed = folders_judgment.pack_governors(user["token"], pack_ids) if set_mql else {}
+    mql_governed = {
+        pid: g for pid, g in (folders_judgment.pack_governors(user["token"], pack_ids) if set_mql else {}).items()
+        if "mql_leadscore_min" in g["judgment"]  # trava so o que a pasta define (187)
+    }
     mql_written: List[str] = []
     for pack_id in pack_ids:
         if pack_id not in owned:
@@ -994,7 +997,7 @@ def save_ad_sheet_integrations_bulk(
                 "pack_id": pack_id,
                 "status": "updated" if existing else "created",
                 "integration_id": str(integration_id),
-                **({"mql_skipped": "folder", "folder_name": mql_governed[pack_id]} if mql_blocked else {}),
+                **({"mql_skipped": "folder", "folder_name": mql_governed[pack_id]["folder_name"]} if mql_blocked else {}),
             })
         except HTTPException as e:
             results.append({"pack_id": pack_id, "status": "failed", "error": str(e.detail)})

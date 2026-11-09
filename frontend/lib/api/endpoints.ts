@@ -59,6 +59,7 @@ import { env } from '@/lib/config/env'
 import type { CreateSharePayload, CreateShareResponse, ShareSummary } from '@/lib/share/types'
 import type { LeadEconomics } from '@/lib/utils/leadEconomics'
 import type { BulkPackJudgmentPayload, BulkPackJudgmentResponse, BulkPackJudgmentResult } from '@/lib/utils/packJudgmentBulk'
+import type { JudgmentGovernor } from '@/lib/utils/folderJudgment'
 
 // Tipos simples para o fluxo de onboarding inicial
 export interface OnboardingStatusResponse {
@@ -560,8 +561,8 @@ export const api = {
      * define, null remove; os outros eventos de cada pack ficam). Dono e editor
      * recebem; viewer e pack sem acesso voltam como `skipped`.
      */
-    /** Packs cujo critério é definido por uma pasta (dono único): {pack_id: nome da pasta}. */
-    getJudgmentGovernors: (packIds: string[]): Promise<{ governors: Record<string, string | null> }> =>
+    /** Packs com campos do critério definidos por uma pasta (dono único): {pack_id: pasta + o que ela define}. */
+    getJudgmentGovernors: (packIds: string[]): Promise<{ governors: Record<string, JudgmentGovernor> }> =>
       apiClient.post('/analytics/packs/judgment-governors', { pack_ids: packIds }),
     updatePackJudgmentBulk: (payload: { pack_ids: string[]; folder_id?: string } & BulkPackJudgmentPayload): Promise<BulkPackJudgmentResponse> =>
       apiClient.post('/analytics/packs/bulk-judgment', payload),
@@ -676,9 +677,12 @@ export const api = {
     remove: (folderId: string): Promise<{ success: boolean; deleted: boolean; id: string; parent_id: string | null; folders_moved: number; packs_moved: number; access_changes?: FolderAccessChanges }> =>
       apiClient.delete(`/folders/${folderId}`),
     /** Muda o pai (null = raiz) e grava a ordem COMPLETA dos irmãos no destino — uma ida só. */
-    place: (folderId: string, parentId: string | null, siblingIds: string[]): Promise<{ success: boolean; changed: number; parent_id: string | null; access_changes?: FolderAccessChanges }> =>
+    place: (folderId: string, parentId: string | null, siblingIds: string[]): Promise<{ success: boolean; changed: number; parent_id: string | null; access_changes?: FolderAccessChanges; judgment_inherited?: BulkPackJudgmentResult[] | null }> =>
       apiClient.post(`/folders/${folderId}/place`, { parent_id: parentId, sibling_ids: siblingIds }),
     /** `folderId` nulo tira os packs da pasta (voltam para soltos). */
+    /** O critério guardado NA pasta (sem subir pelos pais): a edição da pasta parte dele. */
+    getJudgment: (folderId: string): Promise<{ judgment: JudgmentGovernor['judgment'] | null }> =>
+      apiClient.get(`/folders/${folderId}/judgment`),
     move: (packIds: string[], folderId: string | null): Promise<{ success: boolean; moved: number; folder_id: string | null; access_changes?: FolderAccessChanges; judgment_inherited?: BulkPackJudgmentResult[] | null }> =>
       apiClient.post('/folders/move', { pack_ids: packIds, folder_id: folderId }),
   },

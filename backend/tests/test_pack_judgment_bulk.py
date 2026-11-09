@@ -47,7 +47,7 @@ ROLES = {
 @pytest.fixture
 def ctx(monkeypatch):
     """Cliente + espiões. `roles` e `targets` podem ser trocados pelo teste."""
-    state = {"governors": {}, "folder_governor": None, "roles": dict(ROLES), "targets": {}, "fail": set(), "writes": [], "logs": [], "target_reads": 0, "validations": 0}
+    state = {"governors": {}, "folder_governor": None, "folder_packs": [], "roles": dict(ROLES), "targets": {}, "fail": set(), "writes": [], "logs": [], "target_reads": 0, "validations": 0}
 
     main.app.dependency_overrides[get_current_user] = lambda: {"user_id": "u1", "token": "tok"}
     monkeypatch.setattr(analytics, "resolve_pack_roles", lambda actor, ids: {i: state["roles"][i] for i in ids if i in state["roles"]})
@@ -64,6 +64,7 @@ def ctx(monkeypatch):
 
     monkeypatch.setattr(folders_judgment, "pack_governors", lambda token, ids: {i: state["governors"][i] for i in ids if i in state["governors"]})
     monkeypatch.setattr(folders_judgment, "folder_governor", lambda token, folder_id: state["folder_governor"])
+    monkeypatch.setattr(folders_judgment, "folder_governed_pack_ids", lambda token, folder_id: list(state["folder_packs"]))
     monkeypatch.setattr(folders_judgment, "save_folder_judgment", lambda token, folder_id, fields: state.setdefault("folder_saves", []).append((folder_id, fields)))
     monkeypatch.setattr(supabase_repo, "get_packs_target_cpr", read_targets)
     monkeypatch.setattr(supabase_repo, "update_pack_judgment", write)
@@ -243,29 +244,54 @@ def test_target_cpr_patch_vazio_nao_mexe(ctx):
     assert r.status_code == 400, "só um patch vazio = nada a gravar"
 
 
-# ── Dono unico do criterio (migration 186) ──────────────────────────────────────
-# Sabotagens: tirar o filtro de packs governados -> test_pack_sob_pasta_com_criterio_fica_de_fora
-# falha; deixar o PATCH passar -> test_patch_de_pack_governado_da_409 falha; checar a pasta
-# DEPOIS de gravar os packs -> test_pasta_governada_nao_grava_nada falha.
+# ── Dono unico do criterio (migrations 186/187) ─────────────────────────────────
+# Sabotagens feitas: gravar o pedido inteiro no pack governado -> test_selecao_grava_so_o_que_a_pasta_nao_define
+# falha; deixar o PATCH mudar campo travado -> test_patch_que_muda_campo_travado_da_409 falha; usar a lista
+# do navegador na acao da pasta -> test_acao_da_pasta_usa_a_lista_do_servidor falha; checar o ancestral
+# DEPOIS de gravar -> test_pasta_governada_nao_grava_nada falha.
 
-def test_pack_sob_pasta_com_criterio_fica_de_fora(ctx):
-    ctx["governors"]["meu2"] = "Campanha X"
+def _gov(name, **judgment):
+    return {"folder_name": name, "judgment": judgment}
+
+
+def test_selecao_grava_so_o_que_a_pasta_nao_define(ctx):
+    ctx["governors"]["meu2"] = _gov("Campanha X", mql_leadscore_min=70, target_cpr={"lead": 10})
+    r = ctx["client"].post(URL, json={"pack_ids": ["meu", "meu2"], "mql_leadscore_min": 60, "target_cpr": {"lead": 5, "compra": 50}})
+    by_id = {x["pack_id"]: x for x in r.json()["results"]}
+    writes = {w[0]: w[1] for w in ctx["writes"]}
+    assert writes["meu"]["mql_leadscore_min"] == 60 and writes["meu"]["target_cpr"] == {"lead": 5, "compra": 50}
+    # no governado: o corte e o evento "lead" sao da pasta; so "compra" e do pack
+    assert "mql_leadscore_min" not in writes["meu2"] and writes["meu2"]["target_cpr"] == {"compra": 50}
+    assert by_id["meu2"]["partial"] == "folder"
+
+
+def test_selecao_pula_pack_quando_tudo_e_da_pasta(ctx):
+    ctx["governors"]["meu2"] = _gov("Campanha X", mql_leadscore_min=70)
     r = ctx["client"].post(URL, json={"pack_ids": ["meu", "meu2"], "mql_leadscore_min": 60})
     by_id = {x["pack_id"]: x for x in r.json()["results"]}
-    assert by_id["meu"]["status"] == "updated"
     assert by_id["meu2"] == {"pack_id": "meu2", "status": "skipped", "reason": "folder", "folder_name": "Campanha X"}
     assert [w[0] for w in ctx["writes"]] == ["meu"]
 
 
-def test_patch_de_pack_governado_da_409(ctx, monkeypatch):
+def test_patch_que_muda_campo_travado_da_409(ctx, monkeypatch):
     monkeypatch.setattr(analytics, "assert_pack_role", lambda uid, pid: ROLES["meu"])
-    ctx["governors"]["meu"] = "Campanha X"
+    ctx["governors"]["meu"] = _gov("Campanha X", mql_leadscore_min=70)
     r = ctx["client"].patch("/analytics/packs/meu/judgment", json={"mql_leadscore_min": 60})
     assert r.status_code == 409 and "Campanha X" in r.json()["detail"]
     assert ctx["writes"] == []
 
 
+def test_patch_com_o_valor_da_pasta_e_campo_livre_passa(ctx, monkeypatch):
+    monkeypatch.setattr(analytics, "assert_pack_role", lambda uid, pid: ROLES["meu"])
+    ctx["governors"]["meu"] = _gov("Campanha X", mql_leadscore_min=70, target_cpr={"lead": 10})
+    r = ctx["client"].patch("/analytics/packs/meu/judgment", json={"mql_leadscore_min": 70, "target_cpr": {"lead": 10, "compra": 40}})
+    assert r.status_code == 200
+    r = ctx["client"].patch("/analytics/packs/meu/judgment", json={"target_cpr": {"compra": 40}})  # tirou o evento travado
+    assert r.status_code == 409
+
+
 def test_pasta_governada_nao_grava_nada(ctx):
+    ctx["folder_packs"] = ["meu"]
     ctx["folder_governor"] = {"folder_id": "pai", "folder_name": "Pai"}
     r = ctx["client"].post(URL, json={"pack_ids": ["meu"], "mql_leadscore_min": 60, "folder_id": "f1"})
     assert r.status_code == 409 and ctx["writes"] == [] and not ctx.get("folder_saves")
@@ -277,14 +303,17 @@ def test_pasta_vazia_guarda_o_criterio(ctx):
     assert ctx["folder_saves"] == [("f1", {"mql_leadscore_min": 60})]
 
 
-def test_acao_da_pasta_nao_filtra_packs_pela_propria_pasta(ctx):
-    # os packs da pasta estao sob ela (que ja define): reaplicar na pasta tem que gravar neles
-    ctx["governors"]["meu"] = "Esta mesma pasta"
-    r = ctx["client"].post(URL, json={"pack_ids": ["meu"], "mql_leadscore_min": 60, "folder_id": "f1"})
-    assert r.json()["results"][0]["status"] == "updated"
+def test_acao_da_pasta_usa_a_lista_do_servidor(ctx):
+    # o navegador mandou "editavel" (de outra pasta) e esqueceu "meu2"; vale o que o servidor calcula
+    ctx["folder_packs"] = ["meu", "meu2"]
+    ctx["governors"]["meu"] = _gov("Esta mesma pasta", mql_leadscore_min=70)  # nao filtra pela propria pasta
+    r = ctx["client"].post(URL, json={"pack_ids": ["meu", "editavel"], "mql_leadscore_min": 60, "folder_id": "f1"})
+    by_id = {x["pack_id"]: x for x in r.json()["results"]}
+    assert sorted(w[0] for w in ctx["writes"]) == ["meu", "meu2"]
+    assert by_id["editavel"] == {"pack_id": "editavel", "status": "skipped", "reason": "not_in_folder"}
 
 
 def test_rota_de_governantes_devolve_so_os_governados(ctx):
-    ctx["governors"]["meu2"] = "Campanha X"
+    ctx["governors"]["meu2"] = _gov("Campanha X", mql_leadscore_min=70)
     r = ctx["client"].post("/analytics/packs/judgment-governors", json={"pack_ids": ["meu", "meu2"]})
-    assert r.status_code == 200 and r.json() == {"governors": {"meu2": "Campanha X"}}
+    assert r.status_code == 200 and r.json() == {"governors": {"meu2": _gov("Campanha X", mql_leadscore_min=70)}}

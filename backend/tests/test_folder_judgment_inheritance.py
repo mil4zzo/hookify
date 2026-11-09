@@ -85,3 +85,29 @@ def test_falha_nao_levanta(monkeypatch):
     monkeypatch.setattr(fj, "get_supabase_for_user", lambda token: _SB({"mql_leadscore_min": 60}))
     monkeypatch.setattr(analytics, "apply_judgment_to_packs", lambda *a: (_ for _ in ()).throw(RuntimeError("banco caiu")))
     assert fj.inherit_folder_judgment(_user(), "f1", ["p1"]) is None
+
+
+# ── Pack compartilhado nao entra em pasta propria com criterio (migration 187) ──
+# Sabotagem: tirar a checagem de move_conflicts da rota -> este teste falha (a RPC de mover roda).
+
+def test_mover_pack_compartilhado_para_pasta_com_criterio_e_recusado(monkeypatch):
+    import pytest
+    from fastapi import HTTPException
+    from app.routes import folders as folders_route
+
+    rpcs = []
+
+    class SB:
+        def rpc(self, name, params):
+            rpcs.append(name)
+            return _Rpc(1)
+
+    monkeypatch.setattr(folders_route, "get_supabase_for_user", lambda token: SB())
+    monkeypatch.setattr(fj, "move_conflicts", lambda token, ids, folder: ["00000000-0000-4000-8000-0000000000d1"])
+    with pytest.raises(HTTPException) as e:
+        folders_route.move_packs(
+            folders_route.MoveRequest(pack_ids=["00000000-0000-4000-8000-0000000000d1"], folder_id="00000000-0000-4000-8000-0000000000f1"),
+            _user(),
+        )
+    assert e.value.status_code == 409 and "compartilhado" in e.value.detail
+    assert "move_packs_to_folder" not in rpcs

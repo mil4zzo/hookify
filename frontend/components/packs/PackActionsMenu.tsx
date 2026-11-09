@@ -124,7 +124,6 @@ export function PackActionsMenu({
             <DropdownMenuItem
               icon={<IconTargetArrow />}
               description={judgmentGovernedBy ? t("judgmentGoverned", { folder: judgmentGovernedBy }) : hasJudgmentOverride ? t("judgmentOwn") : undefined}
-              disabled={!!judgmentGovernedBy}
               onClick={() => onEditJudgment(pack)}
             >
               {t("judgment")}

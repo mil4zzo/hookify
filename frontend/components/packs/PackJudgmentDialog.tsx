@@ -52,6 +52,8 @@ import {
   type BulkPackJudgmentPayload,
 } from "@/lib/utils/packJudgmentBulk";
 import { reviewBulkJudgment, type BulkReview } from "@/lib/utils/bulkApplyReview";
+import { logger } from "@/lib/utils/logger";
+import type { JudgmentGovernor } from "@/lib/utils/folderJudgment";
 import { rowsFromTargets, targetsFromRows, type TargetCprRow } from "@/lib/utils/targetCprRows";
 import { listNames } from "@/lib/utils/bulkSheetSync";
 import { showError, showSuccess, showWarning } from "@/lib/utils/toast";
@@ -76,6 +78,8 @@ interface PackJudgmentDialogProps {
   bulkPacks?: AdsPack[] | null;
   /** Ação vinda do menu de uma pasta: ela também guarda o critério para os packs que entrarem depois. */
   folderId?: string | null;
+  /** Depois de guardar o critério na pasta (a página relê as pastas: quem manda mudou). */
+  onFolderSaved?: () => void;
   /** Em massa: a moeda da conta de CADA pack, na ordem de `bulkPacks`. */
   accountCurrencies?: Array<string | null>;
 }
@@ -101,7 +105,7 @@ const TAB_OF_FIELD: Record<"mql" | "target" | "economics", JudgmentTab> = { mql:
  * onde todos concordam, e o save manda apenas o que foi mexido (ver
  * `packJudgmentBulk.ts` — mexido e vazio limpa em todos).
  */
-export function PackJudgmentDialog({ pack, open, onOpenChange, accountCurrency, bulkPacks, folderId, accountCurrencies }: PackJudgmentDialogProps) {
+export function PackJudgmentDialog({ pack, open, onOpenChange, accountCurrency, bulkPacks, folderId, onFolderSaved, accountCurrencies }: PackJudgmentDialogProps) {
   const t = useTranslations("packs.judgment");
   const tc = useTranslations("packs.common");
   const { updatePack } = useClientPacks();
@@ -154,7 +158,9 @@ export function PackJudgmentDialog({ pack, open, onOpenChange, accountCurrency, 
   const packsWithSheet = isBulk ? bulkPacks!.filter((p) => !!p.sheet_integration).length : pack?.sheet_integration ? 1 : 0;
   // Em massa basta UM pack com planilha para os campos de leadscore fazerem sentido;
   // os sem planilha recebem o critério e ele passa a valer quando a conectarem.
-  const hasSheetIntegration = packsWithSheet > 0;
+  // Na pasta, o critério vale para os packs que entrarem depois: dá para definir mesmo
+  // sem nenhum pack com planilha hoje.
+  const hasSheetIntegration = packsWithSheet > 0 || !!folderId;
   const economicsDivergent = isBulk && !!bulkSeed?.divergent.economics;
 
   // Foco depois de trocar o conteúdo da seção: o botão clicado some junto com o
@@ -180,6 +186,18 @@ export function PackJudgmentDialog({ pack, open, onOpenChange, accountCurrency, 
     };
   }, []);
 
+  function applyBulkSeed(seed: BulkJudgmentSeed) {
+    setBulkSeed(seed);
+    setInitialForm(seed.form);
+    setMqlValue(seed.form.mql);
+    setTargetRows(rowsFromTargets(seed.form.targets, seed.conversionTypes));
+    setTab(seed.packsWithSheet > 0 || folderId ? "mql" : "cpr");
+    setEconomicsSaved(seed.economicsSaved);
+    setEconomicsRawExists(seed.economicsRawExists);
+    setEconomics(openLeadEconomicsEdit(seed.economicsSaved));
+    setShowEconomicsErrors(false);
+  }
+
   // Reidrata o formulário toda vez que abre — sem isto, reabrir para outro pack
   // mostraria o estado do pack anterior.
   useEffect(() => {
@@ -193,16 +211,7 @@ export function PackJudgmentDialog({ pack, open, onOpenChange, accountCurrency, 
     if (!open) return;
 
     if (bulkPacks && (bulkPacks.length > 0 || folderId)) {
-      const seed = seedBulkJudgment(bulkPacks);
-      setBulkSeed(seed);
-      setInitialForm(seed.form);
-      setMqlValue(seed.form.mql);
-      setTargetRows(rowsFromTargets(seed.form.targets, seed.conversionTypes));
-      setTab(seed.packsWithSheet > 0 ? "mql" : "cpr");
-      setEconomicsSaved(seed.economicsSaved);
-      setEconomicsRawExists(seed.economicsRawExists);
-      setEconomics(openLeadEconomicsEdit(seed.economicsSaved));
-      setShowEconomicsErrors(false);
+      applyBulkSeed(seedBulkJudgment(bulkPacks));
       return;
     }
     setBulkSeed(null);
@@ -223,6 +232,88 @@ export function PackJudgmentDialog({ pack, open, onOpenChange, accountCurrency, 
     setEconomics(openLeadEconomicsEdit(savedEconomics));
     setShowEconomicsErrors(false);
   }, [open, pack, bulkPacks]);
+
+  // Pasta vazia: não há pack de onde semear; o que vale é o que a pasta já guardou.
+  // Vira um "pack" de mentira para a mesma semente (eventos = os que a pasta tem meta).
+  useEffect(() => {
+    if (!open || !folderId || !bulkPacks || bulkPacks.length > 0) return;
+    let cancelled = false;
+    api.folders
+      .getJudgment(folderId)
+      .then((res) => {
+        const doc = res.judgment;
+        if (cancelled || !doc) return;
+        const asPack = {
+          id: folderId,
+          mql_leadscore_min: doc.mql_leadscore_min ?? null,
+          target_cpr: doc.target_cpr ?? null,
+          lead_economics: doc.lead_economics ?? null,
+          conversion_types: Object.keys(doc.target_cpr ?? {}),
+        } as unknown as AdsPack;
+        applyBulkSeed(seedBulkJudgment([asPack]));
+      })
+      .catch((e) => logger.warn("Não deu para ler o critério guardado na pasta:", e));
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- semear só na abertura
+  }, [open, folderId, bulkPacks]);
+
+  // Dono único (186/187): o que uma pasta define não muda pelo pack. Um pack: os campos
+  // travados aparecem com o valor da pasta e desabilitados. Em massa por seleção: aviso
+  // (o servidor grava nos packs governados só o que a pasta não define).
+  const [governor, setGovernor] = useState<JudgmentGovernor | null>(null);
+  const [bulkGovernedCount, setBulkGovernedCount] = useState(0);
+  const [governorReady, setGovernorReady] = useState(true);
+  useEffect(() => {
+    setGovernor(null);
+    setBulkGovernedCount(0);
+    const ids = !open || folderId ? [] : isBulk ? bulkPacks!.map((p) => p.id) : pack ? [pack.id] : [];
+    setGovernorReady(ids.length === 0);
+    if (ids.length === 0) return;
+    let cancelled = false;
+    api.analytics
+      .getJudgmentGovernors(ids)
+      .then((res) => {
+        if (cancelled) return;
+        const found = res.governors ?? {};
+        if (isBulk) {
+          setBulkGovernedCount(Object.keys(found).length);
+          return;
+        }
+        const g = found[ids[0]] ?? null;
+        setGovernor(g);
+        if (g && pack) {
+          // Campos travados mostram o valor DA PASTA (é o que vale e o que o servidor aceita),
+          // inclusive se o pack tiver ficado com outro valor gravado.
+          const types = Array.isArray(pack.conversion_types) ? pack.conversion_types : [];
+          const base = packJudgmentFormValues(pack, types);
+          const next = { ...base, targets: { ...base.targets } };
+          if (typeof g.judgment.mql_leadscore_min === "number") next.mql = String(g.judgment.mql_leadscore_min);
+          for (const [event, value] of Object.entries(g.judgment.target_cpr ?? {})) next.targets[event] = String(value);
+          setInitialForm(next);
+          setMqlValue(next.mql);
+          setTargetRows(rowsFromTargets(next.targets, types));
+        }
+      })
+      .catch((e) => logger.warn("Não deu para saber se uma pasta define o critério:", e))
+      .finally(() => {
+        if (!cancelled) setGovernorReady(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, folderId, isBulk, bulkPacks, pack]);
+  const lockNote = governor
+    ? governor.folder_name
+      ? t("lockedByFolder", { folder: governor.folder_name })
+      : t("lockedByFolderUnknown")
+    : null;
+  const mqlLocked = !!governor && "mql_leadscore_min" in governor.judgment;
+  const economicsLocked = !!governor && "lead_economics" in governor.judgment;
+  const lockedEvents = useMemo(() => new Set(Object.keys(governor?.judgment.target_cpr ?? {})), [governor]);
+  // Até saber quem manda, nada é editável (senão o que se digitasse poderia ser recusado).
+  const fieldsBusy = isSaving || !governorReady;
 
   const parsedMql = parseJudgmentNumber(mqlValue);
   // Em massa com packs que discordam, a seção abre como "não configurada" (com o
@@ -326,6 +417,7 @@ export function PackJudgmentDialog({ pack, open, onOpenChange, accountCurrency, 
       }
       const names = Object.fromEntries(bulkPacks.map((p) => [p.id, p.name]));
       const summary = summarizeBulkJudgment(response.results, names);
+      if (folderId && response.folder_saved !== false) onFolderSaved?.();
       if (bulkPacks.length === 0) {
         // Pasta vazia: não há pack a atualizar; o que valeu foi guardar na pasta.
         if (response.folder_saved === false) showWarning(t("folderNotSaved"));
@@ -428,6 +520,7 @@ export function PackJudgmentDialog({ pack, open, onOpenChange, accountCurrency, 
                 ? t("introFolderEmpty")
                 : t.rich("introBulk", { count: packCount, names: listNames(bulkPacks!.map((p) => p.name)), b: (c) => <span className="font-medium text-foreground">{c}</span> })}
               {folderId && bulkPacks!.length > 0 ? ` ${t("folderNote")}` : null}
+              {bulkGovernedCount > 0 ? ` ${t("bulkGovernedNote", { count: bulkGovernedCount })}` : null}
             </p>
           ) : (
             <p className="text-sm text-muted-foreground">
@@ -460,8 +553,9 @@ export function PackJudgmentDialog({ pack, open, onOpenChange, accountCurrency, 
                   value={mqlValue}
                   onChange={(e) => handleMqlChange(e.target.value)}
                   placeholder={isBulk && bulkSeed?.divergent.mql ? t("divergent") : t("notDefined")}
-                  disabled={isSaving}
+                  disabled={fieldsBusy || mqlLocked}
                 />
+                {mqlLocked && lockNote ? <p className="text-xs text-muted-foreground">{lockNote}</p> : null}
                 {isBulk && bulkSeed?.divergent.mql && mqlEffect === "keep" ? (
                   <p className="flex items-start gap-2 text-xs text-muted-foreground">
                     <IconInfoCircle className="mt-0.5 h-3 w-3 shrink-0" />
@@ -517,7 +611,9 @@ export function PackJudgmentDialog({ pack, open, onOpenChange, accountCurrency, 
                   rows={targetRows}
                   onChange={setTargetRows}
                   conversionTypes={conversionTypes}
-                  disabled={isSaving}
+                  disabled={fieldsBusy}
+                  lockedEvents={lockedEvents}
+                  lockedNote={lockNote}
                   eventNote={isBulk ? (event) => (bulkSeed?.divergent.targetKeys.includes(event) ? t("divergent") : undefined) : undefined}
                 />
                 {divergentHiddenTargets.length > 0 ? (
@@ -547,7 +643,7 @@ export function PackJudgmentDialog({ pack, open, onOpenChange, accountCurrency, 
                   {t("economicsIntro", { same: isBulk && economicsSaved ? "yes" : "no", count: packCount })}
                 </p>
               </div>
-              {hasSheetIntegration && economics.draft ? (
+              {hasSheetIntegration && economics.draft && !economicsLocked ? (
                 <Button
                   variant="ghost"
                   size="sm"
@@ -561,6 +657,8 @@ export function PackJudgmentDialog({ pack, open, onOpenChange, accountCurrency, 
                 </Button>
               ) : null}
             </div>
+
+            {economicsLocked && lockNote ? <p className="text-xs text-muted-foreground">{lockNote}</p> : null}
 
             {bulkCurrency && bulkCurrency.mixed.length > 1 && hasSheetIntegration ? (
               <p className="flex items-start gap-2 text-xs text-warning">
@@ -581,7 +679,7 @@ export function PackJudgmentDialog({ pack, open, onOpenChange, accountCurrency, 
                 mqlLeadscoreMin={parsedMql}
                 currency={currency}
                 currencyFromAccount={currencyFromAccount}
-                disabled={isSaving}
+                disabled={fieldsBusy || economicsLocked}
                 showAllErrors={showEconomicsErrors}
                 firstFieldRef={focusRefs.editor}
               />

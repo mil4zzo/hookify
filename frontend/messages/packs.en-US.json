@@ -61,7 +61,7 @@
       "transcribe": "Transcribe ads",
       "judgment": "Judgment criteria",
       "judgmentOwn": "This pack uses its own criteria",
-      "judgmentGoverned": "Set by folder “{folder}”",
+      "judgmentGoverned": "Some criteria come from folder “{folder}”",
       "sheetConnected": "Spreadsheet connected",
       "sheetFallback": "Spreadsheet",
       "tabFallback": "Tab",
@@ -285,6 +285,9 @@
     "judgment": {
       "title": "Pack settings",
       "titleBulk": "Packs settings",
+      "lockedByFolder": "Set by folder “{folder}”. To change it, edit that folder's criteria.",
+      "lockedByFolderUnknown": "Set by a folder of the pack's creator.",
+      "bulkGovernedNote": "{count, plural, =1 {# pack has} other {# packs have}} fields set by a folder: in them, only what the folder does not set is changed.",
       "introFolderEmpty": "This folder is empty. The criteria set here are kept on it and apply to packs added later.",
       "folderNote": "The folder keeps these criteria: packs added to it also receive them, and the packs inside no longer have criteria of their own.",
       "introBulk": "The same criteria for <b>{count, plural, =1 {# pack} other {# packs}}</b> ({names}). What you change here applies to all of them; what you leave alone stays as it is in each pack.",
@@ -505,7 +508,10 @@
       "updated": "{count, plural, =1 {# pack updated} other {# packs updated}}",
       "noPermission": "{count} without permission",
       "failed": "{count, plural, =1 {# failed} other {# failed}}",
-      "notDefined": "not set"
+      "notDefined": "not set",
+      "partialByFolder": "{count} only partly (the rest is the folder's)",
+      "lockedByFolder": "{count, plural, =1 {# already follows} other {# already follow}} the folder",
+      "notInFolder": "{count, plural, =1 {# is} other {# are}} not in the folder"
     },
     "sort": {
       "recent": "Most recent",
@@ -641,8 +647,7 @@
     "page": {
       "title": "Library",
       "subtitle": "Manage your ad Packs.",
-      "warnGuestsSheet": "{count, plural, =1 {# pack shared with you is} other {# packs shared with you are}} left out: only the owner configures the spreadsheet.",
-      "warnGovernedJudgment": "{count, plural, =1 {# pack is} other {# packs are}} left out: their criteria are set by a folder. Edit the folder's criteria.",
+      "warnGuestsSheet": "{count, plural, =1 {# pack shared with you is} other {# packs shared with you are}} left out: only the owner configures the spreadsheet.",
       "folderGoverned": "Set by folder “{folder}”",
       "folderGovernedUnknown": "Set by a folder above",
       "warnViewersJudgment": "{count, plural, =1 {# read-only shared pack is} other {# read-only shared packs are}} left out: only the owner or an editor can change the criteria.",

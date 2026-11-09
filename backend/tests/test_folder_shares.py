@@ -22,7 +22,7 @@ import pytest
 from fastapi import HTTPException
 
 from app.routes import folder_shares, folders as folders_route, pack_shares
-from app.services import folder_scope
+from app.services import folder_scope, folders_judgment
 
 ACTOR = "11111111-1111-4111-8111-111111111111"
 GUEST = "22222222-2222-4222-8222-222222222222"
@@ -98,6 +98,15 @@ class FakeSB:
 
     def find(self, table: str, op: str) -> List[FakeQuery]:
         return [q for q in self.queries if q.table == table and q.op == op]
+
+
+@pytest.fixture(autouse=True)
+def _sem_criterio_de_pasta(monkeypatch):
+    """O criterio da pasta (185-187) tem os proprios testes; aqui ele nao interfere."""
+    monkeypatch.setattr(folders_judgment, "move_conflicts", lambda *a, **k: [])
+    monkeypatch.setattr(folders_judgment, "inherit_folder_judgment", lambda *a, **k: None)
+    monkeypatch.setattr(folders_judgment, "reconcile_on_place", lambda *a, **k: None)
+    monkeypatch.setattr(folders_judgment, "folders_with_judgment", lambda *a, **k: set())
 
 
 @pytest.fixture

@@ -106,17 +106,34 @@ export function GoogleSheetIntegrationDialog({ isOpen, onClose, packId: singlePa
   // Dono único do critério: pack sob pasta que define critério não tem corte próprio.
   // {pack_id: nome da pasta}; o campo do corte aparece travado, com o valor da pasta.
   const [mqlGovernors, setMqlGovernors] = useState<Record<string, string | null>>({});
+  // Até a resposta chegar o campo fica travado e a semente espera (senão o que se
+  // digitasse seria apagado pela semente refeita).
+  const [mqlGovernorsReady, setMqlGovernorsReady] = useState(false);
   const scopePackIds = useMemo(() => (isBulk ? bulkPackIds ?? [] : packId ? [packId] : []), [isBulk, bulkPackIds, packId]);
   useEffect(() => {
     setMqlGovernors({});
-    if (!isOpen || scopePackIds.length === 0) return;
+    setMqlGovernorsReady(false);
+    if (!isOpen) return;
+    if (scopePackIds.length === 0) {
+      setMqlGovernorsReady(true);
+      return;
+    }
     let cancelled = false;
     api.analytics
       .getJudgmentGovernors(scopePackIds)
       .then((res) => {
-        if (!cancelled) setMqlGovernors(res.governors ?? {});
+        if (cancelled) return;
+        // Trava só onde a pasta define o CORTE (opção A: só os campos que ela define).
+        const onlyMql: Record<string, string | null> = {};
+        for (const [id, g] of Object.entries(res.governors ?? {})) {
+          if (g.judgment && "mql_leadscore_min" in g.judgment) onlyMql[id] = g.folder_name;
+        }
+        setMqlGovernors(onlyMql);
       })
-      .catch((e) => logger.warn("Não deu para saber se uma pasta define o corte de MQL:", e));
+      .catch((e) => logger.warn("Não deu para saber se uma pasta define o corte de MQL:", e))
+      .finally(() => {
+        if (!cancelled) setMqlGovernorsReady(true);
+      });
     return () => {
       cancelled = true;
     };
@@ -133,7 +150,7 @@ export function GoogleSheetIntegrationDialog({ isOpen, onClose, packId: singlePa
       : translate("ads.selectColumns.mqlPartiallyLocked", { count: mqlGovernedIds.length });
 
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen || !mqlGovernorsReady) return;
     if (isBulk) {
       // Corte em massa: pré-preenche só quando todos os packs concordam; senão começa vazio.
       // Packs travados pela pasta não entram na conta, a menos que sejam todos (aí é o valor deles).
@@ -146,7 +163,7 @@ export function GoogleSheetIntegrationDialog({ isOpen, onClose, packId: singlePa
     if (!packId) return;
     const current = packsRef.current.find((pk) => pk.id === packId)?.mql_leadscore_min;
     setMqlLeadscoreMin(current !== null && current !== undefined ? String(current) : "");
-  }, [isOpen, packId, isBulk, bulkPackIds, mqlGovernors, mqlAllGoverned]);
+  }, [isOpen, packId, isBulk, bulkPackIds, mqlGovernors, mqlAllGoverned, mqlGovernorsReady]);
 
   // Hooks
   const { connections, selectedConnectionId, setSelectedConnectionId, isLoadingConnections, isDeletingConnection, expiredConnections, testingConnections, loadConnections, handleRetestConnection, handleDeleteConnection, clearVerificationCache } = useGoogleConnections(isOpen);
@@ -824,7 +841,7 @@ export function GoogleSheetIntegrationDialog({ isOpen, onClose, packId: singlePa
         {/* Step 3: Selecionar colunas ou Summary */}
         {isGoogleConnected && selectedSpreadsheetId && worksheetTitle && (
           <section className={cn("space-y-4", step !== "select-columns" && step !== "summary" && "hidden")}>
-            {step === "summary" && lastSyncStats ? <SummaryStep stats={lastSyncStats} isImporting={isImporting} onSyncAgain={handleSyncAgain} onClose={handleClose} /> : <SelectColumnsStep columns={columns} columnsWithIndices={columnsWithIndices} duplicates={duplicates} sampleRows={sampleRows} adIdColumn={adIdColumn} dateColumn={dateColumn} dateFormat={dateFormat} dateProbe={dateProbe} isProbingDate={isProbingDate} dateProbeFailed={dateProbeFailed} packDateStart={packWindow.start} packDateStop={packWindow.stop} leadscoreColumn={leadscoreColumn} mqlLeadscoreMin={mqlLeadscoreMin} isSaving={isSaving} isImporting={isImporting} importStep={importStep} importProgress={importProgress} canImport={canImport} onAdIdColumnChange={setAdIdColumn} onDateColumnChange={setDateColumn} onDateFormatChange={setDateFormat} onLeadscoreColumnChange={setLeadscoreColumn} onMqlLeadscoreMinChange={setMqlLeadscoreMin} mqlLockNote={mqlLockNote} mqlLocked={mqlAllGoverned} extraColumns={extraColumns} onExtraColumnsChange={setExtraColumns} onBack={() => setStep("select-sheet")} onImport={handleImport} />}
+            {step === "summary" && lastSyncStats ? <SummaryStep stats={lastSyncStats} isImporting={isImporting} onSyncAgain={handleSyncAgain} onClose={handleClose} /> : <SelectColumnsStep columns={columns} columnsWithIndices={columnsWithIndices} duplicates={duplicates} sampleRows={sampleRows} adIdColumn={adIdColumn} dateColumn={dateColumn} dateFormat={dateFormat} dateProbe={dateProbe} isProbingDate={isProbingDate} dateProbeFailed={dateProbeFailed} packDateStart={packWindow.start} packDateStop={packWindow.stop} leadscoreColumn={leadscoreColumn} mqlLeadscoreMin={mqlLeadscoreMin} isSaving={isSaving} isImporting={isImporting} importStep={importStep} importProgress={importProgress} canImport={canImport} onAdIdColumnChange={setAdIdColumn} onDateColumnChange={setDateColumn} onDateFormatChange={setDateFormat} onLeadscoreColumnChange={setLeadscoreColumn} onMqlLeadscoreMinChange={setMqlLeadscoreMin} mqlLockNote={mqlLockNote} mqlLocked={mqlAllGoverned || !mqlGovernorsReady} extraColumns={extraColumns} onExtraColumnsChange={setExtraColumns} onBack={() => setStep("select-sheet")} onImport={handleImport} />}
           </section>
         )}
       </div>

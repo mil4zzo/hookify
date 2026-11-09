@@ -5,6 +5,17 @@
  */
 import type { PackFolder } from "@/lib/types";
 
+/** O que a pasta define para um pack (migrations 186/187): só esses campos ficam travados nele. */
+export interface JudgmentGovernor {
+  /** null = pasta de outra pessoa, que você não enxerga. */
+  folder_name: string | null;
+  judgment: {
+    mql_leadscore_min?: number;
+    target_cpr?: Record<string, number>;
+    lead_economics?: unknown;
+  };
+}
+
 const MAX_DEPTH = 50;
 
 /**

@@ -61,7 +61,7 @@
       "transcribe": "Transcrever anúncios",
       "judgment": "Critérios de julgamento",
       "judgmentOwn": "Este pack usa critérios próprios",
-      "judgmentGoverned": "Definido pela pasta “{folder}”",
+      "judgmentGoverned": "Parte dos critérios vem da pasta “{folder}”",
       "sheetConnected": "Planilha conectada",
       "sheetFallback": "Planilha",
       "tabFallback": "Aba",
@@ -285,6 +285,9 @@
     "judgment": {
       "title": "Configuração do pack",
       "titleBulk": "Configuração dos packs",
+      "lockedByFolder": "Definido pela pasta “{folder}”. Para mudar, edite o critério dessa pasta.",
+      "lockedByFolderUnknown": "Definido por uma pasta de quem criou o pack.",
+      "bulkGovernedNote": "{count, plural, =1 {# pack tem} other {# packs têm}} campos definidos por pasta: neles, só o que a pasta não define é alterado.",
       "introFolderEmpty": "Esta pasta está vazia. Os critérios definidos aqui ficam guardados nela e valem para os packs que entrarem depois.",
       "folderNote": "A pasta guarda estes critérios: os packs que entrarem nela também os recebem, e os packs de dentro deixam de ter critério próprio.",
       "introBulk": "Os mesmos critérios para <b>{count, plural, =1 {# pack} other {# packs}}</b> ({names}). O que você mexer aqui vale para todos; o que não mexer fica como está em cada pack.",
@@ -505,7 +508,10 @@
       "updated": "{count, plural, =1 {# pack atualizado} other {# packs atualizados}}",
       "noPermission": "{count} sem permissão",
       "failed": "{count, plural, =1 {# falhou} other {# falharam}}",
-      "notDefined": "não definido"
+      "notDefined": "não definido",
+      "partialByFolder": "{count, plural, =1 {# só em parte} other {# só em parte}} (o resto é da pasta)",
+      "lockedByFolder": "{count, plural, =1 {# já segue} other {# já seguem}} a pasta",
+      "notInFolder": "{count, plural, =1 {# não é} other {# não são}} da pasta"
     },
     "sort": {
       "recent": "Mais recentes",
@@ -642,7 +648,6 @@
       "title": "Biblioteca",
       "subtitle": "Gerencie seus Packs de anúncios.",
       "warnGuestsSheet": "{count, plural, =1 {# pack compartilhado com você fica} other {# packs compartilhados com você ficam}} de fora: só o dono configura a planilha.",
-      "warnGovernedJudgment": "{count, plural, =1 {# pack fica} other {# packs ficam}} de fora: o critério deles é definido por uma pasta. Edite o critério da pasta.",
       "folderGoverned": "Definido pela pasta “{folder}”",
       "folderGovernedUnknown": "Definido por uma pasta acima",
       "warnViewersJudgment": "{count, plural, =1 {# pack compartilhado só para leitura fica} other {# packs compartilhados só para leitura ficam}} de fora: só dono ou editor mudam os critérios.",
