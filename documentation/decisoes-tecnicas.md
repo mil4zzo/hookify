@@ -2604,6 +2604,31 @@ evidência eu exijo antes de confiar" é tolerância a risco pessoal, não propr
 da campanha. Se a divergência aparecer na prática entre dois membros, reabre-se
 **com evidência** — não por argumento.
 
+## Critério na pasta: um dono por galho, e quem manda é a pasta do DONO do pack (2026-11-09, migrations 185–187)
+
+O critério continua gravado no pack (a revogação de 2026-08-18 vale: nada de "default de
+quem?"). O que mudou: a pasta pode **guardar** um critério e copiá-lo nos packs que estão e
+nos que entrarem. Para não voltar a pergunta "de quem é o valor?", três regras:
+
+1. **Um dono por galho.** Se uma pasta (ou ancestral) define critério, nada abaixo dela o
+   edita. Definir numa pasta apaga o das subpastas; pasta arrastada para dentro de uma que
+   manda perde o próprio. **Rejeitado:** "o mais específico vence" (subpasta/pack
+   sobrescrevendo a mãe) — fragmenta, e a configuração é escondida demais para alguém
+   perceber a exceção.
+2. **Trava por campo (opção A).** Só os campos que a pasta define travam no pack (no CPR
+   alvo, só os eventos dela). **Rejeitado:** travar o critério inteiro — pasta que só define
+   CPR congelava o corte de MQL de cada pack num valor diferente, sem ninguém poder arrumar.
+3. **Quem manda é a pasta onde o DONO colocou o pack.** Pack compartilhado sozinho é
+   arquivado por quem recebeu nas pastas DELE (uma linha por pessoa em
+   `pack_folder_members`), mas o critério é um só. O arquivamento de quem recebeu nunca
+   governa, e pack compartilhado com você **não entra** numa pasta sua com critério (o mover
+   é recusado). Pasta compartilhada é outra coisa: é a mesma árvore (como no Drive).
+
+Achado pela revisão independente (o que a primeira versão deixava passar): checar "quem
+manda" só pelas pastas que **quem edita** enxerga deixava o convidado mudar o critério do
+pack da dona; e a ação "pela pasta" confiava na lista de packs do navegador. Prova:
+`supabase/tests/187_criterio_da_pasta.test.sql` (17 asserções, 7 sabotagens).
+
 ## Reconexão do Google em pack compartilhado grava no silo do dono (Opção B)
 
 Pack compartilhado: o sync de Leadscore **sempre lê** a `google_accounts` do **dono**
