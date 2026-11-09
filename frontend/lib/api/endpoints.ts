@@ -560,6 +560,9 @@ export const api = {
      * define, null remove; os outros eventos de cada pack ficam). Dono e editor
      * recebem; viewer e pack sem acesso voltam como `skipped`.
      */
+    /** Packs cujo critério é definido por uma pasta (dono único): {pack_id: nome da pasta}. */
+    getJudgmentGovernors: (packIds: string[]): Promise<{ governors: Record<string, string | null> }> =>
+      apiClient.post('/analytics/packs/judgment-governors', { pack_ids: packIds }),
     updatePackJudgmentBulk: (payload: { pack_ids: string[]; folder_id?: string } & BulkPackJudgmentPayload): Promise<BulkPackJudgmentResponse> =>
       apiClient.post('/analytics/packs/bulk-judgment', payload),
     /**

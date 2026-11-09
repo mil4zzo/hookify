@@ -103,11 +103,42 @@ export function GoogleSheetIntegrationDialog({ isOpen, onClose, packId: singlePa
     // eslint-disable-next-line react-hooks/exhaustive-deps -- semear só na abertura (packsRef)
   }, [isBulk, packId, bulkPackIds, isOpen]);
 
+  // Dono único do critério: pack sob pasta que define critério não tem corte próprio.
+  // {pack_id: nome da pasta}; o campo do corte aparece travado, com o valor da pasta.
+  const [mqlGovernors, setMqlGovernors] = useState<Record<string, string | null>>({});
+  const scopePackIds = useMemo(() => (isBulk ? bulkPackIds ?? [] : packId ? [packId] : []), [isBulk, bulkPackIds, packId]);
+  useEffect(() => {
+    setMqlGovernors({});
+    if (!isOpen || scopePackIds.length === 0) return;
+    let cancelled = false;
+    api.analytics
+      .getJudgmentGovernors(scopePackIds)
+      .then((res) => {
+        if (!cancelled) setMqlGovernors(res.governors ?? {});
+      })
+      .catch((e) => logger.warn("Não deu para saber se uma pasta define o corte de MQL:", e));
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, scopePackIds]);
+  const mqlGovernedIds = scopePackIds.filter((id) => id in mqlGovernors);
+  const mqlAllGoverned = scopePackIds.length > 0 && mqlGovernedIds.length === scopePackIds.length;
+  const mqlFolderNames = Array.from(new Set(mqlGovernedIds.map((id) => mqlGovernors[id]).filter((n): n is string => !!n)));
+  const mqlLockNote = mqlGovernedIds.length === 0
+    ? null
+    : mqlAllGoverned
+      ? mqlFolderNames.length === 1
+        ? translate("ads.selectColumns.mqlLockedByFolder", { folder: mqlFolderNames[0] })
+        : translate("ads.selectColumns.mqlLockedByFolders")
+      : translate("ads.selectColumns.mqlPartiallyLocked", { count: mqlGovernedIds.length });
+
   useEffect(() => {
     if (!isOpen) return;
     if (isBulk) {
       // Corte em massa: pré-preenche só quando todos os packs concordam; senão começa vazio.
-      const cuts = new Set(bulkPackIds!.map((id) => packsRef.current.find((pk) => pk.id === id)?.mql_leadscore_min ?? null));
+      // Packs travados pela pasta não entram na conta, a menos que sejam todos (aí é o valor deles).
+      const seedIds = mqlAllGoverned ? bulkPackIds! : bulkPackIds!.filter((id) => !(id in mqlGovernors));
+      const cuts = new Set(seedIds.map((id) => packsRef.current.find((pk) => pk.id === id)?.mql_leadscore_min ?? null));
       const only = cuts.size === 1 ? Array.from(cuts)[0] : null;
       setMqlLeadscoreMin(only !== null && only !== undefined ? String(only) : "");
       return;
@@ -115,7 +146,7 @@ export function GoogleSheetIntegrationDialog({ isOpen, onClose, packId: singlePa
     if (!packId) return;
     const current = packsRef.current.find((pk) => pk.id === packId)?.mql_leadscore_min;
     setMqlLeadscoreMin(current !== null && current !== undefined ? String(current) : "");
-  }, [isOpen, packId, isBulk, bulkPackIds]);
+  }, [isOpen, packId, isBulk, bulkPackIds, mqlGovernors, mqlAllGoverned]);
 
   // Hooks
   const { connections, selectedConnectionId, setSelectedConnectionId, isLoadingConnections, isDeletingConnection, expiredConnections, testingConnections, loadConnections, handleRetestConnection, handleDeleteConnection, clearVerificationCache } = useGoogleConnections(isOpen);
@@ -403,8 +434,8 @@ export function GoogleSheetIntegrationDialog({ isOpen, onClose, packId: singlePa
   }, [dateProbe]);
 
   const canImport = useMemo(
-    () => !!selectedSpreadsheetId && !!worksheetTitle && !!adIdColumn && !!dateColumn && !!dateFormat && !!leadscoreColumn && parsedMqlLeadscoreMin !== null && extraColumnsValid,
-    [selectedSpreadsheetId, worksheetTitle, adIdColumn, dateColumn, dateFormat, leadscoreColumn, parsedMqlLeadscoreMin, extraColumnsValid]
+    () => !!selectedSpreadsheetId && !!worksheetTitle && !!adIdColumn && !!dateColumn && !!dateFormat && !!leadscoreColumn && (parsedMqlLeadscoreMin !== null || mqlAllGoverned) && extraColumnsValid,
+    [selectedSpreadsheetId, worksheetTitle, adIdColumn, dateColumn, dateFormat, leadscoreColumn, parsedMqlLeadscoreMin, mqlAllGoverned, extraColumnsValid]
   );
 
   const handleConnectGoogle = async () => {
@@ -601,7 +632,7 @@ export function GoogleSheetIntegrationDialog({ isOpen, onClose, packId: singlePa
       if (isBulk) {
         const { pack_id: _ignored, ...config } = payload;
         const targets = bulkPackIds!.map((id) => packs.find((p) => p.id === id)).filter((p): p is NonNullable<typeof p> => !!p);
-        const review = reviewBulkSheet(targets, config, parsedMqlLeadscoreMin, selectedSpreadsheetName);
+        const review = reviewBulkSheet(targets, config, mqlAllGoverned ? null : parsedMqlLeadscoreMin, selectedSpreadsheetName);
         if (review.needsConfirm) {
           setPendingBulk({ payload, review });
           return;
@@ -617,7 +648,7 @@ export function GoogleSheetIntegrationDialog({ isOpen, onClose, packId: singlePa
       // O corte pertence ao pack, nao a integracao — gravado logo apos, para que
       // o pack ja nasca capaz de qualificar. Falha aqui nao aborta a importacao:
       // os dados entram e o corte pode ser ajustado na configuracao do pack.
-      if (packId && parsedMqlLeadscoreMin !== null) {
+      if (packId && parsedMqlLeadscoreMin !== null && !mqlAllGoverned) {
         try {
           await api.analytics.updatePackJudgment(packId, { mql_leadscore_min: parsedMqlLeadscoreMin });
           updatePack(packId, { mql_leadscore_min: parsedMqlLeadscoreMin });
@@ -645,14 +676,15 @@ export function GoogleSheetIntegrationDialog({ isOpen, onClose, packId: singlePa
       pack_ids: bulkPackIds!,
       config,
       // O corte é exigido para salvar (canImport): vai para todos os packs.
-      ...(parsedMqlLeadscoreMin !== null ? { mql_leadscore_min: parsedMqlLeadscoreMin } : {}),
+      ...(parsedMqlLeadscoreMin !== null && !mqlAllGoverned ? { mql_leadscore_min: parsedMqlLeadscoreMin } : {}),
     });
     const done = res.results.filter((r) => r.status === "created" || r.status === "updated");
     for (const r of done) {
       const integration = res.integrations[r.pack_id];
       updatePack(r.pack_id, {
         ...(integration ? { sheet_integration: integration } : {}),
-        ...(parsedMqlLeadscoreMin !== null ? { mql_leadscore_min: parsedMqlLeadscoreMin } : {}),
+        // Pack travado pela pasta recebe a planilha, mas o corte é da pasta (o servidor não o grava).
+        ...(parsedMqlLeadscoreMin !== null && !r.mql_skipped ? { mql_leadscore_min: parsedMqlLeadscoreMin } : {}),
       });
     }
     const failed = res.results.filter((r) => r.status === "failed");
@@ -792,7 +824,7 @@ export function GoogleSheetIntegrationDialog({ isOpen, onClose, packId: singlePa
         {/* Step 3: Selecionar colunas ou Summary */}
         {isGoogleConnected && selectedSpreadsheetId && worksheetTitle && (
           <section className={cn("space-y-4", step !== "select-columns" && step !== "summary" && "hidden")}>
-            {step === "summary" && lastSyncStats ? <SummaryStep stats={lastSyncStats} isImporting={isImporting} onSyncAgain={handleSyncAgain} onClose={handleClose} /> : <SelectColumnsStep columns={columns} columnsWithIndices={columnsWithIndices} duplicates={duplicates} sampleRows={sampleRows} adIdColumn={adIdColumn} dateColumn={dateColumn} dateFormat={dateFormat} dateProbe={dateProbe} isProbingDate={isProbingDate} dateProbeFailed={dateProbeFailed} packDateStart={packWindow.start} packDateStop={packWindow.stop} leadscoreColumn={leadscoreColumn} mqlLeadscoreMin={mqlLeadscoreMin} isSaving={isSaving} isImporting={isImporting} importStep={importStep} importProgress={importProgress} canImport={canImport} onAdIdColumnChange={setAdIdColumn} onDateColumnChange={setDateColumn} onDateFormatChange={setDateFormat} onLeadscoreColumnChange={setLeadscoreColumn} onMqlLeadscoreMinChange={setMqlLeadscoreMin} extraColumns={extraColumns} onExtraColumnsChange={setExtraColumns} onBack={() => setStep("select-sheet")} onImport={handleImport} />}
+            {step === "summary" && lastSyncStats ? <SummaryStep stats={lastSyncStats} isImporting={isImporting} onSyncAgain={handleSyncAgain} onClose={handleClose} /> : <SelectColumnsStep columns={columns} columnsWithIndices={columnsWithIndices} duplicates={duplicates} sampleRows={sampleRows} adIdColumn={adIdColumn} dateColumn={dateColumn} dateFormat={dateFormat} dateProbe={dateProbe} isProbingDate={isProbingDate} dateProbeFailed={dateProbeFailed} packDateStart={packWindow.start} packDateStop={packWindow.stop} leadscoreColumn={leadscoreColumn} mqlLeadscoreMin={mqlLeadscoreMin} isSaving={isSaving} isImporting={isImporting} importStep={importStep} importProgress={importProgress} canImport={canImport} onAdIdColumnChange={setAdIdColumn} onDateColumnChange={setDateColumn} onDateFormatChange={setDateFormat} onLeadscoreColumnChange={setLeadscoreColumn} onMqlLeadscoreMinChange={setMqlLeadscoreMin} mqlLockNote={mqlLockNote} mqlLocked={mqlAllGoverned} extraColumns={extraColumns} onExtraColumnsChange={setExtraColumns} onBack={() => setStep("select-sheet")} onImport={handleImport} />}
           </section>
         )}
       </div>

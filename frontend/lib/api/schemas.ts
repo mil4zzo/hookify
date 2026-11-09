@@ -581,6 +581,8 @@ export interface BulkSheetIntegrationResult {
   integration_id?: string
   /** `not_owner`: pack compartilhado com você (o vínculo vive no silo do dono) */
   reason?: 'not_owner'
+  /** `folder`: o pack recebeu a planilha, mas o corte de MQL é definido por uma pasta (dono único). */
+  mql_skipped?: 'folder'
   error?: string
 }
 

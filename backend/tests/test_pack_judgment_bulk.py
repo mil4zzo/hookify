@@ -282,3 +282,9 @@ def test_acao_da_pasta_nao_filtra_packs_pela_propria_pasta(ctx):
     ctx["governors"]["meu"] = "Esta mesma pasta"
     r = ctx["client"].post(URL, json={"pack_ids": ["meu"], "mql_leadscore_min": 60, "folder_id": "f1"})
     assert r.json()["results"][0]["status"] == "updated"
+
+
+def test_rota_de_governantes_devolve_so_os_governados(ctx):
+    ctx["governors"]["meu2"] = "Campanha X"
+    r = ctx["client"].post("/analytics/packs/judgment-governors", json={"pack_ids": ["meu", "meu2"]})
+    assert r.status_code == 200 and r.json() == {"governors": {"meu2": "Campanha X"}}

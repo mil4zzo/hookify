@@ -2328,6 +2328,20 @@ def update_pack_judgment(
         raise HTTPException(status_code=500, detail=f"Erro ao atualizar julgamento: {str(e)}")
 
 
+class JudgmentGovernorsRequest(BaseModel):
+    pack_ids: List[str] = Field(default_factory=list, max_length=BULK_JUDGMENT_MAX_PACKS)
+
+
+@router.post("/packs/judgment-governors")
+def get_judgment_governors(request: JudgmentGovernorsRequest = Body(...), user=Depends(get_current_user)):
+    """Quais destes packs tem o criterio definido por uma pasta (dono unico, migration 186).
+
+    {governors: {pack_id: nome da pasta | null}} so com os packs governados. Serve a telas
+    que mostram o valor do criterio travado (ex.: o corte de MQL no modal da planilha)."""
+    pack_ids = list(dict.fromkeys(str(p).strip() for p in request.pack_ids if str(p or "").strip()))
+    return {"governors": folders_judgment.pack_governors(user["token"], pack_ids)}
+
+
 @router.post("/packs/bulk-judgment")
 def update_pack_judgment_bulk(
     request: BulkPackJudgmentRequest = Body(...),

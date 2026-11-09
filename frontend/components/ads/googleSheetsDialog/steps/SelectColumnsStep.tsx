@@ -76,6 +76,10 @@ interface SelectColumnsStepProps {
   onDateFormatChange: (value: "DD/MM/YYYY" | "MM/DD/YYYY") => void;
   onLeadscoreColumnChange: (value: string) => void;
   onMqlLeadscoreMinChange: (value: string) => void;
+  /** Corte definido por uma pasta (dono único): o campo fica travado, mostrando o valor dela. */
+  mqlLocked?: boolean;
+  /** Recado sob o campo quando alguma pasta define o corte (travado ou só para parte dos packs). */
+  mqlLockNote?: string | null;
   onBack: () => void;
   onImport: () => void;
 }
@@ -341,6 +345,8 @@ export function SelectColumnsStep({
   onLeadscoreColumnChange,
   onBack,
   onMqlLeadscoreMinChange,
+  mqlLocked = false,
+  mqlLockNote = null,
   onImport,
 }: SelectColumnsStepProps) {
   const t = useTranslations("ads.selectColumns");
@@ -406,10 +412,11 @@ export function SelectColumnsStep({
                 step="0.1"
                 value={mqlLeadscoreMin}
                 onChange={(e) => onMqlLeadscoreMinChange(e.target.value)}
-                placeholder={t("mqlPlaceholder")}
+                placeholder={mqlLocked ? t("mqlNotDefined") : t("mqlPlaceholder")}
+                disabled={mqlLocked}
               />
               <p className="text-xs text-muted-foreground">
-                {t("mqlHelp")}
+                {mqlLockNote ?? t("mqlHelp")}
               </p>
             </div>
 
