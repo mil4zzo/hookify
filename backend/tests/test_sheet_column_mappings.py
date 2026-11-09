@@ -372,6 +372,19 @@ class TestConfiguracaoEmMassa(unittest.TestCase):
         self.assertEqual(log.call_args.kwargs["action"], "pack.judgment")
         self.assertEqual(sorted(log.call_args.kwargs["pack_ids"]), ["p1", "p2"])
 
+    def test_pack_sob_pasta_com_criterio_recebe_a_planilha_mas_nao_o_corte(self):
+        # Dono unico do criterio (migration 186). Sabotagem: ignorar o mapa de governados
+        # grava o corte em p2 e este teste falha.
+        from app.routes import google_integration as gi
+        with mock.patch.object(gi.folders_judgment, "pack_governors", return_value={"p2": "Campanha X"}):
+            out, _, judgment, log = self._call(pack_ids=["p1", "p2"], owned=["p1", "p2"], send_mql=True, mql=80)
+        by_id = {r["pack_id"]: r for r in out["results"]}
+        self.assertIn(by_id["p2"]["status"], ("created", "updated"))
+        self.assertEqual(by_id["p2"]["mql_skipped"], "folder")
+        self.assertNotIn("mql_skipped", by_id["p1"])
+        self.assertEqual([c.args[0] for c in judgment.call_args_list], ["p1"])
+        self.assertEqual(log.call_args.kwargs["pack_ids"], ["p1"])
+
     def test_limites_e_validacao(self):
         with self.assertRaises(HTTPException):
             self._call(pack_ids=[], owned=[])

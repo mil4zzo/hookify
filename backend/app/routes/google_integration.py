@@ -11,6 +11,7 @@ from pydantic import BaseModel
 from app.core.auth import get_current_user
 from app.core.supabase_client import get_supabase_service
 from app.services.pack_access import assert_pack_role
+from app.services import folders_judgment
 from app.services import pack_action_log
 from app.services import sheet_column_mappings
 from app.services import sheet_name_revalidation
@@ -940,6 +941,10 @@ def save_ad_sheet_integrations_bulk(
     now_iso = datetime.now(timezone.utc).isoformat(timespec="seconds")
     results: List[Dict[str, Any]] = []
     integrations: Dict[str, Any] = {}
+    # Dono unico do criterio (migration 186): pack sob pasta que define criterio nao tem corte
+    # proprio. A planilha do pack e configurada do mesmo jeito; so o corte de MQL nao e gravado.
+    mql_governed = folders_judgment.pack_governors(user["token"], pack_ids) if set_mql else {}
+    mql_written: List[str] = []
     for pack_id in pack_ids:
         if pack_id not in owned:
             results.append({"pack_id": pack_id, "status": "skipped", "reason": "not_owner"})
@@ -980,13 +985,16 @@ def save_ad_sheet_integrations_bulk(
             sb.table("packs").update({"sheet_integration_id": integration_id, "updated_at": now_iso}).eq(
                 "id", pack_id
             ).eq("user_id", owner_id).execute()
-            if set_mql:
+            mql_blocked = set_mql and pack_id in mql_governed
+            if set_mql and not mql_blocked:
                 supabase_repo.update_pack_judgment(pack_id, {"mql_leadscore_min": payload.mql_leadscore_min}, owner_id)
+                mql_written.append(pack_id)
             integrations[pack_id] = rec
             results.append({
                 "pack_id": pack_id,
                 "status": "updated" if existing else "created",
                 "integration_id": str(integration_id),
+                **({"mql_skipped": "folder", "folder_name": mql_governed[pack_id]} if mql_blocked else {}),
             })
         except HTTPException as e:
             results.append({"pack_id": pack_id, "status": "failed", "error": str(e.detail)})
@@ -994,7 +1002,7 @@ def save_ad_sheet_integrations_bulk(
             logger.exception("[AD_SHEET_INTEGRATION_BULK] Erro no pack %s", pack_id)
             results.append({"pack_id": pack_id, "status": "failed", "error": "Erro ao salvar a configuração deste pack."})
 
-    done_packs = [r["pack_id"] for r in results if r["status"] in ("created", "updated")]
+    done_packs = mql_written
     if set_mql and done_packs:
         # Autoria do corte (P3.5): muda o veredito de MQL que o time inteiro lê.
         pack_action_log.log_pack_action(
