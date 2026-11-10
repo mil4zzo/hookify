@@ -69,6 +69,8 @@ def _rpc_or_http(sb, name: str, params: Dict[str, Any]):
             raise HTTPException(status_code=409, detail=governed_message(None))
         if "folder_has_shared_packs" in message:
             raise HTTPException(status_code=409, detail=shared_packs_message([]))
+        if "judgment_shared_pack_conflict" in message:
+            raise HTTPException(status_code=409, detail=shared_packs_message([]))
         raise
 
 

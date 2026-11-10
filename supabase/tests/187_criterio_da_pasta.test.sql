@@ -21,6 +21,9 @@
 --  13. (189) sem o gatilho trg_pack_shares_drop_archive            -> falha em A15a
 --  14. (189) judgment_move_conflicts sem o NOT EXISTS contribuído   -> falha em A16b
 --  15. (189) gatilho sem `NOT m.contributed`                        -> falha em A16c
+--  16. (190) sem o gatilho trg_pfm_judgment_guard                   -> falha em A17a
+--  17. (190) trg_folders_judgment_guard sem o ramo de parent_id      -> falha em A17e
+--  18. (190) trg_folders_judgment_guard sem o ramo de judgment       -> falha em A17g
 --  11. judgment_archived_packs devolvendo sempre o nome       -> falha em A12b (vaza o nome para o editor da pasta)
 \set ON_ERROR_STOP on
 \timing off
@@ -97,7 +100,10 @@ SELECT pg_temp.expect('A3 governa P (visto pelo Bruno)',
 -- (BX já guarda P arquivado: hoje o banco recusaria definir critério ali — A10. O que se prova
 -- aqui é o DADO ANTIGO, de antes da regra, que não pode passar a governar P.)
 SELECT pg_temp.expect('A4a BX recusa critério novo (tem pack compartilhado)', pg_temp.erro_de(:bruno::uuid, format('select public.set_folder_judgment(%L, %L)', :bx, '{"mql_leadscore_min":50}')), 'folder_has_shared_packs');
+-- (dado ANTIGO, de antes da 190: o gatilho é desligado só para simulá-lo)
+ALTER TABLE public.folders DISABLE TRIGGER trg_folders_judgment_guard;
 UPDATE public.folders SET judgment = '{"mql_leadscore_min":50}' WHERE id = :bx::uuid;
+ALTER TABLE public.folders ENABLE TRIGGER trg_folders_judgment_guard;
 SELECT pg_temp.como(:bruno::uuid);
 SELECT pg_temp.expect('A4 só a pasta da Ana governa P',
   (SELECT string_agg(folder_id::text, ',') FROM public.pack_judgment_governors(ARRAY[:p::uuid])),
@@ -178,7 +184,9 @@ SELECT pg_temp.expect('A11c ANA2 -> pasta sem critério livre',
 
 -- A12: R (da Carla) arquivado em FILHA, sob PAI. O Bruno, editor de PAI, vê QUE há um pack
 -- compartilhado ali, mas não o nome (o pack não é dele nem foi dado a ele).
+ALTER TABLE public.pack_folder_members DISABLE TRIGGER trg_pfm_judgment_guard;  -- dado antigo (pré-190)
 INSERT INTO public.pack_folder_members (user_id, pack_id, folder_id) VALUES (:ana::uuid, :r::uuid, :filha::uuid);
+ALTER TABLE public.pack_folder_members ENABLE TRIGGER trg_pfm_judgment_guard;
 SELECT pg_temp.como(:ana::uuid);
 SELECT pg_temp.expect('A12a Ana vê o nome',
   (SELECT pack_name FROM public.judgment_archived_packs(:pai::uuid)), 't187-R');
@@ -239,5 +247,41 @@ DELETE FROM public.pack_shares WHERE pack_id = :q::uuid AND grantee_id = :ana::u
 SELECT pg_temp.expect('A16c colocação contribuída sobrevive à revogação',
   (SELECT count(*)::text FROM public.pack_folder_members WHERE user_id = :ana::uuid AND pack_id = :q::uuid AND contributed), '1');
 
-\echo 'OK: 33 asserções'
+-- A17 (190): a regra vale no BANCO, mesmo para escrita direta (sem passar pelas rotas).
+-- PAI (Ana) manda com 70. T é da Carla, compartilhado com a Ana.
+\set t     '''00000000-0000-4000-8000-0000000187d5'''
+\set ana3  '''00000000-0000-4000-8000-0000000187f9'''
+INSERT INTO public.packs (id, user_id, name, date_start, date_stop, level) VALUES
+  (:t::uuid, :carla::uuid, 't187-T', '2026-01-01', '2026-01-31', 'ad');
+INSERT INTO public.pack_shares (pack_id, owner_id, grantee_id) VALUES (:t::uuid, :carla::uuid, :ana::uuid);
+INSERT INTO public.folders (id, user_id, name, parent_id) VALUES (:ana3::uuid, :ana::uuid, 'ANA3', NULL);
+
+SELECT pg_temp.expect('A17a arquivar T em pasta que manda (insert direto) é recusado',
+  pg_temp.erro_de(:ana::uuid, format('insert into public.pack_folder_members (user_id, pack_id, folder_id) values (%L, %L, %L)', :ana, :t, :filha)),
+  'judgment_shared_pack_conflict');
+SELECT pg_temp.expect('A17b arquivar T em pasta sem critério passa',
+  pg_temp.erro_de(:ana::uuid, format('insert into public.pack_folder_members (user_id, pack_id, folder_id) values (%L, %L, %L)', :ana, :t, :ana3)), NULL);
+SELECT pg_temp.expect('A17c levar o arquivado para pasta que manda (update direto) é recusado',
+  pg_temp.erro_de(:ana::uuid, format('update public.pack_folder_members set folder_id = %L where user_id = %L and pack_id = %L', :filha, :ana, :t)),
+  'judgment_shared_pack_conflict');
+SELECT pg_temp.expect('A17d colocação do dono (P da Ana) nunca é arquivamento',
+  pg_temp.erro_de(:ana::uuid, format('update public.pack_folder_members set folder_id = %L where user_id = %L and pack_id = %L', :neta, :ana, :p)), NULL);
+SELECT pg_temp.expect('A17e levar ANA3 (com T arquivado) para dentro de PAI é recusado',
+  pg_temp.erro_de(:ana::uuid, format('update public.folders set parent_id = %L where id = %L', :pai, :ana3)),
+  'judgment_shared_pack_conflict');
+SELECT pg_temp.expect('A17f levar ANA3 para pasta sem critério passa',
+  pg_temp.erro_de(:ana::uuid, format('update public.folders set parent_id = %L where id = %L', :livre, :ana3)), NULL);
+SELECT pg_temp.expect('A17g gravar critério direto em ANA3 (tem T arquivado) é recusado',
+  pg_temp.erro_de(:ana::uuid, format('update public.folders set judgment = %L where id = %L', '{"mql_leadscore_min":9}', :ana3)),
+  'folder_has_shared_packs');
+SELECT pg_temp.expect('A17h gravar critério direto em NETA (PAI manda) é recusado',
+  pg_temp.erro_de(:ana::uuid, format('update public.folders set judgment = %L where id = %L', '{"mql_leadscore_min":9}', :neta)),
+  'folder_judgment_governed');
+SELECT pg_temp.expect('A17i apagar critério direto continua permitido',
+  pg_temp.erro_de(:ana::uuid, format('update public.folders set judgment = null where id = %L', :ana3)), NULL);
+SELECT pg_temp.expect('A17j a RPC move_packs_to_folder também cai na trava do banco (sem a checagem da rota)',
+  pg_temp.erro_de(:ana::uuid, format('select public.move_packs_to_folder(array[%L]::uuid[], %L)', :t, :filha)),
+  'judgment_shared_pack_conflict');
+
+\echo 'OK: 43 asserções'
 ROLLBACK;

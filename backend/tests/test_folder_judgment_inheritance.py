@@ -195,3 +195,23 @@ def test_reconciliacao_que_quebra_nao_levanta_mas_avisa(monkeypatch):
     monkeypatch.setattr(analytics, "apply_judgment_to_packs", lambda *a: (_ for _ in ()).throw(RuntimeError("banco caiu")))
     out = fj.reconcile_on_place(_user(), "f1")
     assert out["failed"] is True and out["reconciled"] is True and out["inherited"] is None
+
+
+# ── Trava no banco (migration 190): a corrida cai no gatilho e vira 409, nao 500 ──
+# Sabotagem: tirar "judgment_shared_pack_conflict" de _FOLDER_ERRORS -> este teste falha (500).
+
+def test_conflito_do_gatilho_do_banco_vira_409(monkeypatch):
+    import pytest
+    from fastapi import HTTPException
+    from postgrest.exceptions import APIError
+    from app.routes import folders as folders_route
+
+    class SB:
+        def rpc(self, name, params):
+            raise APIError({"message": "judgment_shared_pack_conflict", "code": "P0001"})
+
+    monkeypatch.setattr(folders_route, "get_supabase_for_user", lambda token: SB())
+    monkeypatch.setattr(fj, "place_conflicts", lambda *a, **k: [])
+    with pytest.raises(HTTPException) as e:
+        folders_route.place_folder(_F1, folders_route.PlaceRequest(parent_id=_F2, sibling_ids=[_F1]), _user())
+    assert e.value.status_code == 409 and "compartilhados" in e.value.detail

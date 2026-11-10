@@ -123,6 +123,11 @@ _FOLDER_ERRORS = {
         403,
         "Este pack e de quem o criou e so pode ficar em pastas que essa pessoa ve. Para tira-lo da pasta, use Tirar da pasta.",
     ),
+    "judgment_shared_pack_conflict": (
+        409,
+        "A pasta de destino tem criterios de julgamento e nao guarda packs compartilhados com voce "
+        "(eles seguem os criterios de quem os criou). Tire-os da pasta ou escolha outro lugar.",
+    ),
     "not_authenticated": (401, "Sessao expirada."),
 }
 
