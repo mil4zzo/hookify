@@ -355,10 +355,13 @@ def place_folder(folder_id: str, payload: PlaceRequest = Body(...), user=Depends
             sb, "place_folder", {"p_folder_id": folder_id, "p_parent_id": parent_id, "p_sibling_ids": sibling_ids}
         )
     # Entrou numa pasta que ja manda no criterio: perde o proprio e os packs herdam (187).
-    inherited = folders_judgment.reconcile_on_place(user, folder_id) if parent_id else None
+    rec = (folders_judgment.reconcile_on_place(user, folder_id) if parent_id else None) or {}
     return {
         "success": True, "changed": int(changed or 0), "parent_id": parent_id, "access_changes": access_changes,
-        "judgment_inherited": inherited,
+        "judgment_inherited": rec.get("inherited"),
+        # A tela relê as pastas quando o criterio mudou (mesmo sem pack para herdar) ou quebrou.
+        "judgment_reconciled": bool(rec.get("reconciled")),
+        "judgment_reconcile_failed": bool(rec.get("failed")),
     }
 
 

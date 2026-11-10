@@ -172,3 +172,26 @@ def test_bloqueios_da_pasta_dizem_quais_packs(monkeypatch):
 
     monkeypatch.setattr(fj, "archived_packs", lambda token, folder_id: [])
     assert folders_route.get_folder_judgment_blockers(_F1, _user()) == {"packs": [], "message": None}
+
+
+# ── Reconciliacao depois de arrastar pasta (revisao da 187/188) ──
+# Sabotagens: reconcile_on_place sem `reconciled` -> o primeiro falha; deixar a excecao do
+# inherit passar calada (raise_errors ignorado) -> o segundo falha (failed fica False).
+
+def test_arrastar_pasta_para_mae_que_manda_avisa_que_reconciliou_mesmo_sem_pack(monkeypatch):
+    monkeypatch.setattr(fj, "get_supabase_for_user", lambda token: _SB({"mql_leadscore_min": 70}))
+    monkeypatch.setattr(fj, "folder_governed_pack_ids", lambda token, folder_id: [])
+    assert fj.reconcile_on_place(_user(), "f1") == {"reconciled": True, "inherited": None, "failed": False}
+
+
+def test_mae_sem_criterio_nao_reconcilia_nada(monkeypatch):
+    monkeypatch.setattr(fj, "get_supabase_for_user", lambda token: _SB(None))
+    assert fj.reconcile_on_place(_user(), "f1") == {"reconciled": False, "inherited": None, "failed": False}
+
+
+def test_reconciliacao_que_quebra_nao_levanta_mas_avisa(monkeypatch):
+    monkeypatch.setattr(fj, "get_supabase_for_user", lambda token: _SB({"mql_leadscore_min": 70}))
+    monkeypatch.setattr(fj, "folder_governed_pack_ids", lambda token, folder_id: ["p1"])
+    monkeypatch.setattr(analytics, "apply_judgment_to_packs", lambda *a: (_ for _ in ()).throw(RuntimeError("banco caiu")))
+    out = fj.reconcile_on_place(_user(), "f1")
+    assert out["failed"] is True and out["reconciled"] is True and out["inherited"] is None

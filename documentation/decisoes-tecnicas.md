@@ -5360,7 +5360,7 @@ tem cadastro, e fica fora da ordenação dos Boards. Métrica nova que dependa d
 próprio de uma tela segue o mesmo caminho. Memória: `rule_engine_offered_field_must_be_answerable.md`.
 
 
-### Pack compartilhado dentro da pasta (2026-11-09, migrations 187/188)
+### Pack compartilhado dentro da pasta (2026-11-09, migrations 187/188/189)
 
 A regra vale nos dois sentidos, para a pasta nunca dizer uma coisa e o pack fazer outra:
 
@@ -5375,9 +5375,19 @@ A regra vale nos dois sentidos, para a pasta nunca dizer uma coisa e o pack faze
 - Arrastar pasta com critério para quem manda **apaga** o critério dela: pede confirmação. Pack que
   entra com valor próprio diferente também (só quando há valor a perder).
 
+**Segunda revisão (189):** (1) a linha de arquivamento de quem recebia o pack agora SOME junto com o
+compartilhamento (gatilho `trg_pack_shares_drop_archive` em `pack_shares`) — só a de quem não é dono
+nem contribuiu; sem isso, recompartilhar ressuscitava o fantasma dentro de pasta que já manda.
+(2) `judgment_move_conflicts` não acusa mais o pack que o dono JÁ contribuiu para a árvore da pasta
+(mover só reposiciona, não cria arquivamento). Depois de arrastar pasta, a rota devolve
+`judgment_reconciled`/`judgment_reconcile_failed`: a tela relê as pastas e avisa se a limpeza do
+critério falhou (antes ficava calada, com dois donos no mesmo galho).
+
 Limites conhecidos (revisão independente): a trava mora nas rotas do backend, o banco só a impõe em
-`set_folder_judgment`; há janela estreita de corrida entre checar e gravar; pasta antiga com critério e
-pack arquivado não edita pela tela (em produção havia 0 pastas com critério quando a 187 entrou).
+`set_folder_judgment`; há janela estreita de corrida entre checar e gravar (blindar dentro de
+`move_packs_to_folder`/`place_folder`/`create_folder` ou por gatilho em `pack_folder_members` é a
+saída, ainda não feita); pasta antiga com critério e pack arquivado não edita pela tela (em produção
+havia 0 pastas com critério quando a 187 entrou).
 
 
 ## Meta `/copies` de anúncio com `creative_parameters` não herda tudo do criativo (2026-11-01)

@@ -539,6 +539,7 @@
       "errRename": "Erro ao renomear a pasta",
       "errDissolve": "Erro ao desfazer a pasta",
       "errMove": "Erro ao mover a pasta",
+      "errReconcile": "A pasta foi movida, mas não deu para ajustar os critérios de julgamento dela. Abra os critérios da pasta e confira antes de seguir.",
       "errMovePacks": "Erro ao mover os packs",
       "errLeave": "Erro ao sair da pasta",
       "left": "Você saiu da pasta.",

@@ -215,19 +215,28 @@ def move_conflicts(token: str, pack_ids: List[str], folder_id: str) -> List[str]
     return [str(r) for r in rows]
 
 
-def reconcile_on_place(user: Dict[str, Any], folder_id: str) -> Optional[List[Dict[str, Any]]]:
+def reconcile_on_place(user: Dict[str, Any], folder_id: str) -> Dict[str, Any]:
     """Pasta arrastada para dentro de outra que já manda: perde o critério próprio (banco) e os
-    packs da subárvore herdam o da nova mãe. Nunca levanta: a pasta já foi movida."""
+    packs da subárvore herdam o da nova mãe. Nunca levanta: a pasta já foi movida.
+
+    Devolve `reconciled` (a mãe manda: a tela precisa reler, mesmo sem pack para herdar),
+    `inherited` (resultado por pack) e `failed` (a reconciliação quebrou depois do mover: a
+    tela avisa, em vez de deixar a pasta calada com dois donos de critério no mesmo galho).
+    """
+    out: Dict[str, Any] = {"reconciled": False, "inherited": None, "failed": False}
     try:
         sb = get_supabase_for_user(user["token"])
         governor = _rpc(sb, "reconcile_folder_judgment_on_place", {"p_folder_id": folder_id})
         if not governor:
-            return None
+            return out
+        out["reconciled"] = True
         pack_ids = folder_governed_pack_ids(user["token"], folder_id)
-        return inherit_folder_judgment(user, folder_id, pack_ids) if pack_ids else None
+        if pack_ids:
+            out["inherited"] = inherit_folder_judgment(user, folder_id, pack_ids, raise_errors=True)
     except Exception:
         logger.exception("[FOLDERS_JUDGMENT] Pasta %s movida, mas a reconciliacao do criterio falhou", folder_id)
-        return None
+        out["failed"] = True
+    return out
 
 
 def folders_with_judgment(token: str, folder_ids: List[str]) -> set:
@@ -241,7 +250,9 @@ def folders_with_judgment(token: str, folder_ids: List[str]) -> set:
         return set()
 
 
-def inherit_folder_judgment(user: Dict[str, Any], folder_id: str, pack_ids: List[str]) -> Optional[List[Dict[str, Any]]]:
+def inherit_folder_judgment(
+    user: Dict[str, Any], folder_id: str, pack_ids: List[str], raise_errors: bool = False
+) -> Optional[List[Dict[str, Any]]]:
     """Aplica aos `pack_ids` recém-chegados o critério da pasta mais próxima que defina um.
 
     Devolve os resultados por pack (o mesmo formato do bulk) ou None se nada a herdar.
@@ -260,5 +271,7 @@ def inherit_folder_judgment(user: Dict[str, Any], folder_id: str, pack_ids: List
             return None
         return analytics.apply_judgment_to_packs(str(user["user_id"]), pack_ids, fields)
     except Exception:
+        if raise_errors:
+            raise
         logger.exception("[FOLDERS_JUDGMENT] Pack movido, mas a heranca do criterio da pasta %s falhou", folder_id)
         return None

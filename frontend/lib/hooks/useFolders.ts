@@ -181,7 +181,9 @@ export function useFolders(packs: AdsPack[]) {
       for (const r of res.judgment_inherited ?? []) {
         if (r.status === "updated" && r.judgment) updatePack(r.pack_id, bulkJudgmentStorePatch(r.judgment));
       }
-      if (res.judgment_inherited) load();
+      // A pasta pode ter perdido o critério próprio mesmo sem pack para herdar: reler.
+      if (res.judgment_inherited || res.judgment_reconciled || res.judgment_reconcile_failed) load();
+      if (res.judgment_reconcile_failed) showError(new Error(translate("packs.folders.errReconcile")));
     } catch (error) {
       setFolders(previous);
       showError(error instanceof Error ? error : new Error(translate("packs.folders.errMove")));

@@ -539,6 +539,7 @@
       "errRename": "Error renaming the folder",
       "errDissolve": "Error dissolving the folder",
       "errMove": "Error moving the folder",
+      "errReconcile": "The folder was moved, but its judgment criteria could not be adjusted. Open the folder criteria and check them before going on.",
       "errMovePacks": "Error moving the packs",
       "errLeave": "Error leaving the folder",
       "left": "You left the folder.",
@@ -654,7 +655,7 @@
     "page": {
       "title": "Library",
       "subtitle": "Manage your ad Packs.",
-      "warnGuestsSheet": "{count, plural, =1 {# pack shared with you is} other {# packs shared with you are}} left out: only the owner configures the spreadsheet.",
+      "warnGuestsSheet": "{count, plural, =1 {# pack shared with you is} other {# packs shared with you are}} left out: only the owner configures the spreadsheet.",
       "folderGoverned": "Set by folder “{folder}”",
       "folderGovernedUnknown": "Set by a folder above",
       "warnViewersJudgment": "{count, plural, =1 {# read-only shared pack is} other {# read-only shared packs are}} left out: only the owner or an editor can change the criteria.",

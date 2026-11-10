@@ -18,6 +18,9 @@
 --   9. set_folder_judgment sem a trava folder_has_shared_packs -> falha em A10b
 --  10. judgment_place_conflicts sem o `EXISTS (_folder_judgment_owner)` -> falha em A11c (pasta livre barrada)
 --  12. (188) judgment_archived_packs sem o EXISTS pack_shares do arquivador -> falha em A14
+--  13. (189) sem o gatilho trg_pack_shares_drop_archive            -> falha em A15a
+--  14. (189) judgment_move_conflicts sem o NOT EXISTS contribuído   -> falha em A16b
+--  15. (189) gatilho sem `NOT m.contributed`                        -> falha em A16c
 --  11. judgment_archived_packs devolvendo sempre o nome       -> falha em A12b (vaza o nome para o editor da pasta)
 \set ON_ERROR_STOP on
 \timing off
@@ -193,10 +196,48 @@ SELECT pg_temp.expect('A13 sem pack compartilhado, define',
 
 -- A14 (188): o dono revoga o compartilhamento de R. A linha de arquivamento da Ana fica, mas já
 -- não conta: ela não tem mais o pack e não conseguiria tirá-lo da pasta.
+-- (o gatilho da 189 já apaga a linha ao revogar; desligado aqui para simular o DADO ANTIGO,
+-- de antes da 189, que é o que o EXISTS da 188 protege)
+ALTER TABLE public.pack_shares DISABLE TRIGGER trg_pack_shares_drop_archive;
 DELETE FROM public.pack_shares WHERE pack_id = :r::uuid AND grantee_id = :ana::uuid;
+ALTER TABLE public.pack_shares ENABLE TRIGGER trg_pack_shares_drop_archive;
 SELECT pg_temp.como(:ana::uuid);
 SELECT pg_temp.expect('A14 compartilhamento revogado não trava a pasta',
   (SELECT count(*)::text FROM public.judgment_archived_packs(:pai::uuid)), '0');
 
-\echo 'OK: 28 asserções'
+-- A15 (189): revogar o compartilhamento leva o arquivamento do convidado junto; a colocação
+-- do dono e a contribuída não são tocadas. Recompartilhar não ressuscita nada.
+\set s     '''00000000-0000-4000-8000-0000000187d4'''
+\set cf    '''00000000-0000-4000-8000-0000000187f8'''
+INSERT INTO public.folders (id, user_id, name, parent_id) VALUES (:cf::uuid, :carla::uuid, 'CF', NULL);
+INSERT INTO public.packs (id, user_id, name, date_start, date_stop, level) VALUES
+  (:s::uuid, :bruno::uuid, 't187-S', '2026-01-01', '2026-01-31', 'ad');
+INSERT INTO public.pack_shares (pack_id, owner_id, grantee_id) VALUES (:s::uuid, :bruno::uuid, :carla::uuid);
+INSERT INTO public.pack_folder_members (user_id, pack_id, folder_id) VALUES
+  (:bruno::uuid, :s::uuid, :bx::uuid),
+  (:carla::uuid, :s::uuid, :cf::uuid);
+DELETE FROM public.pack_shares WHERE pack_id = :s::uuid AND grantee_id = :carla::uuid;
+SELECT pg_temp.expect('A15a arquivamento da Carla some ao revogar',
+  (SELECT count(*)::text FROM public.pack_folder_members WHERE user_id = :carla::uuid AND pack_id = :s::uuid), '0');
+SELECT pg_temp.expect('A15b colocação do dono (Bruno) fica',
+  (SELECT count(*)::text FROM public.pack_folder_members WHERE user_id = :bruno::uuid AND pack_id = :s::uuid), '1');
+INSERT INTO public.pack_shares (pack_id, owner_id, grantee_id) VALUES (:s::uuid, :bruno::uuid, :carla::uuid);
+SELECT pg_temp.expect('A15c recompartilhar não ressuscita o arquivamento',
+  (SELECT count(*)::text FROM public.pack_folder_members WHERE user_id = :carla::uuid AND pack_id = :s::uuid), '0');
+
+-- A16 (189): Carla vira editora de PAI. S (do Bruno, sem colocação do dono na árvore da Ana)
+-- ainda é conflito; Q (do Bruno, JÁ contribuído por ele na árvore da Ana) não é: o mover só
+-- reposiciona. A revogação de share de Q não leva a colocação contribuída embora.
+INSERT INTO public.folder_shares (folder_id, owner_id, grantee_id, role) VALUES (:pai::uuid, :ana::uuid, :carla::uuid, 'editor');
+INSERT INTO public.pack_folder_members (user_id, pack_id, folder_id, contributed) VALUES (:ana::uuid, :q::uuid, :pai::uuid, true);
+SELECT pg_temp.como(:carla::uuid);
+SELECT pg_temp.expect('A16a S continua barrado (criaria arquivamento)',
+  (SELECT string_agg(x::text, ',') FROM public.judgment_move_conflicts(ARRAY[:s::uuid], :filha::uuid) x), :s);
+SELECT pg_temp.expect('A16b Q contribuído não é conflito',
+  (SELECT string_agg(x::text, ',') FROM public.judgment_move_conflicts(ARRAY[:q::uuid], :filha::uuid) x), NULL);
+DELETE FROM public.pack_shares WHERE pack_id = :q::uuid AND grantee_id = :ana::uuid;
+SELECT pg_temp.expect('A16c colocação contribuída sobrevive à revogação',
+  (SELECT count(*)::text FROM public.pack_folder_members WHERE user_id = :ana::uuid AND pack_id = :q::uuid AND contributed), '1');
+
+\echo 'OK: 33 asserções'
 ROLLBACK;

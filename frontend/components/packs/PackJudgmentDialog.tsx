@@ -303,7 +303,8 @@ export function PackJudgmentDialog({ pack, open, onOpenChange, accountCurrency, 
     return () => {
       cancelled = true;
     };
-  }, [open, folderId, isBulk, bulkPacks, pack]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- pack?.id: um refresh do pack não pode refazer a leitura e descartar o que está sendo digitado
+  }, [open, folderId, isBulk, bulkPacks, pack?.id]);
   const lockNote = governor
     ? governor.folder_name
       ? t("lockedByFolder", { folder: governor.folder_name })

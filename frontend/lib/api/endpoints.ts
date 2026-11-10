@@ -677,7 +677,7 @@ export const api = {
     remove: (folderId: string): Promise<{ success: boolean; deleted: boolean; id: string; parent_id: string | null; folders_moved: number; packs_moved: number; access_changes?: FolderAccessChanges }> =>
       apiClient.delete(`/folders/${folderId}`),
     /** Muda o pai (null = raiz) e grava a ordem COMPLETA dos irmãos no destino — uma ida só. */
-    place: (folderId: string, parentId: string | null, siblingIds: string[]): Promise<{ success: boolean; changed: number; parent_id: string | null; access_changes?: FolderAccessChanges; judgment_inherited?: BulkPackJudgmentResult[] | null }> =>
+    place: (folderId: string, parentId: string | null, siblingIds: string[]): Promise<{ success: boolean; changed: number; parent_id: string | null; access_changes?: FolderAccessChanges; judgment_inherited?: BulkPackJudgmentResult[] | null; judgment_reconciled?: boolean; judgment_reconcile_failed?: boolean }> =>
       apiClient.post(`/folders/${folderId}/place`, { parent_id: parentId, sibling_ids: siblingIds }),
     /** `folderId` nulo tira os packs da pasta (voltam para soltos). */
     /** O critério guardado NA pasta (sem subir pelos pais): a edição da pasta parte dele. */
