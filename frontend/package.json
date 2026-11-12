@@ -13,10 +13,16 @@
     "test": "tsx --test \"**/__tests__/*.test.ts\"",
     "prepare": "cd .. && husky frontend/.husky"
   },
-  "//overrides": "Força versões corrigidas em deps transitivas que os pais ainda pinam vulneráveis. postcss: next@15.5.20 pina 8.4.31 (GHSA-qx2v-qp2m-jg93, XSS no stringify) — 8.5.x é minor compatível. esbuild: tsx@4.21 pina 0.27.3 (GHSA de leitura de arquivo no dev server). Remover cada entrada quando o pai subir a sua própria dep.",
+  "//overrides": "Força versões corrigidas em deps transitivas que os pais ainda pinam vulneráveis. postcss: next@15.5.20 pina 8.4.31 (GHSA-qx2v-qp2m-jg93, XSS no stringify) — 8.5.x é minor compatível. esbuild: tsx@4.21 pina 0.27.3 (GHSA de leitura de arquivo no dev server). glob: @sentry/bundler-plugins@10.x pina glob 13 (GHSA-3g3m-2fjr-6pw4, abort do walk continua lendo disco; só roda no build do Sentry, sem AbortSignal) — corrigido em 14.0.2+; fixado em 14.0.3 com minimatch 11.0.3 e brace-expansion 5.0.12 (as versões mais novas saíram há 1–2 dias). Remover cada entrada quando o pai subir a sua própria dep.",
   "overrides": {
     "postcss": "$postcss",
-    "esbuild": "^0.28.1"
+    "esbuild": "^0.28.1",
+    "glob": {
+      ".": "14.0.3",
+      "minimatch": "11.0.3",
+      "brace-expansion": "5.0.12",
+      "@isaacs/nonrecursive-glob-match": "1.0.3"
+    }
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
