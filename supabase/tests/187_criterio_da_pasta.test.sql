@@ -24,6 +24,11 @@
 --  16. (190) sem o gatilho trg_pfm_judgment_guard                   -> falha em A17a
 --  17. (190) trg_folders_judgment_guard sem o ramo de parent_id      -> falha em A17e
 --  18. (190) trg_folders_judgment_guard sem o ramo de judgment       -> falha em A17g
+--  19. (191) gatilho sem o skip do INSERT sobre linha contribuída    -> falha em A18a
+--  20. (191) skip do UPDATE sem pack_id/user_id                      -> falha em A18b
+--  21. (191) sem o gatilho trg_pack_shares_ghost_guard               -> falha em A18c4
+--  22. (191) trg_folders_judgment_guard sem INSERT                   -> falha em A18d1
+--  23. (191) judgment lendo o pai antigo (strict em NEW.id)          -> falha em A18e
 --  11. judgment_archived_packs devolvendo sempre o nome       -> falha em A12b (vaza o nome para o editor da pasta)
 \set ON_ERROR_STOP on
 \timing off
@@ -283,5 +288,67 @@ SELECT pg_temp.expect('A17j a RPC move_packs_to_folder também cai na trava do b
   pg_temp.erro_de(:ana::uuid, format('select public.move_packs_to_folder(array[%L]::uuid[], %L)', :t, :filha)),
   'judgment_shared_pack_conflict');
 
-\echo 'OK: 43 asserções'
+-- A18 (191): furos achados na revisão independente da 190.
+\set v     '''00000000-0000-4000-8000-0000000187d6'''
+\set y     '''00000000-0000-4000-8000-0000000187d7'''
+\set z     '''00000000-0000-4000-8000-0000000187d8'''
+\set z2    '''00000000-0000-4000-8000-0000000187d9'''
+\set xa2   '''00000000-0000-4000-8000-0000000187fa'''
+\set xb    '''00000000-0000-4000-8000-0000000187fb'''
+\set xc    '''00000000-0000-4000-8000-0000000187fc'''
+INSERT INTO public.packs (id, user_id, name, date_start, date_stop, level) VALUES
+  (:v::uuid,  :carla::uuid, 't187-V',  '2026-01-01', '2026-01-31', 'ad'),
+  (:y::uuid,  :carla::uuid, 't187-Y',  '2026-01-01', '2026-01-31', 'ad'),
+  (:z::uuid,  :carla::uuid, 't187-Z',  '2026-01-01', '2026-01-31', 'ad'),
+  (:z2::uuid, :carla::uuid, 't187-Z2', '2026-01-01', '2026-01-31', 'ad');
+INSERT INTO public.pack_shares (pack_id, owner_id, grantee_id) VALUES
+  (:v::uuid, :carla::uuid, :ana::uuid), (:y::uuid, :carla::uuid, :ana::uuid);
+INSERT INTO public.folders (id, user_id, name, parent_id) VALUES
+  (:xa2::uuid, :ana::uuid, 'XA2', NULL), (:xb::uuid, :ana::uuid, 'XB', NULL), (:xc::uuid, :ana::uuid, 'XC', NULL);
+
+-- A18a: o dono da árvore reposiciona pela RPC um pack que o colaborador CONTRIBUIU, entre duas
+-- pastas que mandam: não nasce arquivamento (o ON CONFLICT preserva contributed=true).
+INSERT INTO public.pack_folder_members (user_id, pack_id, folder_id, contributed) VALUES (:ana::uuid, :v::uuid, :pai::uuid, true);
+SELECT pg_temp.expect('A18a mover contribuído entre pastas que mandam passa',
+  pg_temp.erro_de(:ana::uuid, format('select public.move_packs_to_folder(array[%L]::uuid[], %L)', :v, :filha)), NULL);
+SELECT pg_temp.expect('A18a2 a linha continua contribuída, agora em FILHA',
+  (SELECT folder_id::text || '|' || contributed::text FROM public.pack_folder_members WHERE user_id = :ana::uuid AND pack_id = :v::uuid),
+  :filha || '|true');
+
+-- A18b: trocar o pack de uma linha existente (UPDATE de pack_id) não contorna o gatilho.
+SELECT pg_temp.expect('A18b update de pack_id para um compartilhado, em pasta que manda, é recusado',
+  pg_temp.erro_de(:ana::uuid, format('update public.pack_folder_members set pack_id = %L where user_id = %L and pack_id = %L', :y, :ana, :p)),
+  'judgment_shared_pack_conflict');
+
+-- A18c: linha de arquivamento criada ANTES do compartilhamento (fantasma): a pasta ganha
+-- critério e, quando o compartilhamento nasce, a linha que cairia em pasta que manda sai.
+-- Em pasta livre ela fica (vira um arquivamento legítimo).
+SELECT pg_temp.expect('A18c1 fantasma em XA2 (sem share) passa',
+  pg_temp.erro_de(:ana::uuid, format('insert into public.pack_folder_members (user_id, pack_id, folder_id) values (%L, %L, %L)', :ana, :z, :xa2)), NULL);
+SELECT pg_temp.expect('A18c2 fantasma de Z2 em XB (continuará livre)',
+  pg_temp.erro_de(:ana::uuid, format('insert into public.pack_folder_members (user_id, pack_id, folder_id) values (%L, %L, %L)', :ana, :z2, :xb)), NULL);
+SELECT pg_temp.expect('A18c3 XA2 ganha critério (sem share ainda, nada arquivado)',
+  pg_temp.erro_de(:ana::uuid, format('select public.set_folder_judgment(%L, %L)', :xa2, '{"mql_leadscore_min":10}')), NULL);
+INSERT INTO public.pack_shares (pack_id, owner_id, grantee_id) VALUES
+  (:z::uuid, :carla::uuid, :ana::uuid), (:z2::uuid, :carla::uuid, :ana::uuid);
+SELECT pg_temp.expect('A18c4 o fantasma de Z saiu ao nascer o share (XA2 manda)',
+  (SELECT count(*)::text FROM public.pack_folder_members WHERE user_id = :ana::uuid AND pack_id = :z::uuid), '0');
+SELECT pg_temp.expect('A18c5 Z2 em pasta livre (XB) fica',
+  (SELECT count(*)::text FROM public.pack_folder_members WHERE user_id = :ana::uuid AND pack_id = :z2::uuid), '1');
+SELECT pg_temp.expect('A18c6 XA2 não tem pack arquivado',
+  public._folder_subtree_has_archived(:xa2::uuid)::text, 'false');
+
+-- A18d: pasta criada JÁ com critério também respeita o dono único.
+SELECT pg_temp.expect('A18d1 inserir pasta com critério sob FILHA (PAI manda) é recusado',
+  pg_temp.erro_de(:ana::uuid, format('insert into public.folders (user_id, name, parent_id, judgment) values (%L, %L, %L, %L)', :ana, 'NOVA', :filha, '{"mql_leadscore_min":1}')),
+  'folder_judgment_governed');
+SELECT pg_temp.expect('A18d2 inserir pasta raiz com critério passa',
+  pg_temp.erro_de(:ana::uuid, format('insert into public.folders (user_id, name, parent_id, judgment) values (%L, %L, null, %L)', :ana, 'NOVA2', '{"mql_leadscore_min":1}')), NULL);
+
+-- A18e: mudar parent_id e judgment na MESMA instrução olha o pai novo.
+SELECT pg_temp.expect('A18e levar XC (vazia) para FILHA e dar critério juntos é recusado',
+  pg_temp.erro_de(:ana::uuid, format('update public.folders set parent_id = %L, judgment = %L where id = %L', :filha, '{"mql_leadscore_min":1}', :xc)),
+  'folder_judgment_governed');
+
+\echo 'OK: 55 asserções'
 ROLLBACK;
