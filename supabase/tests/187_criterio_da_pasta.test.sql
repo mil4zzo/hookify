@@ -29,6 +29,7 @@
 --  21. (191) sem o gatilho trg_pack_shares_ghost_guard               -> falha em A18c4
 --  22. (191) trg_folders_judgment_guard sem INSERT                   -> falha em A18d1
 --  23. (191) judgment lendo o pai antigo (strict em NEW.id)          -> falha em A18e
+--  24. (192) sem a chave composta pack_folder_members_folder_owner_fkey -> falha em A19a
 --  11. judgment_archived_packs devolvendo sempre o nome       -> falha em A12b (vaza o nome para o editor da pasta)
 \set ON_ERROR_STOP on
 \timing off
@@ -350,5 +351,36 @@ SELECT pg_temp.expect('A18e levar XC (vazia) para FILHA e dar critério juntos �
   pg_temp.erro_de(:ana::uuid, format('update public.folders set parent_id = %L, judgment = %L where id = %L', :filha, '{"mql_leadscore_min":1}', :xc)),
   'folder_judgment_governed');
 
-\echo 'OK: 55 asserções'
+-- A19 (192): a linha só pode apontar para pasta da MESMA pessoa (sem forjar em árvore alheia).
+\set m1    '''00000000-0000-4000-8000-0000000187da'''
+\set fdel  '''00000000-0000-4000-8000-0000000187fd'''
+INSERT INTO public.packs (id, user_id, name, date_start, date_stop, level) VALUES
+  (:m1::uuid, :ana::uuid, 't187-M1', '2026-01-01', '2026-01-31', 'ad');
+INSERT INTO public.folders (id, user_id, name, parent_id) VALUES (:fdel::uuid, :ana::uuid, 'FDEL', NULL);
+SELECT pg_temp.expect('A19a Bruno não forja linha em pasta da Ana (insert)',
+  (pg_temp.erro_de(:bruno::uuid, format('insert into public.pack_folder_members (user_id, pack_id, folder_id) values (%L, %L, %L)', :bruno, :q, :pai)) LIKE '%pack_folder_members_folder_owner_fkey%')::text, 'true');
+INSERT INTO public.pack_folder_members (user_id, pack_id, folder_id) VALUES (:bruno::uuid, :q::uuid, :bx::uuid) ON CONFLICT DO NOTHING;
+SELECT pg_temp.expect('A19b Bruno não leva a linha dele para pasta da Ana (update)',
+  (pg_temp.erro_de(:bruno::uuid, format('update public.pack_folder_members set folder_id = %L where user_id = %L and pack_id = %L', :pai, :bruno, :q)) LIKE '%pack_folder_members_folder_owner_fkey%')::text, 'true');
+SELECT pg_temp.expect('A19c linha legítima na pasta da própria pessoa passa',
+  pg_temp.erro_de(:ana::uuid, format('insert into public.pack_folder_members (user_id, pack_id, folder_id) values (%L, %L, %L)', :ana, :m1, :fdel)), NULL);
+DELETE FROM public.folders WHERE id = :fdel::uuid;
+SELECT pg_temp.expect('A19d apagar a pasta leva a colocação junto (cascade)',
+  (SELECT count(*)::text FROM public.pack_folder_members WHERE pack_id = :m1::uuid), '0');
+
+-- A19e: fluxo real do editor sob a chave composta: Bruno (editor de FL, pasta livre da Ana) move
+-- um pack PRÓPRIO para lá pela RPC; a linha é gravada em nome do dono da árvore (Ana), contribuída.
+\set fl    '''00000000-0000-4000-8000-0000000187fe'''
+\set bq    '''00000000-0000-4000-8000-0000000187db'''
+INSERT INTO public.folders (id, user_id, name, parent_id) VALUES (:fl::uuid, :ana::uuid, 'FL', NULL);
+INSERT INTO public.folder_shares (folder_id, owner_id, grantee_id, role) VALUES (:fl::uuid, :ana::uuid, :bruno::uuid, 'editor');
+INSERT INTO public.packs (id, user_id, name, date_start, date_stop, level) VALUES
+  (:bq::uuid, :bruno::uuid, 't187-BQ', '2026-01-01', '2026-01-31', 'ad');
+SELECT pg_temp.expect('A19e1 editor move pack próprio para pasta compartilhada pela RPC',
+  pg_temp.erro_de(:bruno::uuid, format('select public.move_packs_to_folder(array[%L]::uuid[], %L)', :bq, :fl)), NULL);
+SELECT pg_temp.expect('A19e2 a linha fica em nome da dona da árvore, contribuída',
+  (SELECT (user_id = :ana::uuid)::text || '|' || contributed::text FROM public.pack_folder_members WHERE pack_id = :bq::uuid),
+  'true|true');
+
+\echo 'OK: 61 asserções'
 ROLLBACK;
